@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Studio Tools</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">VS</div>
+        <div>
+          <h1>Video Studio</h1>
+          <p>Downloader + Vietsub + Voice + Music</p>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-btn active" data-view="download" title="Tải video">
+          <span>⬇</span><strong>Tải video</strong>
+        </button>
+        <button class="nav-btn" data-view="studio" title="Render studio">
+          <span>▣</span><strong>Studio render</strong>
+        </button>
+        <button class="nav-btn" data-view="voices" title="Lưu giọng">
+          <span>◉</span><strong>Kho giọng</strong>
+        </button>
+        <button class="nav-btn" data-view="bulk" title="Tải hàng loạt">
+          <span>☰</span><strong>Tải hàng loạt</strong>
+        </button>
+      </nav>
+
+      <div class="tool-status">
+        <div><span class="dot ok"></span> FFmpeg local</div>
+        <div><span class="dot ok"></span> yt-dlp local</div>
+        <div><span class="dot ok"></span> Whisper local</div>
+        <div id="omi-status"><span class="dot warn"></span> Omi chưa cấu hình</div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <h2 id="view-title">Tải video</h2>
+          <p id="view-desc">Dán link YouTube Shorts, YouTube hoặc Xiaohongshu để tải về thư mục downloads.</p>
+        </div>
+        <button class="ghost-btn" id="refresh-assets-btn">Làm mới thư viện</button>
+      </header>
+
+      <section class="view active" id="view-download">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Tải một video</h3>
+            <span>MP4, tự merge audio bằng FFmpeg local</span>
+          </div>
+          <div class="url-row">
+            <input id="url-input" type="text" placeholder="Dán link video tại đây">
+            <button id="fetch-btn">Lấy thông tin</button>
+          </div>
+          <div id="video-card" class="video-result hidden">
+            <img id="video-thumbnail" alt="Thumbnail">
+            <div>
+              <h4 id="video-title"></h4>
+              <p id="video-meta"></p>
+              <div id="quality-grid" class="quality-grid"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-studio">
+        <form class="studio-grid" id="studio-form">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>1. Video nguồn</h3>
+              <span>Chọn file đã tải hoặc upload file mới</span>
+            </div>
+            <label>Video đã tải</label>
+            <select id="main-video-select" name="mainVideoFile"></select>
+            <label>Hoặc upload video</label>
+            <input type="file" id="video-upload" name="videoUpload" accept="video/*">
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>2. Dịch & chèn sub</h3>
+              <span>Upload sub, dùng sub đã lưu hoặc tạo bằng Whisper</span>
+            </div>
+            <label>Chế độ sub</label>
+            <select id="subtitle-mode" name="subtitleMode">
+              <option value="none">Không dùng sub</option>
+              <option value="generate">Tạo sub từ giọng nói bằng Whisper</option>
+              <option value="upload">Upload file sub .srt</option>
+              <option value="saved">Dùng sub đã lưu</option>
+            </select>
+            <input type="file" id="subtitle-upload" name="subtitleUpload" accept=".srt,.vtt,.ass">
+            <select id="saved-subtitle-select" name="savedSubtitleFile"></select>
+            <div class="switch-row">
+              <label><input type="checkbox" id="translate-vi" name="translateVi" value="true" checked> Dịch sang tiếng Việt</label>
+              <label><input type="checkbox" id="burn-sub" name="burnSub" value="true" checked> Chèn sub vào video</label>
+            </div>
+            <div class="two-cols">
+              <div>
+                <label>Cỡ chữ sub</label>
+                <input type="number" name="subtitleSize" value="18" min="12" max="48">
+              </div>
+              <div>
+                <label>Lề dưới</label>
+                <input type="number" name="subtitleMargin" value="28" min="0" max="120">
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>3. Voice / Omi Cloner</h3>
+              <span>Lưu giọng mẫu, chèn voiceover hoặc chuẩn bị clone bằng Omi</span>
+            </div>
+            <label>Chế độ giọng</label>
+            <select id="voice-mode" name="voiceMode">
+              <option value="none">Không chèn giọng</option>
+              <option value="saved">Chèn giọng đã lưu</option>
+              <option value="upload">Upload file voiceover</option>
+              <option value="omi">Omi Cloner từ giọng đã lưu</option>
+            </select>
+            <select id="saved-voice-select" name="savedVoiceFile"></select>
+            <input type="file" id="voice-upload" name="voiceUpload" accept="audio/*">
+            <textarea id="ref-text" name="refText" rows="3" placeholder="Ref-text: nhập chính xác câu nói trong file giọng mẫu ngắn"></textarea>
+            <textarea id="omi-script" name="omiScript" rows="4" placeholder="Kịch bản để Omi đọc bằng giọng clone"></textarea>
+            <div class="two-cols omi-options">
+              <div>
+                <label>Ngôn ngữ</label>
+                <select name="omiLanguage">
+                  <option value="Vietnamese">Vietnamese</option>
+                  <option value="English">English</option>
+                  <option value="Chinese">Chinese</option>
+                </select>
+              </div>
+              <div>
+                <label>Thiết bị</label>
+                <select name="omiDevice">
+                  <option value="cpu">CPU</option>
+                  <option value="cuda:0">CUDA 0</option>
+                </select>
+              </div>
+              <div>
+                <label>Num step</label>
+                <input type="number" name="omiSteps" value="16" min="4" max="64">
+              </div>
+              <div>
+                <label>Seed</label>
+                <input type="number" name="omiSeed" value="123">
+              </div>
+            </div>
+            <p class="note">OmniVoice cần `tools/omnivoice/omnivoice-cli.exe` và model GGUF trong `tools/omnivoice/models`.</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>4. Nhạc nền & âm lượng</h3>
+              <span>Mix nhạc nền với âm thanh gốc và voiceover</span>
+            </div>
+            <label>Chế độ nhạc nền</label>
+            <select id="music-mode" name="musicMode">
+              <option value="none">Không chèn nhạc</option>
+              <option value="saved">Dùng nhạc đã lưu</option>
+              <option value="upload">Upload nhạc mới</option>
+            </select>
+            <select id="saved-music-select" name="savedMusicFile"></select>
+            <input type="file" id="music-upload" name="musicUpload" accept="audio/*">
+            <div class="two-cols">
+              <div>
+                <label>Âm lượng gốc</label>
+                <input type="number" name="originalVolume" value="0.45" min="0" max="1" step="0.05">
+              </div>
+              <div>
+                <label>Âm lượng nhạc</label>
+                <input type="number" name="musicVolume" value="0.18" min="0" max="1" step="0.05">
+              </div>
+            </div>
+          </div>
+
+          <div class="action-bar">
+            <button type="submit" id="render-btn">Render video</button>
+            <button type="button" class="ghost-btn" id="open-folder-btn">Mở thư mục downloads</button>
+            <span id="render-status"></span>
+          </div>
+        </form>
+      </section>
+
+      <section class="view" id="view-voices">
+        <div class="library-grid">
+          <form class="panel" id="save-voice-form">
+            <div class="panel-head">
+              <h3>Lưu giọng mẫu</h3>
+              <span>Dùng cho Omi Cloner hoặc voiceover thủ công</span>
+            </div>
+            <label>Tên giọng</label>
+            <input type="text" name="voiceName" placeholder="VD: Giọng nam miền Nam">
+            <label>File âm thanh mẫu</label>
+            <input type="file" name="voice" accept="audio/*" required>
+            <button type="submit">Lưu giọng</button>
+          </form>
+
+          <form class="panel" id="save-music-form">
+            <div class="panel-head">
+              <h3>Lưu nhạc nền</h3>
+              <span>Nhạc sẽ xuất hiện trong Studio render</span>
+            </div>
+            <label>File nhạc</label>
+            <input type="file" name="music" accept="audio/*" required>
+            <button type="submit">Lưu nhạc</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="view" id="view-bulk">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Tải từ kênh / playlist</h3>
+            <span>Tải tuần tự vào thư mục downloads</span>
+          </div>
+          <div class="url-row">
+            <input id="bulk-url-input" type="text" placeholder="Dán link kênh hoặc playlist">
+            <input id="bulk-limit" type="number" value="10" min="1" max="1000">
+            <button id="bulk-fetch-btn">Bắt đầu</button>
+          </div>
+          <div id="bulk-stats" class="status-line"></div>
+          <ul id="bulk-list" class="bulk-list"></ul>
+        </div>
+      </section>
+    </main>
+
+    <aside class="library">
+      <div class="panel library-panel">
+        <div class="panel-head">
+          <h3>Thư viện</h3>
+          <span>File local đang có</span>
+        </div>
+        <div class="asset-group"><h4>Video</h4><ul id="asset-videos"></ul></div>
+        <div class="asset-group"><h4>Giọng</h4><ul id="asset-voices"></ul></div>
+        <div class="asset-group"><h4>Nhạc</h4><ul id="asset-music"></ul></div>
+        <div class="asset-group"><h4>Sub</h4><ul id="asset-subtitles"></ul></div>
+      </div>
+
+      <div class="panel result-panel">
+        <div class="panel-head">
+          <h3>Kết quả render</h3>
+          <span>File mới nhất</span>
+        </div>
+        <div id="render-result" class="render-result empty">Chưa có video render.</div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

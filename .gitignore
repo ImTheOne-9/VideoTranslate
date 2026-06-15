@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Python embedded environment
+python_engine/
+
+# Binaries, models, third-party tools and dependencies
+tools/
+
+# Local media assets and renders
+downloads/
+uploads/
+
+# OS files
+.DS_Store
+Thumbs.db
+
