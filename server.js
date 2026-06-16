@@ -4,7 +4,7 @@ const { execFile, spawn, exec } = require('child_process');
 const fs = require('fs');
 const contentDisposition = require('content-disposition');
 const multer = require('multer');
-const { translateSubtitles } = require('./lib/translate-sub');
+const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('./lib/translate-sub');
 
 const app = express();
 const PORT = 3456;
@@ -38,9 +38,30 @@ const YTDLP_PATH = path.join(__dirname, 'tools', 'yt-dlp.exe');
 const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || path.join(__dirname, 'tools', 'omnivoice', 'omnivoice-cli.exe');
 const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(__dirname, 'tools', 'omnivoice', 'models', 'omnivoice-q8_0.gguf');
 
+// Tự động tìm kiếm và thêm đường dẫn CUDA vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
+if (process.platform === 'win32') {
+  const cudaRoot = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA';
+  if (fs.existsSync(cudaRoot)) {
+    try {
+      const versions = fs.readdirSync(cudaRoot);
+      versions.forEach(ver => {
+        const binX64 = path.join(cudaRoot, ver, 'bin', 'x64');
+        const binBase = path.join(cudaRoot, ver, 'bin');
+        if (fs.existsSync(binX64)) {
+          process.env.PATH = `${binX64};${binBase};${process.env.PATH || ''}`;
+          console.log(`[CUDA] Đã tự động thêm đường dẫn DLL vào PATH: ${binX64}`);
+        }
+      });
+    } catch (e) {
+      console.error('[CUDA] Lỗi quét thư mục CUDA:', e.message);
+    }
+  }
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/renders', express.static(RENDERS_DIR));
+app.use('/downloads', express.static(DOWNLOADS_DIR));
 
 // Helper: Run yt-dlp command and get JSON output
 function runYtDlp(args) {
@@ -127,6 +148,16 @@ function runExecFile(command, args, options = {}) {
 
 function escapeSubtitleForFilter(filePath) {
   return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+}
+
+function hexToAssColor(hexStr) {
+  if (!hexStr || !hexStr.startsWith('#')) return '&H00FFFFFF';
+  const cleanHex = hexStr.replace('#', '');
+  if (cleanHex.length !== 6) return '&H00FFFFFF';
+  const rr = cleanHex.substring(0, 2);
+  const gg = cleanHex.substring(2, 4);
+  const bb = cleanHex.substring(4, 6);
+  return `&H00${bb}${gg}${rr}`;
 }
 
 // API: Get video info
@@ -383,7 +414,7 @@ app.get('/api/download-vi', async (req, res) => {
       // Burn sub: Background black, Text White, border style 3 is opaque box.
       const ffmpegArgs = [
         '-i', actualVideoPath,
-        '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18'`,
+        '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
         '-c:a', 'copy',
         '-y', finalVideoPath
       ];
@@ -630,6 +661,7 @@ app.post('/api/render-studio', studioUpload.fields([
   { name: 'musicUpload', maxCount: 1 }
 ]), async (req, res) => {
   const tempFiles = [];
+  const voiceChunks = [];
   try {
     const body = req.body;
     const files = req.files || {};
@@ -661,6 +693,13 @@ app.post('/api/render-studio', studioUpload.fields([
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
       await translateSubtitles(subtitlePath, translatedPath);
       subtitlePath = translatedPath;
+    } else if (subtitlePath && fs.existsSync(subtitlePath)) {
+      // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
+      try {
+        formatSubtitleFile(subtitlePath);
+      } catch (err) {
+        console.error('Lỗi định dạng phụ đề ban đầu:', err.message);
+      }
     }
 
     let voicePath = null;
@@ -672,38 +711,199 @@ app.post('/api/render-studio', studioUpload.fields([
       voicePath = resolveAssetPath('voice', body.savedVoiceFile);
     } else if (voiceMode === 'omi') {
       const refAudioPath = resolveAssetPath('voice', body.savedVoiceFile);
-      const refText = (body.refText || '').trim();
-      const omiScript = (body.omiScript || '').trim();
-      if (!refAudioPath) {
-        return res.status(400).json({ error: 'Chọn giọng mẫu đã lưu để clone.' });
-      }
-      if (!refText) {
-        return res.status(400).json({ error: 'Nhập ref-text đúng với nội dung trong file giọng mẫu.' });
-      }
-      if (!omiScript) {
-        return res.status(400).json({ error: 'Nhập kịch bản để OmniVoice đọc.' });
-      }
+      let refText = (body.refText || '').trim();
+      let omiScript = (body.omiScript || '').trim();
+
       if (!fs.existsSync(OMNIVOICE_CLI_PATH)) {
         return res.status(400).json({ error: `Thiếu omnivoice-cli.exe tại ${OMNIVOICE_CLI_PATH}` });
       }
       if (!fs.existsSync(OMNIVOICE_MODEL_PATH)) {
         return res.status(400).json({ error: `Thiếu model GGUF tại ${OMNIVOICE_MODEL_PATH}` });
       }
-      voicePath = path.join(workDir, `omnivoice_${timestamp}.wav`);
-      const omnivoiceArgs = [
-        '--model', OMNIVOICE_MODEL_PATH,
-        '--text', omiScript,
-        '--output', voicePath,
-        '--response-format', 'wav',
-        '--ref-audio', refAudioPath,
-        '--ref-text', refText,
-        '--language', body.omiLanguage || 'Vietnamese',
-        '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
-        '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-        '--seed', body.omiSeed || '123'
-      ];
-      await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
-      tempFiles.push(voicePath);
+
+      let finalRefAudioPath = null;
+      if (refAudioPath) {
+        // Tự động trích xuất Ref-text từ giọng mẫu bằng Whisper nếu người dùng để trống
+        if (!refText) {
+          try {
+            const { transcribeVoice } = require('./lib/whisper-helper');
+            console.log('Đang tự động nhận diện câu thoại trong giọng mẫu...');
+            refText = await transcribeVoice(refAudioPath, workDir, FFMPEG_PATH);
+            console.log('Đã tự động trích xuất Ref-text:', refText);
+          } catch (err) {
+            console.error('Lỗi tự động nhận dạng giọng mẫu:', err.message);
+            return res.status(400).json({ error: 'Không thể tự nhận diện giọng mẫu. Vui lòng nhập thủ công Ref-text.' });
+          }
+        }
+
+        // Kiểm tra xem Ref-text có trống hay không để tránh lỗi OmniVoice
+        if (!refText) {
+          return res.status(400).json({ error: 'Không thể tự động nhận diện giọng mẫu (file quá nhiễu hoặc không có tiếng nói rõ ràng). Vui lòng nhập thủ công Ref-text hoặc chọn giọng mẫu khác.' });
+        }
+
+        refText = refText.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+
+        // Tự động chuyển đổi giọng mẫu (bất kể định dạng gốc như .m4a, .mp3, .ogg...) sang WAV chuẩn 16kHz trước khi đưa vào OmniVoice để tránh lỗi không hỗ trợ định dạng
+        finalRefAudioPath = refAudioPath;
+        const refWavPath = path.join(workDir, `ref_voice_${timestamp}.wav`);
+        try {
+          console.log('Đang chuyển đổi giọng mẫu sang định dạng WAV chuẩn 16kHz cho OmniVoice...');
+          await new Promise((resolve, reject) => {
+            execFile(FFMPEG_PATH, [
+              '-i', refAudioPath,
+              '-acodec', 'pcm_s16le',
+              '-ar', '16000',
+              '-ac', '1',
+              '-y', refWavPath
+            ], (err, stdout, stderr) => {
+              if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
+              else resolve();
+            });
+          });
+          finalRefAudioPath = refWavPath;
+          tempFiles.push(refWavPath);
+        } catch (err) {
+          console.error('Lỗi khi convert ref-audio sang WAV:', err.message);
+          finalRefAudioPath = refAudioPath; // Fallback
+        }
+      }
+
+      // Kiểm tra xem có sử dụng chế độ phụ đề để đọc khớp thời gian từng dòng (Line-by-Line Sync Mode) hay không
+      if (subtitlePath && fs.existsSync(subtitlePath)) {
+        console.log('Bắt đầu đồng bộ giọng đọc OmniVoice theo từng câu phụ đề...');
+        const Parser = require('srt-parser-2').default;
+        const parser = new Parser();
+        const srtContent = fs.readFileSync(subtitlePath, 'utf8');
+        const srtArray = parser.fromSrt(srtContent).filter(item => item.text && item.text.trim());
+
+        if (srtArray.length === 0) {
+          return res.status(400).json({ error: 'File phụ đề rỗng hoặc không có nội dung chữ.' });
+        }
+
+        // Sử dụng mảng ở scope cha
+        let lastSpeechEndMs = 0; // Thời điểm kết thúc giọng nói của câu trước (mili-giây)
+
+        for (let idx = 0; idx < srtArray.length; idx++) {
+          const item = srtArray[idx];
+          const lineText = item.text.replace(/\n/g, ' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+          if (!lineText) continue;
+
+          const chunkPath = path.join(workDir, `chunk_${idx}_${timestamp}.wav`);
+          
+          let startMs = srtTimeToMs(item.startTime);
+          const endMs = srtTimeToMs(item.endTime);
+          const durationSec = Math.max(0.5, (endMs - startMs) / 1000);
+          
+          const syllableCount = lineText.split(/\s+/).filter(w => w.length > 0).length;
+          const naturalDuration = Math.max(0.6, syllableCount * 0.17);
+          
+          const speed = Math.max(1.0, Math.min(2.0, naturalDuration / durationSec));
+          const targetDuration = naturalDuration / speed;
+
+          const omnivoiceArgs = [
+            '--model', OMNIVOICE_MODEL_PATH,
+            '--text', lineText,
+            '--output', chunkPath,
+            '--response-format', 'wav',
+            '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
+            '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
+            '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+            '--seed', body.omiSeed || '123',
+            '--speed', String(speed.toFixed(2)),
+            '--duration', String(targetDuration.toFixed(2)),
+            '--position-temperature', '1.5'
+          ];
+
+          if (finalRefAudioPath && refText) {
+            omnivoiceArgs.push('--ref-audio', finalRefAudioPath);
+            omnivoiceArgs.push('--ref-text', refText);
+          } else {
+            omnivoiceArgs.push('--instruct', 'female');
+          }
+
+          console.log(`[OmniVoice-Sub] Đang đọc câu ${idx + 1}/${srtArray.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
+          try {
+            await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
+            if (fs.existsSync(chunkPath)) {
+              voiceChunks.push({
+                filePath: chunkPath,
+                startMs: startMs
+              });
+              tempFiles.push(chunkPath);
+            }
+          } catch (err) {
+            console.error(`Lỗi khi đọc câu ${idx + 1}/${srtArray.length}:`, err.message);
+          }
+        }
+
+        if (voiceChunks.length === 0) {
+          return res.status(400).json({ error: 'Không thể tạo được bất kỳ file âm thanh nào cho các câu phụ đề.' });
+        }
+
+        // Sắp xếp theo thứ tự thời gian bắt đầu
+        voiceChunks.sort((a, b) => a.startMs - b.startMs);
+
+
+
+        // Lưu kịch bản đầy đủ
+        const fullScript = srtArray.map(item => item.text.replace(/\n/g, ' ')).join('\n');
+        const scriptOutName = `studio_${timestamp}.txt`;
+        fs.writeFileSync(path.join(RENDERS_DIR, scriptOutName), fullScript, 'utf8');
+        console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(RENDERS_DIR, scriptOutName)}`);
+      } else {
+        // Fallback: đọc toàn bộ kịch bản cùng lúc nếu không có file phụ đề
+        if (!omiScript && subtitlePath && fs.existsSync(subtitlePath)) {
+          try {
+            const Parser = require('srt-parser-2').default;
+            const parser = new Parser();
+            const srtContent = fs.readFileSync(subtitlePath, 'utf8');
+            const srtArray = parser.fromSrt(srtContent);
+            omiScript = srtArray.map(item => item.text.replace(/\n/g, ' ')).join(' ');
+            console.log('Tự động lấy kịch bản từ phụ đề tiếng Việt (fallback):', omiScript);
+          } catch (e) {
+            console.error('Lỗi phân tích phụ đề làm kịch bản:', e.message);
+          }
+        }
+
+        if (!omiScript) {
+          return res.status(400).json({ error: 'Vui lòng nhập kịch bản hoặc bật chế độ phụ đề để OmniVoice tự đọc.' });
+        }
+
+        omiScript = omiScript.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+
+        voicePath = path.join(workDir, `omnivoice_${timestamp}.wav`);
+        const omnivoiceArgs = [
+          '--model', OMNIVOICE_MODEL_PATH,
+          '--text', omiScript,
+          '--output', voicePath,
+          '--response-format', 'wav',
+          '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
+          '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
+          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+          '--seed', body.omiSeed || '123',
+          '--position-temperature', '1.5'
+        ];
+
+        if (finalRefAudioPath && refText) {
+          omnivoiceArgs.push('--ref-audio', finalRefAudioPath);
+          omnivoiceArgs.push('--ref-text', refText);
+        } else {
+          omnivoiceArgs.push('--instruct', 'female');
+          const estDuration = Math.max(1.5, omiScript.length * 0.075);
+          omnivoiceArgs.push('--duration', String(estDuration.toFixed(1)));
+        }
+
+        console.log('\n======================================================================');
+        console.log(`[OmniVoice] Kịch bản đang đọc (${body.omiLanguage || 'vi'}):\n${omiScript}`);
+        console.log('======================================================================\n');
+        
+        const scriptOutName = `studio_${timestamp}.txt`;
+        fs.writeFileSync(path.join(RENDERS_DIR, scriptOutName), omiScript, 'utf8');
+        console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(RENDERS_DIR, scriptOutName)}`);
+
+        await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
+        tempFiles.push(voicePath);
+      }
     }
 
     let musicPath = null;
@@ -719,20 +919,62 @@ app.post('/api/render-studio', studioUpload.fields([
     const args = ['-i', sourceVideo];
     const audioInputs = [];
 
-    if (voicePath) {
+    if (voiceChunks && voiceChunks.length > 0) {
+      voiceChunks.forEach(chunk => {
+        args.push('-i', chunk.filePath);
+        audioInputs.push({
+          index: args.filter(v => v === '-i').length - 1,
+          volume: 1,
+          type: 'chunk',
+          startMs: chunk.startMs
+        });
+      });
+    } else if (voicePath) {
       args.push('-i', voicePath);
-      audioInputs.push({ index: args.filter(v => v === '-i').length - 1, volume: 1 });
+      audioInputs.push({
+        index: args.filter(v => v === '-i').length - 1,
+        volume: 1,
+        type: 'single'
+      });
     }
+
     if (musicPath) {
       args.push('-stream_loop', '-1', '-i', musicPath);
       const bgmVolume = Math.max(0, Math.min(1, Number(body.musicVolume || 0.18)));
-      audioInputs.push({ index: args.filter(v => v === '-i').length - 1, volume: bgmVolume });
+      audioInputs.push({
+        index: args.filter(v => v === '-i').length - 1,
+        volume: bgmVolume,
+        type: 'music'
+      });
     }
 
     if (subtitlePath && body.burnSub === 'true') {
+      try {
+        formatSubtitleFile(subtitlePath);
+      } catch (err) {
+        console.error('Lỗi định dạng phụ đề 1-2 dòng:', err.message);
+      }
+
       const fontSize = Number(body.subtitleSize || 18);
       const marginV = Number(body.subtitleMargin || 28);
-      const style = `BorderStyle=3,BackColour=&H80000000,Fontsize=${fontSize},MarginV=${marginV}`;
+      const marginH = Number(body.subtitleMarginH || 20);
+      const alignment = Number(body.subtitleAlignment || 2);
+      
+      const fontName = body.subtitleFont || 'Arial';
+      const isBold = body.subtitleBold === 'false' ? 0 : 1;
+      const assColor = hexToAssColor(body.subtitleColor || '#FFFFFF');
+      const theme = body.subtitleTheme || 'outline';
+      
+      let style = `Fontname=${fontName},Bold=${isBold},PrimaryColour=${assColor},Fontsize=${fontSize},MarginV=${marginV},MarginL=${marginH},MarginR=${marginH},Alignment=${alignment},WrapStyle=0`;
+      
+      if (theme === 'box') {
+        style += `,BorderStyle=3,BackColour=&H80000000`; // Hộp nền đen mờ
+      } else if (theme === 'shadow') {
+        style += `,BorderStyle=1,Outline=0,Shadow=2,BackColour=&H90000000`; // Chữ đổ bóng
+      } else { // default 'outline' (CapCut style)
+        style += `,BorderStyle=1,Outline=2.5,OutlineColour=&H00000000,Shadow=1,BackColour=&H80000000`; // Viền đen
+      }
+      
       args.push('-vf', `subtitles='${escapeSubtitleForFilter(subtitlePath)}':force_style='${style}'`);
     }
 
@@ -742,10 +984,18 @@ app.post('/api/render-studio', studioUpload.fields([
       const mixLabels = ['[a0]'];
       audioInputs.forEach((input, idx) => {
         const label = `a${idx + 1}`;
-        filters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+        if (input.type === 'chunk') {
+          if (input.startMs > 0) {
+            filters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${input.volume}[${label}]`);
+          } else {
+            filters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+          }
+        } else {
+          filters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+        }
         mixLabels.push(`[${label}]`);
       });
-      filters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=2[aout]`);
+      filters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
       args.push('-filter_complex', filters.join(';'), '-map', '0:v', '-map', '[aout]', '-c:a', 'aac');
     } else {
       args.push('-map', '0:v', '-map', '0:a?', '-c:a', 'aac');

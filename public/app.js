@@ -81,7 +81,7 @@ function renderAssetList(id, items) {
 async function loadAssets() {
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
-  fillSelect('main-video-select', assets.videos, 'Chọn video trong downloads');
+  renderVideoGrid(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
@@ -301,6 +301,402 @@ function updateConditionalFields() {
   $('music-upload').classList.toggle('hidden', musicMode !== 'upload');
 }
 
+function renderVideoGrid(videos) {
+  const grid = $('studio-video-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  
+  if (!videos.length) {
+    grid.innerHTML = '<div class="no-videos">Chưa có video nào được tải về. Hãy qua tab Tải video trước.</div>';
+    return;
+  }
+  
+  const selectedFileVal = $('selected-video-file').value;
+  
+  for (const item of videos) {
+    const card = document.createElement('div');
+    card.className = 'video-card-item';
+    if (selectedFileVal === item.filename) {
+      card.classList.add('selected');
+    }
+    card.dataset.filename = item.filename;
+    
+    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    
+    card.innerHTML = `
+      <div class="video-card-thumb">
+        <video src="${videoUrl}" preload="metadata" muted playsinline></video>
+        <div class="video-card-play-icon">▶</div>
+        <div class="video-card-duration">--:--</div>
+      </div>
+      <div class="video-card-info">
+        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
+      </div>
+    `;
+    
+    const videoEl = card.querySelector('video');
+    
+    videoEl.addEventListener('loadedmetadata', () => {
+      const durationEl = card.querySelector('.video-card-duration');
+      if (durationEl) {
+        durationEl.textContent = formatDuration(videoEl.duration);
+      }
+    });
+
+    card.addEventListener('mouseenter', () => {
+      videoEl.play().catch(() => {});
+    });
+    
+    card.addEventListener('mouseleave', () => {
+      videoEl.pause();
+      videoEl.currentTime = 0;
+    });
+    
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.video-card-item').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      $('selected-video-file').value = item.filename;
+      setPreviewVideo(videoUrl);
+    });
+    
+    grid.appendChild(card);
+  }
+}
+
+// Preview Video management for draggable subtitle positioner
+function setPreviewVideo(url) {
+  const container = $('subtitle-positioner-container');
+  const video = $('studio-video-preview');
+  if (url) {
+    video.src = url;
+    container.classList.remove('hidden');
+    video.onloadeddata = () => {
+      // Re-trigger layout alignment calculation
+      updateSubtitleOverlayFromInputs();
+    };
+  } else {
+    video.removeAttribute('src');
+    container.classList.add('hidden');
+  }
+}
+
+function getVideoContentRect(video) {
+  const videoRect = video.getBoundingClientRect();
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  
+  if (!videoWidth || !videoHeight) {
+    return videoRect;
+  }
+  
+  const videoRatio = videoWidth / videoHeight;
+  const containerRatio = videoRect.width / videoRect.height;
+  
+  let actualWidth, actualHeight, actualLeft, actualTop;
+  
+  if (videoRatio > containerRatio) {
+    actualWidth = videoRect.width;
+    actualHeight = actualWidth / videoRatio;
+    actualLeft = videoRect.left;
+    actualTop = videoRect.top + (videoRect.height - actualHeight) / 2;
+  } else {
+    actualHeight = videoRect.height;
+    actualWidth = actualHeight * videoRatio;
+    actualLeft = videoRect.left + (videoRect.width - actualWidth) / 2;
+    actualTop = videoRect.top;
+  }
+  
+  return {
+    left: actualLeft,
+    top: actualTop,
+    width: actualWidth,
+    height: actualHeight,
+    right: actualLeft + actualWidth,
+    bottom: actualTop + actualHeight
+  };
+}
+
+function updateInputsFromSubtitlePosition() {
+  const dragEl = $('draggable-subtitle');
+  const video = $('studio-video-preview');
+  
+  if (!dragEl || !video) return;
+  
+  const dragRect = dragEl.getBoundingClientRect();
+  const videoRect = getVideoContentRect(video);
+  
+  const W_act = video.videoWidth || 1280;
+  const H_act = video.videoHeight || 720;
+  
+  // 1. Determine quadrants
+  const centerPercent = (dragRect.left - videoRect.left + dragRect.width / 2) / videoRect.width;
+  const topPercent = (dragRect.top - videoRect.top) / videoRect.height;
+  
+  let verticalSec = 'bottom';
+  if (topPercent < 0.35) {
+    verticalSec = 'top';
+  } else if (topPercent > 0.65) {
+    verticalSec = 'bottom';
+  } else {
+    verticalSec = 'middle';
+  }
+  
+  let horizontalSec = 'center';
+  if (centerPercent < 0.35) {
+    horizontalSec = 'left';
+  } else if (centerPercent > 0.65) {
+    horizontalSec = 'right';
+  } else {
+    horizontalSec = 'center';
+  }
+  
+  // 2. Select alignment
+  let alignment = 2;
+  if (verticalSec === 'bottom') {
+    if (horizontalSec === 'left') alignment = 1;
+    else if (horizontalSec === 'right') alignment = 3;
+    else alignment = 2;
+  } else if (verticalSec === 'top') {
+    if (horizontalSec === 'left') alignment = 5;
+    else if (horizontalSec === 'right') alignment = 7;
+    else alignment = 6;
+  } else {
+    if (horizontalSec === 'left') alignment = 9;
+    else if (horizontalSec === 'right') alignment = 11;
+    else alignment = 10;
+  }
+  
+  document.querySelector('select[name="subtitleAlignment"]').value = alignment;
+  
+  // 3. Compute vertical margin based on quadrant (Top vs Bottom)
+  let MarginV_act = 0;
+  if (verticalSec === 'top') {
+    // Top alignment: margin is measured from the top edge
+    const marginT_disp = dragRect.top - videoRect.top;
+    MarginV_act = Math.round(marginT_disp * (H_act / videoRect.height));
+  } else {
+    // Bottom/Middle alignment: margin is measured from the bottom edge
+    const marginV_disp = videoRect.bottom - dragRect.bottom;
+    MarginV_act = Math.round(marginV_disp * (H_act / videoRect.height));
+  }
+  
+  // Compute horizontal margin
+  const marginL_disp = dragRect.left - videoRect.left;
+  const marginR_disp = videoRect.right - dragRect.right;
+  const marginH_disp = Math.min(marginL_disp, marginR_disp);
+  const MarginH_act = Math.round(marginH_disp * (W_act / videoRect.width));
+  
+  document.querySelector('input[name="subtitleMargin"]').value = Math.max(0, MarginV_act);
+  document.querySelector('input[name="subtitleMarginH"]').value = Math.max(0, MarginH_act);
+}
+
+function updateSubtitleOverlayFromInputs() {
+  const dragEl = $('draggable-subtitle');
+  const video = $('studio-video-preview');
+  
+  if (!dragEl || !video) return;
+  
+  const containerRect = video.getBoundingClientRect();
+  if (containerRect.width === 0 || containerRect.height === 0) return;
+  
+  const videoRect = getVideoContentRect(video);
+  
+  const W_act = video.videoWidth || 1280;
+  const H_act = video.videoHeight || 720;
+  
+  const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 18);
+  const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
+  const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
+  const alignment = Number(document.querySelector('select[name="subtitleAlignment"]').value || 2);
+  
+  const font_scale = videoRect.height / H_act;
+  const fontSize_disp = Math.max(10, fontSizeInput * font_scale);
+  dragEl.style.fontSize = fontSize_disp + 'px';
+
+  // Apply visual styling dynamically from input controls
+  const fontNameInput = document.querySelector('select[name="subtitleFont"]').value || 'Arial';
+  const colorInput = document.querySelector('select[name="subtitleColor"]').value || '#FFFFFF';
+  const themeInput = document.querySelector('select[name="subtitleTheme"]').value || 'outline';
+  const boldInput = document.querySelector('select[name="subtitleBold"]').value === 'true';
+
+  dragEl.style.fontFamily = fontNameInput;
+  dragEl.style.fontWeight = boldInput ? 'bold' : 'normal';
+  
+  if (themeInput === 'box') {
+    dragEl.style.color = colorInput;
+    dragEl.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+    dragEl.style.textShadow = 'none';
+    dragEl.style.webkitTextStroke = '0px';
+    dragEl.style.padding = '4px 8px';
+    dragEl.style.borderRadius = '4px';
+  } else if (themeInput === 'shadow') {
+    dragEl.style.color = colorInput;
+    dragEl.style.backgroundColor = 'transparent';
+    dragEl.style.webkitTextStroke = '0px';
+    dragEl.style.textShadow = '2px 2px 4px rgba(0, 0, 0, 0.8)';
+    dragEl.style.padding = '0';
+  } else { // 'outline'
+    dragEl.style.color = colorInput;
+    dragEl.style.backgroundColor = 'transparent';
+    dragEl.style.webkitTextStroke = '1.5px black';
+    dragEl.style.textShadow = '1px 1px 2px rgba(0, 0, 0, 0.8)';
+    dragEl.style.padding = '0';
+  }
+  
+  const marginV_disp = marginVInput * (videoRect.height / H_act);
+  const marginH_disp = marginHInput * (videoRect.width / W_act);
+  
+  const dragRect = dragEl.getBoundingClientRect();
+  
+  let left = 0;
+  let top = 0;
+  
+  if ([5, 6, 7].includes(alignment)) {
+    top = (videoRect.top - containerRect.top) + marginV_disp;
+  } else if ([9, 10, 11].includes(alignment)) {
+    top = (videoRect.top - containerRect.top) + (videoRect.height - dragRect.height) / 2;
+  } else {
+    top = (videoRect.bottom - containerRect.top) - dragRect.height - marginV_disp;
+  }
+  
+  if ([1, 5, 9].includes(alignment)) {
+    left = (videoRect.left - containerRect.left) + marginH_disp;
+  } else if ([3, 7, 11].includes(alignment)) {
+    left = (videoRect.right - containerRect.left) - dragRect.width - marginH_disp;
+  } else {
+    left = (videoRect.left - containerRect.left) + (videoRect.width - dragRect.width) / 2;
+  }
+  
+  // Constrain dragging to actual video bounds relative to container
+  const minLeft = videoRect.left - containerRect.left;
+  const maxLeft = videoRect.right - containerRect.left - dragRect.width;
+  const minTop = videoRect.top - containerRect.top;
+  const maxTop = videoRect.bottom - containerRect.top - dragRect.height;
+  
+  left = Math.max(minLeft, Math.min(left, maxLeft));
+  top = Math.max(minTop, Math.min(top, maxTop));
+  
+  dragEl.style.left = left + 'px';
+  dragEl.style.top = top + 'px';
+}
+
+function initDraggableSubtitle() {
+  const dragEl = $('draggable-subtitle');
+  const wrapper = $('video-preview-wrapper');
+  
+  if (!dragEl || !wrapper) return;
+  
+  let isDragging = false;
+  let startX, startY;
+  let initialLeft, initialTop;
+  
+  dragEl.addEventListener('mousedown', startDrag);
+  dragEl.addEventListener('touchstart', startDrag, { passive: true });
+  
+  function startDrag(e) {
+    isDragging = true;
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    
+    startX = clientX;
+    startY = clientY;
+    
+    initialLeft = dragEl.offsetLeft;
+    initialTop = dragEl.offsetTop;
+    
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('touchmove', drag, { passive: false });
+    document.addEventListener('mouseup', stopDrag);
+    document.addEventListener('touchend', stopDrag);
+  }
+  
+  function drag(e) {
+    if (!isDragging) return;
+    if (e.type === 'touchmove') e.preventDefault();
+    
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    
+    const video = $('studio-video-preview');
+    const videoRect = getVideoContentRect(video);
+    const containerRect = video.getBoundingClientRect();
+    const dragRect = dragEl.getBoundingClientRect();
+    
+    let newLeft = initialLeft + dx;
+    let newTop = initialTop + dy;
+    
+    const minLeft = videoRect.left - containerRect.left;
+    const maxLeft = videoRect.right - containerRect.left - dragRect.width;
+    const minTop = videoRect.top - containerRect.top;
+    const maxTop = videoRect.bottom - containerRect.top - dragRect.height;
+    
+    newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+    newTop = Math.max(minTop, Math.min(newTop, maxTop));
+    
+    dragEl.style.left = newLeft + 'px';
+    dragEl.style.top = newTop + 'px';
+    
+    updateInputsFromSubtitlePosition();
+  }
+  
+  function stopDrag() {
+    isDragging = false;
+    document.removeEventListener('mousemove', drag);
+    document.removeEventListener('touchmove', drag);
+    document.removeEventListener('mouseup', stopDrag);
+    document.removeEventListener('touchend', stopDrag);
+  }
+}
+
+// Setup source video tabs
+document.querySelectorAll('.source-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.source-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const mode = btn.dataset.sourceMode;
+    
+    $('source-library-container').classList.toggle('hidden', mode !== 'library');
+    $('source-upload-container').classList.toggle('hidden', mode !== 'upload');
+    
+    if (mode === 'upload') {
+      $('selected-video-file').value = '';
+      document.querySelectorAll('.video-card-item').forEach(card => card.classList.remove('selected'));
+      setPreviewVideo(null);
+    } else {
+      $('video-upload').value = '';
+      $('upload-video-preview').removeAttribute('src');
+      $('upload-video-preview-container').classList.add('hidden');
+      setPreviewVideo(null);
+    }
+  });
+});
+
+// Local video upload preview handler
+$('video-upload').addEventListener('change', function() {
+  const container = $('upload-video-preview-container');
+  const video = $('upload-video-preview');
+  const nameEl = $('upload-video-name');
+  const sizeEl = $('upload-video-size');
+  
+  if (this.files && this.files[0]) {
+    const file = this.files[0];
+    const objectUrl = URL.createObjectURL(file);
+    video.src = objectUrl;
+    nameEl.textContent = file.name;
+    sizeEl.textContent = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+    container.classList.remove('hidden');
+    setPreviewVideo(objectUrl);
+  } else {
+    video.removeAttribute('src');
+    container.classList.add('hidden');
+    setPreviewVideo(null);
+  }
+});
+
 $('fetch-btn').addEventListener('click', fetchVideoInfo);
 $('url-input').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') fetchVideoInfo();
@@ -312,5 +708,23 @@ $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
 $('bulk-fetch-btn').addEventListener('click', fetchPlaylistInfo);
 ['subtitle-mode', 'voice-mode', 'music-mode'].forEach(id => $(id).addEventListener('change', updateConditionalFields));
+
+// Register two-way binding inputs
+const subtitleInputs = [
+  'subtitleSize', 'subtitleMargin', 'subtitleMarginH',
+  'subtitleAlignment', 'subtitleFont', 'subtitleTheme',
+  'subtitleColor', 'subtitleBold'
+];
+subtitleInputs.forEach(name => {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (el) {
+    el.addEventListener('input', updateSubtitleOverlayFromInputs);
+    el.addEventListener('change', updateSubtitleOverlayFromInputs);
+  }
+});
+
+window.addEventListener('resize', updateSubtitleOverlayFromInputs);
+
+initDraggableSubtitle();
 
 loadAssets().then(updateConditionalFields).catch(() => toast('Không đọc được thư viện local.', 'error'));

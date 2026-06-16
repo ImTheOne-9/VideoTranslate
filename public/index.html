@@ -80,10 +80,40 @@
               <h3>1. Video nguồn</h3>
               <span>Chọn file đã tải hoặc upload file mới</span>
             </div>
-            <label>Video đã tải</label>
-            <select id="main-video-select" name="mainVideoFile"></select>
-            <label>Hoặc upload video</label>
-            <input type="file" id="video-upload" name="videoUpload" accept="video/*">
+            
+            <div class="studio-source-tabs">
+              <button type="button" class="source-tab-btn active" data-source-mode="library">📁 Video đã tải</button>
+              <button type="button" class="source-tab-btn" data-source-mode="upload">📤 Tải lên từ máy</button>
+            </div>
+            
+            <input type="hidden" id="selected-video-file" name="mainVideoFile" value="">
+
+            <div id="source-library-container" class="source-section">
+              <label>Chọn video từ thư mục downloads</label>
+              <div id="studio-video-grid" class="studio-video-grid">
+                <!-- Video grid items will be inserted here dynamically -->
+              </div>
+            </div>
+
+            <div id="source-upload-container" class="source-section hidden">
+              <label>Tải lên video mới</label>
+              <div class="custom-file-upload">
+                <input type="file" id="video-upload" name="videoUpload" accept="video/*">
+                <div class="upload-placeholder">
+                  <span class="upload-icon">🎞️</span>
+                  <span class="upload-text">Chọn file video hoặc kéo thả vào đây</span>
+                </div>
+              </div>
+              <!-- Preview of the uploaded video file -->
+              <div id="upload-video-preview-container" class="upload-video-preview hidden">
+                <label>Xem trước video đã chọn</label>
+                <video id="upload-video-preview" controls></video>
+                <div class="video-preview-info">
+                  <span id="upload-video-name"></span>
+                  <span id="upload-video-size"></span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="panel">
@@ -100,6 +130,16 @@
             </select>
             <input type="file" id="subtitle-upload" name="subtitleUpload" accept=".srt,.vtt,.ass">
             <select id="saved-subtitle-select" name="savedSubtitleFile"></select>
+            
+            <!-- Draggable subtitle visual positioner -->
+            <div id="subtitle-positioner-container" class="subtitle-positioner-container hidden">
+              <label>Định vị phụ đề trực quan (Kéo thả chữ trên video)</label>
+              <div id="video-preview-wrapper" class="video-preview-wrapper">
+                <video id="studio-video-preview" muted playsinline></video>
+                <div id="draggable-subtitle" class="draggable-subtitle">Dòng phụ đề thứ nhất&#10;Dòng phụ đề thứ hai (1-2 dòng)</div>
+              </div>
+            </div>
+            
             <div class="switch-row">
               <label><input type="checkbox" id="translate-vi" name="translateVi" value="true" checked> Dịch sang tiếng Việt</label>
               <label><input type="checkbox" id="burn-sub" name="burnSub" value="true" checked> Chèn sub vào video</label>
@@ -110,8 +150,65 @@
                 <input type="number" name="subtitleSize" value="18" min="12" max="48">
               </div>
               <div>
-                <label>Lề dưới</label>
-                <input type="number" name="subtitleMargin" value="28" min="0" max="120">
+                <label>Vị trí hiển thị</label>
+                <select name="subtitleAlignment">
+                  <option value="2" selected>Dưới - Giữa (Mặc định)</option>
+                  <option value="1">Dưới - Trái</option>
+                  <option value="3">Dưới - Phải</option>
+                  <option value="6">Trên - Giữa</option>
+                  <option value="5">Trên - Trái</option>
+                  <option value="7">Trên - Phải</option>
+                  <option value="10">Chính giữa</option>
+                </select>
+              </div>
+            </div>
+            <div class="two-cols">
+              <div>
+                <label>Lề dọc (MarginV)</label>
+                <input type="number" name="subtitleMargin" value="28" min="0">
+              </div>
+              <div>
+                <label>Lề ngang (MarginH)</label>
+                <input type="number" name="subtitleMarginH" value="20" min="0">
+              </div>
+            </div>
+            <div class="two-cols">
+              <div>
+                <label>Font chữ</label>
+                <select name="subtitleFont">
+                  <option value="Arial" selected>Arial Bold (Mặc định)</option>
+                  <option value="Trebuchet MS">Trebuchet MS Bold</option>
+                  <option value="Impact">Impact (Shorts Style)</option>
+                  <option value="Tahoma">Tahoma Bold</option>
+                  <option value="Georgia">Georgia Bold</option>
+                </select>
+              </div>
+              <div>
+                <label>Hiệu ứng Sub</label>
+                <select name="subtitleTheme">
+                  <option value="outline" selected>Chữ viền đen (CapCut)</option>
+                  <option value="box">Hộp nền đen mờ</option>
+                  <option value="shadow">Chữ đổ bóng</option>
+                </select>
+              </div>
+            </div>
+            <div class="two-cols">
+              <div>
+                <label>Màu chữ</label>
+                <select name="subtitleColor">
+                  <option value="#FFFFFF" selected>Trắng tinh khôi</option>
+                  <option value="#FFEB3B">Vàng TikTok</option>
+                  <option value="#00E5FF">Cyan neon</option>
+                  <option value="#00FF00">Xanh lá neon</option>
+                  <option value="#FF4081">Hồng ngọt ngào</option>
+                </select>
+              </div>
+              <div>
+                <label>Độ đậm</label>
+                <select name="subtitleBold">
+                  <option value="true" selected>Chữ đậm (Bold)</option>
+                  <option value="false">Chữ thường (Normal)</option>
+                </select>
               </div>
             </div>
           </div>
@@ -141,6 +238,7 @@
                   <option value="Chinese">Chinese</option>
                 </select>
               </div>
+
               <div>
                 <label>Thiết bị</label>
                 <select name="omiDevice">
