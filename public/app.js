@@ -66,6 +66,7 @@ function fillSelect(id, items, placeholder) {
 
 function renderAssetList(id, items) {
   const list = $(id);
+  if (!list) return;
   list.innerHTML = '';
   if (!items.length) {
     list.innerHTML = '<li class="muted">Chưa có file</li>';
@@ -215,11 +216,20 @@ async function renderStudio(event) {
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Render lỗi');
     status.textContent = 'Hoàn tất.';
-    $('render-result').classList.remove('empty');
-    $('render-result').innerHTML = `
+    const resultHtml = `
       <video controls src="${result.url}"></video>
       <a class="download-link" href="${result.url}" target="_blank">Mở video render</a>
     `;
+    const renderResultSidebar = $('render-result');
+    if (renderResultSidebar) {
+      renderResultSidebar.classList.remove('empty');
+      renderResultSidebar.innerHTML = resultHtml;
+    }
+    
+    const studioResult = $('studio-render-result');
+    if (studioResult) {
+      studioResult.innerHTML = resultHtml;
+    }
     toast('Render video thành công', 'success');
     await loadAssets();
   } catch (error) {
@@ -299,6 +309,9 @@ function updateConditionalFields() {
   const musicMode = $('music-mode').value;
   $('saved-music-select').classList.toggle('hidden', musicMode !== 'saved');
   $('music-upload').classList.toggle('hidden', musicMode !== 'upload');
+
+  const reactionMode = $('reaction-mode').value;
+  $('reaction-upload-container').classList.toggle('hidden', reactionMode !== 'upload');
 }
 
 function renderVideoGrid(videos) {
@@ -366,18 +379,28 @@ function renderVideoGrid(videos) {
 
 // Preview Video management for draggable subtitle positioner
 function setPreviewVideo(url) {
-  const container = $('subtitle-positioner-container');
   const video = $('studio-video-preview');
+  const wrapper = $('video-preview-wrapper');
+  const placeholder = $('preview-placeholder');
+  
   if (url) {
     video.src = url;
-    container.classList.remove('hidden');
+    if (wrapper) wrapper.classList.remove('hidden');
+    if (placeholder) placeholder.classList.add('hidden');
     video.onloadeddata = () => {
       // Re-trigger layout alignment calculation
       updateSubtitleOverlayFromInputs();
     };
   } else {
     video.removeAttribute('src');
-    container.classList.add('hidden');
+    if (wrapper) wrapper.classList.add('hidden');
+    if (placeholder) placeholder.classList.remove('hidden');
+    
+    // Clean up reaction preview
+    const rxVid = $('preview-reaction-video');
+    if (rxVid) rxVid.removeAttribute('src');
+    const rxPip = $('preview-reaction-pip');
+    if (rxPip) rxPip.classList.add('hidden');
   }
 }
 
@@ -579,6 +602,87 @@ function updateSubtitleOverlayFromInputs() {
   
   dragEl.style.left = left + 'px';
   dragEl.style.top = top + 'px';
+  
+  // Cập nhật vị trí hiển thị preview của video reaction/mặt
+  updateReactionPreview();
+}
+
+function updateReactionPreview() {
+  const pipEl = $('preview-reaction-pip');
+  const mainVideo = $('studio-video-preview');
+  const reactionVid = $('preview-reaction-video');
+  
+  if (!pipEl || !mainVideo) return;
+  
+  const reactionMode = $('reaction-mode').value;
+  if (reactionMode !== 'upload' || !mainVideo.src) {
+    pipEl.classList.add('hidden');
+    return;
+  }
+  
+  pipEl.classList.remove('hidden');
+  
+  const containerRect = mainVideo.getBoundingClientRect();
+  if (containerRect.width === 0 || containerRect.height === 0) return;
+  
+  const videoRect = getVideoContentRect(mainVideo);
+  
+  const W_act = mainVideo.videoWidth || 1280;
+  const H_act = mainVideo.videoHeight || 720;
+  
+  const widthInput = Number(document.querySelector('input[name="reactionWidth"]').value || 320);
+  
+  const scale = videoRect.width / W_act;
+  const pipWidthDisp = widthInput * scale;
+  
+  let ratio = 3 / 4; // Aspect ratio góc mặt chân dung mặc định
+  if (reactionVid && reactionVid.videoWidth && reactionVid.videoHeight) {
+    ratio = reactionVid.videoHeight / reactionVid.videoWidth;
+  }
+  const pipHeightDisp = pipWidthDisp * ratio;
+  
+  let left = 0;
+  let top = 0;
+  
+  // Check if we have custom geometry values stored
+  const rx = $('reaction-x').value;
+  const ry = $('reaction-y').value;
+  
+  if (rx !== '' && ry !== '' && pipEl.dataset.customGeometry === 'true') {
+    left = (videoRect.left - containerRect.left) + Number(rx) * scale;
+    top = (videoRect.top - containerRect.top) + Number(ry) * scale;
+    
+    // Constraint to video content bounds
+    const minLeft = videoRect.left - containerRect.left;
+    const maxLeft = videoRect.right - containerRect.left - pipWidthDisp;
+    const minTop = videoRect.top - containerRect.top;
+    const maxTop = videoRect.bottom - containerRect.top - pipHeightDisp;
+    
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+    top = Math.max(minTop, Math.min(top, maxTop));
+  } else {
+    const position = document.querySelector('select[name="reactionPosition"]').value || 'bottom-right';
+    const marginDisp = 20 * scale;
+    
+    if (position === 'bottom-right') {
+      left = (videoRect.right - containerRect.left) - pipWidthDisp - marginDisp;
+      top = (videoRect.bottom - containerRect.top) - pipHeightDisp - marginDisp;
+    } else if (position === 'bottom-left') {
+      left = (videoRect.left - containerRect.left) + marginDisp;
+      top = (videoRect.bottom - containerRect.top) - pipHeightDisp - marginDisp;
+    } else if (position === 'top-right') {
+      left = (videoRect.right - containerRect.left) - pipWidthDisp - marginDisp;
+      top = (videoRect.top - containerRect.top) + marginDisp;
+    } else if (position === 'top-left') {
+      left = (videoRect.left - containerRect.left) + marginDisp;
+      top = (videoRect.top - containerRect.top) + marginDisp;
+    }
+  }
+  
+  pipEl.style.width = Math.max(20, pipWidthDisp) + 'px';
+  pipEl.style.height = Math.max(15, pipHeightDisp) + 'px';
+  pipEl.style.left = left + 'px';
+  pipEl.style.top = top + 'px';
 }
 
 function initDraggableSubtitle() {
@@ -707,13 +811,13 @@ $('save-voice-form').addEventListener('submit', saveVoice);
 $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
 $('bulk-fetch-btn').addEventListener('click', fetchPlaylistInfo);
-['subtitle-mode', 'voice-mode', 'music-mode'].forEach(id => $(id).addEventListener('change', updateConditionalFields));
+['subtitle-mode', 'voice-mode', 'music-mode', 'reaction-mode'].forEach(id => $(id).addEventListener('change', updateConditionalFields));
 
 // Register two-way binding inputs
 const subtitleInputs = [
   'subtitleSize', 'subtitleMargin', 'subtitleMarginH',
   'subtitleAlignment', 'subtitleFont', 'subtitleTheme',
-  'subtitleColor', 'subtitleBold'
+  'subtitleColor', 'subtitleBold', 'reactionPosition', 'reactionWidth'
 ];
 subtitleInputs.forEach(name => {
   const el = document.querySelector(`[name="${name}"]`);
@@ -723,8 +827,279 @@ subtitleInputs.forEach(name => {
   }
 });
 
+// Register volume slider listeners with live percentage labels
+const volumeInputs = ['originalVolume', 'musicVolume'];
+volumeInputs.forEach(name => {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (el) {
+    const valSpan = $(name === 'originalVolume' ? 'original-volume-val' : 'music-volume-val');
+    const updateLabel = () => {
+      if (valSpan) {
+        valSpan.textContent = Math.round(Number(el.value) * 100) + '%';
+      }
+    };
+    el.addEventListener('input', updateLabel);
+    el.addEventListener('change', updateLabel);
+    // Initialize
+    updateLabel();
+  }
+});
+
+$('reaction-upload').addEventListener('change', function() {
+  const video = $('preview-reaction-video');
+  const pipEl = $('preview-reaction-pip');
+  if (this.files && this.files[0]) {
+    const file = this.files[0];
+    const objectUrl = URL.createObjectURL(file);
+    video.src = objectUrl;
+    video.muted = !$('reaction-audio').checked;
+    video.play().catch(() => {});
+    const placeholder = pipEl.querySelector('.reaction-placeholder-box');
+    if (placeholder) placeholder.classList.add('hidden');
+    setTimeout(updateReactionPreview, 100);
+  } else {
+    video.removeAttribute('src');
+    const placeholder = pipEl.querySelector('.reaction-placeholder-box');
+    if (placeholder) placeholder.classList.remove('hidden');
+    updateReactionPreview();
+  }
+});
+
+// Sync checkbox state changes with preview video muted state
+$('reaction-audio').addEventListener('change', function() {
+  const video = $('preview-reaction-video');
+  if (video) {
+    video.muted = !this.checked;
+  }
+});
+
+// Live updating width slider badge
+const rwInput = document.querySelector('input[name="reactionWidth"]');
+if (rwInput) {
+  const valSpan = $('reaction-width-val');
+  const updateLabel = () => {
+    if (valSpan) valSpan.textContent = rwInput.value + 'px';
+  };
+  rwInput.addEventListener('input', updateLabel);
+  rwInput.addEventListener('change', updateLabel);
+  updateLabel();
+}
+
 window.addEventListener('resize', updateSubtitleOverlayFromInputs);
 
+function updateInputsFromReactionGeometry() {
+  const pipEl = $('preview-reaction-pip');
+  const mainVideo = $('studio-video-preview');
+  
+  if (!pipEl || !mainVideo || pipEl.classList.contains('hidden')) return;
+  
+  const containerRect = mainVideo.getBoundingClientRect();
+  const videoRect = getVideoContentRect(mainVideo);
+  
+  const W_act = mainVideo.videoWidth || 1280;
+  const H_act = mainVideo.videoHeight || 720;
+  
+  // Calculate visual offsets relative to the video content bounds
+  const x_disp = pipEl.offsetLeft - (videoRect.left - containerRect.left);
+  const y_disp = pipEl.offsetTop - (videoRect.top - containerRect.top);
+  const w_disp = pipEl.offsetWidth;
+  
+  const scale = videoRect.width / W_act;
+  
+  const rx = Math.round(x_disp / scale);
+  const ry = Math.round(y_disp / scale);
+  const rw = Math.round(w_disp / scale);
+  
+  $('reaction-x').value = rx;
+  $('reaction-y').value = ry;
+  
+  const widthInput = document.querySelector('input[name="reactionWidth"]');
+  if (widthInput) {
+    widthInput.value = Math.max(100, Math.min(640, rw));
+    const valSpan = $('reaction-width-val');
+    if (valSpan) {
+      valSpan.textContent = widthInput.value + 'px';
+    }
+  }
+  
+  pipEl.dataset.customGeometry = 'true';
+  
+  // Synchronize dropdown menu with the manual dragging state
+  const posSelect = document.querySelector('select[name="reactionPosition"]');
+  if (posSelect) {
+    posSelect.value = 'custom';
+  }
+}
+
+function initDraggableReaction() {
+  const pipEl = $('preview-reaction-pip');
+  const handleEl = $('reaction-resizer-handle');
+  const mainVideo = $('studio-video-preview');
+  
+  if (!pipEl || !handleEl || !mainVideo) return;
+  
+  let isDragging = false;
+  let isResizing = false;
+  let startX, startY;
+  let initialLeft, initialTop, initialWidth;
+  let ratio = 3 / 4;
+  
+  // Dragging PIP body
+  pipEl.addEventListener('mousedown', (e) => {
+    if (e.target === handleEl) return;
+    startDrag(e);
+  });
+  pipEl.addEventListener('touchstart', (e) => {
+    if (e.target === handleEl) return;
+    startDrag(e);
+  }, { passive: false });
+  
+  // Resizing PIP via handle
+  handleEl.addEventListener('mousedown', startResize);
+  handleEl.addEventListener('touchstart', startResize, { passive: false });
+  
+  function startDrag(e) {
+    e.preventDefault();
+    isDragging = true;
+    pipEl.classList.add('dragging');
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    
+    startX = clientX;
+    startY = clientY;
+    
+    initialLeft = pipEl.offsetLeft;
+    initialTop = pipEl.offsetTop;
+    
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('touchmove', drag, { passive: false });
+    document.addEventListener('mouseup', stopDrag);
+    document.addEventListener('touchend', stopDrag);
+  }
+  
+  function drag(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    
+    let newLeft = initialLeft + dx;
+    let newTop = initialTop + dy;
+    
+    const containerRect = mainVideo.getBoundingClientRect();
+    const videoRect = getVideoContentRect(mainVideo);
+    
+    const pipWidth = pipEl.offsetWidth;
+    const pipHeight = pipEl.offsetHeight;
+    
+    const minLeft = videoRect.left - containerRect.left;
+    const maxLeft = videoRect.right - containerRect.left - pipWidth;
+    const minTop = videoRect.top - containerRect.top;
+    const maxTop = videoRect.bottom - containerRect.top - pipHeight;
+    
+    newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+    newTop = Math.max(minTop, Math.min(newTop, maxTop));
+    
+    pipEl.style.left = newLeft + 'px';
+    pipEl.style.top = newTop + 'px';
+    
+    updateInputsFromReactionGeometry();
+  }
+  
+  function stopDrag() {
+    isDragging = false;
+    pipEl.classList.remove('dragging');
+    document.removeEventListener('mousemove', drag);
+    document.removeEventListener('touchmove', drag);
+    document.removeEventListener('mouseup', stopDrag);
+    document.removeEventListener('touchend', stopDrag);
+  }
+  
+  function startResize(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+    pipEl.classList.add('resizing');
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    
+    startX = clientX;
+    initialWidth = pipEl.offsetWidth;
+    
+    const reactionVid = $('preview-reaction-video');
+    if (reactionVid && reactionVid.videoWidth && reactionVid.videoHeight) {
+      ratio = reactionVid.videoHeight / reactionVid.videoWidth;
+    } else {
+      ratio = 3 / 4;
+    }
+    
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('touchmove', resize, { passive: false });
+    document.addEventListener('mouseup', stopResize);
+    document.addEventListener('touchend', stopResize);
+  }
+  
+  function resize(e) {
+    if (!isResizing) return;
+    e.preventDefault();
+    
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const dx = clientX - startX;
+    
+    let newWidth = initialWidth + dx;
+    
+    const videoRect = getVideoContentRect(mainVideo);
+    const W_act = mainVideo.videoWidth || 1280;
+    const scale = videoRect.width / W_act;
+    
+    // Bounds check on source width limits [100, 640]
+    const minWDisp = 100 * scale;
+    const maxWDisp = 640 * scale;
+    newWidth = Math.max(minWDisp, Math.min(newWidth, maxWDisp));
+    
+    // Constraints on edges of the video preview content area
+    const containerRect = mainVideo.getBoundingClientRect();
+    const spaceRight = (videoRect.right - containerRect.left) - pipEl.offsetLeft;
+    const spaceBottom = (videoRect.bottom - containerRect.top) - pipEl.offsetTop;
+    
+    const maxWByEdge = spaceRight;
+    const maxWByHeight = spaceBottom / ratio;
+    const maxWAllowed = Math.min(maxWByEdge, maxWByHeight);
+    
+    newWidth = Math.min(newWidth, maxWAllowed);
+    const newHeight = newWidth * ratio;
+    
+    pipEl.style.width = newWidth + 'px';
+    pipEl.style.height = newHeight + 'px';
+    
+    updateInputsFromReactionGeometry();
+  }
+  
+  function stopResize() {
+    isResizing = false;
+    pipEl.classList.remove('resizing');
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('touchmove', resize);
+    document.removeEventListener('mouseup', stopResize);
+    document.removeEventListener('touchend', stopResize);
+  }
+  
+  // Register reset event on select element
+  const posSelect = document.querySelector('select[name="reactionPosition"]');
+  if (posSelect) {
+    posSelect.addEventListener('change', () => {
+      $('reaction-x').value = '';
+      $('reaction-y').value = '';
+      delete pipEl.dataset.customGeometry;
+      updateReactionPreview();
+    });
+  }
+}
+
 initDraggableSubtitle();
+initDraggableReaction();
 
 loadAssets().then(updateConditionalFields).catch(() => toast('Không đọc được thư viện local.', 'error'));

@@ -160,6 +160,39 @@ function hexToAssColor(hexStr) {
   return `&H00${bb}${gg}${rr}`;
 }
 
+function createWavHeader(dataLength, sampleRate = 24000, numChannels = 1, bitsPerSample = 16) {
+  const header = Buffer.alloc(44);
+  
+  // "RIFF"
+  header.write('RIFF', 0);
+  // file size - 8
+  header.writeUInt32LE(dataLength + 36, 4);
+  // "WAVE"
+  header.write('WAVE', 8);
+  // "fmt "
+  header.write('fmt ', 12);
+  // chunk size (16 for PCM)
+  header.writeUInt32LE(16, 16);
+  // audio format (1 for PCM)
+  header.writeUInt16LE(1, 20);
+  // num channels
+  header.writeUInt16LE(numChannels, 22);
+  // sample rate
+  header.writeUInt32LE(sampleRate, 24);
+  // byte rate (sampleRate * numChannels * bitsPerSample / 8)
+  header.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
+  // block align (numChannels * bitsPerSample / 8)
+  header.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
+  // bits per sample
+  header.writeUInt16LE(bitsPerSample, 34);
+  // "data"
+  header.write('data', 36);
+  // chunk size
+  header.writeUInt32LE(dataLength, 40);
+  
+  return header;
+}
+
 // API: Get video info
 app.post('/api/info', async (req, res) => {
   try {
@@ -658,7 +691,8 @@ app.post('/api/render-studio', studioUpload.fields([
   { name: 'videoUpload', maxCount: 1 },
   { name: 'subtitleUpload', maxCount: 1 },
   { name: 'voiceUpload', maxCount: 1 },
-  { name: 'musicUpload', maxCount: 1 }
+  { name: 'musicUpload', maxCount: 1 },
+  { name: 'reactionUpload', maxCount: 1 }
 ]), async (req, res) => {
   const tempFiles = [];
   const voiceChunks = [];
@@ -677,6 +711,13 @@ app.post('/api/render-studio', studioUpload.fields([
       sourceVideo = resolveAssetPath('video', body.mainVideoFile);
     }
     if (!sourceVideo) return res.status(400).json({ error: 'Thiếu video nguồn' });
+
+    let reactionVideoPath = null;
+    const reactionMode = body.reactionMode || 'none';
+    if (reactionMode === 'upload' && files.reactionUpload?.[0]) {
+      reactionVideoPath = moveUploadedFile(files.reactionUpload[0], workDir, 'reaction.mp4');
+      tempFiles.push(reactionVideoPath);
+    }
 
     let subtitlePath = null;
     const subtitleMode = body.subtitleMode || 'none';
@@ -810,7 +851,6 @@ app.post('/api/render-studio', studioUpload.fields([
             '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             '--seed', body.omiSeed || '123',
             '--speed', String(speed.toFixed(2)),
-            '--duration', String(targetDuration.toFixed(2)),
             '--position-temperature', '1.5'
           ];
 
@@ -819,6 +859,7 @@ app.post('/api/render-studio', studioUpload.fields([
             omnivoiceArgs.push('--ref-text', refText);
           } else {
             omnivoiceArgs.push('--instruct', 'female');
+            omnivoiceArgs.push('--duration', String(targetDuration.toFixed(2)));
           }
 
           console.log(`[OmniVoice-Sub] Đang đọc câu ${idx + 1}/${srtArray.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
@@ -843,7 +884,76 @@ app.post('/api/render-studio', studioUpload.fields([
         // Sắp xếp theo thứ tự thời gian bắt đầu
         voiceChunks.sort((a, b) => a.startMs - b.startMs);
 
-
+        // Gộp các chunk thành một file duy nhất
+        try {
+          console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
+          let maxEndMs = 0;
+          const chunkDataList = [];
+          
+          for (const chunk of voiceChunks) {
+            const stats = fs.statSync(chunk.filePath);
+            const pcmSize = stats.size - 44;
+            const durationMs = Math.round(pcmSize / 48);
+            const endMs = chunk.startMs + durationMs;
+            if (endMs > maxEndMs) {
+              maxEndMs = endMs;
+            }
+            
+            // Đọc dữ liệu PCM (bỏ qua 44 bytes wav header)
+            const fd = fs.openSync(chunk.filePath, 'r');
+            const pcmBuffer = Buffer.alloc(pcmSize);
+            fs.readSync(fd, pcmBuffer, 0, pcmSize, 44);
+            fs.closeSync(fd);
+            
+            chunkDataList.push({
+              startMs: chunk.startMs,
+              pcmBuffer: pcmBuffer,
+              durationMs: durationMs
+            });
+          }
+          
+          if (maxEndMs > 0) {
+            // Khởi tạo buffer chung cho toàn bộ voice track (sử dụng PCM 16-bit mono 24000Hz -> 48 bytes/ms)
+            const combinedDataSize = maxEndMs * 48;
+            const combinedBuffer = Buffer.alloc(combinedDataSize); // tự động điền 0 (im lặng)
+            
+            // Trộn các chunks vào buffer chung
+            for (const chunk of chunkDataList) {
+              const targetOffset = chunk.startMs * 48;
+              const pcmLength = chunk.pcmBuffer.length;
+              
+              // Để an toàn, tránh lỗi overlap vượt quá kích thước buffer
+              const limit = Math.min(pcmLength, combinedDataSize - targetOffset);
+              
+              for (let i = 0; i < limit; i += 2) {
+                if (targetOffset + i + 1 >= combinedDataSize) break;
+                
+                const sample1 = combinedBuffer.readInt16LE(targetOffset + i);
+                const sample2 = chunk.pcmBuffer.readInt16LE(i);
+                
+                let mixed = sample1 + sample2;
+                if (mixed > 32767) mixed = 32767;
+                else if (mixed < -32768) mixed = -32768;
+                
+                combinedBuffer.writeInt16LE(mixed, targetOffset + i);
+              }
+            }
+            
+            // Tạo file wav hoàn chỉnh
+            const wavHeader = createWavHeader(combinedDataSize, 24000, 1, 16);
+            voicePath = path.join(workDir, `combined_voice_${timestamp}.wav`);
+            fs.writeFileSync(voicePath, Buffer.concat([wavHeader, combinedBuffer]));
+            tempFiles.push(voicePath);
+            
+            console.log(`[OmniVoice] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs/1000).toFixed(2)}s)`);
+            
+            // Xóa danh sách voiceChunks để FFmpeg map theo voicePath duy nhất
+            voiceChunks.length = 0;
+          }
+        } catch (mergeErr) {
+          console.error('[OmniVoice] Lỗi khi gộp các file chunk âm thanh:', mergeErr.message);
+          // Nếu lỗi, giữ nguyên voiceChunks để chạy theo cách cũ (fallback an toàn)
+        }
 
         // Lưu kịch bản đầy đủ
         const fullScript = srtArray.map(item => item.text.replace(/\n/g, ' ')).join('\n');
@@ -940,13 +1050,31 @@ app.post('/api/render-studio', studioUpload.fields([
 
     if (musicPath) {
       args.push('-stream_loop', '-1', '-i', musicPath);
-      const bgmVolume = Math.max(0, Math.min(1, Number(body.musicVolume || 0.18)));
+      const bgmVolume = Math.max(0, Number(body.musicVolume || 0.18));
       audioInputs.push({
         index: args.filter(v => v === '-i').length - 1,
         volume: bgmVolume,
         type: 'music'
       });
     }
+
+    let reactionInputIndex = -1;
+    if (reactionVideoPath) {
+      args.push('-i', reactionVideoPath);
+      reactionInputIndex = args.filter(v => v === '-i').length - 1;
+      
+      if (body.reactionAudio === 'true') {
+        audioInputs.push({
+          index: reactionInputIndex,
+          volume: 1.0,
+          type: 'reaction'
+        });
+      }
+    }
+
+    let videoFilter = null;
+    let hasVideoFilter = false;
+    let subtitleStyle = '';
 
     if (subtitlePath && body.burnSub === 'true') {
       try {
@@ -965,40 +1093,92 @@ app.post('/api/render-studio', studioUpload.fields([
       const assColor = hexToAssColor(body.subtitleColor || '#FFFFFF');
       const theme = body.subtitleTheme || 'outline';
       
-      let style = `Fontname=${fontName},Bold=${isBold},PrimaryColour=${assColor},Fontsize=${fontSize},MarginV=${marginV},MarginL=${marginH},MarginR=${marginH},Alignment=${alignment},WrapStyle=0`;
+      subtitleStyle = `Fontname=${fontName},Bold=${isBold},PrimaryColour=${assColor},Fontsize=${fontSize},MarginV=${marginV},MarginL=${marginH},MarginR=${marginH},Alignment=${alignment},WrapStyle=0`;
       
       if (theme === 'box') {
-        style += `,BorderStyle=3,BackColour=&H80000000`; // Hộp nền đen mờ
+        subtitleStyle += `,BorderStyle=3,BackColour=&H80000000`; // Hộp nền đen mờ
       } else if (theme === 'shadow') {
-        style += `,BorderStyle=1,Outline=0,Shadow=2,BackColour=&H90000000`; // Chữ đổ bóng
+        subtitleStyle += `,BorderStyle=1,Outline=0,Shadow=2,BackColour=&H90000000`; // Chữ đổ bóng
       } else { // default 'outline' (CapCut style)
-        style += `,BorderStyle=1,Outline=2.5,OutlineColour=&H00000000,Shadow=1,BackColour=&H80000000`; // Viền đen
+        subtitleStyle += `,BorderStyle=1,Outline=2.5,OutlineColour=&H00000000,Shadow=1,BackColour=&H80000000`; // Viền đen
       }
-      
-      args.push('-vf', `subtitles='${escapeSubtitleForFilter(subtitlePath)}':force_style='${style}'`);
     }
 
+    if (reactionVideoPath) {
+      hasVideoFilter = true;
+      
+      const rx = body.reactionX !== undefined && body.reactionX !== '' ? Number(body.reactionX) : null;
+      const ry = body.reactionY !== undefined && body.reactionY !== '' ? Number(body.reactionY) : null;
+      
+      let overlayPos = 'main_w-overlay_w-20:main_h-overlay_h-20';
+      if (rx !== null && ry !== null) {
+        overlayPos = `${rx}:${ry}`;
+      } else {
+        const position = body.reactionPosition || 'bottom-right';
+        if (position === 'bottom-left') overlayPos = '20:main_h-overlay_h-20';
+        if (position === 'top-right') overlayPos = 'main_w-overlay_w-20:20';
+        if (position === 'top-left') overlayPos = '20:20';
+      }
+      
+      const width = Number(body.reactionWidth || 320);
+      
+      let filterChain = `[${reactionInputIndex}:v]scale=${width}:-1[pip];[0:v][pip]overlay=${overlayPos}`;
+      
+      if (subtitleStyle) {
+        filterChain += `[v_pip];[v_pip]subtitles='${escapeSubtitleForFilter(subtitlePath)}':force_style='${subtitleStyle}'[vout]`;
+      } else {
+        filterChain += `[vout]`;
+      }
+      videoFilter = filterChain;
+    } else if (subtitleStyle) {
+      hasVideoFilter = true;
+      videoFilter = `[0:v]subtitles='${escapeSubtitleForFilter(subtitlePath)}':force_style='${subtitleStyle}'[vout]`;
+    }
+
+    // Build filter complex array
+    const filterComplex = [];
+    if (hasVideoFilter && videoFilter) {
+      filterComplex.push(videoFilter);
+    }
+    
+    let hasAudioFilter = false;
     if (audioInputs.length > 0) {
-      const originalVolume = Math.max(0, Math.min(1, Number(body.originalVolume || 0.45)));
-      const filters = [`[0:a]volume=${originalVolume}[a0]`];
+      hasAudioFilter = true;
+      const originalVolume = Math.max(0, Number(body.originalVolume || 0.45));
+      const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];
       const mixLabels = ['[a0]'];
       audioInputs.forEach((input, idx) => {
         const label = `a${idx + 1}`;
         if (input.type === 'chunk') {
           if (input.startMs > 0) {
-            filters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${input.volume}[${label}]`);
+            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${input.volume}[${label}]`);
           } else {
-            filters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+            audioFilters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
           }
         } else {
-          filters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+          audioFilters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
         }
         mixLabels.push(`[${label}]`);
       });
-      filters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
-      args.push('-filter_complex', filters.join(';'), '-map', '0:v', '-map', '[aout]', '-c:a', 'aac');
+      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
+      filterComplex.push(audioFilters.join(';'));
+    }
+    
+    if (filterComplex.length > 0) {
+      args.push('-filter_complex', filterComplex.join(';'));
+    }
+    
+    // Map outputs
+    if (hasVideoFilter) {
+      args.push('-map', '[vout]');
     } else {
-      args.push('-map', '0:v', '-map', '0:a?', '-c:a', 'aac');
+      args.push('-map', '0:v');
+    }
+    
+    if (hasAudioFilter) {
+      args.push('-map', '[aout]', '-c:a', 'aac');
+    } else {
+      args.push('-map', '0:a?', '-c:a', 'aac');
     }
 
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);

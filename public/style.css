@@ -78,7 +78,7 @@ label {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 18px;
   min-height: 100vh;
   padding: 18px;
@@ -467,15 +467,6 @@ label {
   .app-shell {
     grid-template-columns: 220px minmax(0, 1fr);
   }
-
-  .library {
-    grid-column: 2;
-  }
-
-  .library-panel,
-  .result-panel {
-    position: static;
-  }
 }
 
 @media (max-width: 840px) {
@@ -777,7 +768,7 @@ label {
 .video-preview-wrapper {
   position: relative;
   width: 100%;
-  max-height: 320px;
+  max-height: 600px;
   background: #000;
   border-radius: 6px;
   overflow: hidden;
@@ -789,7 +780,7 @@ label {
 .video-preview-wrapper video {
   width: 100%;
   height: 100%;
-  max-height: 320px;
+  max-height: 600px;
   object-fit: contain;
   display: block;
 }
@@ -822,5 +813,150 @@ label {
   cursor: grabbing;
 }
 
+/* Studio Workspace Two-Column Layout */
+.studio-workspace-layout {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
 
+.studio-config-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
 
+.studio-preview-column {
+  position: sticky;
+  top: 18px;
+  min-width: 0;
+}
+
+.studio-preview-panel {
+  padding: 16px;
+}
+
+.preview-reaction-pip {
+  position: absolute;
+  border: 1px dashed var(--accent-2);
+  background: rgba(11, 16, 22, 0.65);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9;
+  pointer-events: auto;
+  cursor: move;
+  border-radius: 4px;
+  transition: all 0.15s ease-out;
+  user-select: none;
+  touch-action: none;
+}
+
+.preview-reaction-pip.dragging,
+.preview-reaction-pip.resizing {
+  transition: none !important;
+  border-color: var(--accent);
+}
+
+.reaction-resizer-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-color: var(--accent-2);
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  bottom: -6px;
+  right: -6px;
+  cursor: se-resize;
+  z-index: 20;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+}
+
+.reaction-resizer-handle:hover {
+  background-color: var(--accent);
+  transform: scale(1.25);
+}
+
+.preview-reaction-pip video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+  pointer-events: none;
+}
+
+.reaction-placeholder-box {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.studio-render-result-box {
+  background: #0b1016;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.studio-render-result-box video {
+  width: 100%;
+  border-radius: 4px;
+  background: #000;
+  margin-bottom: 10px;
+  max-height: 600px;
+  object-fit: contain;
+}
+
+.studio-render-result-box .download-link {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 1100px) {
+  .studio-workspace-layout {
+    grid-template-columns: 1fr;
+  }
+  .studio-preview-column {
+    position: static;
+  }
+}/* Custom premium range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  background: #080c10;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  border: 2px solid #ffffff;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+  transition: transform 0.15s, background-color 0.15s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background: var(--accent);
+}
