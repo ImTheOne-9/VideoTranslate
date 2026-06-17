@@ -1,24 +1,41 @@
 const express = require('express');
 const path = require('path');
-const { execFile, spawn, exec } = require('child_process');
+const child_process = require('child_process');
 const fs = require('fs');
 const contentDisposition = require('content-disposition');
 const multer = require('multer');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('./lib/translate-sub');
+const os = require('os');
+const net = require('net');
 
-const app = express();
-const PORT = 3456;
-
-// Create downloads directory
-const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
-if (!fs.existsSync(DOWNLOADS_DIR)) {
-  fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+// Tích hợp Electron shell API nếu chạy trong Electron
+let electronShell = null;
+try {
+  const electron = require('electron');
+  electronShell = electron.shell;
+} catch (e) {
+  // Không chạy trong Electron
 }
 
-// Create uploads directory for studio
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const isPackaged = __dirname.includes('app.asar');
+
+// Helper phân giải đường dẫn tài nguyên ngoài (extraResources)
+function getExtPath(...parts) {
+  const base = isPackaged ? process.resourcesPath : __dirname;
+  return path.join(base, ...parts);
+}
+
+// Thiết lập thư mục lưu trữ dữ liệu (downloads, uploads)
+let DOWNLOADS_DIR, UPLOADS_DIR;
+if (isPackaged) {
+  // Bản đóng gói: lưu ở %USERPROFILE%/VideoStudio
+  const appDataRoot = path.join(os.homedir(), 'VideoStudio');
+  DOWNLOADS_DIR = path.join(appDataRoot, 'downloads');
+  UPLOADS_DIR = path.join(appDataRoot, 'uploads');
+} else {
+  // Bản phát triển: lưu tại chỗ
+  DOWNLOADS_DIR = path.join(__dirname, 'downloads');
+  UPLOADS_DIR = path.join(__dirname, 'uploads');
 }
 
 const VOICES_DIR = path.join(UPLOADS_DIR, 'voices');
@@ -26,17 +43,74 @@ const MUSIC_DIR = path.join(UPLOADS_DIR, 'music');
 const SUBTITLES_DIR = path.join(UPLOADS_DIR, 'subtitles');
 const TMP_UPLOADS_DIR = path.join(UPLOADS_DIR, 'tmp');
 const RENDERS_DIR = path.join(DOWNLOADS_DIR, 'renders');
+
+if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 for (const dir of [VOICES_DIR, MUSIC_DIR, SUBTITLES_DIR, TMP_UPLOADS_DIR, RENDERS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+// Quản lý và dọn dẹp các tiến trình con tập trung
+const activeProcesses = new Set();
+
+function registerChildProcess(proc) {
+  if (!proc) return;
+  activeProcesses.add(proc);
+  
+  const cleanUp = () => {
+    activeProcesses.delete(proc);
+  };
+  
+  proc.on('close', cleanUp);
+  proc.on('exit', cleanUp);
+  proc.on('error', cleanUp);
+}
+global.registerChildProcess = registerChildProcess;
+
+function killAllActiveProcesses() {
+  console.log(`Bắt đầu tắt toàn bộ tiến trình con đang hoạt động (${activeProcesses.size})...`);
+  for (const proc of activeProcesses) {
+    try {
+      proc.kill('SIGKILL');
+      console.log(`Đã kill tiến trình PID: ${proc.pid}`);
+    } catch (e) {
+      console.error(`Không thể kill tiến trình PID ${proc.pid || 'unknown'}:`, e.message);
+    }
+  }
+  activeProcesses.clear();
+}
+
+// Wrapper bọc spawn và execFile để tự động đăng ký dọn dẹp
+function spawn(command, args, options) {
+  const proc = child_process.spawn(command, args, options);
+  registerChildProcess(proc);
+  return proc;
+}
+
+function execFile(file, args, options, callback) {
+  let actualOptions = options;
+  let actualCallback = callback;
+  if (typeof options === 'function') {
+    actualCallback = options;
+    actualOptions = {};
+  }
+  const proc = child_process.execFile(file, args, actualOptions, actualCallback);
+  registerChildProcess(proc);
+  return proc;
+}
+
+const { exec } = child_process;
+
+const app = express();
+const PORT = 3456; // Khai báo tạm để tương thích ngược nếu cần
+
 const upload = multer({ dest: UPLOADS_DIR });
 const studioUpload = multer({ dest: TMP_UPLOADS_DIR });
 
-const FFMPEG_PATH = path.join(__dirname, 'tools', 'ffmpeg.exe');
-const YTDLP_PATH = path.join(__dirname, 'tools', 'yt-dlp.exe');
-const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || path.join(__dirname, 'tools', 'omnivoice', 'omnivoice-cli.exe');
-const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(__dirname, 'tools', 'omnivoice', 'models', 'omnivoice-q8_0.gguf');
+const FFMPEG_PATH = getExtPath('tools', 'ffmpeg.exe');
+const YTDLP_PATH = getExtPath('tools', 'yt-dlp.exe');
+const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || getExtPath('tools', 'omnivoice', 'omnivoice-cli.exe');
+const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || getExtPath('tools', 'omnivoice', 'models', 'omnivoice-q8_0.gguf');
 
 // Tự động tìm kiếm và thêm đường dẫn CUDA vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
 if (process.platform === 'win32') {
@@ -642,14 +716,22 @@ app.post('/api/download-local', async (req, res) => {
 });
 
 // API: Open folder
-app.get('/api/open-folder', (req, res) => {
+app.get('/api/open-folder', async (req, res) => {
+  if (electronShell) {
+    try {
+      await electronShell.openPath(DOWNLOADS_DIR);
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('Lỗi khi mở thư mục bằng Electron shell:', err.message);
+    }
+  }
   let command = '';
   switch (process.platform) { 
     case 'win32': command = `explorer "${DOWNLOADS_DIR}"`; break;
     case 'darwin': command = `open "${DOWNLOADS_DIR}"`; break;
     default: command = `xdg-open "${DOWNLOADS_DIR}"`; break;
   }
-  exec(command);
+  child_process.exec(command);
   res.json({ success: true });
 });
 
@@ -1423,7 +1505,42 @@ app.post('/api/render-studio', studioUpload.fields([
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 YouTube Shorts Downloader đang chạy tại:`);
-  console.log(`   http://localhost:${PORT}\n`);
-});
+function findAvailablePort(startPort) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.listen(startPort, '127.0.0.1', () => {
+      server.once('close', () => resolve(startPort));
+      server.close();
+    });
+    server.on('error', () => {
+      resolve(findAvailablePort(startPort + 1));
+    });
+  });
+}
+
+function startServer(preferredPort = 3456) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const port = await findAvailablePort(preferredPort);
+      const server = app.listen(port, '127.0.0.1', () => {
+        console.log(`\n🚀 YouTube Shorts Downloader đang chạy tại:`);
+        console.log(`   http://127.0.0.1:${port}\n`);
+        resolve({ server, port });
+      });
+      server.on('error', (err) => {
+        reject(err);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// Hỗ trợ chạy trực tiếp qua `node server.js`
+if (require.main === module) {
+  startServer(3456).catch(err => {
+    console.error('Lỗi khi khởi động server trực tiếp:', err.message);
+  });
+}
+
+module.exports = { startServer, killAllActiveProcesses };
