@@ -133,6 +133,85 @@ function resolveAssetPath(kind, filename) {
   return fs.existsSync(resolved) ? resolved : null;
 }
 
+function getVideoDimensions(videoPath) {
+  return new Promise((resolve) => {
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      return resolve({ width: 1280, height: 720 });
+    }
+    execFile(FFMPEG_PATH, ['-i', videoPath], (err, stdout, stderr) => {
+      const output = stderr || '';
+      const match = output.match(/Stream #.*Video:.*, (\d+)x(\d+)/);
+      if (match) {
+        resolve({
+          width: parseInt(match[1], 10),
+          height: parseInt(match[2], 10)
+        });
+      } else {
+        resolve({ width: 1280, height: 720 });
+      }
+    });
+  });
+}
+
+function convertSrtToAss(srtPath, assPath, options) {
+  const Parser = require('srt-parser-2').default;
+  const parser = new Parser();
+  const srtContent = fs.readFileSync(srtPath, 'utf8');
+  const srtArray = parser.fromSrt(srtContent);
+
+  function convertSrtTime(srtTime) {
+    const parts = srtTime.split(':');
+    if (parts.length < 3) return "0:00:00.00";
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1];
+    const secParts = parts[2].split(',');
+    const seconds = secParts[0];
+    const ms = secParts[1] || '000';
+    const cs = ms.substring(0, 2);
+    return `${hours}:${minutes}:${seconds}.${cs}`;
+  }
+
+  const {
+    videoWidth,
+    videoHeight,
+    fontName,
+    fontSize,
+    assColor,
+    isBold,
+    borderStyle,
+    outline,
+    shadow,
+    outlineColor,
+    backColor,
+    alignment,
+    marginV,
+    marginH
+  } = options;
+
+  const assLines = [];
+  assLines.push('[Script Info]');
+  assLines.push('ScriptType: v4.00+');
+  assLines.push(`PlayResX: ${videoWidth}`);
+  assLines.push(`PlayResY: ${videoHeight}`);
+  assLines.push('WrapStyle: 0');
+  assLines.push('');
+  assLines.push('[V4+ Styles]');
+  assLines.push('Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, Strikeout, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding');
+  assLines.push(`Style: Default,${fontName},${fontSize},${assColor},&H000000FF,${outlineColor},${backColor},${isBold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginH},${marginH},${marginV},1`);
+  assLines.push('');
+  assLines.push('[Events]');
+  assLines.push('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text');
+
+  for (const item of srtArray) {
+    const start = convertSrtTime(item.startTime);
+    const end = convertSrtTime(item.endTime);
+    const text = item.text.replace(/\n/g, '\\N');
+    assLines.push(`Dialogue: 0,${start},${end},Default,,0,0,0,,${text}`);
+  }
+
+  fs.writeFileSync(assPath, assLines.join('\n'), 'utf8');
+}
+
 function runExecFile(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { maxBuffer: 50 * 1024 * 1024, ...options }, (error, stdout, stderr) => {
@@ -712,11 +791,18 @@ app.post('/api/render-studio', studioUpload.fields([
     }
     if (!sourceVideo) return res.status(400).json({ error: 'Thiếu video nguồn' });
 
+    const dimensions = await getVideoDimensions(sourceVideo);
+    const videoWidth = dimensions.width;
+    const videoHeight = dimensions.height;
+    console.log(`[Studio Render] Kích thước video nguồn: ${videoWidth}x${videoHeight}`);
+
     let reactionVideoPath = null;
     const reactionMode = body.reactionMode || 'none';
     if (reactionMode === 'upload' && files.reactionUpload?.[0]) {
       reactionVideoPath = moveUploadedFile(files.reactionUpload[0], workDir, 'reaction.mp4');
       tempFiles.push(reactionVideoPath);
+    } else if (reactionMode === 'library' && body.savedReactionFile) {
+      reactionVideoPath = resolveAssetPath('video', body.savedReactionFile);
     }
 
     let subtitlePath = null;
@@ -1126,12 +1212,14 @@ app.post('/api/render-studio', studioUpload.fields([
     const args = ['-i', sourceVideo];
     const audioInputs = [];
 
+    const voiceVolume = Math.max(0, Number(body.voiceVolume !== undefined ? body.voiceVolume : 1.0));
+
     if (voiceChunks && voiceChunks.length > 0) {
       voiceChunks.forEach(chunk => {
         args.push('-i', chunk.filePath);
         audioInputs.push({
           index: args.filter(v => v === '-i').length - 1,
-          volume: 1,
+          volume: voiceVolume,
           type: 'chunk',
           startMs: chunk.startMs
         });
@@ -1140,7 +1228,7 @@ app.post('/api/render-studio', studioUpload.fields([
       args.push('-i', voicePath);
       audioInputs.push({
         index: args.filter(v => v === '-i').length - 1,
-        volume: 1,
+        volume: voiceVolume,
         type: 'single'
       });
     }
@@ -1169,9 +1257,7 @@ app.post('/api/render-studio', studioUpload.fields([
       }
     }
 
-    let videoFilter = null;
-    let hasVideoFilter = false;
-    let subtitleStyle = '';
+    let renderSubtitlePath = null;
 
     if (subtitlePath && body.burnSub === 'true') {
       try {
@@ -1183,21 +1269,65 @@ app.post('/api/render-studio', studioUpload.fields([
       const fontSize = Number(body.subtitleSize || 18);
       const marginV = Number(body.subtitleMargin || 28);
       const marginH = Number(body.subtitleMarginH || 20);
-      const alignment = Number(body.subtitleAlignment || 2);
+      
+      const ssaToAssAlignment = {
+        1: 1,  // Bottom-Left
+        2: 2,  // Bottom-Center
+        3: 3,  // Bottom-Right
+        9: 4,  // Middle-Left
+        10: 5, // Middle-Center
+        11: 6, // Middle-Right
+        5: 7,  // Top-Left
+        6: 8,  // Top-Center
+        7: 9   // Top-Right
+      };
+      const alignment = ssaToAssAlignment[Number(body.subtitleAlignment || 2)] || 2;
       
       const fontName = body.subtitleFont || 'Arial';
-      const isBold = body.subtitleBold === 'false' ? 0 : 1;
+      const isBold = body.subtitleBold !== 'false';
       const assColor = hexToAssColor(body.subtitleColor || '#FFFFFF');
       const theme = body.subtitleTheme || 'outline';
       
-      subtitleStyle = `Fontname=${fontName},Bold=${isBold},PrimaryColour=${assColor},Fontsize=${fontSize},MarginV=${marginV},MarginL=${marginH},MarginR=${marginH},Alignment=${alignment},WrapStyle=0`;
+      let borderStyle = 1;
+      let outline = 2.5;
+      let shadow = 1;
+      let outlineColor = '&H00000000';
+      let backColor = '&H80000000';
       
       if (theme === 'box') {
-        subtitleStyle += `,BorderStyle=3,BackColour=&H80000000`; // Hộp nền đen mờ
+        borderStyle = 3;
+        backColor = '&H80000000';
+        outline = 0;
+        shadow = 0;
       } else if (theme === 'shadow') {
-        subtitleStyle += `,BorderStyle=1,Outline=0,Shadow=2,BackColour=&H90000000`; // Chữ đổ bóng
-      } else { // default 'outline' (CapCut style)
-        subtitleStyle += `,BorderStyle=1,Outline=2.5,OutlineColour=&H00000000,Shadow=1,BackColour=&H80000000`; // Viền đen
+        borderStyle = 1;
+        outline = 0;
+        shadow = 2;
+        backColor = '&H90000000';
+      }
+
+      const assPath = path.join(workDir, `render_subtitles_${timestamp}.ass`);
+      try {
+        convertSrtToAss(subtitlePath, assPath, {
+          videoWidth,
+          videoHeight,
+          fontName,
+          fontSize,
+          assColor,
+          isBold,
+          borderStyle,
+          outline,
+          shadow,
+          outlineColor,
+          backColor,
+          alignment,
+          marginV,
+          marginH
+        });
+        renderSubtitlePath = assPath;
+      } catch (err) {
+        console.error('Lỗi chuyển đổi SRT sang ASS:', err.message);
+        renderSubtitlePath = subtitlePath;
       }
     }
 
@@ -1221,15 +1351,15 @@ app.post('/api/render-studio', studioUpload.fields([
       
       let filterChain = `[${reactionInputIndex}:v]scale=${width}:-1[pip];[0:v][pip]overlay=${overlayPos}`;
       
-      if (subtitleStyle) {
-        filterChain += `[v_pip];[v_pip]subtitles='${escapeSubtitleForFilter(subtitlePath)}':force_style='${subtitleStyle}'[vout]`;
+      if (renderSubtitlePath) {
+        filterChain += `[v_pip];[v_pip]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
       } else {
         filterChain += `[vout]`;
       }
       videoFilter = filterChain;
-    } else if (subtitleStyle) {
+    } else if (renderSubtitlePath) {
       hasVideoFilter = true;
-      videoFilter = `[0:v]subtitles='${escapeSubtitleForFilter(subtitlePath)}':force_style='${subtitleStyle}'[vout]`;
+      videoFilter = `[0:v]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
     }
 
     // Build filter complex array

@@ -121,25 +121,51 @@
 
               <!-- Reaction Video PIP settings -->
               <div class="reaction-pip-settings" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <label><strong>Ghép video reaction / Video góc mặt</strong></label>
-                <select id="reaction-mode" name="reactionMode" style="margin-top: 5px; margin-bottom: 10px;">
-                  <option value="none" selected>Không ghép</option>
-                  <option value="upload">Tải lên video reaction</option>
-                </select>
+                <div class="panel-head" style="border-bottom: none; margin-bottom: 8px;">
+                  <h3 style="font-size: 15px; font-weight: 600;">Ghép video reaction / Video góc mặt</h3>
+                  <span style="font-size: 11px; color: var(--muted);">Chèn video reaction góc màn hình</span>
+                </div>
                 
-                <div id="reaction-upload-container" class="hidden">
-                  <label>Chọn video reaction (.mp4)</label>
-                  <input type="file" id="reaction-upload" name="reactionUpload" accept="video/*" style="margin-bottom: 10px;">
+                <div class="studio-source-tabs">
+                  <button type="button" class="reaction-tab-btn active" data-reaction-tab-mode="none">❌ Không ghép</button>
+                  <button type="button" class="reaction-tab-btn" data-reaction-tab-mode="library">📁 Video đã tải</button>
+                  <button type="button" class="reaction-tab-btn" data-reaction-tab-mode="upload">📤 Tải lên từ máy</button>
+                </div>
+                
+                <input type="hidden" id="reaction-mode" name="reactionMode" value="none">
+                <input type="hidden" id="selected-reaction-video-file" name="savedReactionFile" value="">
+
+                <div id="reaction-library-container" class="source-section hidden">
+                  <label>Chọn video reaction từ thư mục downloads</label>
+                  <div id="studio-reaction-video-grid" class="studio-video-grid" style="max-height: 200px;">
+                    <!-- Video grid items will be inserted here dynamically -->
+                  </div>
+                </div>
+
+                <div id="reaction-upload-container" class="source-section hidden">
+                  <label>Tải lên video reaction mới</label>
+                  <div class="custom-file-upload">
+                    <input type="file" id="reaction-upload" name="reactionUpload" accept="video/*">
+                    <div class="upload-placeholder">
+                      <span class="upload-icon">🎞️</span>
+                      <span class="upload-text">Chọn file video hoặc kéo thả vào đây</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="reaction-settings-container" class="hidden" style="margin-top: 12px;">
+                  <div class="premium-switch-row" style="margin-top: 5px; margin-bottom: 12px; padding: 10px 12px;">
+                    <label class="premium-switch">
+                      <input type="checkbox" id="reaction-audio" name="reactionAudio" value="true">
+                      <span class="switch-slider"></span>
+                      <span class="switch-label">Giữ âm thanh video reaction (Mặc định tắt)</span>
+                    </label>
+                  </div>
                   
-                  <label style="display: flex; align-items: center; gap: 8px; margin-top: 5px; margin-bottom: 12px; cursor: pointer; color: var(--text);">
-                    <input type="checkbox" id="reaction-audio" name="reactionAudio" value="true">
-                    <span>Giữ âm thanh video reaction (Mặc định tắt)</span>
-                  </label>
-                  
-                  <div class="two-cols">
+                  <div class="sub-settings-grid">
                     <div>
-                      <label>Vị trí hiển thị</label>
-                      <select name="reactionPosition">
+                      <label style="margin-top: 14px; margin-bottom: 7px;">Vị trí hiển thị</label>
+                      <select name="reactionPosition" class="premium-select">
                         <option value="custom" disabled>Tự chọn (Kéo thả)</option>
                         <option value="bottom-right" selected>Dưới - Phải</option>
                         <option value="bottom-left">Dưới - Trái</option>
@@ -148,177 +174,274 @@
                       </select>
                     </div>
                     <div>
-                      <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <label style="margin: 0;">Độ rộng (pixels)</label>
-                        <span id="reaction-width-val" style="font-size: 12px; font-weight: 600; color: var(--accent-2);">320px</span>
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; margin-bottom: 7px; height: 16px;">
+                        <label style="margin: 0; line-height: 1; display: inline-block;">Độ rộng (pixels)</label>
+                        <span id="reaction-width-val" style="font-size: 12px; font-weight: 600; color: var(--accent-2); line-height: 1;">320px</span>
                       </div>
-                      <input type="range" name="reactionWidth" value="320" min="100" max="640" step="10" style="width: 100%; margin-top: 6px;">
+                      <div style="height: 39px; display: flex; align-items: center;">
+                        <input type="range" name="reactionWidth" value="320" min="100" max="640" step="10" style="width: 100%; margin: 0;">
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div class="panel">
+            <div class="panel premium-sub-panel">
               <div class="panel-head">
                 <h3>2. Dịch & chèn sub</h3>
-                <span>Upload sub, dùng sub đã lưu hoặc tạo bằng Whisper</span>
+                <span class="badge sub-badge">CapCut Style</span>
               </div>
-              <label>Chế độ sub</label>
-              <select id="subtitle-mode" name="subtitleMode">
-                <option value="none">Không dùng sub</option>
-                <option value="generate">Tạo sub từ giọng nói bằng Whisper</option>
-                <option value="upload">Upload file sub .srt</option>
-                <option value="saved">Dùng sub đã lưu</option>
-              </select>
-              <input type="file" id="subtitle-upload" name="subtitleUpload" accept=".srt,.vtt,.ass">
-              <select id="saved-subtitle-select" name="savedSubtitleFile"></select>
               
-              <div class="switch-row">
-                <label><input type="checkbox" id="translate-vi" name="translateVi" value="true" checked> Dịch sang tiếng Việt</label>
-                <label><input type="checkbox" id="burn-sub" name="burnSub" value="true" checked> Chèn sub vào video</label>
+              <div class="form-group">
+                <label>Chế độ sub</label>
+                <select id="subtitle-mode" name="subtitleMode" class="premium-select">
+                  <option value="none">Không dùng sub</option>
+                  <option value="generate">Tạo sub từ giọng nói bằng Whisper</option>
+                  <option value="upload">Upload file sub .srt</option>
+                  <option value="saved">Dùng sub đã lưu</option>
+                </select>
               </div>
-              <div class="two-cols">
-                <div>
+
+              <div id="sub-upload-wrapper" class="form-group hidden">
+                <input type="file" id="subtitle-upload" name="subtitleUpload" accept=".srt,.vtt,.ass" class="hidden-input">
+                <label for="subtitle-upload" class="premium-upload-zone">
+                  <span>📄</span> Tải lên file phụ đề (.srt, .vtt, .ass)
+                </label>
+              </div>
+
+              <div id="sub-saved-wrapper" class="form-group hidden">
+                <select id="saved-subtitle-select" name="savedSubtitleFile" class="premium-select"></select>
+              </div>
+              
+              <div class="switch-row premium-switch-row">
+                <label class="premium-switch">
+                  <input type="checkbox" id="translate-vi" name="translateVi" value="true" checked>
+                  <span class="switch-slider"></span>
+                  <span class="switch-label">Dịch sang tiếng Việt</span>
+                </label>
+                <label class="premium-switch">
+                  <input type="checkbox" id="burn-sub" name="burnSub" value="true" checked>
+                  <span class="switch-slider"></span>
+                  <span class="switch-label">Chèn sub vào video</span>
+                </label>
+              </div>
+
+              <div class="sub-settings-grid">
+                <div class="form-group">
                   <label>Cỡ chữ sub</label>
-                  <input type="number" name="subtitleSize" value="18" min="12" max="48">
+                  <div class="number-input-wrapper">
+                    <input type="number" name="subtitleSize" value="18" min="12" max="48" class="premium-input">
+                    <span class="input-unit">px</span>
+                  </div>
                 </div>
-                <div>
-                  <label>Vị trí hiển thị</label>
-                  <select name="subtitleAlignment">
-                    <option value="2" selected>Dưới - Giữa (Mặc định)</option>
-                    <option value="1">Dưới - Trái</option>
-                    <option value="3">Dưới - Phải</option>
-                    <option value="6">Trên - Giữa</option>
-                    <option value="5">Trên - Trái</option>
-                    <option value="7">Trên - Phải</option>
-                    <option value="10">Chính giữa</option>
-                  </select>
-                </div>
-              </div>
-              <div class="two-cols">
-                <div>
-                  <label>Lề dọc (MarginV)</label>
-                  <input type="number" name="subtitleMargin" value="28" min="0">
-                </div>
-                <div>
-                  <label>Lề ngang (MarginH)</label>
-                  <input type="number" name="subtitleMarginH" value="20" min="0">
-                </div>
-              </div>
-              <div class="two-cols">
-                <div>
+
+                <div class="form-group">
                   <label>Font chữ</label>
-                  <select name="subtitleFont">
-                    <option value="Arial" selected>Arial Bold (Mặc định)</option>
-                    <option value="Trebuchet MS">Trebuchet MS Bold</option>
+                  <select name="subtitleFont" class="premium-select">
+                    <option value="Arial" selected>Arial Bold</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
                     <option value="Impact">Impact (Shorts Style)</option>
                     <option value="Tahoma">Tahoma Bold</option>
                     <option value="Georgia">Georgia Bold</option>
                   </select>
                 </div>
-                <div>
-                  <label>Hiệu ứng Sub</label>
-                  <select name="subtitleTheme">
-                    <option value="outline" selected>Chữ viền đen (CapCut)</option>
-                    <option value="box">Hộp nền đen mờ</option>
-                    <option value="shadow">Chữ đổ bóng</option>
-                  </select>
+              </div>
+
+              <div class="form-group">
+                <label>Căn lề phụ đề</label>
+                <div class="alignment-grid-container">
+                  <div class="alignment-grid" id="alignment-visual-grid">
+                    <button type="button" class="grid-cell" data-align="5" title="Trên - Trái">↖</button>
+                    <button type="button" class="grid-cell" data-align="6" title="Trên - Giữa">↑</button>
+                    <button type="button" class="grid-cell" data-align="7" title="Trên - Phải">↗</button>
+                    <button type="button" class="grid-cell" data-align="9" title="Giữa - Trái">←</button>
+                    <button type="button" class="grid-cell" data-align="10" title="Chính giữa">⊙</button>
+                    <button type="button" class="grid-cell" data-align="11" title="Giữa - Phải">→</button>
+                    <button type="button" class="grid-cell" data-align="1" title="Dưới - Trái">↙</button>
+                    <button type="button" class="grid-cell active" data-align="2" title="Dưới - Giữa">↓</button>
+                    <button type="button" class="grid-cell" data-align="3" title="Dưới - Phải">↘</button>
+                  </div>
+                  <input type="hidden" name="subtitleAlignment" id="subtitle-alignment-input" value="2">
                 </div>
               </div>
-              <div class="two-cols">
-                <div>
-                  <label>Màu chữ</label>
-                  <select name="subtitleColor">
-                    <option value="#FFFFFF" selected>Trắng tinh khôi</option>
-                    <option value="#FFEB3B">Vàng TikTok</option>
-                    <option value="#00E5FF">Cyan neon</option>
-                    <option value="#00FF00">Xanh lá neon</option>
-                    <option value="#FF4081">Hồng ngọt ngào</option>
+
+              <div class="sub-settings-grid">
+                <div class="form-group">
+                  <label>Lề dọc (MarginV)</label>
+                  <input type="number" name="subtitleMargin" value="28" min="0" class="premium-input">
+                </div>
+                <div class="form-group">
+                  <label>Lề ngang (MarginH)</label>
+                  <input type="number" name="subtitleMarginH" value="20" min="0" class="premium-input">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Màu sắc chữ</label>
+                <div class="color-swatches" id="color-swatches-container">
+                  <button type="button" class="color-swatch active" data-color="#FFFFFF" style="background-color: #FFFFFF;" title="Trắng"></button>
+                  <button type="button" class="color-swatch" data-color="#FFEB3B" style="background-color: #FFEB3B;" title="Vàng TikTok"></button>
+                  <button type="button" class="color-swatch" data-color="#00E5FF" style="background-color: #00E5FF;" title="Cyan Neon"></button>
+                  <button type="button" class="color-swatch" data-color="#00FF00" style="background-color: #00FF00;" title="Xanh Lá"></button>
+                  <button type="button" class="color-swatch" data-color="#FF4081" style="background-color: #FF4081;" title="Hồng"></button>
+                </div>
+                <input type="hidden" name="subtitleColor" id="subtitle-color-input" value="#FFFFFF">
+              </div>
+
+              <div class="sub-settings-grid">
+                <div class="form-group">
+                  <label>Hiệu ứng chữ</label>
+                  <select name="subtitleTheme" class="premium-select">
+                    <option value="outline" selected>Viền đen (CapCut)</option>
+                    <option value="box">Hộp nền đen mờ</option>
+                    <option value="shadow">Đổ bóng chữ</option>
                   </select>
                 </div>
-                <div>
+                <div class="form-group">
                   <label>Độ đậm</label>
-                  <select name="subtitleBold">
+                  <select name="subtitleBold" class="premium-select">
                     <option value="true" selected>Chữ đậm (Bold)</option>
-                    <option value="false">Chữ thường (Normal)</option>
+                    <option value="false">Chữ thường</option>
                   </select>
                 </div>
               </div>
             </div>
 
-            <div class="panel">
+            <div class="panel premium-ai-panel">
               <div class="panel-head">
                 <h3>3. Voice / Omi Cloner</h3>
-                <span>Lưu giọng mẫu, chèn voiceover hoặc chuẩn bị clone bằng Omi</span>
+                <span class="badge ai-badge">AI Voice cloner</span>
               </div>
-              <label>Chế độ giọng</label>
-              <select id="voice-mode" name="voiceMode">
-                <option value="none">Không chèn giọng</option>
-                <option value="saved">Chèn giọng đã lưu</option>
-                <option value="upload">Upload file voiceover</option>
-                <option value="omi">Omi Cloner từ giọng đã lưu</option>
-              </select>
-              <select id="saved-voice-select" name="savedVoiceFile"></select>
-              <input type="file" id="voice-upload" name="voiceUpload" accept="audio/*">
-              <textarea id="ref-text" name="refText" rows="3" placeholder="Ref-text: nhập chính xác câu nói trong file giọng mẫu ngắn"></textarea>
-              <textarea id="omi-script" name="omiScript" rows="4" placeholder="Kịch bản để Omi đọc bằng giọng clone"></textarea>
-              <div class="two-cols omi-options">
-                <div>
-                  <label>Ngôn ngữ</label>
-                  <select name="omiLanguage">
-                    <option value="Vietnamese">Vietnamese</option>
-                    <option value="English">English</option>
-                    <option value="Chinese">Chinese</option>
-                  </select>
+              
+              <div class="form-group">
+                <label>Chế độ giọng nói</label>
+                <select id="voice-mode" name="voiceMode" class="premium-select">
+                  <option value="none">Không chèn giọng</option>
+                  <option value="saved">Chèn giọng thuyết minh đã lưu</option>
+                  <option value="upload">Upload file voiceover mới</option>
+                  <option value="omi">Omi Cloner (Nhái giọng AI)</option>
+                </select>
+              </div>
+
+              <div id="voice-saved-wrapper" class="form-group hidden">
+                <label>Chọn giọng thuyết minh</label>
+                <select id="saved-voice-select" name="savedVoiceFile" class="premium-select"></select>
+              </div>
+
+              <div id="voice-upload-wrapper" class="form-group hidden">
+                <input type="file" id="voice-upload" name="voiceUpload" accept="audio/*" class="hidden-input">
+                <label for="voice-upload" class="premium-upload-zone">
+                  <span>🎙️</span> Tải lên file giọng đọc (.mp3, .wav, .m4a)
+                </label>
+              </div>
+
+              <div id="omi-cloner-container" class="omi-cloner-container hidden">
+                <div class="form-group">
+                  <label>Ref-text (Câu thoại của giọng mẫu)</label>
+                  <textarea id="ref-text" name="refText" rows="2" class="premium-textarea" placeholder="Nhập chính xác câu nói trong file giọng mẫu ngắn để AI đối chiếu. Nếu để trống hệ thống sẽ dùng Whisper tự nhận diện."></textarea>
                 </div>
 
-                <div>
-                  <label>Thiết bị</label>
-                  <select name="omiDevice">
-                    <option value="cpu">CPU</option>
-                    <option value="cuda:0">CUDA 0</option>
-                  </select>
+                <div class="form-group">
+                  <label>Kịch bản phát thanh</label>
+                  <textarea id="omi-script" name="omiScript" rows="3" class="premium-textarea" placeholder="Nhập văn bản cần AI đọc bằng giọng mẫu clone..."></textarea>
                 </div>
-                <div>
-                  <label>Num step</label>
-                  <input type="number" name="omiSteps" value="16" min="4" max="64">
-                </div>
-                <div>
-                  <label>Seed</label>
-                  <input type="number" name="omiSeed" value="123">
+
+                <div class="omi-advanced-grid">
+                  <div class="form-group">
+                    <label>Ngôn ngữ</label>
+                    <select name="omiLanguage" class="premium-select">
+                      <option value="Vietnamese">Tiếng Việt</option>
+                      <option value="English">Tiếng Anh</option>
+                      <option value="Chinese">Tiếng Trung</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Thiết bị xử lý</label>
+                    <select name="omiDevice" class="premium-select">
+                      <option value="cpu">CPU (Mặc định)</option>
+                      <option value="cuda:0">Card đồ họa GPU (CUDA)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Số bước (Steps)</label>
+                    <input type="number" name="omiSteps" value="16" min="4" max="64" class="premium-input">
+                  </div>
+                  <div class="form-group">
+                    <label>Seed (Mã hạt)</label>
+                    <input type="number" name="omiSeed" value="123" class="premium-input">
+                  </div>
                 </div>
               </div>
-              <p class="note">OmniVoice cần `tools/omnivoice/omnivoice-cli.exe` và model GGUF trong `tools/omnivoice/models`.</p>
+              <p class="note info-note">💡 Omi Cloner yêu cầu file giọng mẫu ngắn trong thư viện để tiến hành sao chép giọng.</p>
             </div>
 
-            <div class="panel">
+            <div class="panel premium-mixer-panel">
               <div class="panel-head">
                 <h3>4. Nhạc nền & âm lượng</h3>
-                <span>Mix nhạc nền với âm thanh gốc và voiceover</span>
+                <span class="badge mixer-badge">Bảng trộn âm</span>
               </div>
-              <label>Chế độ nhạc nền</label>
-              <select id="music-mode" name="musicMode">
-                <option value="none">Không chèn nhạc</option>
-                <option value="saved">Dùng nhạc đã lưu</option>
-                <option value="upload">Upload nhạc mới</option>
-              </select>
-              <select id="saved-music-select" name="savedMusicFile"></select>
-              <input type="file" id="music-upload" name="musicUpload" accept="audio/*">
-              <div class="two-cols">
-                <div>
-                  <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="margin: 0;">Âm lượng gốc</label>
-                    <span id="original-volume-val" style="font-size: 12px; font-weight: 600; color: var(--accent-2);">45%</span>
+              
+              <div class="form-group">
+                <label>Chế độ nhạc nền</label>
+                <select id="music-mode" name="musicMode" class="premium-select">
+                  <option value="none">Không dùng nhạc nền</option>
+                  <option value="saved">Dùng nhạc nền đã lưu</option>
+                  <option value="upload">Tải lên file nhạc mới</option>
+                </select>
+              </div>
+
+              <div id="music-saved-wrapper" class="form-group hidden">
+                <select id="saved-music-select" name="savedMusicFile" class="premium-select"></select>
+              </div>
+
+              <div id="music-upload-wrapper" class="form-group hidden">
+                <input type="file" id="music-upload" name="musicUpload" accept="audio/*" class="hidden-input">
+                <label for="music-upload" class="premium-upload-zone">
+                  <span>🎵</span> Tải lên file nhạc nền (.mp3, .wav, .m4a)
+                </label>
+              </div>
+
+              <!-- Audio Mixer Board Section -->
+              <div class="audio-mixer-board">
+                <div class="mixer-title">BẢNG TRỘN ÂM THANH (AUDIO MIXER)</div>
+                
+                <div class="mixer-channels">
+                  <!-- Channel 1: Original Volume -->
+                  <div class="mixer-strip">
+                    <div class="strip-header">
+                      <span class="strip-icon">🎬</span>
+                      <span class="strip-label">Âm gốc</span>
+                      <span id="original-volume-val" class="strip-val">45%</span>
+                    </div>
+                    <div class="slider-container">
+                      <input type="range" name="originalVolume" value="0.45" min="0" max="3" step="0.05" class="mixer-slider">
+                    </div>
                   </div>
-                  <input type="range" name="originalVolume" value="0.45" min="0" max="3" step="0.05" style="width: 100%; margin-top: 6px;">
-                </div>
-                <div>
-                  <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="margin: 0;">Âm lượng nhạc</label>
-                    <span id="music-volume-val" style="font-size: 12px; font-weight: 600; color: var(--accent-2);">18%</span>
+
+                  <!-- Channel 2: Voice Volume -->
+                  <div class="mixer-strip">
+                    <div class="strip-header">
+                      <span class="strip-icon">🎤</span>
+                      <span class="strip-label">Thuyết minh</span>
+                      <span id="voice-volume-val" class="strip-val">100%</span>
+                    </div>
+                    <div class="slider-container">
+                      <input type="range" name="voiceVolume" value="1.00" min="0" max="3" step="0.05" class="mixer-slider">
+                    </div>
                   </div>
-                  <input type="range" name="musicVolume" value="0.18" min="0" max="3" step="0.05" style="width: 100%; margin-top: 6px;">
+
+                  <!-- Channel 3: Music Volume -->
+                  <div class="mixer-strip">
+                    <div class="strip-header">
+                      <span class="strip-icon">🎵</span>
+                      <span class="strip-label">Nhạc nền</span>
+                      <span id="music-volume-val" class="strip-val">18%</span>
+                    </div>
+                    <div class="slider-container">
+                      <input type="range" name="musicVolume" value="0.18" min="0" max="3" step="0.05" class="mixer-slider">
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

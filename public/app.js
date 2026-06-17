@@ -83,6 +83,7 @@ async function loadAssets() {
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
   renderVideoGrid(assets.videos);
+  renderReactionVideoGrid(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
@@ -296,22 +297,22 @@ async function fetchPlaylistInfo() {
 
 function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
-  $('subtitle-upload').classList.toggle('hidden', subMode !== 'upload');
-  $('saved-subtitle-select').classList.toggle('hidden', subMode !== 'saved');
+  $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
+  $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
 
   const voiceMode = $('voice-mode').value;
-  $('saved-voice-select').classList.toggle('hidden', !['saved', 'omi'].includes(voiceMode));
-  $('voice-upload').classList.toggle('hidden', voiceMode !== 'upload');
-  $('ref-text').classList.toggle('hidden', voiceMode !== 'omi');
-  $('omi-script').classList.toggle('hidden', voiceMode !== 'omi');
-  document.querySelector('.omi-options').classList.toggle('hidden', voiceMode !== 'omi');
+  $('voice-saved-wrapper').classList.toggle('hidden', !['saved', 'omi'].includes(voiceMode));
+  $('voice-upload-wrapper').classList.toggle('hidden', voiceMode !== 'upload');
+  $('omi-cloner-container').classList.toggle('hidden', voiceMode !== 'omi');
 
   const musicMode = $('music-mode').value;
-  $('saved-music-select').classList.toggle('hidden', musicMode !== 'saved');
-  $('music-upload').classList.toggle('hidden', musicMode !== 'upload');
+  $('music-saved-wrapper').classList.toggle('hidden', musicMode !== 'saved');
+  $('music-upload-wrapper').classList.toggle('hidden', musicMode !== 'upload');
 
   const reactionMode = $('reaction-mode').value;
+  $('reaction-library-container').classList.toggle('hidden', reactionMode !== 'library');
   $('reaction-upload-container').classList.toggle('hidden', reactionMode !== 'upload');
+  $('reaction-settings-container').classList.toggle('hidden', !['library', 'upload'].includes(reactionMode));
 }
 
 function renderVideoGrid(videos) {
@@ -367,13 +368,96 @@ function renderVideoGrid(videos) {
     });
     
     card.addEventListener('click', () => {
-      document.querySelectorAll('.video-card-item').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('#studio-video-grid .video-card-item').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       $('selected-video-file').value = item.filename;
       setPreviewVideo(videoUrl);
     });
     
     grid.appendChild(card);
+  }
+}
+
+function renderReactionVideoGrid(videos) {
+  const grid = $('studio-reaction-video-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  
+  if (!videos.length) {
+    grid.innerHTML = '<div class="no-videos">Chưa có video nào được tải về. Hãy qua tab Tải video trước.</div>';
+    return;
+  }
+  
+  const selectedFileVal = $('selected-reaction-video-file').value;
+  
+  for (const item of videos) {
+    const card = document.createElement('div');
+    card.className = 'video-card-item';
+    if (selectedFileVal === item.filename) {
+      card.classList.add('selected');
+    }
+    card.dataset.filename = item.filename;
+    
+    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    
+    card.innerHTML = `
+      <div class="video-card-thumb">
+        <video src="${videoUrl}" preload="metadata" muted playsinline></video>
+        <div class="video-card-play-icon">▶</div>
+        <div class="video-card-duration">--:--</div>
+      </div>
+      <div class="video-card-info">
+        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
+      </div>
+    `;
+    
+    const videoEl = card.querySelector('video');
+    
+    videoEl.addEventListener('loadedmetadata', () => {
+      const durationEl = card.querySelector('.video-card-duration');
+      if (durationEl) {
+        durationEl.textContent = formatDuration(videoEl.duration);
+      }
+    });
+
+    card.addEventListener('mouseenter', () => {
+      videoEl.play().catch(() => {});
+    });
+    
+    card.addEventListener('mouseleave', () => {
+      videoEl.pause();
+      videoEl.currentTime = 0;
+    });
+    
+    card.addEventListener('click', () => {
+      document.querySelectorAll('#studio-reaction-video-grid .video-card-item').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      $('selected-reaction-video-file').value = item.filename;
+      setPreviewReactionVideo(videoUrl);
+    });
+    
+    grid.appendChild(card);
+  }
+}
+
+function setPreviewReactionVideo(url) {
+  const video = $('preview-reaction-video');
+  const pipEl = $('preview-reaction-pip');
+  if (url) {
+    video.src = url;
+    video.muted = !$('reaction-audio').checked;
+    video.play().catch(() => {});
+    const placeholder = pipEl.querySelector('.reaction-placeholder-box');
+    if (placeholder) placeholder.classList.add('hidden');
+    setTimeout(updateReactionPreview, 100);
+  } else {
+    video.pause();
+    video.src = '';
+    video.removeAttribute('src');
+    const placeholder = pipEl.querySelector('.reaction-placeholder-box');
+    if (placeholder) placeholder.classList.remove('hidden');
+    updateReactionPreview();
   }
 }
 
@@ -392,13 +476,19 @@ function setPreviewVideo(url) {
       updateSubtitleOverlayFromInputs();
     };
   } else {
+    video.pause();
+    video.src = '';
     video.removeAttribute('src');
     if (wrapper) wrapper.classList.add('hidden');
     if (placeholder) placeholder.classList.remove('hidden');
     
     // Clean up reaction preview
     const rxVid = $('preview-reaction-video');
-    if (rxVid) rxVid.removeAttribute('src');
+    if (rxVid) {
+      rxVid.pause();
+      rxVid.src = '';
+      rxVid.removeAttribute('src');
+    }
     const rxPip = $('preview-reaction-pip');
     if (rxPip) rxPip.classList.add('hidden');
   }
@@ -490,7 +580,16 @@ function updateInputsFromSubtitlePosition() {
     else alignment = 10;
   }
   
-  document.querySelector('select[name="subtitleAlignment"]').value = alignment;
+  const alignmentInput = document.querySelector('[name="subtitleAlignment"]');
+  if (alignmentInput) {
+    alignmentInput.value = alignment;
+  }
+  const alignGrid = $('alignment-visual-grid');
+  if (alignGrid) {
+    alignGrid.querySelectorAll('.grid-cell').forEach(cell => {
+      cell.classList.toggle('active', Number(cell.dataset.align) === alignment);
+    });
+  }
   
   // 3. Compute vertical margin based on quadrant (Top vs Bottom)
   let MarginV_act = 0;
@@ -531,7 +630,7 @@ function updateSubtitleOverlayFromInputs() {
   const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 18);
   const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
   const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
-  const alignment = Number(document.querySelector('select[name="subtitleAlignment"]').value || 2);
+  const alignment = Number(document.querySelector('[name="subtitleAlignment"]').value || 2);
   
   const font_scale = videoRect.height / H_act;
   const fontSize_disp = Math.max(10, fontSizeInput * font_scale);
@@ -539,7 +638,7 @@ function updateSubtitleOverlayFromInputs() {
 
   // Apply visual styling dynamically from input controls
   const fontNameInput = document.querySelector('select[name="subtitleFont"]').value || 'Arial';
-  const colorInput = document.querySelector('select[name="subtitleColor"]').value || '#FFFFFF';
+  const colorInput = document.querySelector('[name="subtitleColor"]').value || '#FFFFFF';
   const themeInput = document.querySelector('select[name="subtitleTheme"]').value || 'outline';
   const boldInput = document.querySelector('select[name="subtitleBold"]').value === 'true';
 
@@ -615,8 +714,11 @@ function updateReactionPreview() {
   if (!pipEl || !mainVideo) return;
   
   const reactionMode = $('reaction-mode').value;
-  if (reactionMode !== 'upload' || !mainVideo.src) {
+  if (!['upload', 'library'].includes(reactionMode) || !mainVideo.src) {
     pipEl.classList.add('hidden');
+    if (reactionVid) {
+      reactionVid.pause();
+    }
     return;
   }
   
@@ -768,7 +870,7 @@ document.querySelectorAll('.source-tab-btn').forEach(btn => {
     
     if (mode === 'upload') {
       $('selected-video-file').value = '';
-      document.querySelectorAll('.video-card-item').forEach(card => card.classList.remove('selected'));
+      document.querySelectorAll('#studio-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
       setPreviewVideo(null);
     } else {
       $('video-upload').value = '';
@@ -776,6 +878,33 @@ document.querySelectorAll('.source-tab-btn').forEach(btn => {
       $('upload-video-preview-container').classList.add('hidden');
       setPreviewVideo(null);
     }
+  });
+});
+
+// Setup reaction video tabs
+document.querySelectorAll('.reaction-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.reaction-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const mode = btn.dataset.reactionTabMode;
+    
+    $('reaction-mode').value = mode;
+    
+    if (mode === 'upload') {
+      $('selected-reaction-video-file').value = '';
+      document.querySelectorAll('#studio-reaction-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
+      setPreviewReactionVideo(null);
+    } else if (mode === 'library') {
+      $('reaction-upload').value = '';
+      setPreviewReactionVideo(null);
+    } else {
+      $('selected-reaction-video-file').value = '';
+      document.querySelectorAll('#studio-reaction-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
+      $('reaction-upload').value = '';
+      setPreviewReactionVideo(null);
+    }
+    
+    updateConditionalFields();
   });
 });
 
@@ -827,12 +956,49 @@ subtitleInputs.forEach(name => {
   }
 });
 
+// Interactive Alignment Grid Clicks
+const alignmentGrid = $('alignment-visual-grid');
+if (alignmentGrid) {
+  alignmentGrid.querySelectorAll('.grid-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      alignmentGrid.querySelectorAll('.grid-cell').forEach(c => c.classList.remove('active'));
+      cell.classList.add('active');
+      const val = cell.dataset.align;
+      const input = $('subtitle-alignment-input');
+      if (input) {
+        input.value = val;
+        // Dispatch event manually
+        input.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+}
+
+// Interactive Color Swatches Clicks
+const colorSwatches = $('color-swatches-container');
+if (colorSwatches) {
+  colorSwatches.querySelectorAll('.color-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      colorSwatches.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      swatch.classList.add('active');
+      const color = swatch.dataset.color;
+      const input = $('subtitle-color-input');
+      if (input) {
+        input.value = color;
+        // Dispatch event manually
+        input.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+}
+
 // Register volume slider listeners with live percentage labels
-const volumeInputs = ['originalVolume', 'musicVolume'];
+const volumeInputs = ['originalVolume', 'voiceVolume', 'musicVolume'];
 volumeInputs.forEach(name => {
   const el = document.querySelector(`[name="${name}"]`);
   if (el) {
-    const valSpan = $(name === 'originalVolume' ? 'original-volume-val' : 'music-volume-val');
+    const spanId = name.replace(/([A-Z])/g, "-$1").toLowerCase() + "-val";
+    const valSpan = $(spanId);
     const updateLabel = () => {
       if (valSpan) {
         valSpan.textContent = Math.round(Number(el.value) * 100) + '%';
@@ -846,22 +1012,11 @@ volumeInputs.forEach(name => {
 });
 
 $('reaction-upload').addEventListener('change', function() {
-  const video = $('preview-reaction-video');
-  const pipEl = $('preview-reaction-pip');
   if (this.files && this.files[0]) {
-    const file = this.files[0];
-    const objectUrl = URL.createObjectURL(file);
-    video.src = objectUrl;
-    video.muted = !$('reaction-audio').checked;
-    video.play().catch(() => {});
-    const placeholder = pipEl.querySelector('.reaction-placeholder-box');
-    if (placeholder) placeholder.classList.add('hidden');
-    setTimeout(updateReactionPreview, 100);
+    const objectUrl = URL.createObjectURL(this.files[0]);
+    setPreviewReactionVideo(objectUrl);
   } else {
-    video.removeAttribute('src');
-    const placeholder = pipEl.querySelector('.reaction-placeholder-box');
-    if (placeholder) placeholder.classList.remove('hidden');
-    updateReactionPreview();
+    setPreviewReactionVideo(null);
   }
 });
 
