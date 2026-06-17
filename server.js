@@ -151,9 +151,16 @@ function runYtDlp(args) {
   });
 }
 
+function extractUrl(text) {
+  if (!text) return '';
+  const match = text.match(/https?:\/\/[^\s]+/);
+  return match ? match[0] : text;
+}
+
 // Validate Video URL
 function isValidVideoUrl(url) {
-  return /^https?:\/\/(www\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/)/.test(url);
+  const cleanUrl = extractUrl(url);
+  return /^https?:\/\/(www\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/)/.test(cleanUrl);
 }
 
 function safeFileName(name) {
@@ -349,7 +356,8 @@ function createWavHeader(dataLength, sampleRate = 24000, numChannels = 1, bitsPe
 // API: Get video info
 app.post('/api/info', async (req, res) => {
   try {
-    const { url } = req.body;
+    let { url } = req.body;
+    url = extractUrl(url);
     if (!url) {
       return res.status(400).json({ error: 'Vui lòng nhập URL video' });
     }
@@ -427,7 +435,8 @@ app.post('/api/info', async (req, res) => {
 // API: Download video
 app.get('/api/download', async (req, res) => {
   try {
-    const { url, format_id } = req.query;
+    let { url, format_id } = req.query;
+    url = extractUrl(url);
     if (!url) {
       return res.status(400).json({ error: 'Thiếu URL' });
     }
@@ -536,7 +545,8 @@ app.get('/api/download', async (req, res) => {
 // API: Download video with hardcoded Vietnamese subtitles
 app.get('/api/download-vi', async (req, res) => {
   try {
-    const { url } = req.query;
+    let { url } = req.query;
+    url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
 
@@ -645,7 +655,8 @@ app.get('/api/download-vi', async (req, res) => {
 // API: Get playlist info
 app.post('/api/playlist', async (req, res) => {
   try {
-    const { url, limit } = req.body;
+    let { url, limit } = req.body;
+    url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!limit || limit <= 0) return res.status(400).json({ error: 'Số lượng không hợp lệ' });
 
@@ -684,7 +695,8 @@ app.post('/api/playlist', async (req, res) => {
 // API: Download locally
 app.post('/api/download-local', async (req, res) => {
   try {
-    const { url } = req.body;
+    let { url } = req.body;
+    url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
     const args = [
