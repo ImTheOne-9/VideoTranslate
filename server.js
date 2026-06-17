@@ -821,18 +821,54 @@ app.post('/api/render-studio', studioUpload.fields([
           return res.status(400).json({ error: 'File phụ đề rỗng hoặc không có nội dung chữ.' });
         }
 
+        // Nhóm các dòng phụ đề để đọc liền mạch thành câu hoàn chỉnh
+        const groups = [];
+        let currentGroup = [];
+        
+        for (let i = 0; i < srtArray.length; i++) {
+          const item = srtArray[i];
+          currentGroup.push(item);
+          
+          const currentEndMs = srtTimeToMs(item.endTime);
+          const nextItem = srtArray[i + 1];
+          
+          let shouldSplit = false;
+          if (!nextItem) {
+            shouldSplit = true;
+          } else {
+            const nextStartMs = srtTimeToMs(nextItem.startTime);
+            const gapMs = nextStartMs - currentEndMs;
+            
+            // Tách nhóm nếu có khoảng trống lớn (> 1.0 giây) hoặc câu phụ đề kết thúc bằng dấu chấm/hỏi/cảm thán
+            const endsWithPunctuation = /[.!?…]$/.test(item.text.trim());
+            if (gapMs > 1000 || endsWithPunctuation) {
+              shouldSplit = true;
+            }
+          }
+          
+          if (shouldSplit) {
+            groups.push(currentGroup);
+            currentGroup = [];
+          }
+        }
+
+        if (groups.length === 0) {
+          return res.status(400).json({ error: 'Không thể phân nhóm phụ đề.' });
+        }
+
         // Sử dụng mảng ở scope cha
         let lastSpeechEndMs = 0; // Thời điểm kết thúc giọng nói của câu trước (mili-giây)
 
-        for (let idx = 0; idx < srtArray.length; idx++) {
-          const item = srtArray[idx];
-          const lineText = item.text.replace(/\n/g, ' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+        for (let idx = 0; idx < groups.length; idx++) {
+          const group = groups[idx];
+          // Gộp văn bản trong nhóm thành một chuỗi duy nhất để đọc liền mạch
+          const lineText = group.map(item => item.text.replace(/\n/g, ' ').trim()).join(' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
           if (!lineText) continue;
 
           const chunkPath = path.join(workDir, `chunk_${idx}_${timestamp}.wav`);
           
-          let startMs = srtTimeToMs(item.startTime);
-          const endMs = srtTimeToMs(item.endTime);
+          const startMs = srtTimeToMs(group[0].startTime);
+          const endMs = srtTimeToMs(group[group.length - 1].endTime);
           const durationSec = Math.max(0.5, (endMs - startMs) / 1000);
           
           const syllableCount = lineText.split(/\s+/).filter(w => w.length > 0).length;
@@ -862,10 +898,54 @@ app.post('/api/render-studio', studioUpload.fields([
             omnivoiceArgs.push('--duration', String(targetDuration.toFixed(2)));
           }
 
-          console.log(`[OmniVoice-Sub] Đang đọc câu ${idx + 1}/${srtArray.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
+          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
           try {
             await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
             if (fs.existsSync(chunkPath)) {
+              // Kiểm tra xem thời lượng thực tế của file âm thanh có vượt quá thời lượng phụ đề không
+              try {
+                const stats = fs.statSync(chunkPath);
+                const pcmSize = stats.size - 44;
+                const actualDurationMs = Math.round(pcmSize / 48); // 48 bytes/ms cho 24kHz 16bit mono
+                
+                const subtitleDurationMs = endMs - startMs;
+                const maxAllowedDurationMs = Math.max(200, subtitleDurationMs - 50); // Chừa 50ms khoảng nghỉ
+                
+                if (actualDurationMs > maxAllowedDurationMs) {
+                  const speedUpRatio = actualDurationMs / maxAllowedDurationMs;
+                  console.log(`[OmniVoice-Sub] Nhóm câu ${idx + 1} dài hơn phụ đề (${actualDurationMs}ms > ${maxAllowedDurationMs}ms). Đang dùng FFmpeg để tăng tốc ${speedUpRatio.toFixed(2)}x...`);
+                  
+                  const tempSpeedUpPath = chunkPath.replace('.wav', '_speedup.wav');
+                  
+                  // Tạo chuỗi filter atempo (FFmpeg giới hạn mỗi filter atempo từ 0.5 đến 2.0)
+                  let remainingRatio = speedUpRatio;
+                  const filterParts = [];
+                  while (remainingRatio > 2.0) {
+                    filterParts.push('atempo=2.0');
+                    remainingRatio /= 2.0;
+                  }
+                  if (remainingRatio > 0.5) {
+                    filterParts.push(`atempo=${remainingRatio.toFixed(3)}`);
+                  }
+                  const atempoFilter = filterParts.join(',');
+                  
+                  const ffmpegSpeedArgs = [
+                    '-i', chunkPath,
+                    '-filter:a', atempoFilter,
+                    '-y', tempSpeedUpPath
+                  ];
+                  
+                  await runExecFile(FFMPEG_PATH, ffmpegSpeedArgs);
+                  if (fs.existsSync(tempSpeedUpPath)) {
+                    fs.copyFileSync(tempSpeedUpPath, chunkPath);
+                    fs.unlinkSync(tempSpeedUpPath);
+                    console.log(`[OmniVoice-Sub] Đã tăng tốc nhóm câu ${idx + 1} thành công.`);
+                  }
+                }
+              } catch (speedUpErr) {
+                console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
+              }
+
               voiceChunks.push({
                 filePath: chunkPath,
                 startMs: startMs
@@ -873,7 +953,7 @@ app.post('/api/render-studio', studioUpload.fields([
               tempFiles.push(chunkPath);
             }
           } catch (err) {
-            console.error(`Lỗi khi đọc câu ${idx + 1}/${srtArray.length}:`, err.message);
+            console.error(`Lỗi khi đọc nhóm câu ${idx + 1}/${groups.length}:`, err.message);
           }
         }
 
@@ -904,6 +984,23 @@ app.post('/api/render-studio', studioUpload.fields([
             const pcmBuffer = Buffer.alloc(pcmSize);
             fs.readSync(fd, pcmBuffer, 0, pcmSize, 44);
             fs.closeSync(fd);
+            
+            // Áp dụng fade-in/fade-out 15ms để loại bỏ tiếng "tách" (click/pop) ở ranh giới đoạn
+            const totalSamples = pcmSize / 2;
+            const fadeSamples = Math.min(360, Math.floor(totalSamples / 2)); // 360 samples = 15ms ở 24kHz
+            for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
+              const byteOffset = sampleIdx * 2;
+              let val = pcmBuffer.readInt16LE(byteOffset);
+              
+              if (sampleIdx < fadeSamples) {
+                val = Math.round(val * (sampleIdx / fadeSamples));
+              } else if (sampleIdx >= totalSamples - fadeSamples) {
+                const distFromEnd = totalSamples - 1 - sampleIdx;
+                val = Math.round(val * (distFromEnd / fadeSamples));
+              }
+              
+              pcmBuffer.writeInt16LE(val, byteOffset);
+            }
             
             chunkDataList.push({
               startMs: chunk.startMs,
