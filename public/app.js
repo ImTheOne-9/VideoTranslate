@@ -108,7 +108,12 @@ function formatDuration(seconds) {
 }
 
 async function fetchVideoInfo() {
-  const url = $('url-input').value.trim();
+  let url = $('url-input').value.trim();
+  const match = url.match(/https?:\/\/[^\s]+/);
+  if (match) {
+    url = match[0];
+    $('url-input').value = url;
+  }
   if (!url || !isValidVideoUrl(url)) {
     toast('Link video không hợp lệ.', 'error');
     return;
@@ -242,7 +247,12 @@ async function renderStudio(event) {
 }
 
 async function fetchPlaylistInfo() {
-  const url = $('bulk-url-input').value.trim();
+  let url = $('bulk-url-input').value.trim();
+  const match = url.match(/https?:\/\/[^\s]+/);
+  if (match) {
+    url = match[0];
+    $('bulk-url-input').value = url;
+  }
   const limit = Number($('bulk-limit').value || 10);
   if (!url) {
     toast('Nhập link kênh hoặc playlist.', 'error');
