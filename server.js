@@ -138,12 +138,47 @@ app.use('/renders', express.static(RENDERS_DIR));
 app.use('/downloads', express.static(DOWNLOADS_DIR));
 
 // Helper: Run yt-dlp command and get JSON output
-function runYtDlp(args) {
+function runYtDlp(args, retryCount = 0) {
   return new Promise((resolve, reject) => {
     execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
-        console.error('yt-dlp stderr:', stderr);
-        reject(new Error(stderr || error.message));
+        const errStr = stderr || error.message || '';
+        console.error('yt-dlp stderr:', errStr);
+        
+        // Auto-retry for TikTok rehydration errors
+        if (errStr.includes('Unable to extract universal data for rehydration') && retryCount < 2) {
+          console.log(`[Retry ${retryCount + 1}] Retrying yt-dlp due to TikTok API block...`);
+          
+          // Swap API hostnames in args
+          const newArgs = [...args];
+          for (let i = 0; i < newArgs.length; i++) {
+            if (newArgs[i].includes('tiktok:api_hostname')) {
+              // Rotate endpoints and valid app_infos
+              const endpoints = [
+                'api16-normal-c-useast1a.tiktokv.com',
+                'api16-core-c-useast1a.tiktokv.com',
+                'api22-normal-c-alisg.tiktokv.com',
+                'api19-normal-c-useast1a.tiktokv.com'
+              ];
+              const validAppInfos = [
+                '7355_1.1.1-7355_0',
+                '1988_1.1.1-1988_0',
+                '1180_1.1.1-1180_0'
+              ];
+              const randomEndpoint = endpoints[Math.floor(Math.random() * endpoints.length)];
+              const randomAppInfo = validAppInfos[Math.floor(Math.random() * validAppInfos.length)];
+              newArgs[i] = `tiktok:api_hostname=${randomEndpoint};app_info=${randomAppInfo}`;
+            }
+          }
+          
+          // Wait 1.5 seconds before retry
+          setTimeout(() => {
+            runYtDlp(newArgs, retryCount + 1).then(resolve).catch(reject);
+          }, 1500);
+          return;
+        }
+
+        reject(new Error(errStr));
         return;
       }
       resolve(stdout);
@@ -157,10 +192,31 @@ function extractUrl(text) {
   return match ? match[0] : text;
 }
 
+function cleanVideoTitle(title) {
+  if (!title) return 'Untitled';
+  let cleaned = title;
+  
+  // Xóa phần thống kê ở đầu của Facebook (ví dụ: "28K views · 319 reactions | ")
+  cleaned = cleaned.replace(/^[\d\.,KMBkmb\s·]+(views|reactions|likes|shares|comments).*?\|\s*/i, '');
+  
+  // Xóa phần tên page ở cuối (ví dụ: " | Lò Văn Vở" - thường phía sau dấu | cuối cùng)
+  const parts = cleaned.split(' | ');
+  if (parts.length > 1) {
+    const lastPart = parts[parts.length - 1];
+    // Tên page/kênh thường ngắn (dưới 40 ký tự)
+    if (lastPart.length < 40) {
+      parts.pop();
+      cleaned = parts.join(' | ');
+    }
+  }
+  
+  return cleaned.trim() || 'Untitled';
+}
+
 // Validate Video URL
 function isValidVideoUrl(url) {
   const cleanUrl = extractUrl(url);
-  return /^https?:\/\/(www\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/)/.test(cleanUrl);
+  return /^https?:\/\/(www\.|vt\.|vm\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/)/.test(cleanUrl);
 }
 
 function safeFileName(name) {
@@ -367,12 +423,15 @@ app.post('/api/info', async (req, res) => {
     }
 
     // Get video info as JSON using yt-dlp
-    const output = await runYtDlp([
+    const ytArgs = [
       '--dump-json',
       '--no-warnings',
-      '--no-playlist',
-      url
-    ]);
+      '--no-playlist'
+    ];
+    if (url.includes('tiktok.com')) ytArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    ytArgs.push(url);
+
+    const output = await runYtDlp(ytArgs);
 
     const info = JSON.parse(output);
 
@@ -413,16 +472,16 @@ app.post('/api/info', async (req, res) => {
       });
 
     // Get best thumbnail
-    const thumbnails = info.thumbnails || [];
-    const thumbnail = thumbnails.length > 0
-      ? thumbnails[thumbnails.length - 1].url
-      : '';
+    const thumbnail = info.thumbnail || (info.thumbnails && info.thumbnails.length > 0 ? info.thumbnails[info.thumbnails.length - 1].url : '');
+    
+    // Get author properly
+    const author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
 
     res.json({
-      title: info.title || 'Untitled',
+      title: cleanVideoTitle(info.title),
       thumbnail,
       duration: info.duration || 0,
-      author: info.uploader || info.channel || 'Unknown',
+      author,
       viewCount: info.view_count || 0,
       formats,
     });
@@ -446,14 +505,17 @@ app.get('/api/download', async (req, res) => {
     }
 
     // Get video title first
-    const infoOutput = await runYtDlp([
+    const ytInfoArgs = [
       '--dump-json',
       '--no-warnings',
-      '--no-playlist',
-      url
-    ]);
+      '--no-playlist'
+    ];
+    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    ytInfoArgs.push(url);
+
+    const infoOutput = await runYtDlp(ytInfoArgs);
     const info = JSON.parse(infoOutput);
-    const safeTitle = (info.title || 'video').replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    const safeTitle = cleanVideoTitle(info.title).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
 
     const tempFileName = `temp-${Date.now()}-${Math.floor(Math.random()*1000)}.mp4`;
     const tempFilePath = path.join(DOWNLOADS_DIR, tempFileName);
@@ -464,6 +526,7 @@ app.get('/api/download', async (req, res) => {
       '--no-playlist',
       '-o', tempFilePath,
     ];
+    if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
 
     if (fs.existsSync(FFMPEG_PATH)) {
       args.push('--ffmpeg-location', FFMPEG_PATH);
@@ -491,25 +554,9 @@ app.get('/api/download', async (req, res) => {
 
     console.log('Downloading with args:', args.join(' '));
 
-    const ytdlp = spawn(YTDLP_PATH, args);
-
-    ytdlp.stdout.on('data', (data) => {
-      console.log('yt-dlp stdout:', data.toString().trim());
-    });
-
-    ytdlp.stderr.on('data', (data) => {
-      console.log('yt-dlp progress:', data.toString().trim());
-    });
-
-    ytdlp.on('error', (err) => {
-      console.error('yt-dlp spawn error:', err.message);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Không thể tải video' });
-      }
-    });
-
-    ytdlp.on('close', (code) => {
-      if (code === 0 && fs.existsSync(tempFilePath)) {
+    try {
+      await runYtDlp(args);
+      if (fs.existsSync(tempFilePath)) {
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Content-Disposition', contentDisposition(`${safeTitle}.mp4`));
         
@@ -517,22 +564,17 @@ app.get('/api/download', async (req, res) => {
         stream.pipe(res);
         
         stream.on('end', () => {
-          fs.unlinkSync(tempFilePath); // delete temp file after sending
+          try { fs.unlinkSync(tempFilePath); } catch (e) {}
         });
       } else {
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Lỗi khi tải video hoặc merge video' });
-        }
+        res.status(500).json({ error: 'Quá trình tải video thất bại' });
       }
-    });
-
-    // Handle client disconnect
-    req.on('close', () => {
-      ytdlp.kill('SIGTERM');
-      if (fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    } catch (err) {
+      console.error('yt-dlp download error:', err.message);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Không thể tải video' });
       }
-    });
+    }
 
   } catch (error) {
     console.error('Download error:', error.message);
@@ -553,9 +595,12 @@ app.get('/api/download-vi', async (req, res) => {
     console.log('Bắt đầu tải video kèm Vietsub:', url);
 
     // Get video title and ID
-    const infoOutput = await runYtDlp(['--dump-json', '--no-warnings', '--no-playlist', url]);
+    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
+    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    ytInfoArgs.push(url);
+    const infoOutput = await runYtDlp(ytInfoArgs);
     const info = JSON.parse(infoOutput);
-    const safeTitle = (info.title || 'video_vietsub').replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    const safeTitle = cleanVideoTitle(info.title).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
     const videoId = info.id || Date.now();
 
     const tempDir = path.join(DOWNLOADS_DIR, `temp_${videoId}_${Math.floor(Math.random() * 1000)}`);
@@ -567,15 +612,12 @@ app.get('/api/download-vi', async (req, res) => {
     const translatedSubPath = path.join(tempDir, `translated.srt`);
 
     // 1. Download video
-    const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, url];
+    const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern];
+    if (url.includes('tiktok.com')) videoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    videoArgs.push(url);
     if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
     
-    await new Promise((resolve, reject) => {
-      execFile(YTDLP_PATH, videoArgs, (err, stdout, stderr) => {
-        if (err) reject(new Error('Lỗi tải video gốc: ' + stderr));
-        else resolve();
-      });
-    });
+    await runYtDlp(videoArgs);
 
     // Find actual video path
     const files = fs.readdirSync(tempDir);
@@ -585,9 +627,7 @@ app.get('/api/download-vi', async (req, res) => {
 
     // 2. Download subtitles
     const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, url];
-    await new Promise((resolve) => {
-      execFile(YTDLP_PATH, subArgs, () => resolve()); // Ignore errors if no sub
-    });
+    try { await runYtDlp(subArgs); } catch (e) {}
 
     const updatedFiles = fs.readdirSync(tempDir);
     let subFile = updatedFiles.find(f => f.startsWith('sub.') && f.endsWith('.srt'));
@@ -661,13 +701,16 @@ app.post('/api/playlist', async (req, res) => {
     if (!limit || limit <= 0) return res.status(400).json({ error: 'Số lượng không hợp lệ' });
 
     // yt-dlp --dump-json --flat-playlist --playlist-end <limit> <url>
-    const output = await runYtDlp([
+    const ytListArgs = [
       '--dump-json',
       '--flat-playlist',
       '--playlist-end', limit.toString(),
-      '--no-warnings',
-      url
-    ]);
+      '--no-warnings'
+    ];
+    if (url.includes('tiktok.com')) ytListArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    ytListArgs.push(url);
+
+    const output = await runYtDlp(ytListArgs);
 
     // output contains multiple json objects separated by newline
     const lines = output.trim().split('\n');
@@ -706,6 +749,7 @@ app.post('/api/download-local', async (req, res) => {
       '--merge-output-format', 'mp4',
       '-o', path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'),
     ];
+    if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
 
     if (fs.existsSync(FFMPEG_PATH)) {
       args.push('--ffmpeg-location', FFMPEG_PATH);
@@ -910,6 +954,15 @@ app.post('/api/render-studio', studioUpload.fields([
       subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, FFMPEG_PATH);
     }
 
+    let originalIsChinese = false;
+    if (subtitlePath && fs.existsSync(subtitlePath)) {
+      const originalSubContent = fs.readFileSync(subtitlePath, 'utf8');
+      if (/[\u4e00-\u9fa5]/.test(originalSubContent)) {
+        originalIsChinese = true;
+        console.log('[Auto-Detect] Phát hiện video nguồn có phụ đề tiếng Trung.');
+      }
+    }
+
     if (subtitlePath && body.translateVi === 'true') {
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
       await translateSubtitles(subtitlePath, translatedPath);
@@ -1054,7 +1107,8 @@ app.post('/api/render-studio', studioUpload.fields([
           const syllableCount = lineText.split(/\s+/).filter(w => w.length > 0).length;
           const naturalDuration = Math.max(0.6, syllableCount * 0.17);
           
-          const speed = Math.max(1.0, Math.min(2.0, naturalDuration / durationSec));
+          const minSpeed = originalIsChinese ? 0.85 : 1.0;
+          const speed = Math.max(minSpeed, Math.min(2.0, naturalDuration / durationSec));
           const targetDuration = naturalDuration / speed;
 
           const omnivoiceArgs = [

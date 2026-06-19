@@ -97,11 +97,11 @@ async function loadAssets() {
 }
 
 function isValidVideoUrl(url) {
-  return /(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/)/.test(url);
+  return /(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/)/.test(url);
 }
 
 function formatDuration(seconds) {
-  const value = Number(seconds || 0);
+  const value = Math.round(Number(seconds || 0));
   const mins = Math.floor(value / 60);
   const secs = value % 60;
   return `${mins}:${String(secs).padStart(2, '0')}`;
@@ -148,7 +148,6 @@ function renderVideoInfo(data) {
   const vietsub = document.createElement('a');
   vietsub.className = 'quality-btn green';
   vietsub.href = `/api/download-vi?url=${encodeURIComponent(currentUrl)}`;
-  vietsub.target = '_blank';
   vietsub.textContent = 'Tải + dịch Vietsub';
   grid.appendChild(vietsub);
 
@@ -156,7 +155,6 @@ function renderVideoInfo(data) {
     const link = document.createElement('a');
     link.className = 'quality-btn';
     link.href = `/api/download?url=${encodeURIComponent(currentUrl)}&format_id=${encodeURIComponent(format.format_id)}`;
-    link.target = '_blank';
     link.textContent = `${format.quality} · ${format.size}`;
     grid.appendChild(link);
   }
@@ -224,7 +222,7 @@ async function renderStudio(event) {
     status.textContent = 'Hoàn tất.';
     const resultHtml = `
       <video controls src="${result.url}"></video>
-      <a class="download-link" href="${result.url}" target="_blank">Mở video render</a>
+      <a class="download-link" href="${result.url}" download>Tải video render</a>
     `;
     const renderResultSidebar = $('render-result');
     if (renderResultSidebar) {
