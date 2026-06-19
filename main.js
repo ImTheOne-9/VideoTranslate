@@ -1,6 +1,8 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { ensureModelsExist } = require('./lib/model-downloader');
 
 // Cấu hình thư mục log
 const logDir = app.getPath('userData');
@@ -80,16 +82,19 @@ function createWindow(port) {
   // Chỉ bật tự động DevTools ở môi trường phát triển (chưa đóng gói)
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
-  } else {
-    // Trong môi trường production, chặn các phím bật DevTools thông thường
-    // nhưng giữ tổ hợp phím ẩn (Ctrl+Shift+I) để debug khi cần thiết.
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.control && input.shift && input.key.toLowerCase() === 'i') {
-        mainWindow.webContents.toggleDevTools();
-        event.preventDefault();
-      }
-    });
   }
+
+  // Đăng ký phím tắt Ctrl+R / F5 để tải lại trang và Ctrl+Shift+I để bật DevTools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if ((input.control && input.key.toLowerCase() === 'r') || input.key === 'F5') {
+      mainWindow.reload();
+      event.preventDefault();
+    }
+    if (app.isPackaged && input.control && input.shift && input.key.toLowerCase() === 'i') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -99,6 +104,44 @@ function createWindow(port) {
 // Khởi chạy server và ứng dụng khi Electron sẵn sàng
 app.whenReady().then(async () => {
   try {
+    // 1. Hiển thị màn hình Loading tải dữ liệu AI
+    let loadingWin = new BrowserWindow({
+      width: 450,
+      height: 250,
+      frame: false,
+      transparent: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+    
+    loadingWin.loadFile(path.join(__dirname, 'public', 'loading.html'));
+    
+    // 2. Định tuyến thư mục chứa model
+    const isPackaged = __dirname.includes('app.asar');
+    const appDataRoot = isPackaged ? path.join(os.homedir(), 'VideoStudio') : __dirname;
+    const MODELS_DIR = path.join(appDataRoot, 'models');
+
+    // 3. Tiến hành tải ngầm nếu model chưa tồn tại
+    try {
+      await ensureModelsExist(MODELS_DIR, (progress) => {
+        if (loadingWin && !loadingWin.isDestroyed()) {
+          loadingWin.webContents.send('download-progress', progress);
+        }
+      });
+    } catch (downloadErr) {
+      console.error('Lỗi khi tải Model AI:', downloadErr.message);
+      // Có thể hiển thị alert cho người dùng ở đây, hiện tại bỏ qua để tiếp tục chạy app
+    }
+
+    // 4. Đóng màn hình Loading
+    if (loadingWin && !loadingWin.isDestroyed()) {
+      loadingWin.close();
+      loadingWin = null;
+    }
+
+    // 5. Khởi chạy Server và màn hình chính
     const preferredPort = 3456;
     console.log(`Đang dò port trống và khởi chạy Express server...`);
     const result = await startServer(preferredPort);

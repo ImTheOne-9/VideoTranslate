@@ -28,11 +28,20 @@
         <button class="nav-btn" data-view="studio" title="Render studio">
           <span>▣</span><strong>Studio render</strong>
         </button>
-        <button class="nav-btn" data-view="voices" title="Lưu giọng">
+        <button class="nav-btn" data-view="rendered-videos" title="Kho video">
+          <span>▶</span><strong>Kho video</strong>
+        </button>
+        <button class="nav-btn" data-view="voices" title="Kho giọng">
           <span>◉</span><strong>Kho giọng</strong>
+        </button>
+        <button class="nav-btn" data-view="music" title="Kho nhạc">
+          <span>♫</span><strong>Kho nhạc</strong>
         </button>
         <button class="nav-btn" data-view="bulk" title="Tải hàng loạt">
           <span>☰</span><strong>Tải hàng loạt</strong>
+        </button>
+        <button class="nav-btn" data-view="pages" title="Quản lý Page">
+          <span>▤</span><strong>Quản lý Page</strong>
         </button>
       </nav>
 
@@ -72,6 +81,16 @@
             </div>
           </div>
         </div>
+
+        <div class="panel" style="margin-top: 14px;">
+          <div class="panel-head" style="margin-bottom: 14px;">
+            <h3>Lịch sử tải video</h3>
+            <button type="button" class="ghost-btn" id="clear-download-history-btn" onclick="clearDownloadHistory()" style="font-size: 11px; padding: 4px 8px; height: auto;">🧹 Xóa lịch sử</button>
+          </div>
+          <div id="download-history-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; padding-right: 4px;">
+            <!-- Danh sách lịch sử tải sẽ được render bằng JS -->
+          </div>
+        </div>
       </section>
 
       <section class="view" id="view-studio">
@@ -80,8 +99,8 @@
           <div class="studio-config-column">
             <div class="panel">
               <div class="panel-head">
-                <h3>1. Video nguồn</h3>
-                <span>Chọn file đã tải hoặc upload file mới</span>
+                <h3>Video nguồn</h3>
+                <span class="badge source-badge">Tải lên / Thư viện</span>
               </div>
               
               <div class="studio-source-tabs">
@@ -120,12 +139,16 @@
                 </div>
               </div>
 
-              <!-- Reaction Video PIP settings -->
-              <div class="reaction-pip-settings" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <div class="panel-head" style="border-bottom: none; margin-bottom: 8px;">
-                  <h3 style="font-size: 15px; font-weight: 600;">Ghép video reaction / Video góc mặt</h3>
-                  <span style="font-size: 11px; color: var(--muted);">Chèn video reaction góc màn hình</span>
-                </div>
+            </div>
+
+            <!-- Reaction Video PIP settings -->
+            <div class="panel">
+              <div class="panel-head">
+                <h3>Ghép video reaction</h3>
+                <span class="badge reaction-badge">Video reaction</span>
+              </div>
+              
+              <div class="reaction-pip-settings">
                 
                 <div class="studio-source-tabs">
                   <button type="button" class="reaction-tab-btn active" data-reaction-tab-mode="none">❌ Không ghép</button>
@@ -190,18 +213,19 @@
 
             <div class="panel premium-sub-panel">
               <div class="panel-head">
-                <h3>2. Dịch & chèn sub</h3>
+                <h3>Dịch & chèn sub</h3>
                 <span class="badge sub-badge">CapCut Style</span>
               </div>
               
               <div class="form-group">
                 <label>Chế độ sub</label>
-                <select id="subtitle-mode" name="subtitleMode" class="premium-select">
-                  <option value="none">Không dùng sub</option>
-                  <option value="generate">Tạo sub từ giọng nói bằng Whisper</option>
-                  <option value="upload">Upload file sub .srt</option>
-                  <option value="saved">Dùng sub đã lưu</option>
-                </select>
+                <div class="studio-source-tabs">
+                  <button type="button" class="sub-tab-btn active" data-sub-mode="none" title="Không dùng sub">❌ Không dùng</button>
+                  <button type="button" class="sub-tab-btn" data-sub-mode="saved" title="Dùng sub đã lưu">📝 Đã lưu</button>
+                  <button type="button" class="sub-tab-btn" data-sub-mode="upload" title="Upload file sub .srt, .vtt, .ass">⬆️ Tải lên</button>
+                  <button type="button" class="sub-tab-btn whisper-tab" data-sub-mode="generate" title="Tạo sub tự động bằng AI Whisper">✨ AI Whisper</button>
+                </div>
+                <input type="hidden" id="subtitle-mode" name="subtitleMode" value="none">
               </div>
 
               <div id="sub-upload-wrapper" class="form-group hidden">
@@ -215,6 +239,7 @@
                 <select id="saved-subtitle-select" name="savedSubtitleFile" class="premium-select"></select>
               </div>
               
+              <div id="sub-settings-container">
               <div class="switch-row premium-switch-row">
                 <label class="premium-switch">
                   <input type="checkbox" id="translate-vi" name="translateVi" value="true" checked>
@@ -226,6 +251,12 @@
                   <span class="switch-slider"></span>
                   <span class="switch-label">Chèn sub vào video</span>
                 </label>
+              </div>
+              
+              <div id="gemini-key-wrapper" class="form-group" style="margin-top: 10px; margin-bottom: 15px;">
+                <label>Google Gemini API Key (Tùy chọn)</label>
+                <input type="password" id="gemini-api-key" name="geminiApiKey" class="premium-input" placeholder="Nhập API Key để dịch siêu mượt">
+                <p style="font-size: 11px; color: var(--muted); margin-top: 4px;">Nếu để trống, ứng dụng sẽ dùng Google Translate mặc định.</p>
               </div>
 
               <div class="sub-settings-grid">
@@ -245,6 +276,11 @@
                     <option value="Impact">Impact (Shorts Style)</option>
                     <option value="Tahoma">Tahoma Bold</option>
                     <option value="Georgia">Georgia Bold</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Courier New">Courier New (Typewriter)</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Comic Sans MS">Comic Sans MS (Vui nhộn)</option>
+                    <option value="Consolas">Consolas (Code Style)</option>
                   </select>
                 </div>
               </div>
@@ -286,6 +322,9 @@
                   <button type="button" class="color-swatch" data-color="#00E5FF" style="background-color: #00E5FF;" title="Cyan Neon"></button>
                   <button type="button" class="color-swatch" data-color="#00FF00" style="background-color: #00FF00;" title="Xanh Lá"></button>
                   <button type="button" class="color-swatch" data-color="#FF4081" style="background-color: #FF4081;" title="Hồng"></button>
+                  <button type="button" class="color-swatch" data-color="#FF0000" style="background-color: #FF0000;" title="Đỏ tươi"></button>
+                  <button type="button" class="color-swatch" data-color="#FF9800" style="background-color: #FF9800;" title="Cam"></button>
+                  <button type="button" class="color-swatch" data-color="#000000" style="background-color: #000000;" title="Đen"></button>
                 </div>
                 <input type="hidden" name="subtitleColor" id="subtitle-color-input" value="#FFFFFF">
               </div>
@@ -294,9 +333,12 @@
                 <div class="form-group">
                   <label>Hiệu ứng chữ</label>
                   <select name="subtitleTheme" class="premium-select">
-                    <option value="outline" selected>Viền đen (CapCut)</option>
+                    <option value="outline" selected>Viền mỏng (Tiêu chuẩn)</option>
+                    <option value="outline-thick">Viền đen cực đậm (Tiktok)</option>
                     <option value="box">Hộp nền đen mờ</option>
+                    <option value="box-deep">Hộp nền đen sâu</option>
                     <option value="shadow">Đổ bóng chữ</option>
+                    <option value="outline-shadow">Viền đen + Đổ bóng</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -307,22 +349,24 @@
                   </select>
                 </div>
               </div>
+              </div>
             </div>
 
             <div class="panel premium-ai-panel">
               <div class="panel-head">
-                <h3>3. Voice / Omi Cloner</h3>
+                <h3>Voice / Omi Cloner</h3>
                 <span class="badge ai-badge">AI Voice cloner</span>
               </div>
               
               <div class="form-group">
                 <label>Chế độ giọng nói</label>
-                <select id="voice-mode" name="voiceMode" class="premium-select">
-                  <option value="none">Không chèn giọng</option>
-                  <option value="saved">Chèn giọng thuyết minh đã lưu</option>
-                  <option value="upload">Upload file voiceover mới</option>
-                  <option value="omi">Omi Cloner (Nhái giọng AI)</option>
-                </select>
+                <div class="studio-source-tabs">
+                  <button type="button" class="voice-tab-btn active" data-voice-mode="none" title="Không chèn giọng">❌ Không chèn</button>
+                  <button type="button" class="voice-tab-btn" data-voice-mode="saved" title="Chèn giọng thuyết minh đã lưu">🎙️ Đã lưu</button>
+                  <button type="button" class="voice-tab-btn" data-voice-mode="upload" title="Tải lên file thu âm mới">⬆️ Tải lên</button>
+                  <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi" title="Omi Cloner (Nhái giọng AI)">🤖 Omi Cloner</button>
+                </div>
+                <input type="hidden" id="voice-mode" name="voiceMode" value="none">
               </div>
 
               <div id="voice-saved-wrapper" class="form-group hidden">
@@ -338,16 +382,6 @@
               </div>
 
               <div id="omi-cloner-container" class="omi-cloner-container hidden">
-                <div class="form-group">
-                  <label>Ref-text (Câu thoại của giọng mẫu)</label>
-                  <textarea id="ref-text" name="refText" rows="2" class="premium-textarea" placeholder="Nhập chính xác câu nói trong file giọng mẫu ngắn để AI đối chiếu. Nếu để trống hệ thống sẽ dùng Whisper tự nhận diện."></textarea>
-                </div>
-
-                <div class="form-group">
-                  <label>Kịch bản phát thanh</label>
-                  <textarea id="omi-script" name="omiScript" rows="3" class="premium-textarea" placeholder="Nhập văn bản cần AI đọc bằng giọng mẫu clone..."></textarea>
-                </div>
-
                 <div class="omi-advanced-grid">
                   <div class="form-group">
                     <label>Ngôn ngữ</label>
@@ -364,32 +398,62 @@
                       <option value="cuda:0">Card đồ họa GPU (CUDA)</option>
                     </select>
                   </div>
-                  <div class="form-group">
-                    <label>Số bước (Steps)</label>
-                    <input type="number" name="omiSteps" value="16" min="4" max="64" class="premium-input">
-                  </div>
-                  <div class="form-group">
-                    <label>Seed (Mã hạt)</label>
-                    <input type="number" name="omiSeed" value="123" class="premium-input">
-                  </div>
                 </div>
+                
+                <details class="advanced-settings-details" style="margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 15px;">
+                  <summary style="cursor: pointer; color: var(--accent); font-weight: 500; user-select: none;">⚙️ Hiển thị Tùy chỉnh Nâng cao (Steps & Seed)</summary>
+                  <div class="omi-advanced-grid" style="margin-top: 15px;">
+                    <div class="form-group">
+                      <label style="display: flex; justify-content: space-between;">
+                        <span>Chất lượng giọng (Steps)</span>
+                        <span id="omi-steps-badge" style="color: var(--accent); font-weight: bold;">25</span>
+                      </label>
+                      <input type="range" name="omiSteps" id="omi-steps-slider" value="25" min="10" max="50" step="1" class="premium-slider" style="width: 100%; margin-top: 5px;">
+                      <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 8px;">
+                        <span>Nhanh / Hơi máy</span>
+                        <span>Chậm / Cảm xúc</span>
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label>Phong cách đọc (Seed)</label>
+                      <select id="omi-seed-preset" class="premium-select" style="margin-bottom: 8px;">
+                        <option value="">🎲 Tự động ngẫu nhiên (Mỗi lần render một ngữ điệu khác nhau)</option>
+                        <option value="42">🎙️ Giọng kể chuyện (Trầm ấm, chậm rãi)</option>
+                        <option value="1024">📢 Giọng đọc tin tức (Dõng dạc, chính luận)</option>
+                        <option value="2026">❤️ Giọng tâm sự (Nhẹ nhàng, sâu lắng)</option>
+                        <option value="99999">⚡ Giọng sôi nổi (Nhanh nhẹn, năng động)</option>
+                        <option value="55555">🎯 Giọng quảng cáo (Cuốn hút, nhấn nhá)</option>
+                        <option value="77777">🎬 Giọng kịch tính (Hồi hộp, giật gân, bí ẩn)</option>
+                        <option value="12345">🤡 Giọng hài hước (Vui nhộn, dí dỏ)</option>
+                        <option value="88888">🍿 Giọng review phim (Lôi cuốn, nhịp điệu)</option>
+                        <option value="33333">💡 Giọng chia sẻ kiến thức (Tự tin, rõ ràng)</option>
+                        <option value="66666">💬 Giọng trò chuyện (Tự nhiên, gần gũi)</option>
+                        <option value="custom">✏️ Tự nhập số tùy chỉnh (Nâng cao)</option>
+                      </select>
+                      <div id="omi-custom-seed-wrapper" class="hidden">
+                        <input type="number" id="omi-seed-input" name="omiSeed" placeholder="Nhập một số bất kỳ (ví dụ: 12345)" class="premium-input">
+                      </div>
+                    </div>
+                  </div>
+                </details>
               </div>
               <p class="note info-note">💡 Omi Cloner yêu cầu file giọng mẫu ngắn trong thư viện để tiến hành sao chép giọng.</p>
             </div>
 
             <div class="panel premium-mixer-panel">
               <div class="panel-head">
-                <h3>4. Nhạc nền & âm lượng</h3>
+                <h3>Nhạc nền & âm lượng</h3>
                 <span class="badge mixer-badge">Bảng trộn âm</span>
               </div>
               
               <div class="form-group">
                 <label>Chế độ nhạc nền</label>
-                <select id="music-mode" name="musicMode" class="premium-select">
-                  <option value="none">Không dùng nhạc nền</option>
-                  <option value="saved">Dùng nhạc nền đã lưu</option>
-                  <option value="upload">Tải lên file nhạc mới</option>
-                </select>
+                <div class="studio-source-tabs">
+                  <button type="button" class="music-tab-btn active" data-music-mode="none" title="Không dùng nhạc nền">❌ Không dùng</button>
+                  <button type="button" class="music-tab-btn" data-music-mode="saved" title="Dùng nhạc nền đã lưu">🎵 Đã lưu</button>
+                  <button type="button" class="music-tab-btn" data-music-mode="upload" title="Tải lên file nhạc mới">⬆️ Tải lên</button>
+                </div>
+                <input type="hidden" id="music-mode" name="musicMode" value="none">
               </div>
 
               <div id="music-saved-wrapper" class="form-group hidden">
@@ -451,47 +515,170 @@
           <!-- Cột xem trước & kết quả (Bên phải) -->
           <div class="studio-preview-column">
             <div class="panel studio-preview-panel">
-              <div class="panel-head">
-                <h3>Xem trước & Kết quả</h3>
-                <span>Xem trước trực quan phụ đề và reaction</span>
-              </div>
-
-              <!-- Visual Preview Stage (Draggable subtitle & PIP) -->
-              <div id="subtitle-positioner-container" class="subtitle-positioner-container">
-                <!-- Placeholder message -->
-                <div id="preview-placeholder" style="color: var(--muted); font-size: 13px; text-align: center; padding: 40px 10px; border: 2px dashed var(--border); border-radius: 6px; background: #080c10;">
-                  🎞️ Chọn hoặc tải lên video nguồn để bắt đầu xem trước phụ đề và reaction.
-                </div>
-
-                <div id="video-preview-wrapper" class="video-preview-wrapper hidden">
-                  <video id="studio-video-preview" muted playsinline></video>
-                  
-                  <!-- Draggable Subtitle Overlay -->
-                  <div id="draggable-subtitle" class="draggable-subtitle">Dòng phụ đề thứ nhất&#10;Dòng phụ đề thứ hai (1-2 dòng)</div>
-                  
-                  <!-- Reaction PIP Preview Overlay -->
-                  <div id="preview-reaction-pip" class="preview-reaction-pip hidden">
-                    <video id="preview-reaction-video" muted playsinline loop></video>
-                    <div class="reaction-placeholder-box">Reaction PIP</div>
-                    <div id="reaction-resizer-handle" class="reaction-resizer-handle"></div>
+              <div class="panel-head" style="padding-bottom: 0; border-bottom: none;">
+                <div style="width: 100%;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3>Xem trước & Kết quả</h3>
+                    <div style="display: inline-flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 12px; color: var(--muted); font-weight: 500;">🛡️ Vùng an toàn:</span>
+                      <select id="safezone-platform-select" class="premium-input" style="padding: 4px 8px; font-size: 11px; height: 28px; width: auto; margin: 0; background: var(--panel-2); border-color: var(--border); border-radius: 4px; color: var(--text); cursor: pointer;">
+                        <option value="none">Ẩn</option>
+                        <option value="tiktok">TikTok</option>
+                        <option value="facebook">FB Reels</option>
+                        <option value="xiaohongshu">Xiaohongshu</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="studio-source-tabs" id="preview-tabs" style="margin-bottom: 0;">
+                    <button type="button" class="preview-tab-btn active" data-tab="preview">📺 Xem trước</button>
+                    <button type="button" class="preview-tab-btn" data-tab="result">🎬 Kết quả</button>
                   </div>
                 </div>
               </div>
 
-              <!-- Render controls and status -->
-              <div class="preview-action-row" style="margin-top: 15px; display: grid; gap: 10px;">
-                <div style="display: flex; gap: 10px;">
-                  <button type="submit" id="render-btn" style="flex: 1; margin: 0;">Render video</button>
-                  <button type="button" class="ghost-btn" id="open-folder-btn" style="margin: 0;">Mở thư mục downloads</button>
+              <!-- Tab: Xem trước -->
+              <div id="tab-preview-content">
+                <!-- Visual Preview Stage (Draggable subtitle & PIP) -->
+                <div id="subtitle-positioner-container" class="subtitle-positioner-container" style="margin-top: 14px;">
+                  <!-- Placeholder message -->
+                  <div id="preview-placeholder" style="color: var(--muted); font-size: 13px; text-align: center; padding: 40px 10px; border: 2px dashed var(--border); border-radius: 6px; background: #080c10;">
+                    🎞️ Chọn hoặc tải lên video nguồn để bắt đầu xem trước phụ đề và reaction.
+                  </div>
+
+                  <div id="video-preview-wrapper" class="video-preview-wrapper hidden">
+                    <video id="studio-video-preview" muted playsinline></video>
+                    
+                    <!-- Subtitle Canvas Wrapper for proportional sizing and positioning -->
+                    <div id="subtitle-canvas-wrapper" style="position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; z-index: 10;">
+                      <!-- Draggable Subtitle Overlay -->
+                      <div id="draggable-subtitle" class="draggable-subtitle" style="pointer-events: auto;">Dòng phụ đề thứ nhất&#10;Dòng phụ đề thứ hai (1-2 dòng)</div>
+                    </div>
+                    
+                    <!-- Reaction PIP Preview Overlay -->
+                    <div id="preview-reaction-pip" class="preview-reaction-pip hidden">
+                      <video id="preview-reaction-video" muted playsinline loop></video>
+                      <div class="reaction-placeholder-box">Reaction PIP</div>
+                      <div id="reaction-resizer-handle" class="reaction-resizer-handle"></div>
+                    </div>
+
+                    <!-- Safe Zone Overlay -->
+                    <div id="preview-safezone-overlay" class="preview-safezone-overlay none">
+                      
+                      <!-- TikTok Safe Zone Overlay -->
+                      <div class="safezone-wrapper tiktok-overlay">
+                        <!-- Top actions -->
+                        <div class="tiktok-top-actions" style="position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; z-index: 6;">
+                          <div class="safezone-action-mute" style="background: rgba(0,0,0,0.3); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; pointer-events: auto; cursor: pointer;">🔇</div>
+                          <div style="background: rgba(0,0,0,0.3); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px;">•••</div>
+                        </div>
+
+                        <!-- Bottom info -->
+                        <div class="safezone-bottom" style="position: absolute; left: 12px; bottom: 16px; right: 80px; display: flex; flex-direction: column; gap: 6px; color: white; text-align: left;">
+                          <div class="safezone-capcut-badge" style="background: rgba(0, 0, 0, 0.4); padding: 4px 8px; border-radius: 4px; font-size: 10px; width: max-content; border: 1px solid rgba(255, 255, 255, 0.08); font-weight: 500;">🎬 CapCut - Chỉnh sửa như chuyên gia</div>
+                          <div class="safezone-username" style="font-weight: 700; font-size: 13.5px; text-shadow: 0 1px 2px rgba(0,0,0,0.6);">07thegoat1</div>
+                          <div class="safezone-desc" style="font-size: 11px; line-height: 1.35; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: normal; word-break: break-word;">Ronaldo masterclass against spain 2018 world cup.#fyp#viral#ronaldo#portugal</div>
+                          <div class="safezone-translate" style="font-size: 11px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.6); cursor: pointer; text-decoration: underline; opacity: 0.95;">Xem bản dịch</div>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div class="tiktok-progress-bar safezone-timeline-container" style="position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: rgba(255,255,255,0.25); pointer-events: auto; cursor: pointer;">
+                          <div class="safezone-timeline-progress" style="width: 0%; height: 100%; background: #ff2442;"></div>
+                        </div>
+                      </div>
+
+                      <!-- Facebook Reels Safe Zone Overlay -->
+                      <div class="safezone-wrapper facebook-overlay">
+                        <!-- Top actions -->
+                        <div class="fb-top-actions" style="position: absolute; top: 12px; left: 12px; z-index: 6;">
+                          <div class="safezone-action-mute" style="background: rgba(0,0,0,0.3); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; pointer-events: auto; cursor: pointer;">🔇</div>
+                        </div>
+
+                        <!-- Center play/pause overlay -->
+                        <div class="fb-center-action safezone-action-playpause" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: auto; cursor: pointer;">
+                          <div class="fb-playpause-icon" style="background: rgba(0,0,0,0.45); border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px; border: 1.5px solid rgba(255,255,255,0.1);">⏸</div>
+                        </div>
+
+                        <!-- Bottom info -->
+                        <div class="safezone-bottom" style="position: absolute; left: 12px; bottom: 16px; right: 80px; display: flex; flex-direction: column; gap: 6px; color: white; text-align: left;">
+                          <div class="fb-author-row" style="display: flex; align-items: center; gap: 8px;">
+                            <div class="fb-avatar" style="width: 24px; height: 24px; border-radius: 50%; background: #555; display: flex; align-items: center; justify-content: center; font-size: 11px; border: 1px solid rgba(255,255,255,0.2);">🐕</div>
+                            <span class="fb-name" style="font-weight: 700; font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,0.6);">Corgi Fy Lợn</span>
+                            <span style="font-size: 10px; color: rgba(255,255,255,0.85); font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.6);">🌐 · Theo dõi</span>
+                          </div>
+                          <div class="safezone-sound" style="font-size: 11px; display: flex; align-items: center; gap: 4px; text-shadow: 0 1px 2px rgba(0,0,0,0.6);">
+                            <span>🎵</span><span>Davichi · This Love</span>
+                          </div>
+                          <div class="safezone-desc" style="font-size: 11px; line-height: 1.35; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: normal; word-break: break-word;">Cho chừa cái tội lề mề #corgi #fyp #trendingreels #facebookreels #funny</div>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div class="fb-progress-bar safezone-timeline-container" style="position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: rgba(255, 255, 255, 0.25); pointer-events: auto; cursor: pointer;">
+                          <div class="safezone-timeline-progress" style="width: 0%; height: 100%; background: rgba(255, 255, 255, 0.8);"></div>
+                        </div>
+                      </div>
+
+                      <!-- Xiaohongshu Safe Zone Overlay -->
+                      <div class="safezone-wrapper xiaohongshu-overlay">
+                        <!-- Top actions -->
+                        <div class="xhs-top-actions" style="position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; z-index: 6; color: white;">
+                          <!-- Xiaohongshu Logo Badge -->
+                          <div style="background: #ffffff; color: #ff2442; font-size: 10.5px; font-weight: 800; padding: 4px 10px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); font-family: sans-serif; display: flex; align-items: center;">小红书</div>
+                          <!-- Author Info -->
+                          <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 12px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.6);">绿林</span>
+                            <div style="width: 24px; height: 24px; border-radius: 50%; background: #555; border: 1px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 11px;">👩</div>
+                          </div>
+                        </div>
+
+                        <!-- Center play/pause overlay -->
+                        <div class="xhs-center-action safezone-action-playpause" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: auto; cursor: pointer;">
+                          <div class="xhs-playpause-icon" style="color: white; font-size: 40px; opacity: 0.95; text-shadow: 0 2px 10px rgba(0,0,0,0.3); line-height: 1; display: flex; align-items: center; justify-content: center; width: 60px; height: 60px;">▶</div>
+                        </div>
+
+                        <!-- Bottom controls bar (Xiaohongshu Web Player style) -->
+                        <div class="xhs-bottom-bar" style="position: absolute; bottom: 0; left: 0; right: 0; padding: 10px 14px; background: linear-gradient(to top, rgba(0,0,0,0.6), transparent); display: flex; flex-direction: column; gap: 8px; color: white; z-index: 6; font-family: system-ui, -apple-system, sans-serif;">
+                          <!-- Timeline progress line -->
+                          <div class="safezone-timeline-container" style="position: relative; width: 100%; height: 6px; background: rgba(255, 255, 255, 0.3); border-radius: 3px; pointer-events: auto; cursor: pointer;">
+                            <div class="safezone-timeline-progress" style="position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #ff2442; border-radius: 3px;"></div>
+                          </div>
+                          <!-- Controls row -->
+                          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                            <!-- Play & Time -->
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                              <span class="safezone-action-playpause" style="font-size: 12px; cursor: pointer; opacity: 0.95; pointer-events: auto;">▶</span>
+                              <span class="safezone-time-display" style="font-weight: 500; opacity: 0.9;">00:00/00:00</span>
+                            </div>
+                            <!-- Right tools -->
+                            <div style="display: flex; align-items: center; gap: 14px; opacity: 0.9;">
+                              <span style="cursor: pointer; font-weight: 500;">倍速</span>
+                              <span class="safezone-action-mute" style="font-size: 12px; cursor: pointer; pointer-events: auto;">🔊</span>
+                              <span style="font-size: 11px; cursor: pointer;">🔳</span>
+                              <span style="font-size: 12px; cursor: pointer;">⛶</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
                 </div>
-                <span id="render-status" style="line-height: 1.4;"></span>
+
+                <!-- Render controls and status -->
+                <div class="render-controls-bar">
+                  <div class="studio-render-btn-container" style="display: flex; flex-direction: column; gap: 12px; margin-top: 24px;">
+                    <button type="submit" id="render-btn" class="premium-render-btn">✨ RENDER VIDEO ✨</button>
+                    <button type="button" id="open-folder-btn" class="premium-folder-btn">📂 Mở thư mục Download</button>
+                  </div>
+                  <span id="render-status" style="line-height: 1.4; display: block; text-align: center; margin-top: 10px; color: var(--muted);"></span>
+                </div>
               </div>
 
-              <!-- Unified Render Result Display -->
-              <div class="render-result-container" style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <label style="margin: 0 0 10px 0;"><strong>Kết quả render:</strong></label>
-                <div id="studio-render-result" class="studio-render-result-box">
-                  <div class="empty-result-msg" style="color: var(--muted); font-size: 13px;">Chưa có video render nào. Hãy nhấn "Render video" ở trên.</div>
+              <!-- Tab: Kết quả -->
+              <div id="tab-result-content" class="hidden">
+                <div class="render-result-container" style="margin-top: 14px; padding-top: 0; border-top: none;">
+                  <div id="studio-render-result" class="studio-render-result-box">
+                    <div class="empty-result-msg" style="color: var(--muted); font-size: 13px;">Chưa có video render nào. Hãy nhấn "Render video" ở tab Xem trước.</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -500,28 +687,70 @@
       </section>
 
       <section class="view" id="view-voices">
-        <div class="library-grid">
-          <form class="panel" id="save-voice-form">
-            <div class="panel-head">
-              <h3>Lưu giọng mẫu</h3>
-              <span>Dùng cho Omi Cloner hoặc voiceover thủ công</span>
-            </div>
-            <label>Tên giọng</label>
-            <input type="text" name="voiceName" placeholder="VD: Giọng nam miền Nam">
-            <label>File âm thanh mẫu</label>
-            <input type="file" name="voice" accept="audio/*" required>
-            <button type="submit">Lưu giọng</button>
-          </form>
+        <div class="panel" style="margin-bottom: 14px;">
+          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+            <h3>Quản lý Kho Giọng Mẫu</h3>
+            <span id="voice-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Giọng</span>
+          </div>
+          <div class="url-row" style="margin-top: 14px;">
+            <input type="text" id="voice-search-input" placeholder="Tìm kiếm giọng theo tên..." class="premium-input">
+            <button type="button" id="open-add-voice-btn" onclick="openVoiceModal()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ THÊM GIỌNG MỚI</button>
+          </div>
+        </div>
 
-          <form class="panel" id="save-music-form">
-            <div class="panel-head">
-              <h3>Lưu nhạc nền</h3>
-              <span>Nhạc sẽ xuất hiện trong Studio render</span>
-            </div>
-            <label>File nhạc</label>
-            <input type="file" name="music" accept="audio/*" required>
-            <button type="submit">Lưu nhạc</button>
-          </form>
+        <div class="panel">
+          <div id="voice-list-container" style="max-height: calc(100vh - 360px); overflow-y: auto; padding-right: 4px;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <th style="padding: 12px 8px; font-weight: 700;">Tên Giọng mẫu</th>
+                  <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
+                  <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
+                  <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
+                </tr>
+              </thead>
+              <tbody id="voice-list-tbody">
+                <!-- Danh sách giọng mẫu sẽ được render bằng JS -->
+              </tbody>
+            </table>
+          </div>
+          <div id="voice-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <!-- Các nút chuyển trang -->
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-music">
+        <div class="panel" style="margin-bottom: 14px;">
+          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+            <h3>Quản lý Kho Nhạc Nền</h3>
+            <span id="music-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Nhạc</span>
+          </div>
+          <div class="url-row" style="margin-top: 14px;">
+            <input type="text" id="music-search-input" placeholder="Tìm kiếm nhạc theo tên..." class="premium-input">
+            <button type="button" id="open-add-music-btn" onclick="openMusicModal()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ THÊM NHẠC MỚI</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div id="music-list-container" style="max-height: calc(100vh - 360px); overflow-y: auto; padding-right: 4px;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <th style="padding: 12px 8px; font-weight: 700;">Tên File Nhạc</th>
+                  <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
+                  <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
+                  <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
+                </tr>
+              </thead>
+              <tbody id="music-list-tbody">
+                <!-- Danh sách nhạc sẽ được render bằng JS -->
+              </tbody>
+            </table>
+          </div>
+          <div id="music-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <!-- Các nút chuyển trang -->
+          </div>
         </div>
       </section>
 
@@ -540,8 +769,407 @@
           <ul id="bulk-list" class="bulk-list"></ul>
         </div>
       </section>
+      <section class="view" id="view-pages">
+        <div class="panel" style="margin-bottom: 14px;">
+          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+            <h3>Quản lý Fanpage Facebook</h3>
+            <span id="page-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Page</span>
+          </div>
+          <div class="url-row" style="margin-top: 14px;">
+            <input type="text" id="page-search-input" placeholder="Tìm kiếm trang theo tên hoặc ID..." class="premium-input">
+            <button type="button" id="open-add-page-btn" onclick="openPageModal()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ THÊM PAGE MỚI</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div id="page-list-container" style="max-height: calc(100vh - 320px); overflow-y: auto; padding-right: 4px;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <th style="padding: 12px 8px; font-weight: 700;">Tên Page</th>
+                  <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Page ID</th>
+                  <th style="padding: 12px 8px; font-weight: 700;">Page Access Token</th>
+                  <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 120px;">Hành động</th>
+                </tr>
+              </thead>
+              <tbody id="page-list-tbody">
+                <!-- Danh sách các page sẽ được render tại đây dưới dạng các dòng (tr) -->
+              </tbody>
+            </table>
+          </div>
+          <div id="page-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <!-- Các nút chuyển trang sẽ được sinh động bằng JS -->
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-rendered-videos">
+        <div class="panel" style="margin-bottom: 14px;">
+          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+            <h3>Kho Video Đã Render</h3>
+            <span id="rendered-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Video</span>
+          </div>
+          <div class="url-row" style="margin-top: 14px;">
+            <input type="text" id="rendered-search-input" placeholder="Tìm kiếm video theo tên..." class="premium-input" style="flex: 1;">
+            <button type="button" id="refresh-rendered-btn" onclick="renderRenderedVideosGrid($('rendered-search-input')?.value || '')" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">🔄 CẬP NHẬT</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div id="rendered-grid-container" style="max-height: calc(100vh - 360px); overflow-y: auto; padding-right: 4px;">
+            <div id="rendered-videos-grid" class="rendered-videos-grid">
+              <!-- Video cards will be inserted here dynamically -->
+            </div>
+          </div>
+          <div id="rendered-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <!-- Các nút chuyển trang -->
+          </div>
+        </div>
+      </section>
     </main>
 
+  </div>
+
+  <style>
+    /* Facebook Modal Styles */
+    .fb-modal-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      backdrop-filter: blur(4px);
+    }
+    .fb-modal-overlay.hidden {
+      display: none;
+    }
+    .fb-modal-content {
+      background: var(--bg-1);
+      width: 450px;
+      max-width: 90%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      overflow: hidden;
+      animation: fbModalFadeIn 0.2s ease-out;
+    }
+    @keyframes fbModalFadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fb-modal-header {
+      background: rgba(24, 119, 242, 0.1);
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .fb-modal-header h3 {
+      margin: 0;
+      color: #1877F2;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .fb-modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 24px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .fb-modal-close:hover {
+      color: var(--text);
+    }
+    .fb-modal-body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+  </style>
+
+  <!-- Facebook Publish Modal -->
+  <div id="fb-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content">
+      <div class="fb-modal-header">
+        <h3>
+          <svg viewBox="0 0 36 36" width="20" height="20" fill="currentColor"><path d="M15 35.8C6.5 34.3 0 26.9 0 18 0 8.1 8.1 0 18 0s18 8.1 18 18c0 8.9-6.5 16.3-15 17.8l-1-.8h-4l-1 .8z"></path><path fill="#fff" d="M21 18h-3v11h-4V18h-2v-3h2v-2c0-2.8 1.7-4 4.1-4 1.2 0 2.2.1 2.5.1v3h-1.7c-1.3 0-1.6.6-1.6 1.5v1.4h3.3L21 18z"></path></svg>
+          Đăng lên Fanpage
+        </h3>
+        <button id="close-fb-modal" class="fb-modal-close" onclick="closeFbModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body">
+        <input type="hidden" id="fb-video-url" value="">
+        <div class="form-group" style="margin-bottom: 8px;">
+          <label style="margin: 0 0 6px 0;">Chọn cấu hình Page đã lưu</label>
+          <select id="fb-page-select" class="premium-select">
+            <!-- Sẽ được tải động bằng JavaScript -->
+          </select>
+        </div>
+        <div id="fb-manual-fields" class="hidden">
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Page ID</label>
+            <input type="text" id="fb-page-id" class="premium-input" placeholder="Page ID (VD: 1183607878168273)" value="1183607878168273">
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Page Access Token</label>
+            <input type="password" id="fb-page-token" class="premium-input" placeholder="Page Access Token (EAAW...)">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 8px;">
+          <label style="margin: 0 0 6px 0;">Nội dung mô tả video (Caption)</label>
+          <textarea id="fb-description" class="premium-textarea" rows="2" placeholder="Nội dung mô tả video (Caption)..."></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom: 8px;">
+          <label style="margin: 0 0 6px 0;">Nội dung tự động bình luận</label>
+          <textarea id="fb-comment" class="premium-textarea" rows="2" placeholder="Nội dung tự động bình luận..."></textarea>
+        </div>
+        <button type="button" id="fb-publish-btn" class="premium-render-btn" style="background: #1877F2; color: white; margin-top: 5px;" onclick="publishToFacebook()">🚀 ĐĂNG LÊN FACEBOOK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page Configuration Modal -->
+  <div id="page-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content">
+      <div class="fb-modal-header">
+        <h3 id="page-modal-title" style="color: var(--accent-2); display: flex; align-items: center; gap: 8px;">
+          📋 <span id="page-form-title">Thêm Page mới</span>
+        </h3>
+        <button id="close-page-modal" class="fb-modal-close" onclick="closePageModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body">
+        <form id="fb-page-form" onsubmit="event.preventDefault(); saveFbPage();">
+          <input type="hidden" id="edit-page-index" value="-1">
+          
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Tên gợi nhớ (Ví dụ: Page Giải Trí)</label>
+            <input type="text" id="page-input-name" required class="premium-input" placeholder="Nhập tên gợi nhớ...">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Page ID</label>
+            <input type="text" id="page-input-id" required class="premium-input" placeholder="Ví dụ: 1183607878168273">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 8px; position: relative;">
+            <label style="margin: 0 0 6px 0;">Page Access Token</label>
+            <input type="password" id="page-input-token" required class="premium-input" placeholder="Dán Access Token (EAAW...) tại đây">
+            <button type="button" id="toggle-token-visibility" class="ghost-btn" style="position: absolute; right: 5px; top: 29px; padding: 6px 10px; font-size: 12px; height: 32px;" onclick="togglePageTokenInputVisibility()">👁️</button>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" id="save-page-btn" class="premium-render-btn" style="flex: 1; margin: 0;">Thêm Page</button>
+            <button type="button" id="cancel-edit-btn" class="premium-render-btn ghost-btn hidden" style="flex: 1; margin: 0;" onclick="cancelEditPage()">Hủy</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="delete-confirm-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 380px;">
+      <div class="fb-modal-header" style="background: rgba(239, 68, 68, 0.1); border-bottom-color: rgba(239, 68, 68, 0.2);">
+        <h3 style="color: var(--danger); display: flex; align-items: center; gap: 8px;">
+          ⚠️ Xác nhận xóa
+        </h3>
+        <button class="fb-modal-close" onclick="closeDeleteModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; text-align: center; gap: 16px;">
+        <p id="delete-confirm-message" style="margin: 0; color: var(--text); font-size: 14px; line-height: 1.5;">
+          Bạn có chắc chắn muốn xóa Page này khỏi danh sách không?
+        </p>
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="confirm-delete-btn" class="premium-render-btn" style="background: var(--danger); color: white; flex: 1; margin: 0;" onclick="executeDeletePage()">Xác nhận xóa</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeDeleteModal()">Hủy bỏ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Preview Modal -->
+  <div id="video-preview-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 640px; max-width: 95%;">
+      <div class="fb-modal-header">
+        <h3 id="video-preview-title" style="color: var(--accent-2); display: flex; align-items: center; gap: 8px; font-size: 16px;">
+          📺 Xem trước video
+        </h3>
+        <button class="fb-modal-close" onclick="closeVideoPreviewModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 10px; background: #000; display: flex; justify-content: center; align-items: center; min-height: 360px;">
+        <video id="preview-modal-player" controls style="width: 100%; max-height: 70vh; border-radius: 8px;"></video>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Delete Confirmation Modal -->
+  <div id="video-delete-confirm-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 380px;">
+      <div class="fb-modal-header" style="background: rgba(239, 68, 68, 0.1); border-bottom-color: rgba(239, 68, 68, 0.2);">
+        <h3 style="color: var(--danger); display: flex; align-items: center; gap: 8px;">
+          ⚠️ Xác nhận xóa video
+        </h3>
+        <button class="fb-modal-close" onclick="closeVideoDeleteModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; text-align: center; gap: 16px;">
+        <p id="video-delete-confirm-message" style="margin: 0; color: var(--text); font-size: 14px; line-height: 1.5; word-break: break-all;">
+          Bạn có chắc chắn muốn xóa video này không? Thao tác này sẽ xóa vĩnh viễn file trên máy tính.
+        </p>
+        <input type="hidden" id="delete-video-filename" value="">
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="confirm-delete-video-btn" class="premium-render-btn" style="background: var(--danger); color: white; flex: 1; margin: 0;" onclick="executeDeleteRenderedVideo()">Xác nhận xóa</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeVideoDeleteModal()">Hủy bỏ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice Upload Modal -->
+  <div id="voice-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content">
+      <div class="fb-modal-header">
+        <h3 style="color: var(--accent-2); display: flex; align-items: center; gap: 8px;">
+          🎙️ Lưu giọng mẫu mới
+        </h3>
+        <button class="fb-modal-close" onclick="closeVoiceModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body">
+        <form id="save-voice-form">
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Tên gợi nhớ (Ví dụ: Giọng nam miền Nam)</label>
+            <input type="text" name="voiceName" required class="premium-input" placeholder="Nhập tên giọng mẫu...">
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Chọn file âm thanh mẫu</label>
+            <input type="file" name="voice" accept="audio/*" required class="premium-input">
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" id="save-voice-btn" class="premium-render-btn" style="flex: 1; margin: 0;">Lưu giọng</button>
+            <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeVoiceModal()">Hủy</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Music Upload Modal -->
+  <div id="music-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content">
+      <div class="fb-modal-header">
+        <h3 style="color: var(--accent-2); display: flex; align-items: center; gap: 8px;">
+          🎵 Lưu nhạc nền mới
+        </h3>
+        <button class="fb-modal-close" onclick="closeMusicModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body">
+        <form id="save-music-form">
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Tên gợi nhớ (Ví dụ: Nhạc vui nhộn, Nhạc buồn...)</label>
+            <input type="text" name="musicName" required class="premium-input" placeholder="Nhập tên nhạc nền...">
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Chọn file nhạc nền</label>
+            <input type="file" name="music" accept="audio/*" required class="premium-input">
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" id="save-music-btn" class="premium-render-btn" style="flex: 1; margin: 0;">Lưu nhạc</button>
+            <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeMusicModal()">Hủy</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice Delete Confirmation Modal -->
+  <div id="voice-delete-confirm-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 380px;">
+      <div class="fb-modal-header" style="background: rgba(239, 68, 68, 0.1); border-bottom-color: rgba(239, 68, 68, 0.2);">
+        <h3 style="color: var(--danger); display: flex; align-items: center; gap: 8px;">
+          ⚠️ Xác nhận xóa giọng
+        </h3>
+        <button class="fb-modal-close" onclick="closeVoiceDeleteModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; text-align: center; gap: 16px;">
+        <p id="voice-delete-confirm-message" style="margin: 0; color: var(--text); font-size: 14px; line-height: 1.5; word-break: break-all;">
+          Bạn có chắc chắn muốn xóa giọng mẫu này không? Thao tác này sẽ xóa vĩnh viễn file trên máy tính.
+        </p>
+        <input type="hidden" id="delete-voice-filename" value="">
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="confirm-delete-voice-btn" class="premium-render-btn" style="background: var(--danger); color: white; flex: 1; margin: 0;" onclick="executeDeleteVoice()">Xác nhận xóa</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeVoiceDeleteModal()">Hủy bỏ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Music Delete Confirmation Modal -->
+  <div id="music-delete-confirm-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 380px;">
+      <div class="fb-modal-header" style="background: rgba(239, 68, 68, 0.1); border-bottom-color: rgba(239, 68, 68, 0.2);">
+        <h3 style="color: var(--danger); display: flex; align-items: center; gap: 8px;">
+          ⚠️ Xác nhận xóa nhạc
+        </h3>
+        <button class="fb-modal-close" onclick="closeMusicDeleteModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; text-align: center; gap: 16px;">
+        <p id="music-delete-confirm-message" style="margin: 0; color: var(--text); font-size: 14px; line-height: 1.5; word-break: break-all;">
+          Bạn có chắc chắn muốn xóa nhạc nền này không? Thao tác này sẽ xóa vĩnh viễn file trên máy tính.
+        </p>
+        <input type="hidden" id="delete-music-filename" value="">
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="confirm-delete-music-btn" class="premium-render-btn" style="background: var(--danger); color: white; flex: 1; margin: 0;" onclick="executeDeleteMusic()">Xác nhận xóa</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeMusicDeleteModal()">Hủy bỏ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Download Modal -->
+  <div id="model-download-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 440px;">
+      <div class="fb-modal-header" style="background: rgba(24, 119, 242, 0.1); border-bottom-color: rgba(24, 119, 242, 0.2);">
+        <h3 style="color: var(--accent); display: flex; align-items: center; gap: 8px;">
+          📥 Tải xuống Model AI (OmniVoice)
+        </h3>
+        <button id="model-download-close" class="fb-modal-close" onclick="closeModelDownloadModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+        <p style="margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5;">
+          Hệ thống sẽ tải xuống bộ xử lý giọng nói <strong>omnivoice-q8_0.gguf</strong> (~1.4GB) từ HuggingFace trực tiếp vào thư mục lưu trữ của phần mềm.
+        </p>
+        
+        <div style="background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+            <span id="model-download-status-label" style="color: var(--accent);">Sẵn sàng tải xuống</span>
+            <span id="model-download-percent-label">0%</span>
+          </div>
+          
+          <div style="width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; position: relative;">
+            <div id="model-download-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);">
+            <span>Kích thước: ~1.40 GB</span>
+            <span id="model-download-bytes-label">0 MB / 1400 MB</span>
+          </div>
+        </div>
+
+        <p style="margin: 0; color: var(--danger); font-size: 11px; font-weight: 500; text-align: center;">
+          ⚠️ Vui lòng không tắt phần mềm hoặc ngắt kết nối internet trong lúc tải.
+        </p>
+        
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="model-download-action-btn" class="premium-render-btn" style="flex: 1; margin: 0; background: var(--accent);" onclick="startModelDownload()">Bắt đầu tải</button>
+          <button type="button" id="model-download-cancel-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeModelDownloadModal()">Đóng</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="toast" id="toast"></div>
