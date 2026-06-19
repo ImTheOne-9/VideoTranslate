@@ -12,8 +12,10 @@
   "dependencies": {
     "@distube/ytdl-core": "^4.16.1",
     "@vitalets/google-translate-api": "^9.2.1",
+    "axios": "^1.18.0",
     "content-disposition": "^0.5.4",
     "express": "^4.21.0",
+    "form-data": "^4.0.6",
     "multer": "^2.1.1",
     "srt-parser-2": "^1.2.3",
     "whisper-node": "^1.1.1"
@@ -42,18 +44,9 @@
         "filter": [
           "ffmpeg.exe",
           "yt-dlp.exe",
-          "whisper.exe",
-          "whisper_models/base.pt",
+          "whisper_onnx.exe",
           "omnivoice/omnivoice-cli.exe",
-          "omnivoice/*.dll",
-          "omnivoice/models/omnivoice-q8_0.gguf"
-        ]
-      },
-      {
-        "from": "python_engine/",
-        "to": "python_engine/",
-        "filter": [
-          "**/*"
+          "omnivoice/*.dll"
         ]
       }
     ],

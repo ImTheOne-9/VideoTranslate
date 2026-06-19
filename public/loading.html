@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Đang khởi tạo Video Studio Tools</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #1e1e1e;
+      color: #ffffff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      user-select: none;
+    }
+    .container {
+      text-align: center;
+      width: 80%;
+      max-width: 400px;
+    }
+    .logo {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      color: #00d2ff;
+    }
+    .title {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #aaaaaa;
+    }
+    .progress-container {
+      width: 100%;
+      height: 8px;
+      background: #333333;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 15px;
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
+      transition: width 0.3s ease;
+    }
+    .status-text {
+      font-size: 13px;
+      color: #888888;
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Video Studio Tools</div>
+    <div class="title" id="title-text">Đang chuẩn bị môi trường AI (Chỉ một lần duy nhất)...</div>
+    
+    <div class="progress-container">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    
+    <div class="status-text">
+      <span id="file-text">Đang kết nối...</span>
+      <span id="percent-text">0%</span>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    ipcRenderer.on('download-progress', (event, data) => {
+      const progressBar = document.getElementById('progress-bar');
+      const percentText = document.getElementById('percent-text');
+      const fileText = document.getElementById('file-text');
+      const titleText = document.getElementById('title-text');
+
+      progressBar.style.width = `${data.percent}%`;
+      percentText.innerText = `${data.percent}%`;
+      
+      const downloadedMB = (data.downloadedBytes / (1024 * 1024)).toFixed(1);
+      const totalMB = (data.totalBytes / (1024 * 1024)).toFixed(1);
+      fileText.innerText = `Tải file ${data.current}/${data.totalFiles}: ${downloadedMB} MB / ${totalMB} MB`;
+    });
+  </script>
+</body>
+</html>

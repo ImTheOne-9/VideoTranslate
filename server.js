@@ -8,6 +8,8 @@ const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = req
 const os = require('os');
 const net = require('net');
 
+const axios = require('axios');
+
 // Tích hợp Electron shell API nếu chạy trong Electron
 let electronShell = null;
 try {
@@ -110,7 +112,11 @@ const studioUpload = multer({ dest: TMP_UPLOADS_DIR });
 const FFMPEG_PATH = getExtPath('tools', 'ffmpeg.exe');
 const YTDLP_PATH = getExtPath('tools', 'yt-dlp.exe');
 const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || getExtPath('tools', 'omnivoice', 'omnivoice-cli.exe');
-const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || getExtPath('tools', 'omnivoice', 'models', 'omnivoice-q8_0.gguf');
+
+const isPackagedServer = __dirname.includes('app.asar');
+const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'VideoStudio') : __dirname;
+const MODELS_DIR = path.join(appDataRoot, 'models');
+const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(MODELS_DIR, 'omnivoice-q8_0.gguf');
 
 // Tự động tìm kiếm và thêm đường dẫn CUDA vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
 if (process.platform === 'win32') {
@@ -136,6 +142,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/renders', express.static(RENDERS_DIR));
 app.use('/downloads', express.static(DOWNLOADS_DIR));
+app.use('/voices', express.static(VOICES_DIR));
+app.use('/music', express.static(MUSIC_DIR));
 
 // Helper: Run yt-dlp command and get JSON output
 function runYtDlp(args, retryCount = 0) {
@@ -227,12 +235,34 @@ function safeFileName(name) {
     .substring(0, 120);
 }
 
-function moveUploadedFile(file, targetDir, fallbackName) {
+function getUniqueFilePath(targetDir, baseName, ext) {
+  let counter = 0;
+  let finalName = `${baseName}${ext}`;
+  let finalPath = path.join(targetDir, finalName);
+  while (fs.existsSync(finalPath)) {
+    counter++;
+    finalName = `${baseName}_${counter}${ext}`;
+    finalPath = path.join(targetDir, finalName);
+  }
+  return finalPath;
+}
+
+function moveUploadedFile(file, targetDir, preferredName) {
   if (!file) return null;
-  const ext = path.extname(file.originalname || '') || path.extname(fallbackName || '') || '.bin';
-  const base = safeFileName(path.basename(file.originalname || fallbackName || `asset_${Date.now()}`, ext));
-  const finalName = `${Date.now()}_${base}${ext}`;
-  const finalPath = path.join(targetDir, finalName);
+  const ext = path.extname(preferredName || '') || path.extname(file.originalname || '') || '.bin';
+  const rawBase = preferredName 
+    ? path.basename(preferredName, ext) 
+    : path.basename(file.originalname || `asset_${Date.now()}`, ext);
+  const base = safeFileName(rawBase);
+  
+  let finalPath;
+  if (preferredName) {
+    finalPath = getUniqueFilePath(targetDir, base, ext);
+  } else {
+    const finalName = `${Date.now()}_${base}${ext}`;
+    finalPath = path.join(targetDir, finalName);
+  }
+  
   fs.renameSync(file.path, finalPath);
   return finalPath;
 }
@@ -587,7 +617,7 @@ app.get('/api/download', async (req, res) => {
 // API: Download video with hardcoded Vietnamese subtitles
 app.get('/api/download-vi', async (req, res) => {
   try {
-    let { url } = req.query;
+    let { url, geminiApiKey } = req.query;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -642,26 +672,41 @@ app.get('/api/download-vi', async (req, res) => {
     // 3. Translate subtitles and burn
     if (actualSubPath) {
       console.log('Tìm thấy phụ đề, tiến hành dịch:', actualSubPath);
-      await translateSubtitles(actualSubPath, translatedSubPath);
+      await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey);
 
-      // Escape path for FFmpeg filter (windows paths need double backslashes escaping)
-      const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+      let hasSubtitles = false;
+      try {
+        if (fs.existsSync(translatedSubPath)) {
+          const content = fs.readFileSync(translatedSubPath, 'utf8').trim();
+          if (content.length > 0) {
+            hasSubtitles = true;
+          }
+        }
+      } catch (e) {}
 
-      // Burn sub: Background black, Text White, border style 3 is opaque box.
-      const ffmpegArgs = [
-        '-i', actualVideoPath,
-        '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
-        '-c:a', 'copy',
-        '-y', finalVideoPath
-      ];
+      if (hasSubtitles) {
+        // Escape path for FFmpeg filter (windows paths need double backslashes escaping)
+        const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
 
-      console.log('Đang hardcode phụ đề...');
-      await new Promise((resolve, reject) => {
-        execFile(FFMPEG_PATH, ffmpegArgs, (err, stdout, stderr) => {
-          if (err) reject(new Error('Lỗi chèn phụ đề: ' + stderr));
-          else resolve();
+        // Burn sub: Background black, Text White, border style 3 is opaque box.
+        const ffmpegArgs = [
+          '-i', actualVideoPath,
+          '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+          '-c:a', 'copy',
+          '-y', finalVideoPath
+        ];
+
+        console.log('Đang hardcode phụ đề...');
+        await new Promise((resolve, reject) => {
+          execFile(FFMPEG_PATH, ffmpegArgs, (err, stdout, stderr) => {
+            if (err) reject(new Error('Lỗi chèn phụ đề: ' + stderr));
+            else resolve();
+          });
         });
-      });
+      } else {
+        console.log('Phụ đề trống, sử dụng video gốc.');
+        fs.copyFileSync(actualVideoPath, finalVideoPath);
+      }
     } else {
       console.log('Không tìm thấy phụ đề, sử dụng video gốc.');
       fs.copyFileSync(actualVideoPath, finalVideoPath);
@@ -674,16 +719,27 @@ app.get('/api/download-vi', async (req, res) => {
       const stream = fs.createReadStream(finalVideoPath);
       stream.pipe(res);
       stream.on('end', () => {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        try {
+          if (fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+          }
+        } catch (e) {
+          console.error('Lỗi khi xóa tempDir (stream end):', e.message);
+        }
       });
     } else {
       throw new Error('Lỗi xuất video cuối');
     }
 
     req.on('close', () => {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } catch (e) {
+        console.error('Lỗi khi xóa tempDir (req close):', e.message);
+      }
     });
-
   } catch (error) {
     console.error('Download Vietsub error:', error.message);
     if (!res.headersSent) {
@@ -791,6 +847,113 @@ app.get('/api/open-folder', async (req, res) => {
   res.json({ success: true });
 });
 
+// API: Đăng video lên Facebook và bình luận
+const FacebookApiService = require('./lib/facebookApi');
+
+app.post('/api/publish-facebook', async (req, res) => {
+  try {
+    const { videoPath, description, comment, pageId, pageToken } = req.body;
+    
+    // videoPath từ frontend gửi lên thường chỉ là tên file hoặc url tương đối
+    // Cần nối với RENDERS_DIR để ra đường dẫn thật
+    const actualVideoPath = path.join(RENDERS_DIR, path.basename(videoPath));
+
+    if (!videoPath || !fs.existsSync(actualVideoPath)) {
+      return res.status(400).json({ error: 'Không tìm thấy file video trên máy chủ' });
+    }
+    if (!pageId || !pageToken) {
+      return res.status(400).json({ error: 'Thiếu Facebook Page ID hoặc Token' });
+    }
+
+    const fbService = new FacebookApiService(pageId, pageToken);
+    const result = await fbService.publishAndComment(actualVideoPath, description, comment);
+    
+    if (result.success) {
+      res.json({ success: true, postId: result.postId, warning: result.warning });
+    } else {
+      res.status(500).json({ error: result.error });
+    }
+  } catch (err) {
+    console.error('Lỗi khi đăng Facebook:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Xác thực Fanpage Facebook
+app.post('/api/verify-facebook-page', async (req, res) => {
+  try {
+    const { pageId, pageToken } = req.body;
+    if (!pageId || !pageToken) {
+      return res.status(400).json({ error: 'Thiếu Facebook Page ID hoặc Token' });
+    }
+    const response = await axios.get(`https://graph.facebook.com/v19.0/${pageId}`, {
+      params: {
+        fields: 'id,name',
+        access_token: pageToken
+      }
+    });
+    res.json({ success: true, name: response.data.name });
+  } catch (err) {
+    let errMsg = err.message;
+    if (err.response && err.response.data && err.response.data.error) {
+      errMsg = err.response.data.error.message;
+    }
+    console.error('Lỗi khi xác thực Facebook page:', errMsg);
+    res.status(400).json({ error: errMsg });
+  }
+});
+
+// API: Xóa video đã render
+app.delete('/api/rendered-videos/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(RENDERS_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return res.json({ success: true, message: 'Đã xóa video thành công!' });
+    } else {
+      return res.status(404).json({ error: 'Không tìm thấy file video' });
+    }
+  } catch (err) {
+    console.error('Lỗi khi xóa video render:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Xóa giọng nói mẫu
+app.delete('/api/voices/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(VOICES_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return res.json({ success: true, message: 'Đã xóa giọng mẫu thành công!' });
+    } else {
+      return res.status(404).json({ error: 'Không tìm thấy file giọng mẫu' });
+    }
+  } catch (err) {
+    console.error('Lỗi khi xóa giọng mẫu:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Xóa nhạc nền
+app.delete('/api/music/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(MUSIC_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return res.json({ success: true, message: 'Đã xóa nhạc nền thành công!' });
+    } else {
+      return res.status(404).json({ error: 'Không tìm thấy file nhạc nền' });
+    }
+  } catch (err) {
+    console.error('Lỗi khi xóa nhạc nền:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==========================================
 // STUDIO APIs
 // ==========================================
@@ -874,6 +1037,41 @@ app.get('/api/studio-assets', (req, res) => {
   });
 });
 
+let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
+
+app.post('/api/download-model', async (req, res) => {
+  if (modelDownloadStatus.downloading) {
+    return res.json({ success: true, message: 'Đang tải rồi' });
+  }
+
+  const { ensureModelsExist } = require('./lib/model-downloader');
+  
+  modelDownloadStatus = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
+  res.json({ success: true, message: 'Bắt đầu tải model' });
+
+  try {
+    await ensureModelsExist(MODELS_DIR, (progress) => {
+      modelDownloadStatus.percent = progress.percent;
+      modelDownloadStatus.downloadedBytes = progress.downloadedBytes;
+      modelDownloadStatus.totalBytes = progress.totalBytes;
+    });
+    modelDownloadStatus.downloading = false;
+    modelDownloadStatus.percent = 100;
+  } catch (err) {
+    console.error('Lỗi tải model qua API:', err.message);
+    modelDownloadStatus.downloading = false;
+    modelDownloadStatus.error = err.message;
+  }
+});
+
+app.get('/api/download-model/status', (req, res) => {
+  const checkConfigured = fs.existsSync(OMNIVOICE_CLI_PATH) && fs.existsSync(OMNIVOICE_MODEL_PATH);
+  res.json({
+    ...modelDownloadStatus,
+    omiConfigured: checkConfigured
+  });
+});
+
 app.post('/api/save-voice', studioUpload.single('voice'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file giọng mẫu' });
@@ -892,7 +1090,7 @@ app.post('/api/save-voice', studioUpload.single('voice'), (req, res) => {
 app.post('/api/save-music', studioUpload.single('music'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file nhạc nền' });
-    const savedPath = moveUploadedFile(req.file, MUSIC_DIR, req.file.originalname);
+    const savedPath = moveUploadedFile(req.file, MUSIC_DIR, req.body.musicName || req.file.originalname);
     res.json({
       success: true,
       message: 'Đã lưu nhạc nền',
@@ -965,7 +1163,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
     if (subtitlePath && body.translateVi === 'true') {
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
-      await translateSubtitles(subtitlePath, translatedPath);
+      await translateSubtitles(subtitlePath, translatedPath, body.geminiApiKey);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
       // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
@@ -1119,7 +1317,7 @@ app.post('/api/render-studio', studioUpload.fields([
             '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
             '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
             '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-            '--seed', body.omiSeed || '123',
+            '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
             '--speed', String(speed.toFixed(2)),
             '--position-temperature', '1.5'
           ];
@@ -1321,7 +1519,7 @@ app.post('/api/render-studio', studioUpload.fields([
           '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
           '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
           '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-          '--seed', body.omiSeed || '123',
+          '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
           '--position-temperature', '1.5'
         ];
 
@@ -1393,7 +1591,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
     let reactionInputIndex = -1;
     if (reactionVideoPath) {
-      args.push('-i', reactionVideoPath);
+      args.push('-stream_loop', '-1', '-i', reactionVideoPath);
       reactionInputIndex = args.filter(v => v === '-i').length - 1;
       
       if (body.reactionAudio === 'true') {
@@ -1406,6 +1604,8 @@ app.post('/api/render-studio', studioUpload.fields([
     }
 
     let renderSubtitlePath = null;
+    let videoFilter = null;
+    let hasVideoFilter = false;
 
     if (subtitlePath && body.burnSub === 'true') {
       try {
@@ -1414,7 +1614,8 @@ app.post('/api/render-studio', studioUpload.fields([
         console.error('Lỗi định dạng phụ đề 1-2 dòng:', err.message);
       }
 
-      const fontSize = Number(body.subtitleSize || 18);
+      const scaleFactor = 1.35; // Scale factor to reconcile libass rendering with CSS pixels
+      const fontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
       const marginV = Number(body.subtitleMargin || 28);
       const marginH = Number(body.subtitleMarginH || 20);
       
@@ -1437,20 +1638,38 @@ app.post('/api/render-studio', studioUpload.fields([
       const theme = body.subtitleTheme || 'outline';
       
       let borderStyle = 1;
-      let outline = 2.5;
-      let shadow = 1;
+      let outline = 2.5 * scaleFactor;
+      let shadow = 1 * scaleFactor;
       let outlineColor = '&H00000000';
       let backColor = '&H80000000';
       
       if (theme === 'box') {
         borderStyle = 3;
-        backColor = '&H80000000';
-        outline = 0;
+        backColor = '&H66000000'; // 60% opacity black box
+        outlineColor = '&H66000000'; // Match outline color with backColor to avoid borders
+        outline = 4.0 * scaleFactor; // Acts as the padding of the box
+        shadow = 0;
+      } else if (theme === 'box-deep') {
+        borderStyle = 3;
+        backColor = '&H0D000000'; // 95% opacity black box
+        outlineColor = '&H0D000000'; // Match outline color with backColor to avoid borders
+        outline = 4.0 * scaleFactor;
         shadow = 0;
       } else if (theme === 'shadow') {
         borderStyle = 1;
         outline = 0;
-        shadow = 2;
+        shadow = 2 * scaleFactor;
+        backColor = '&H90000000';
+      } else if (theme === 'outline-thick') {
+        borderStyle = 1;
+        outline = 5.0 * scaleFactor;
+        shadow = 0;
+        outlineColor = '&H00000000';
+      } else if (theme === 'outline-shadow') {
+        borderStyle = 1;
+        outline = 2.5 * scaleFactor;
+        shadow = 3 * scaleFactor;
+        outlineColor = '&H00000000';
         backColor = '&H90000000';
       }
 

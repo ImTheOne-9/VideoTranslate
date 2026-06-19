@@ -16,3 +16,4 @@ uploads/
 Thumbs.db
 # Build output
 dist/
+models/
