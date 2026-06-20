@@ -17,21 +17,21 @@ git checkout optimize-installer
 ```
 
 ### Bước 2: Tải và giải nén các thư mục phụ thuộc (Dependencies)
-Bạn (chủ dự án) cần nén hai thư mục `tools/` và `models/` thành một file `.zip` (ví dụ: `dependencies.zip`) và upload lên Google Drive hoặc OneDrive để chia sẻ cho các nhà phát triển khác.
+Bạn (chủ dự án) chỉ cần nén thư mục **`tools/`** thành một file `.zip` (ví dụ: `tools.zip`) và upload lên Google Drive hoặc OneDrive để chia sẻ cho các nhà phát triển khác (không cần nén thư mục `models/` vì hệ thống sẽ tự động tải các model AI khi chạy).
 
 Nhà phát triển mới cần:
-1. Tải file `dependencies.zip` từ đường dẫn bạn chia sẻ.
+1. Tải file `tools.zip` từ đường dẫn bạn chia sẻ.
 2. Giải nén trực tiếp vào thư mục gốc của dự án. Đảm bảo cấu trúc thư mục sau khi giải nén trông như thế này:
    ```text
    VideoTranslate/
    ├── lib/
    ├── public/
-   ├── models/             <-- Thư mục chứa AI models (Whisper, Omnivoice GGUF...)
-   ├── tools/              <-- Thư mục chứa các file thực thi (ffmpeg.exe, yt-dlp.exe, whisper_onnx.exe...)
+   ├── tools/              <-- Giải nén ở đây (chứa ffmpeg.exe, yt-dlp.exe, whisper_onnx.exe...)
    ├── main.js
    ├── server.js
    └── package.json
    ```
+*Lưu ý: Khi khởi chạy ứng dụng lần đầu tiên, hệ thống sẽ tự động hiển thị màn hình tải xuống các model AI cần thiết (như Omnivoice và Whisper) từ HuggingFace vào thư mục `models/`.*
 
 ### Bước 3: Cài đặt các thư viện Node.js
 Chạy lệnh sau tại thư mục gốc của dự án để cài đặt các node modules:
