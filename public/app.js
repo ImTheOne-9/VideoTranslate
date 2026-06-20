@@ -431,6 +431,23 @@ async function renderStudio(event) {
     return;
   }
 
+  // Check if selected Whisper model is ready
+  const subMode = data.get('subtitleMode');
+  const whisperModel = data.get('whisperModel') || 'base';
+  if (subMode === 'generate' && whisperModel !== 'base') {
+    try {
+      const checkRes = await fetch(`/api/whisper-model/status?model=${whisperModel}`);
+      const checkStatus = await checkRes.json();
+      if (!checkStatus.exists) {
+        toast(`⚠️ Thiếu file Model Whisper ${whisperModel.toUpperCase()}. Vui lòng tải xuống!`, 'warn');
+        openWhisperDownloadModal();
+        return;
+      }
+    } catch (e) {
+      console.error('Lỗi khi kiểm tra model Whisper trước khi render:', e);
+    }
+  }
+
   data.set('translateVi', $('translate-vi').checked ? 'true' : 'false');
   data.set('burnSub', $('burn-sub').checked ? 'true' : 'false');
 
@@ -607,6 +624,15 @@ function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
   $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
   $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
+  
+  const whisperModelWrapper = $('whisper-model-wrapper');
+  if (whisperModelWrapper) {
+    const isGenerate = (subMode === 'generate');
+    whisperModelWrapper.classList.toggle('hidden', !isGenerate);
+    if (isGenerate) {
+      checkWhisperModelStatus();
+    }
+  }
   
   const subSettingsContainer = $('sub-settings-container');
   if (subSettingsContainer) {
@@ -1833,6 +1859,12 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
     }
   });
 });
+
+// Setup whisper model change handler
+const whisperModelSelect = $('whisper-model-select');
+if (whisperModelSelect) {
+  whisperModelSelect.addEventListener('change', checkWhisperModelStatus);
+}
 
 // Setup music mode tabs
 document.querySelectorAll('.music-tab-btn').forEach(btn => {
@@ -3126,5 +3158,228 @@ function startStatusPolling() {
         clearInterval(modelDownloadInterval);
       });
   }, 1000);
+}
+
+// Whisper Model Management & Downloading
+let whisperDownloadInterval = null;
+let isDownloadingWhisper = false;
+
+function openWhisperDownloadModal() {
+  const modal = $('whisper-download-modal');
+  if (modal) modal.classList.remove('hidden');
+  
+  const modelSelect = $('whisper-model-select');
+  const model = modelSelect ? modelSelect.value : 'base';
+  
+  const modelNameEl = $('whisper-download-model-name');
+  if (modelNameEl) {
+    modelNameEl.textContent = model.toUpperCase();
+  }
+  
+  fetch(`/api/whisper-model/status?model=${model}`)
+    .then(res => res.json())
+    .then(status => {
+      updateWhisperDownloadUI(status, model);
+      if (status.downloading) {
+        startWhisperStatusPolling(model);
+      }
+    })
+    .catch(err => console.error(err));
+}
+
+function closeWhisperDownloadModal() {
+  if (isDownloadingWhisper) {
+    toast('⚠️ Đang tải model Whisper, vui lòng không đóng bảng!', 'warn');
+    return;
+  }
+  const modal = $('whisper-download-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function updateWhisperDownloadUI(status, model) {
+  const statusLabel = $('whisper-download-status-label');
+  const percentLabel = $('whisper-download-percent-label');
+  const progressBar = $('whisper-download-progress-bar');
+  const sizeLabel = $('whisper-download-size-label');
+  const bytesLabel = $('whisper-download-bytes-label');
+  const actionBtn = $('whisper-download-action-btn');
+  const cancelBtn = $('whisper-download-cancel-btn');
+  const closeBtn = $('whisper-download-close');
+
+  const whisperSizes = {
+    tiny: '75 MB',
+    base: '140 MB',
+    small: '460 MB',
+    medium: '1.5 GB',
+    'large-v3': '3.0 GB'
+  };
+  const targetSize = whisperSizes[model] || '...';
+  if (sizeLabel) sizeLabel.textContent = `Kích thước: ~${targetSize}`;
+
+  if (status.downloading) {
+    isDownloadingWhisper = true;
+    if (statusLabel) statusLabel.textContent = 'Đang tải model từ HuggingFace...';
+    if (percentLabel) percentLabel.textContent = `${status.percent}%`;
+    if (progressBar) progressBar.style.width = `${status.percent}%`;
+    
+    const mbDownloaded = (status.downloadedBytes / (1024 * 1024)).toFixed(1);
+    const mbTotal = (status.totalBytes / (1024 * 1024)).toFixed(1);
+    if (bytesLabel) bytesLabel.textContent = `${mbDownloaded} MB / ${mbTotal} MB`;
+    
+    if (actionBtn) {
+      actionBtn.disabled = true;
+      actionBtn.textContent = 'Đang tải...';
+    }
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (closeBtn) closeBtn.style.display = 'none';
+  } else {
+    isDownloadingWhisper = false;
+    if (status.exists) {
+      if (statusLabel) statusLabel.textContent = 'Tải thành công! Đã lưu vào thư mục cài đặt.';
+      if (percentLabel) percentLabel.textContent = '100%';
+      if (progressBar) progressBar.style.width = '100%';
+      const mbTotal = status.totalBytes ? (status.totalBytes / (1024 * 1024)).toFixed(1) : targetSize.split(' ')[0];
+      if (bytesLabel) bytesLabel.textContent = `${mbTotal} MB / ${mbTotal} MB`;
+      if (actionBtn) {
+        actionBtn.disabled = false;
+        actionBtn.textContent = 'Tải lại';
+      }
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Hoàn tất';
+        cancelBtn.style.background = 'var(--success)';
+        cancelBtn.style.color = 'white';
+        cancelBtn.onclick = () => {
+          closeWhisperDownloadModal();
+          checkWhisperModelStatus();
+        };
+      }
+      if (closeBtn) closeBtn.style.display = 'block';
+    } else if (status.error) {
+      if (statusLabel) statusLabel.textContent = `Lỗi: ${status.error}`;
+      if (actionBtn) {
+        actionBtn.disabled = false;
+        actionBtn.textContent = 'Thử lại';
+      }
+      if (cancelBtn) cancelBtn.disabled = false;
+      if (closeBtn) closeBtn.style.display = 'block';
+    } else {
+      if (statusLabel) statusLabel.textContent = 'Sẵn sàng tải xuống';
+      if (percentLabel) percentLabel.textContent = '0%';
+      if (progressBar) progressBar.style.width = '0%';
+      if (bytesLabel) bytesLabel.textContent = `0 MB / ${targetSize}`;
+      if (actionBtn) {
+        actionBtn.disabled = false;
+        actionBtn.textContent = 'Bắt đầu tải';
+      }
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Đóng';
+        cancelBtn.style.background = '';
+        cancelBtn.style.color = '';
+        cancelBtn.onclick = closeWhisperDownloadModal;
+      }
+      if (closeBtn) closeBtn.style.display = 'block';
+    }
+  }
+}
+
+function startWhisperDownload() {
+  const modelSelect = $('whisper-model-select');
+  const model = modelSelect ? modelSelect.value : 'base';
+  
+  fetch('/api/download-whisper-model', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        toast('🚀 Bắt đầu tải bộ nhận diện giọng nói Whisper...', 'info');
+        startWhisperStatusPolling(model);
+      }
+    })
+    .catch(err => {
+      toast('❌ Không khởi động được download: ' + err.message, 'error');
+    });
+}
+
+function startWhisperStatusPolling(model) {
+  if (whisperDownloadInterval) clearInterval(whisperDownloadInterval);
+  
+  whisperDownloadInterval = setInterval(() => {
+    fetch(`/api/whisper-model/status?model=${model}`)
+      .then(res => res.json())
+      .then(status => {
+        updateWhisperDownloadUI(status, model);
+        if (!status.downloading) {
+          clearInterval(whisperDownloadInterval);
+          if (status.exists) {
+            toast(`🎉 Tải xuống model Whisper ${model.toUpperCase()} thành công!`, 'success');
+            checkWhisperModelStatus();
+          } else if (status.error) {
+            toast('❌ Lỗi khi tải model Whisper: ' + status.error, 'error');
+          }
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        clearInterval(whisperDownloadInterval);
+      });
+  }, 1000);
+}
+
+async function checkWhisperModelStatus() {
+  const modelSelect = $('whisper-model-select');
+  if (!modelSelect) return;
+  const model = modelSelect.value;
+  const statusLabel = $('whisper-model-status');
+  const downloadBtn = $('whisper-model-download-btn');
+
+  try {
+    const res = await fetch(`/api/whisper-model/status?model=${model}`);
+    if (!res.ok) throw new Error('Không thể kiểm tra trạng thái model');
+    const status = await res.json();
+    
+    if (status.exists) {
+      if (statusLabel) {
+        statusLabel.textContent = 'Đã có sẵn';
+        statusLabel.style.color = '#25D366';
+      }
+      if (downloadBtn) {
+        downloadBtn.style.display = 'none';
+      }
+    } else {
+      if (status.downloading) {
+        if (statusLabel) {
+          statusLabel.textContent = `Đang tải (${status.percent}%)`;
+          statusLabel.style.color = 'var(--accent)';
+        }
+        if (downloadBtn) {
+          downloadBtn.style.display = 'inline-block';
+          downloadBtn.textContent = '⏳ Đang tải...';
+          downloadBtn.disabled = true;
+        }
+        startWhisperStatusPolling(model);
+      } else {
+        if (statusLabel) {
+          statusLabel.textContent = 'Chưa tải';
+          statusLabel.style.color = '#FFA500';
+        }
+        if (downloadBtn) {
+          downloadBtn.style.display = 'inline-block';
+          downloadBtn.textContent = '📥 Tải';
+          downloadBtn.disabled = false;
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Lỗi checkWhisperModelStatus:', error);
+    if (statusLabel) {
+      statusLabel.textContent = 'Lỗi kết nối';
+      statusLabel.style.color = '#FF3B30';
+    }
+  }
 }
 

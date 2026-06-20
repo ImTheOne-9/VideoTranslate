@@ -45,6 +45,7 @@
           "ffmpeg.exe",
           "yt-dlp.exe",
           "whisper_onnx.exe",
+          "*.dll",
           "omnivoice/omnivoice-cli.exe",
           "omnivoice/*.dll"
         ]

@@ -1072,6 +1072,57 @@ app.get('/api/download-model/status', (req, res) => {
   });
 });
 
+let whisperDownloadStatus = {};
+
+app.get('/api/whisper-model/status', (req, res) => {
+  const model = req.query.model || 'base';
+  
+  if (model === 'base') {
+    return res.json({ exists: true, downloading: false, percent: 100 });
+  }
+
+  const modelPath = path.join(MODELS_DIR, 'whisper', model, 'model.bin');
+  const exists = fs.existsSync(modelPath);
+  
+  const status = whisperDownloadStatus[model] || { downloading: false, percent: 0, error: null };
+  res.json({
+    exists: exists,
+    downloading: status.downloading,
+    percent: status.percent,
+    error: status.error,
+    downloadedBytes: status.downloadedBytes,
+    totalBytes: status.totalBytes
+  });
+});
+
+app.post('/api/download-whisper-model', async (req, res) => {
+  const { model } = req.body;
+  if (!model) return res.status(400).json({ error: 'Thiếu tham số model' });
+
+  if (whisperDownloadStatus[model] && whisperDownloadStatus[model].downloading) {
+    return res.json({ success: true, message: 'Đang tải rồi' });
+  }
+
+  const { ensureWhisperModelExist } = require('./lib/model-downloader');
+  
+  whisperDownloadStatus[model] = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
+  res.json({ success: true, message: 'Bắt đầu tải model Whisper' });
+
+  try {
+    await ensureWhisperModelExist(MODELS_DIR, model, (progress) => {
+      whisperDownloadStatus[model].percent = progress.percent;
+      whisperDownloadStatus[model].downloadedBytes = progress.downloadedBytes;
+      whisperDownloadStatus[model].totalBytes = progress.totalBytes;
+    });
+    whisperDownloadStatus[model].downloading = false;
+    whisperDownloadStatus[model].percent = 100;
+  } catch (err) {
+    console.error(`Lỗi tải model Whisper ${model} qua API:`, err.message);
+    whisperDownloadStatus[model].downloading = false;
+    whisperDownloadStatus[model].error = err.message;
+  }
+});
+
 app.post('/api/save-voice', studioUpload.single('voice'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file giọng mẫu' });
@@ -1149,7 +1200,7 @@ app.post('/api/render-studio', studioUpload.fields([
       subtitlePath = resolveAssetPath('subtitle', body.savedSubtitleFile);
     } else if (subtitleMode === 'generate') {
       const { extractAudioAndTranscribe } = require('./lib/whisper-helper');
-      subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, FFMPEG_PATH);
+      subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, FFMPEG_PATH, body.whisperModel || 'base');
     }
 
     let originalIsChinese = false;
@@ -1200,7 +1251,7 @@ app.post('/api/render-studio', studioUpload.fields([
           try {
             const { transcribeVoice } = require('./lib/whisper-helper');
             console.log('Đang tự động nhận diện câu thoại trong giọng mẫu...');
-            refText = await transcribeVoice(refAudioPath, workDir, FFMPEG_PATH);
+            refText = await transcribeVoice(refAudioPath, workDir, FFMPEG_PATH, body.whisperModel || 'base');
             console.log('Đã tự động trích xuất Ref-text:', refText);
           } catch (err) {
             console.error('Lỗi tự động nhận dạng giọng mẫu:', err.message);
