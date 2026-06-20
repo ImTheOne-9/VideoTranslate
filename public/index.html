@@ -251,6 +251,39 @@
                   <span class="switch-slider"></span>
                   <span class="switch-label">Chèn sub vào video</span>
                 </label>
+                <label class="premium-switch">
+                  <input type="checkbox" id="blur-original-sub" name="blurOriginalSub" value="true">
+                  <span class="switch-slider"></span>
+                  <span class="switch-label">Làm mờ phụ đề gốc</span>
+                </label>
+              </div>
+              
+              <div id="blur-settings-container" class="hidden" style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+                <div class="sub-settings-grid">
+                  <div class="form-group" style="margin-bottom: 8px;">
+                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Vị trí ngang X (%)</label>
+                    <input type="number" id="blur-x-input" name="blurX" value="10" min="0" max="100" class="premium-input" style="height: 38px;">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 8px;">
+                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Vị trí dọc Y (%)</label>
+                    <input type="number" id="blur-y-input" name="blurY" value="75" min="0" max="100" class="premium-input" style="height: 38px;">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 8px;">
+                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Chiều rộng W (%)</label>
+                    <input type="number" id="blur-width-input" name="blurWidth" value="80" min="1" max="100" class="premium-input" style="height: 38px;">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 8px;">
+                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Chiều cao H (%)</label>
+                    <input type="number" id="blur-height-input" name="blurHeight" value="15" min="1" max="100" class="premium-input" style="height: 38px;">
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                    <span>Độ mờ (Bán kính)</span>
+                    <span id="blur-radius-val" style="color: var(--accent); font-weight: bold;">20</span>
+                  </label>
+                  <input type="range" name="blurRadius" id="blur-radius-slider" value="20" min="5" max="50" step="1" class="premium-slider" style="width: 100%; margin-top: 5px; height: 20px;">
+                </div>
               </div>
               
               <div id="whisper-model-wrapper" class="form-group hidden" style="margin-top: 10px; margin-bottom: 15px;">
@@ -280,7 +313,7 @@
                 <div class="form-group">
                   <label>Cỡ chữ sub</label>
                   <div class="number-input-wrapper">
-                    <input type="number" name="subtitleSize" value="18" min="12" max="48" class="premium-input">
+                    <input type="number" name="subtitleSize" value="18" min="1" max="200" class="premium-input">
                     <span class="input-unit">px</span>
                   </div>
                 </div>
@@ -332,6 +365,16 @@
               </div>
 
               <div class="form-group">
+                <label>Mẫu chữ nhanh (Presets)</label>
+                <div class="subtitle-presets-grid" id="subtitle-presets-grid">
+                  <button type="button" class="preset-card active" data-preset="classic" style="font-family: Arial; font-weight: bold; color: #FFFFFF; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); background: #080c10;">Abc</button>
+                  <button type="button" class="preset-card" data-preset="tiktok" style="font-family: Impact; font-weight: bold; color: #FFEB3B; -webkit-text-stroke: 1px #000000; text-shadow: none; background: #080c10;">Abc</button>
+                  <button type="button" class="preset-card" data-preset="netflix" style="font-family: Arial; font-weight: normal; color: #FFFFFF; text-shadow: none; background: rgba(0,0,0,0.75); border: 1.5px solid rgba(255,255,255,0.2); padding: 0px 4px; border-radius: 3px;">Abc</button>
+                  <button type="button" class="preset-card" data-preset="cyber" style="font-family: 'Trebuchet MS'; font-weight: bold; color: #00E5FF; -webkit-text-stroke: 0.8px #000000; text-shadow: 1.5px 1.5px 0px #FF4081; background: #080c10;">Abc</button>
+                </div>
+              </div>
+
+              <div class="form-group">
                 <label>Màu sắc chữ</label>
                 <div class="color-swatches" id="color-swatches-container">
                   <button type="button" class="color-swatch active" data-color="#FFFFFF" style="background-color: #FFFFFF;" title="Trắng"></button>
@@ -365,6 +408,16 @@
                     <option value="false">Chữ thường</option>
                   </select>
                 </div>
+              </div>
+
+              <div class="form-group" style="margin-top: 10px;">
+                <label>Cấu trúc dòng phụ đề</label>
+                <select name="subtitleMaxLines" class="premium-select">
+                  <option value="0" selected>Tự động chia dòng (1-2 dòng)</option>
+                  <option value="1">Tối đa 1 dòng (Ngắn gọn)</option>
+                  <option value="2">Tối đa 2 dòng (Thông thường)</option>
+                  <option value="3">Tối đa 3 dòng (Chi tiết)</option>
+                </select>
               </div>
               </div>
             </div>
@@ -568,7 +621,10 @@
                     <!-- Subtitle Canvas Wrapper for proportional sizing and positioning -->
                     <div id="subtitle-canvas-wrapper" style="position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; z-index: 10;">
                       <!-- Draggable Subtitle Overlay -->
-                      <div id="draggable-subtitle" class="draggable-subtitle" style="pointer-events: auto;">Dòng phụ đề thứ nhất&#10;Dòng phụ đề thứ hai (1-2 dòng)</div>
+                      <div id="draggable-subtitle" class="draggable-subtitle" style="pointer-events: auto;">
+                        <span id="subtitle-text-content">Phụ đề mẫu thử nghiệm. Kéo ngang để thay đổi độ dài dòng. Kéo dọc để tự động cấu trúc số dòng!</span>
+                        <div id="subtitle-resizer-handle" class="subtitle-resizer-handle"></div>
+                      </div>
                     </div>
                     
                     <!-- Reaction PIP Preview Overlay -->
@@ -576,6 +632,12 @@
                       <video id="preview-reaction-video" muted playsinline loop></video>
                       <div class="reaction-placeholder-box">Reaction PIP</div>
                       <div id="reaction-resizer-handle" class="reaction-resizer-handle"></div>
+                    </div>
+
+                    <!-- Customizable Subtitle Blur Preview Box -->
+                    <div id="preview-blur-box" class="preview-blur-box hidden">
+                      <div class="blur-placeholder-text">Vùng làm mờ phụ đề</div>
+                      <div id="blur-resizer-handle" class="blur-resizer-handle"></div>
                     </div>
 
                     <!-- Safe Zone Overlay -->

@@ -280,6 +280,7 @@ function listFiles(dir, exts) {
           modified: stat.mtime
         };
       })
+      .filter(file => file.size > 0)
       .sort((a, b) => new Date(b.modified) - new Date(a.modified));
   } catch (e) {
     return [];
@@ -373,7 +374,7 @@ function convertSrtToAss(srtPath, assPath, options) {
     const start = convertSrtTime(item.startTime);
     const end = convertSrtTime(item.endTime);
     const text = item.text.replace(/\n/g, '\\N');
-    assLines.push(`Dialogue: 0,${start},${end},Default,,0,0,0,,${text}`);
+    assLines.push(`Dialogue: 0,${start},${end},Default,,${marginH},${marginH},${marginV},,${text}`);
   }
 
   fs.writeFileSync(assPath, assLines.join('\n'), 'utf8');
@@ -672,7 +673,13 @@ app.get('/api/download-vi', async (req, res) => {
     // 3. Translate subtitles and burn
     if (actualSubPath) {
       console.log('Tìm thấy phụ đề, tiến hành dịch:', actualSubPath);
-      await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey);
+      const downloadMaxLines = Number(req.query.subtitleMaxLines || 0);
+      const downloadFontSize = Math.round(Number(req.query.subtitleSize || 18) * 1.35);
+      const downloadMarginH = Number(req.query.subtitleMarginH || 20);
+      const downloadWidth = 1080;
+      const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
+      const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
+      await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey, downloadMaxLines, downloadMaxChars);
 
       let hasSubtitles = false;
       try {
@@ -1212,14 +1219,20 @@ app.post('/api/render-studio', studioUpload.fields([
       }
     }
 
+    const scaleFactor = 1.35;
+    const studioFontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
+    const studioMarginH = Number(body.subtitleMarginH || 20);
+    const studioBoxWidth = videoWidth - 2 * studioMarginH;
+    const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * 0.5)));
+
     if (subtitlePath && body.translateVi === 'true') {
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
-      await translateSubtitles(subtitlePath, translatedPath, body.geminiApiKey);
+      await translateSubtitles(subtitlePath, translatedPath, body.geminiApiKey, Number(body.subtitleMaxLines || 0), studioMaxChars);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
       // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
       try {
-        formatSubtitleFile(subtitlePath);
+        formatSubtitleFile(subtitlePath, Number(body.subtitleMaxLines || 0), studioMaxChars);
       } catch (err) {
         console.error('Lỗi định dạng phụ đề ban đầu:', err.message);
       }
@@ -1659,16 +1672,18 @@ app.post('/api/render-studio', studioUpload.fields([
     let hasVideoFilter = false;
 
     if (subtitlePath && body.burnSub === 'true') {
-      try {
-        formatSubtitleFile(subtitlePath);
-      } catch (err) {
-        console.error('Lỗi định dạng phụ đề 1-2 dòng:', err.message);
-      }
-
       const scaleFactor = 1.35; // Scale factor to reconcile libass rendering with CSS pixels
       const fontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
       const marginV = Number(body.subtitleMargin || 28);
       const marginH = Number(body.subtitleMarginH || 20);
+      const boxWidth = videoWidth - 2 * marginH;
+      const maxChars = Math.max(10, Math.floor(boxWidth / (fontSize * 0.5)));
+
+      try {
+        formatSubtitleFile(subtitlePath, Number(body.subtitleMaxLines || 0), maxChars);
+      } catch (err) {
+        console.error('Lỗi định dạng phụ đề 1-2 dòng:', err.message);
+      }
       
       const ssaToAssAlignment = {
         1: 1,  // Bottom-Left
@@ -1749,6 +1764,38 @@ app.post('/api/render-studio', studioUpload.fields([
       }
     }
 
+    let baseVideoLabel = '0:v';
+    let blurFilterString = '';
+
+    if (body.blurOriginalSub === 'true') {
+      hasVideoFilter = true;
+      baseVideoLabel = 'v_base';
+      
+      const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
+      const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
+      const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
+      const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
+      const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
+      
+      let blurXPercent = blurXPercentVal;
+      if (blurXPercent + blurWidthPercentVal > 1) {
+        blurXPercent = 1 - blurWidthPercentVal;
+      }
+      let blurYPercent = blurYPercentVal;
+      if (blurYPercent + blurHeightPercentVal > 1) {
+        blurYPercent = 1 - blurHeightPercentVal;
+      }
+      
+      const cropW = videoWidth * blurWidthPercentVal;
+      const cropH = videoHeight * blurHeightPercentVal;
+      const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
+      const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+      const safeLumaRadius = Math.min(blurRadius, maxLumaR);
+      const safeChromaRadius = Math.min(blurRadius, maxChromaR);
+      
+      blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[v_base]`;
+    }
+
     if (reactionVideoPath) {
       hasVideoFilter = true;
       
@@ -1767,7 +1814,11 @@ app.post('/api/render-studio', studioUpload.fields([
       
       const width = Number(body.reactionWidth || 320);
       
-      let filterChain = `[${reactionInputIndex}:v]scale=${width}:-1[pip];[0:v][pip]overlay=${overlayPos}`;
+      let filterChain = '';
+      if (blurFilterString) {
+        filterChain += blurFilterString + ';';
+      }
+      filterChain += `[${reactionInputIndex}:v]scale=${width}:-1[pip];[${baseVideoLabel}][pip]overlay=${overlayPos}`;
       
       if (renderSubtitlePath) {
         filterChain += `[v_pip];[v_pip]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
@@ -1777,7 +1828,36 @@ app.post('/api/render-studio', studioUpload.fields([
       videoFilter = filterChain;
     } else if (renderSubtitlePath) {
       hasVideoFilter = true;
-      videoFilter = `[0:v]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
+      let filterChain = '';
+      if (blurFilterString) {
+        filterChain += blurFilterString + ';';
+      }
+      filterChain += `[${baseVideoLabel}]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
+      videoFilter = filterChain;
+    } else if (body.blurOriginalSub === 'true') {
+      const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
+      const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
+      const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
+      const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
+      const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
+      
+      let blurXPercent = blurXPercentVal;
+      if (blurXPercent + blurWidthPercentVal > 1) {
+        blurXPercent = 1 - blurWidthPercentVal;
+      }
+      let blurYPercent = blurYPercentVal;
+      if (blurYPercent + blurHeightPercentVal > 1) {
+        blurYPercent = 1 - blurHeightPercentVal;
+      }
+      
+      const cropW = videoWidth * blurWidthPercentVal;
+      const cropH = videoHeight * blurHeightPercentVal;
+      const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
+      const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+      const safeLumaRadius = Math.min(blurRadius, maxLumaR);
+      const safeChromaRadius = Math.min(blurRadius, maxChromaR);
+      
+      videoFilter = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[vout]`;
     }
 
     // Build filter complex array

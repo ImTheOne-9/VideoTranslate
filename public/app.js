@@ -450,6 +450,7 @@ async function renderStudio(event) {
 
   data.set('translateVi', $('translate-vi').checked ? 'true' : 'false');
   data.set('burnSub', $('burn-sub').checked ? 'true' : 'false');
+  data.set('blurOriginalSub', $('blur-original-sub').checked ? 'true' : 'false');
 
   setBusy(btn, true, 'Đang render...');
   status.textContent = 'Đang xử lý. Video dài hoặc tạo sub Whisper sẽ mất thời gian.';
@@ -692,6 +693,15 @@ function updateConditionalFields() {
       strip.style.pointerEvents = isOriginalNone ? 'none' : 'auto';
     }
   }
+
+  const blurCheck = $('blur-original-sub');
+  const blurSettings = $('blur-settings-container');
+  if (blurCheck && blurSettings) {
+    blurSettings.classList.toggle('hidden', !blurCheck.checked);
+  }
+  if (typeof updateBlurBoxPreview === 'function') {
+    updateBlurBoxPreview();
+  }
 }
 
 function renderVideoGrid(videos) {
@@ -855,6 +865,9 @@ function setPreviewVideo(url) {
     video.onloadeddata = () => {
       // Re-trigger layout alignment calculation
       updateSubtitleOverlayFromInputs();
+      if (typeof updateBlurBoxPreview === 'function') {
+        updateBlurBoxPreview();
+      }
     };
   } else {
     video.pause();
@@ -872,6 +885,9 @@ function setPreviewVideo(url) {
     }
     const rxPip = $('preview-reaction-pip');
     if (rxPip) rxPip.classList.add('hidden');
+  }
+  if (typeof updateBlurBoxPreview === 'function') {
+    updateBlurBoxPreview();
   }
 }
 
@@ -992,12 +1008,137 @@ function updateInputsFromSubtitlePosition() {
   document.querySelector('input[name="subtitleMarginH"]').value = Math.max(0, MarginH_act);
 }
 
+function wrapTextToTwoLines(text, maxCharsPerLine = 22) {
+  const cleanText = text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanText.length <= maxCharsPerLine) {
+    return cleanText;
+  }
+
+  const words = cleanText.split(' ');
+  const midPoint = Math.floor(cleanText.length / 2);
+  let bestIndex = -1;
+  let minDiff = Infinity;
+  
+  let currentPos = 0;
+  for (let i = 0; i < words.length - 1; i++) {
+    currentPos += words[i].length + 1;
+    const diff = Math.abs(currentPos - midPoint);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestIndex = i;
+    }
+  }
+
+  if (bestIndex !== -1) {
+    const line1 = words.slice(0, bestIndex + 1).join(' ');
+    const line2 = words.slice(bestIndex + 1).join(' ');
+    return `${line1}\n${line2}`;
+  }
+
+  return cleanText;
+}
+
+function wrapTextToThreeLines(text, maxCharsPerLine = 22) {
+  const cleanText = text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanText.length <= maxCharsPerLine) {
+    return cleanText;
+  }
+  if (cleanText.length <= maxCharsPerLine * 1.6) {
+    return wrapTextToTwoLines(cleanText, maxCharsPerLine);
+  }
+  
+  const words = cleanText.split(' ');
+  if (words.length <= 2) {
+    return words.join('\n');
+  }
+  
+  const totalLen = cleanText.length;
+  
+  let bestI = -1;
+  let bestJ = -1;
+  let minVariance = Infinity;
+  
+  let posI = 0;
+  for (let i = 0; i < words.length - 2; i++) {
+    posI += words[i].length + 1;
+    
+    let posJ = posI;
+    for (let j = i + 1; j < words.length - 1; j++) {
+      posJ += words[j].length + 1;
+      
+      const len1 = posI - 1;
+      const len2 = posJ - posI - 1;
+      const len3 = totalLen - posJ;
+      
+      const mean = totalLen / 3;
+      const variance = Math.pow(len1 - mean, 2) + Math.pow(len2 - mean, 2) + Math.pow(len3 - mean, 2);
+      
+      if (variance < minVariance) {
+        minVariance = variance;
+        bestI = i;
+        bestJ = j;
+      }
+    }
+  }
+  
+  if (bestI !== -1 && bestJ !== -1) {
+    const line1 = words.slice(0, bestI + 1).join(' ');
+    const line2 = words.slice(bestI + 1, bestJ + 1).join(' ');
+    const line3 = words.slice(bestJ + 1).join(' ');
+    return `${line1}\n${line2}\n${line3}`;
+  }
+  
+  return cleanText;
+}
+
 function updateSubtitleOverlayFromInputs() {
   const dragEl = $('draggable-subtitle');
   const video = $('studio-video-preview');
   const canvasWrapper = $('subtitle-canvas-wrapper');
   
   if (!dragEl || !video || !canvasWrapper) return;
+  
+  const textContentEl = $('subtitle-text-content');
+  if (textContentEl) {
+    if (!textContentEl.dataset.rawText) {
+      textContentEl.dataset.rawText = textContentEl.innerText.trim();
+    }
+    
+    if (textContentEl.contentEditable !== 'true') {
+      dragEl.style.whiteSpace = 'pre';
+      const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 18);
+      const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
+      const maxLines = Number(document.querySelector('[name="subtitleMaxLines"]').value || 0);
+      
+      const W_act = video.videoWidth || 1080;
+      const boxWidth = W_act - 2 * marginHInput;
+      const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
+      
+      const rawText = textContentEl.dataset.rawText;
+      let wrappedText = rawText;
+      
+      if (maxLines === 1) {
+        wrappedText = rawText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+      } else if (maxLines === 2) {
+        wrappedText = wrapTextToTwoLines(rawText, maxChars);
+      } else if (maxLines === 3) {
+        wrappedText = wrapTextToThreeLines(rawText, maxChars);
+      } else { // maxLines === 0 (Tự động)
+        const clean = rawText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+        if (clean.length <= maxChars) {
+          wrappedText = clean;
+        } else if (clean.length <= maxChars * 1.6) {
+          wrappedText = wrapTextToTwoLines(clean, maxChars);
+        } else {
+          wrappedText = wrapTextToThreeLines(clean, maxChars);
+        }
+      }
+      
+      textContentEl.innerText = wrappedText;
+    } else {
+      dragEl.style.whiteSpace = 'pre-wrap';
+    }
+  }
   
   const containerRect = video.getBoundingClientRect();
   if (containerRect.width === 0 || containerRect.height === 0) return;
@@ -1020,6 +1161,8 @@ function updateSubtitleOverlayFromInputs() {
   const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
   const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
   const alignment = Number(document.querySelector('[name="subtitleAlignment"]').value || 2);
+  
+  dragEl.style.width = (W_act - 2 * marginHInput) + 'px';
   
   // Reconcile size with output video using same 1.35 scaleFactor from server.js.
   const scaleFactor = 1.35;
@@ -1215,18 +1358,59 @@ function updateReactionPreview() {
 function initDraggableSubtitle() {
   const dragEl = $('draggable-subtitle');
   const wrapper = $('video-preview-wrapper');
+  const handleEl = $('subtitle-resizer-handle');
+  const textContentEl = $('subtitle-text-content');
   
   if (!dragEl || !wrapper) return;
   
   let isDragging = false;
+  let isResizing = false;
   let startX, startY;
   let initialLeft, initialTop;
+  let initialWidth, initialHeight, initialFontSize;
   
   dragEl.addEventListener('mousedown', startDrag);
   dragEl.addEventListener('touchstart', startDrag, { passive: true });
   
+  if (textContentEl) {
+    textContentEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      if (!textContentEl.dataset.rawText) {
+        textContentEl.dataset.rawText = textContentEl.innerText.trim();
+      }
+      textContentEl.innerText = textContentEl.dataset.rawText;
+      
+      textContentEl.contentEditable = 'true';
+      textContentEl.focus();
+      dragEl.classList.add('editing');
+      
+      // Select all text
+      const range = document.createRange();
+      range.selectNodeContents(textContentEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    
+    textContentEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        textContentEl.blur();
+      }
+    });
+    
+    textContentEl.addEventListener('blur', () => {
+      textContentEl.contentEditable = 'false';
+      dragEl.classList.remove('editing');
+      textContentEl.dataset.rawText = textContentEl.innerText.trim();
+      updateSubtitleOverlayFromInputs();
+    });
+  }
+  
   function startDrag(e) {
+    if (e.target === handleEl || (textContentEl && textContentEl.contentEditable === 'true')) return;
     isDragging = true;
+    dragEl.classList.add('dragging');
     const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
     const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
     
@@ -1280,10 +1464,375 @@ function initDraggableSubtitle() {
   
   function stopDrag() {
     isDragging = false;
+    dragEl.classList.remove('dragging');
     document.removeEventListener('mousemove', drag);
     document.removeEventListener('touchmove', drag);
     document.removeEventListener('mouseup', stopDrag);
     document.removeEventListener('touchend', stopDrag);
+  }
+  
+  if (handleEl) {
+    handleEl.addEventListener('mousedown', startResize);
+    handleEl.addEventListener('touchstart', startResize, { passive: false });
+  }
+  
+  function startResize(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+    dragEl.classList.add('resizing');
+    
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    
+    startX = clientX;
+    startY = clientY;
+    
+    initialWidth = dragEl.offsetWidth;
+    initialHeight = dragEl.offsetHeight;
+    
+    const fontSizeInput = document.querySelector('input[name="subtitleSize"]');
+    initialFontSize = fontSizeInput ? (parseInt(fontSizeInput.value) || 18) : 18;
+    
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('touchmove', resize, { passive: false });
+    document.addEventListener('mouseup', stopResize);
+    document.addEventListener('touchend', stopResize);
+  }
+  
+  function resize(e) {
+    if (!isResizing) return;
+    e.preventDefault();
+    
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    
+    const video = $('studio-video-preview');
+    const videoRect = getVideoContentRect(video);
+    
+    const W_act = video.videoWidth || 1080;
+    const H_act = video.videoHeight || 1920;
+    const font_scale = videoRect.height / H_act;
+    
+    const dx_canvas = dx / font_scale;
+    const dy_canvas = dy / font_scale;
+    
+    const newWidth = Math.max(100, initialWidth + dx_canvas);
+    const newHeight = Math.max(20, initialHeight + dy_canvas);
+    
+    // 1. Update margin H based on new width (centered wrapper width constraint)
+    let newMarginH = Math.round((W_act - newWidth) / 2);
+    newMarginH = Math.max(10, Math.min(newMarginH, Math.floor(W_act / 2) - 50));
+    
+    // 2. Update line count based on vertical height
+    const fontSizeInput = document.querySelector('input[name="subtitleSize"]');
+    const fontSizeVal = fontSizeInput ? (parseInt(fontSizeInput.value) || 18) : 18;
+    const scaleFactor = 1.35;
+    const fontSize_canvas = fontSizeVal * scaleFactor;
+    const lineHeight = fontSize_canvas * 1.3;
+    
+    let detectedLines = Math.max(1, Math.round(newHeight / lineHeight));
+    detectedLines = Math.min(3, detectedLines); // Cap at 3 lines max
+    
+    const maxLinesSelect = document.querySelector('[name="subtitleMaxLines"]');
+    if (maxLinesSelect && Number(maxLinesSelect.value) !== detectedLines) {
+      maxLinesSelect.value = detectedLines;
+      maxLinesSelect.dispatchEvent(new Event('change'));
+    }
+    
+    const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
+    if (marginHInput) marginHInput.value = newMarginH;
+    
+    updateSubtitleOverlayFromInputs();
+    
+    // Explicitly set temporary height on dragEl during active resize so it visually stretches
+    dragEl.style.height = newHeight + 'px';
+  }
+  
+  function stopResize() {
+    isResizing = false;
+    dragEl.classList.remove('resizing');
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('touchmove', resize);
+    document.removeEventListener('mouseup', stopResize);
+    document.removeEventListener('touchend', stopResize);
+    
+    // Remove temporary height style so it snaps to text wrapped height
+    dragEl.style.height = '';
+    updateSubtitleOverlayFromInputs();
+  }
+}
+
+function updateBlurBoxPreview() {
+  const blurBox = $('preview-blur-box');
+  const video = $('studio-video-preview');
+  const wrapper = $('video-preview-wrapper');
+  const blurCheck = $('blur-original-sub');
+  
+  if (!blurBox || !video || !wrapper || !blurCheck) return;
+  
+  // Hide blur box if option is not checked, preview is hidden, or no video is loaded
+  if (!blurCheck.checked || wrapper.classList.contains('hidden') || !video.src || video.src === '' || !video.videoWidth || !video.videoHeight) {
+    blurBox.classList.add('hidden');
+    return;
+  }
+  
+  const containerRect = wrapper.getBoundingClientRect();
+  if (containerRect.width === 0 || containerRect.height === 0) {
+    blurBox.classList.add('hidden');
+    return;
+  }
+  
+  const videoRect = getVideoContentRect(video);
+  
+  const blurXInput = $('blur-x-input');
+  const blurWidthInput = $('blur-width-input');
+  const blurYInput = $('blur-y-input');
+  const blurHeightInput = $('blur-height-input');
+  
+  if (!blurXInput || !blurWidthInput || !blurYInput || !blurHeightInput) return;
+  
+  let blurX = parseFloat(blurXInput.value);
+  if (isNaN(blurX)) blurX = 10;
+  let blurWidth = parseFloat(blurWidthInput.value);
+  if (isNaN(blurWidth)) blurWidth = 80;
+  let blurY = parseFloat(blurYInput.value);
+  if (isNaN(blurY)) blurY = 75;
+  let blurHeight = parseFloat(blurHeightInput.value);
+  if (isNaN(blurHeight)) blurHeight = 15;
+  
+  // Keep boundaries sanitized:
+  if (blurX < 0) blurX = 0;
+  if (blurX > 100) blurX = 100;
+  if (blurWidth < 1) blurWidth = 1;
+  if (blurWidth > 100) blurWidth = 100;
+  if (blurX + blurWidth > 100) {
+    blurX = 100 - blurWidth;
+  }
+  
+  if (blurY < 0) blurY = 0;
+  if (blurY > 100) blurY = 100;
+  if (blurHeight < 1) blurHeight = 1;
+  if (blurHeight > 100) blurHeight = 100;
+  if (blurY + blurHeight > 100) {
+    blurY = 100 - blurHeight;
+  }
+  
+  // Show blur box
+  blurBox.classList.remove('hidden');
+  
+  // Calculate relative top, left, width, height inside container wrapper
+  const leftRel = videoRect.left - containerRect.left;
+  const topRel = videoRect.top - containerRect.top;
+  
+  const boxWidth = videoRect.width * (blurWidth / 100);
+  const boxLeft = leftRel + videoRect.width * (blurX / 100);
+  const boxTop = topRel + videoRect.height * (blurY / 100);
+  const boxHeight = videoRect.height * (blurHeight / 100);
+  
+  blurBox.style.left = `${boxLeft}px`;
+  blurBox.style.width = `${boxWidth}px`;
+  blurBox.style.top = `${boxTop}px`;
+  blurBox.style.height = `${boxHeight}px`;
+
+  const blurRadiusSlider = $('blur-radius-slider');
+  let radius = 20;
+  if (blurRadiusSlider) {
+    radius = parseFloat(blurRadiusSlider.value) || 20;
+  }
+  const cssRadius = Math.max(1, radius * 0.5);
+  blurBox.style.backdropFilter = `blur(${cssRadius}px)`;
+  blurBox.style.webkitBackdropFilter = `blur(${cssRadius}px)`;
+}
+
+function initDraggableBlurBox() {
+  const blurBox = $('preview-blur-box');
+  const handleEl = $('blur-resizer-handle');
+  const mainVideo = $('studio-video-preview');
+  const wrapper = $('video-preview-wrapper');
+  
+  if (!blurBox || !handleEl || !mainVideo || !wrapper) return;
+  
+  let isDragging = false;
+  let isResizing = false;
+  
+  let startX, startY;
+  let initialLeft, initialTop, initialWidth, initialHeight;
+  
+  // Dragging blurBox body
+  blurBox.addEventListener('mousedown', (e) => {
+    if (e.target === handleEl) return;
+    startDrag(e);
+  });
+  blurBox.addEventListener('touchstart', (e) => {
+    if (e.target === handleEl) return;
+    startDrag(e);
+  }, { passive: false });
+  
+  // Resizing blurBox via handle
+  handleEl.addEventListener('mousedown', startResize);
+  handleEl.addEventListener('touchstart', startResize, { passive: false });
+  
+  function startDrag(e) {
+    e.preventDefault();
+    isDragging = true;
+    blurBox.classList.add('dragging');
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    
+    startX = clientX;
+    startY = clientY;
+    initialLeft = blurBox.offsetLeft;
+    initialTop = blurBox.offsetTop;
+    
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('touchmove', drag, { passive: false });
+    document.addEventListener('mouseup', stopDrag);
+    document.addEventListener('touchend', stopDrag);
+  }
+  
+  function drag(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    
+    let newLeft = initialLeft + dx;
+    let newTop = initialTop + dy;
+    
+    const containerRect = wrapper.getBoundingClientRect();
+    const videoRect = getVideoContentRect(mainVideo);
+    
+    const minLeft = videoRect.left - containerRect.left;
+    const maxLeft = videoRect.right - containerRect.left - blurBox.offsetWidth;
+    const minTop = videoRect.top - containerRect.top;
+    const maxTop = videoRect.bottom - containerRect.top - blurBox.offsetHeight;
+    
+    newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+    newTop = Math.max(minTop, Math.min(newTop, maxTop));
+    
+    // Update input values
+    const leftInVideo = newLeft - minLeft;
+    const blurX = Math.round((leftInVideo / videoRect.width) * 100);
+    
+    const topInVideo = newTop - minTop;
+    const blurY = Math.round((topInVideo / videoRect.height) * 100);
+    
+    const blurXInput = $('blur-x-input');
+    if (blurXInput) {
+      blurXInput.value = blurX;
+    }
+    
+    const blurYInput = $('blur-y-input');
+    if (blurYInput) {
+      blurYInput.value = blurY;
+    }
+    
+    updateBlurBoxPreview();
+  }
+  
+  function stopDrag() {
+    isDragging = false;
+    blurBox.classList.remove('dragging');
+    document.removeEventListener('mousemove', drag);
+    document.removeEventListener('touchmove', drag);
+    document.removeEventListener('mouseup', stopDrag);
+    document.removeEventListener('touchend', stopDrag);
+  }
+  
+  function startResize(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+    blurBox.classList.add('resizing');
+    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    
+    startX = clientX;
+    startY = clientY;
+    initialWidth = blurBox.offsetWidth;
+    initialHeight = blurBox.offsetHeight;
+    
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('touchmove', resize, { passive: false });
+    document.addEventListener('mouseup', stopResize);
+    document.addEventListener('touchend', stopResize);
+  }
+  
+  function resize(e) {
+    if (!isResizing) return;
+    e.preventDefault();
+    
+    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    
+    let newWidth = initialWidth + dx;
+    let newHeight = initialHeight + dy;
+    
+    const containerRect = wrapper.getBoundingClientRect();
+    const videoRect = getVideoContentRect(mainVideo);
+    
+    const spaceRight = (videoRect.right - containerRect.left) - blurBox.offsetLeft;
+    const spaceBottom = (videoRect.bottom - containerRect.top) - blurBox.offsetTop;
+    
+    newWidth = Math.max(10, Math.min(newWidth, spaceRight));
+    newHeight = Math.max(10, Math.min(newHeight, spaceBottom));
+    
+    // Update input values
+    const blurWidth = Math.round((newWidth / videoRect.width) * 100);
+    const blurHeight = Math.round((newHeight / videoRect.height) * 100);
+    
+    const blurWidthInput = $('blur-width-input');
+    if (blurWidthInput) {
+      blurWidthInput.value = blurWidth;
+    }
+    
+    const blurHeightInput = $('blur-height-input');
+    if (blurHeightInput) {
+      blurHeightInput.value = blurHeight;
+    }
+    
+    updateBlurBoxPreview();
+  }
+  
+  function stopResize() {
+    isResizing = false;
+    blurBox.classList.remove('resizing');
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('touchmove', resize);
+    document.removeEventListener('mouseup', stopResize);
+    document.removeEventListener('touchend', stopResize);
+  }
+  
+  // Register manual inputs change listeners
+  const blurXInput = $('blur-x-input');
+  const blurWidthInput = $('blur-width-input');
+  const blurYInput = $('blur-y-input');
+  const blurHeightInput = $('blur-height-input');
+  
+  if (blurXInput) {
+    blurXInput.addEventListener('input', updateBlurBoxPreview);
+    blurXInput.addEventListener('change', updateBlurBoxPreview);
+  }
+  if (blurWidthInput) {
+    blurWidthInput.addEventListener('input', updateBlurBoxPreview);
+    blurWidthInput.addEventListener('change', updateBlurBoxPreview);
+  }
+  if (blurYInput) {
+    blurYInput.addEventListener('input', updateBlurBoxPreview);
+    blurYInput.addEventListener('change', updateBlurBoxPreview);
+  }
+  if (blurHeightInput) {
+    blurHeightInput.addEventListener('input', updateBlurBoxPreview);
+    blurHeightInput.addEventListener('change', updateBlurBoxPreview);
   }
 }
 
@@ -1371,7 +1920,10 @@ $('save-voice-form').addEventListener('submit', saveVoice);
 $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
 $('bulk-fetch-btn').addEventListener('click', fetchPlaylistInfo);
-['subtitle-mode', 'voice-mode', 'music-mode', 'reaction-mode'].forEach(id => $(id).addEventListener('change', updateConditionalFields));
+['subtitle-mode', 'voice-mode', 'music-mode', 'reaction-mode', 'blur-original-sub'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('change', updateConditionalFields);
+});
 
 function formatTime(secs) {
   if (isNaN(secs)) return '00:00';
@@ -1517,7 +2069,7 @@ if (mainVideo && previewOverlay) {
 const subtitleInputs = [
   'subtitleSize', 'subtitleMargin', 'subtitleMarginH',
   'subtitleAlignment', 'subtitleFont', 'subtitleTheme',
-  'subtitleColor', 'subtitleBold', 'reactionPosition', 'reactionWidth'
+  'subtitleColor', 'subtitleBold', 'subtitleMaxLines', 'reactionPosition', 'reactionWidth'
 ];
 subtitleInputs.forEach(name => {
   const el = document.querySelector(`[name="${name}"]`);
@@ -1558,6 +2110,51 @@ if (colorSwatches) {
         input.value = color;
         // Dispatch event manually
         input.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+}
+
+// Interactive Subtitle Presets Clicks
+const presetGrid = $('subtitle-presets-grid');
+if (presetGrid) {
+  const presets = {
+    classic: { color: '#FFFFFF', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
+    tiktok: { color: '#FFEB3B', theme: 'outline-thick', font: 'Impact', bold: 'true', size: 32 },
+    netflix: { color: '#FFFFFF', theme: 'box', font: 'Arial', bold: 'false', size: 18 },
+    cyber: { color: '#00E5FF', theme: 'outline-shadow', font: 'Trebuchet MS', bold: 'true', size: 28 }
+  };
+  
+  presetGrid.querySelectorAll('.preset-card').forEach(card => {
+    card.addEventListener('click', () => {
+      presetGrid.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      
+      const config = presets[card.dataset.preset];
+      if (config) {
+        const fontSelect = document.querySelector('select[name="subtitleFont"]');
+        if (fontSelect) fontSelect.value = config.font;
+        
+        const sizeInput = document.querySelector('input[name="subtitleSize"]');
+        if (sizeInput) sizeInput.value = config.size;
+        
+        const themeSelect = document.querySelector('select[name="subtitleTheme"]');
+        if (themeSelect) themeSelect.value = config.theme;
+        
+        const boldSelect = document.querySelector('select[name="subtitleBold"]');
+        if (boldSelect) boldSelect.value = config.bold;
+        
+        const colorInput = $('subtitle-color-input');
+        if (colorInput) colorInput.value = config.color;
+        
+        const swatches = $('color-swatches-container');
+        if (swatches) {
+          swatches.querySelectorAll('.color-swatch').forEach(s => {
+            s.classList.toggle('active', s.dataset.color.toLowerCase() === config.color.toLowerCase());
+          });
+        }
+        
+        updateSubtitleOverlayFromInputs();
       }
     });
   });
@@ -1611,7 +2208,12 @@ if (rwInput) {
   updateLabel();
 }
 
-window.addEventListener('resize', updateSubtitleOverlayFromInputs);
+window.addEventListener('resize', () => {
+  updateSubtitleOverlayFromInputs();
+  if (typeof updateBlurBoxPreview === 'function') {
+    updateBlurBoxPreview();
+  }
+});
 
 function updateInputsFromReactionGeometry() {
   const pipEl = $('preview-reaction-pip');
@@ -1827,6 +2429,7 @@ function initDraggableReaction() {
 
 initDraggableSubtitle();
 initDraggableReaction();
+initDraggableBlurBox();
 
 // Setup voice mode tabs
 document.querySelectorAll('.voice-tab-btn').forEach(btn => {
@@ -1888,6 +2491,21 @@ if (stepsSlider) {
   stepsSlider.addEventListener('input', updateSteps);
   stepsSlider.addEventListener('change', updateSteps);
   updateSteps();
+}
+
+// Live updating Blur Radius badge
+const blurRadiusSlider = document.getElementById('blur-radius-slider');
+if (blurRadiusSlider) {
+  const blurRadiusVal = document.getElementById('blur-radius-val');
+  const updateBlurRadius = () => {
+    if (blurRadiusVal) blurRadiusVal.textContent = blurRadiusSlider.value;
+    if (typeof updateBlurBoxPreview === 'function') {
+      updateBlurBoxPreview();
+    }
+  };
+  blurRadiusSlider.addEventListener('input', updateBlurRadius);
+  blurRadiusSlider.addEventListener('change', updateBlurRadius);
+  updateBlurRadius();
 }
 
 // Link Omi Cloner Seed Presets dropdown to hidden numeric input
