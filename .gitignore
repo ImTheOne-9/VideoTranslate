@@ -17,3 +17,8 @@ Thumbs.db
 # Build output
 dist/
 models/
+
+# Local databases and secrets
+.env
+license-server/.env
+license-server/database.json

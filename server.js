@@ -1921,6 +1921,79 @@ app.post('/api/render-studio', studioUpload.fields([
   }
 });
 
+// ==========================================
+// TÍCH HỢP HỆ THỐNG XÁC THỰC BẢN QUYỀN
+// ==========================================
+const { getCompositeHWID, saveLicenseLocal, verifyLocalLicense, LICENSE_SERVER_URL } = require('./lib/license-manager');
+
+// Middleware chặn các yêu cầu API nếu bản quyền không hợp lệ
+function licenseMiddleware(req, res, next) {
+  // Cho phép gọi các API kích hoạt license và lấy HWID
+  if (req.path.startsWith('/api/license/')) {
+    return next();
+  }
+  
+  if (req.path.startsWith('/api/')) {
+    const check = verifyLocalLicense();
+    if (!check.valid) {
+      return res.status(403).json({ error: `Bản quyền không hợp lệ: ${check.error}. Vui lòng kích hoạt phần mềm.` });
+    }
+  }
+  next();
+}
+app.use(licenseMiddleware);
+
+// 1. Endpoint lấy HWID thô cho giao diện kích hoạt
+app.get('/api/license/hwid', (req, res) => {
+  try {
+    const hwid = getCompositeHWID();
+    res.json({ hwid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Endpoint thực hiện kích hoạt trực tuyến
+app.post('/api/license/activate', async (req, res) => {
+  const { key } = req.body;
+  if (!key) {
+    return res.status(400).json({ error: 'Mã bản quyền là bắt buộc' });
+  }
+
+  try {
+    const hwid = getCompositeHWID();
+    
+    // Gửi yêu cầu kích hoạt lên server trung tâm của bạn
+    const response = await axios.post(`${LICENSE_SERVER_URL}/api/server/activate`, { key, hwid }, { timeout: 6000 });
+    
+    if (response.data && response.data.status === 'success') {
+      const { expiresAt, signature, issuedAt, nonce } = response.data;
+      
+      const payload = {
+        key,
+        hwid,
+        expiresAt,
+        issuedAt,
+        nonce,
+        lastOnlineCheck: Date.now(),
+        launchCountSinceOnlineCheck: 0,
+        lastRunTimestamp: Date.now()
+      };
+      
+      saveLicenseLocal(payload, signature);
+      return res.json({ success: true, message: 'Kích hoạt bản quyền thành công' });
+    } else {
+      return res.status(400).json({ error: (response.data && response.data.error) || 'Mã kích hoạt không đúng' });
+    }
+  } catch (err) {
+    console.error('Lỗi kích hoạt license:', err.message);
+    const errorMsg = err.response && err.response.data && err.response.data.error
+      ? err.response.data.error
+      : 'Không thể kết nối đến máy chủ bản quyền. Vui lòng thử lại sau.';
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
 function findAvailablePort(startPort) {
   return new Promise((resolve) => {
     const server = net.createServer();

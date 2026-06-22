@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { ensureModelsExist } = require('./lib/model-downloader');
+const { checkLicenseStartup } = require('./lib/license-manager');
 
 // Cấu hình thư mục log
 const logDir = app.getPath('userData');
@@ -61,7 +62,7 @@ app.on('second-instance', () => {
   }
 });
 
-function createWindow(port) {
+function createWindow(port, isLicenseValid = true, licenseError = '') {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -75,7 +76,13 @@ function createWindow(port) {
   // Tắt menu bar mặc định (File, Edit, View...)
   Menu.setApplicationMenu(null);
 
-  const url = `http://127.0.0.1:${port}`;
+  let url;
+  if (isLicenseValid) {
+    url = `http://127.0.0.1:${port}`;
+  } else {
+    url = `http://127.0.0.1:${port}/license.html?error=${encodeURIComponent(licenseError)}`;
+  }
+
   console.log(`Đang tải trang giao diện: ${url}`);
   mainWindow.loadURL(url);
 
@@ -155,9 +162,17 @@ app.whenReady().then(async () => {
     
     serverInstance = result.server;
     global.runningPort = result.port;
-    
     console.log(`Express server đã khởi chạy thành công trên 127.0.0.1:${global.runningPort}`);
-    createWindow(global.runningPort);
+
+    // 6. Kiểm tra bản quyền bản cài đặt
+    const licenseCheck = await checkLicenseStartup();
+    if (licenseCheck.valid) {
+      console.log('Xác thực bản quyền thành công!');
+      createWindow(global.runningPort, true);
+    } else {
+      console.warn(`Xác thực bản quyền thất bại: ${licenseCheck.error}`);
+      createWindow(global.runningPort, false, licenseCheck.error);
+    }
   } catch (err) {
     console.error('Lỗi nghiêm trọng khi khởi động Express server:', err.message);
     app.quit();
@@ -183,8 +198,9 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('activate', () => {
+app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0 && global.runningPort) {
-    createWindow(global.runningPort);
+    const licenseCheck = await checkLicenseStartup();
+    createWindow(global.runningPort, licenseCheck.valid, licenseCheck.error || '');
   }
 });

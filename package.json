@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "electron-dev": "electron .",
-    "electron-dist": "electron-builder build --win --x64"
+    "electron-dist": "electron-builder build --win --x64",
+    "build-obfuscate": "node tools/obfuscate.js --build"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.1",
@@ -16,13 +17,16 @@
     "content-disposition": "^0.5.4",
     "express": "^4.21.0",
     "form-data": "^4.0.6",
+    "mongoose": "^9.7.1",
     "multer": "^2.1.1",
+    "node-machine-id": "^1.1.12",
     "srt-parser-2": "^1.2.3",
     "whisper-node": "^1.1.1"
   },
   "devDependencies": {
     "electron": "^42.4.1",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "javascript-obfuscator": "^5.4.3"
   },
   "build": {
     "appId": "com.videostudio.app",

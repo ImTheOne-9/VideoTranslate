@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kích hoạt bản quyền - Video Studio Tools</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --panel: rgba(17, 24, 39, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-glow: rgba(79, 70, 229, 0.4);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --error: #ef4444;
+      --error-glow: rgba(239, 68, 68, 0.2);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Ambient Background Glows */
+    body::before {
+      content: '';
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      top: -100px;
+      left: -100px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    body::after {
+      content: '';
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
+      bottom: -100px;
+      right: -100px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .container {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 480px;
+      padding: 24px;
+    }
+
+    .card {
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px 32px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .logo-container {
+      margin-bottom: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 64px;
+      height: 64px;
+      background: radial-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      border-radius: 20px;
+      box-shadow: 0 8px 16px var(--accent-glow);
+    }
+
+    .logo-container svg {
+      width: 32px;
+      height: 32px;
+      fill: white;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+
+    p.subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+    }
+
+    .form-group {
+      text-align: left;
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .input-wrapper {
+      position: relative;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-family: inherit;
+      font-size: 15px;
+      color: white;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.06);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25);
+    }
+
+    .hwid-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-family: monospace;
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+
+    .hwid-value {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      margin-right: 12px;
+      text-align: left;
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: all 0.15s;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: white;
+    }
+
+    .activate-btn {
+      width: 100%;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 14px;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px var(--accent-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .activate-btn:hover:not(:disabled) {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .activate-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .activate-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .toast {
+      margin-top: 20px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      text-align: left;
+      display: none;
+      animation: fadeInUp 0.3s ease;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .toast.error {
+      background: var(--error-glow);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      display: flex;
+    }
+
+    .toast.success {
+      background: var(--success-glow);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #a7f3d0;
+      display: flex;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="card" id="activation-card">
+      <div class="logo-container">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/>
+        </svg>
+      </div>
+      <h1>Kích hoạt bản quyền</h1>
+      <p class="subtitle">Vui lòng nhập mã bản quyền của bạn để bắt đầu sử dụng Video Studio Tools.</p>
+
+      <form id="activation-form" onsubmit="activateLicense(event)">
+        <div class="form-group">
+          <label for="license-key">License Key</label>
+          <input type="text" id="license-key" placeholder="STUDIO-XXXX-XXXX-XXXX" required autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="form-group">
+          <label>Mã thiết bị (Hardware ID)</label>
+          <div class="hwid-box">
+            <span class="hwid-value" id="hwid-val">Đang tải mã thiết bị...</span>
+            <button type="button" class="copy-btn" id="copy-btn" onclick="copyHWID()">Sao chép</button>
+          </div>
+        </div>
+
+        <button type="submit" class="activate-btn" id="activate-btn">
+          <span class="spinner" id="btn-spinner"></span>
+          <span id="btn-text">Kích hoạt trực tuyến</span>
+        </button>
+      </form>
+
+      <div class="toast" id="toast-msg"></div>
+    </div>
+  </div>
+
+  <script>
+    // Fetch HWID on startup
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const res = await fetch('/api/license/hwid');
+        const data = await res.json();
+        if (data.hwid) {
+          document.getElementById('hwid-val').textContent = data.hwid;
+          document.getElementById('hwid-val').title = data.hwid;
+        } else {
+          document.getElementById('hwid-val').textContent = 'Lỗi lấy mã thiết bị';
+        }
+      } catch (e) {
+        document.getElementById('hwid-val').textContent = 'Không kết nối được server nội bộ';
+      }
+    });
+
+    async function activateLicense(event) {
+      event.preventDefault();
+      
+      const keyInput = document.getElementById('license-key');
+      const btn = document.getElementById('activate-btn');
+      const btnSpinner = document.getElementById('btn-spinner');
+      const btnText = document.getElementById('btn-text');
+      const toastEl = document.getElementById('toast-msg');
+
+      const key = keyInput.value.trim();
+      if (!key) return;
+
+      // Reset toast state
+      toastEl.style.display = 'none';
+      toastEl.className = 'toast';
+
+      // Set busy state
+      btn.disabled = true;
+      btnSpinner.style.display = 'inline-block';
+      btnText.textContent = 'Đang kích hoạt...';
+
+      try {
+        const response = await fetch('/api/license/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          // Success Feedback
+          toastEl.className = 'toast success';
+          toastEl.innerHTML = `<div>🎉 <b>Kích hoạt thành công!</b> Ứng dụng sẽ tự động tải lại trong giây lát...</div>`;
+          toastEl.style.display = 'flex';
+          
+          btnSpinner.style.display = 'none';
+          btnText.textContent = 'Đã kích hoạt';
+          
+          // Trigger reload
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 2000);
+        } else {
+          throw new Error(data.error || 'Kích hoạt không thành công');
+        }
+      } catch (err) {
+        // Error Feedback
+        toastEl.className = 'toast error';
+        toastEl.innerHTML = `<div>❌ <b>Lỗi:</b> ${err.message}</div>`;
+        toastEl.style.display = 'flex';
+        
+        btn.disabled = false;
+        btnSpinner.style.display = 'none';
+        btnText.textContent = 'Thử kích hoạt lại';
+      }
+    }
+
+    function copyHWID() {
+      const hwidText = document.getElementById('hwid-val').textContent;
+      if (hwidText && hwidText !== 'Đang tải mã thiết bị...' && !hwidText.includes('Lỗi')) {
+        navigator.clipboard.writeText(hwidText).then(() => {
+          const copyBtn = document.getElementById('copy-btn');
+          copyBtn.textContent = 'Đã chép!';
+          setTimeout(() => {
+            copyBtn.textContent = 'Sao chép';
+          }, 1500);
+        });
+      }
+    }
+  </script>
+</body>
+</html>
