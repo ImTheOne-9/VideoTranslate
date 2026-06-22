@@ -38,6 +38,9 @@ app.use(express.json());
 
 // Serve static admin files
 app.use('/admin-static', express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => {
+  res.redirect('/admin');
+});
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
