@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/konva@9/konva.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -223,7 +224,7 @@
                   <button type="button" class="sub-tab-btn active" data-sub-mode="none" title="Không dùng sub">❌ Không dùng</button>
                   <button type="button" class="sub-tab-btn" data-sub-mode="saved" title="Dùng sub đã lưu">📝 Đã lưu</button>
                   <button type="button" class="sub-tab-btn" data-sub-mode="upload" title="Upload file sub .srt, .vtt, .ass">⬆️ Tải lên</button>
-                  <button type="button" class="sub-tab-btn whisper-tab" data-sub-mode="generate" title="Tạo sub tự động bằng AI Whisper">✨ AI Whisper</button>
+                  <button type="button" class="sub-tab-btn whisper-tab" data-sub-mode="generate" title="Tạo sub tự động bằng AI Whisper">✨ Phụ đề tự động</button>
                 </div>
                 <input type="hidden" id="subtitle-mode" name="subtitleMode" value="none">
               </div>
@@ -313,7 +314,7 @@
                 <div class="form-group">
                   <label>Cỡ chữ sub</label>
                   <div class="number-input-wrapper">
-                    <input type="number" name="subtitleSize" value="18" min="1" max="200" class="premium-input">
+                    <input type="number" name="subtitleSize" value="32" min="1" max="200" class="premium-input">
                     <span class="input-unit">px</span>
                   </div>
                 </div>
@@ -343,13 +344,13 @@
                     <button type="button" class="grid-cell" data-align="6" title="Trên - Giữa">↑</button>
                     <button type="button" class="grid-cell" data-align="7" title="Trên - Phải">↗</button>
                     <button type="button" class="grid-cell" data-align="9" title="Giữa - Trái">←</button>
-                    <button type="button" class="grid-cell" data-align="10" title="Chính giữa">⊙</button>
+                    <button type="button" class="grid-cell active" data-align="10" title="Chính giữa">⊙</button>
                     <button type="button" class="grid-cell" data-align="11" title="Giữa - Phải">→</button>
                     <button type="button" class="grid-cell" data-align="1" title="Dưới - Trái">↙</button>
-                    <button type="button" class="grid-cell active" data-align="2" title="Dưới - Giữa">↓</button>
+                    <button type="button" class="grid-cell" data-align="2" title="Dưới - Giữa">↓</button>
                     <button type="button" class="grid-cell" data-align="3" title="Dưới - Phải">↘</button>
                   </div>
-                  <input type="hidden" name="subtitleAlignment" id="subtitle-alignment-input" value="2">
+                  <input type="hidden" name="subtitleAlignment" id="subtitle-alignment-input" value="10">
                 </div>
               </div>
 
@@ -434,7 +435,7 @@
                   <button type="button" class="voice-tab-btn active" data-voice-mode="none" title="Không chèn giọng">❌ Không chèn</button>
                   <button type="button" class="voice-tab-btn" data-voice-mode="saved" title="Chèn giọng thuyết minh đã lưu">🎙️ Đã lưu</button>
                   <button type="button" class="voice-tab-btn" data-voice-mode="upload" title="Tải lên file thu âm mới">⬆️ Tải lên</button>
-                  <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi" title="Omi Cloner (Nhái giọng AI)">🤖 Omi Cloner</button>
+                  <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi" title="Omi Cloner (Nhái giọng AI)">🤖 Thuyết minh tự động</button>
                 </div>
                 <input type="hidden" id="voice-mode" name="voiceMode" value="none">
               </div>
@@ -618,24 +619,27 @@
                   <div id="video-preview-wrapper" class="video-preview-wrapper hidden">
                     <video id="studio-video-preview" muted playsinline></video>
                     
+                    <!-- Konva stage container -->
+                    <div id="konva-stage-container" style="position: absolute; top: 0; left: 0; z-index: 15; pointer-events: none;"></div>
+                    
                     <!-- Subtitle Canvas Wrapper for proportional sizing and positioning -->
-                    <div id="subtitle-canvas-wrapper" style="position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; z-index: 10;">
+                    <div id="subtitle-canvas-wrapper" style="position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; z-index: 10; display: none;">
                       <!-- Draggable Subtitle Overlay -->
                       <div id="draggable-subtitle" class="draggable-subtitle" style="pointer-events: auto;">
-                        <span id="subtitle-text-content">Phụ đề mẫu thử nghiệm. Kéo ngang để thay đổi độ dài dòng. Kéo dọc để tự động cấu trúc số dòng!</span>
+                        <span id="subtitle-text-content">Phụ đề mẫu thử nghiệm</span>
                         <div id="subtitle-resizer-handle" class="subtitle-resizer-handle"></div>
                       </div>
                     </div>
                     
                     <!-- Reaction PIP Preview Overlay -->
-                    <div id="preview-reaction-pip" class="preview-reaction-pip hidden">
+                    <div id="preview-reaction-pip" class="preview-reaction-pip hidden" style="display: none;">
                       <video id="preview-reaction-video" muted playsinline loop></video>
                       <div class="reaction-placeholder-box">Reaction PIP</div>
                       <div id="reaction-resizer-handle" class="reaction-resizer-handle"></div>
                     </div>
 
                     <!-- Customizable Subtitle Blur Preview Box -->
-                    <div id="preview-blur-box" class="preview-blur-box hidden">
+                    <div id="preview-blur-box" class="preview-blur-box hidden" style="display: none;">
                       <div class="blur-placeholder-text">Vùng làm mờ phụ đề</div>
                       <div id="blur-resizer-handle" class="blur-resizer-handle"></div>
                     </div>

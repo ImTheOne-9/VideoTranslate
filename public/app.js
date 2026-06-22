@@ -32,6 +32,13 @@ const views = {
 let currentUrl = '';
 let assets = { videos: [], voices: [], music: [], subtitles: [], renders: [], omiConfigured: false };
 
+let konvaStage = null;
+let konvaLayer = null;
+let konvaSubtitle = null;
+let konvaReaction = null;
+let konvaBlur = null;
+let konvaTransformer = null;
+
 const $ = (id) => document.getElementById(id);
 
 function toast(message, type = 'info') {
@@ -40,6 +47,15 @@ function toast(message, type = 'info') {
   el.className = `toast show ${type}`;
   setTimeout(() => el.classList.remove('show'), 3600);
 }
+
+// Global error handlers for UI debugging
+window.onerror = function (message, source, lineno, colno, error) {
+  toast(`Lỗi UI: ${message} (dòng ${lineno})`, 'error');
+  return false;
+};
+window.addEventListener('unhandledrejection', function (event) {
+  toast(`Lỗi Promise: ${event.reason}`, 'error');
+});
 
 function setBusy(button, busy, text) {
   if (!button) return;
@@ -862,13 +878,19 @@ function setPreviewVideo(url) {
     video.src = url;
     if (wrapper) wrapper.classList.remove('hidden');
     if (placeholder) placeholder.classList.add('hidden');
-    video.onloadeddata = () => {
-      // Re-trigger layout alignment calculation
+    
+    const onMetadataLoaded = () => {
       updateSubtitleOverlayFromInputs();
       if (typeof updateBlurBoxPreview === 'function') {
         updateBlurBoxPreview();
       }
     };
+
+    if (video.readyState >= 1) {
+      onMetadataLoaded();
+    } else {
+      video.onloadedmetadata = onMetadataLoaded;
+    }
   } else {
     video.pause();
     video.src = '';
@@ -927,20 +949,13 @@ function getVideoContentRect(video) {
   };
 }
 
-function updateInputsFromSubtitlePosition() {
-  const dragEl = $('draggable-subtitle');
+function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const video = $('studio-video-preview');
   
-  if (!dragEl || !video) return;
+  if (!video) return;
   
   const W_act = video.videoWidth || 1080;
   const H_act = video.videoHeight || 1920;
-  
-  // Position is in canvas coordinates because offsetParent is #subtitle-canvas-wrapper
-  const left = dragEl.offsetLeft;
-  const top = dragEl.offsetTop;
-  const dragWidth = dragEl.offsetWidth;
-  const dragHeight = dragEl.offsetHeight;
   
   // 1. Determine quadrants based on canvas coordinates
   const centerPercent = (left + dragWidth / 2) / W_act;
@@ -1092,748 +1107,727 @@ function wrapTextToThreeLines(text, maxCharsPerLine = 22) {
 }
 
 function updateSubtitleOverlayFromInputs() {
-  const dragEl = $('draggable-subtitle');
   const video = $('studio-video-preview');
-  const canvasWrapper = $('subtitle-canvas-wrapper');
-  
-  if (!dragEl || !video || !canvasWrapper) return;
-  
-  const textContentEl = $('subtitle-text-content');
-  if (textContentEl) {
-    if (!textContentEl.dataset.rawText) {
-      textContentEl.dataset.rawText = textContentEl.innerText.trim();
-    }
-    
-    if (textContentEl.contentEditable !== 'true') {
-      dragEl.style.whiteSpace = 'pre';
-      const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 18);
-      const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
-      const maxLines = Number(document.querySelector('[name="subtitleMaxLines"]').value || 0);
-      
-      const W_act = video.videoWidth || 1080;
-      const boxWidth = W_act - 2 * marginHInput;
-      const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
-      
-      const rawText = textContentEl.dataset.rawText;
-      let wrappedText = rawText;
-      
-      if (maxLines === 1) {
-        wrappedText = rawText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-      } else if (maxLines === 2) {
-        wrappedText = wrapTextToTwoLines(rawText, maxChars);
-      } else if (maxLines === 3) {
-        wrappedText = wrapTextToThreeLines(rawText, maxChars);
-      } else { // maxLines === 0 (Tự động)
-        const clean = rawText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-        if (clean.length <= maxChars) {
-          wrappedText = clean;
-        } else if (clean.length <= maxChars * 1.6) {
-          wrappedText = wrapTextToTwoLines(clean, maxChars);
-        } else {
-          wrappedText = wrapTextToThreeLines(clean, maxChars);
-        }
-      }
-      
-      textContentEl.innerText = wrappedText;
-    } else {
-      dragEl.style.whiteSpace = 'pre-wrap';
-    }
-  }
-  
-  const containerRect = video.getBoundingClientRect();
-  if (containerRect.width === 0 || containerRect.height === 0) return;
-  
-  const videoRect = getVideoContentRect(video);
-  
-  const W_act = video.videoWidth || 1080;
-  const H_act = video.videoHeight || 1920;
-  
-  const font_scale = videoRect.height / H_act;
-  
-  // Align and scale the canvas wrapper exactly to match the displayed video content
-  canvasWrapper.style.left = (videoRect.left - containerRect.left) + 'px';
-  canvasWrapper.style.top = (videoRect.top - containerRect.top) + 'px';
-  canvasWrapper.style.width = W_act + 'px';
-  canvasWrapper.style.height = H_act + 'px';
-  canvasWrapper.style.transform = `scale(${font_scale})`;
-  
-  const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 18);
-  const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
-  const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
-  const alignment = Number(document.querySelector('[name="subtitleAlignment"]').value || 2);
-  
-  dragEl.style.width = (W_act - 2 * marginHInput) + 'px';
-  
-  // Reconcile size with output video using same 1.35 scaleFactor from server.js.
-  const scaleFactor = 1.35;
-  const fontSize_canvas = fontSizeInput * scaleFactor;
-  dragEl.style.fontSize = fontSize_canvas + 'px';
-  
-  // Clean up debug box if it exists
-  const debugBox = $('debug-log-box');
-  if (debugBox) {
-    debugBox.remove();
-  }
-  
-  // Force the dashed dragging boundary border to visually be 1.2px on screen
-  dragEl.style.borderWidth = `${1.2 / font_scale}px`;
+  const container = $('konva-stage-container');
+  if (!video || !container) return;
 
-  // Apply visual styling dynamically from input controls
-  const fontNameInput = document.querySelector('select[name="subtitleFont"]').value || 'Arial';
-  const colorInput = document.querySelector('[name="subtitleColor"]').value || '#FFFFFF';
-  const themeInput = document.querySelector('select[name="subtitleTheme"]').value || 'outline';
-  const boldInput = document.querySelector('select[name="subtitleBold"]').value === 'true';
-
-  dragEl.style.fontFamily = fontNameInput;
-  dragEl.style.fontWeight = boldInput ? 'bold' : 'normal';
-  
-  // Apply visual themes in canvas coordinate space, so they scale down proportionally
-  if (themeInput === 'box') {
-    dragEl.style.color = colorInput;
-    dragEl.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-    dragEl.style.textShadow = 'none';
-    dragEl.style.webkitTextStroke = '0px';
-    const paddingCanvas = 4.0 * scaleFactor; // Matches outline padding in server.js
-    dragEl.style.padding = `${paddingCanvas}px ${paddingCanvas * 1.5}px`;
-    dragEl.style.borderRadius = `${4 * scaleFactor}px`;
-  } else if (themeInput === 'box-deep') {
-    dragEl.style.color = colorInput;
-    dragEl.style.backgroundColor = 'rgba(0, 0, 0, 0.95)';
-    dragEl.style.textShadow = 'none';
-    dragEl.style.webkitTextStroke = '0px';
-    const paddingCanvas = 4.0 * scaleFactor; // Matches outline padding in server.js
-    dragEl.style.padding = `${paddingCanvas}px ${paddingCanvas * 1.5}px`;
-    dragEl.style.borderRadius = `${4 * scaleFactor}px`;
-  } else if (themeInput === 'shadow') {
-    dragEl.style.color = colorInput;
-    dragEl.style.backgroundColor = 'transparent';
-    dragEl.style.webkitTextStroke = '0px';
-    const shadowSize = 2 * scaleFactor;
-    dragEl.style.textShadow = `${shadowSize}px ${shadowSize}px ${shadowSize * 2}px rgba(0, 0, 0, 0.8)`;
-    dragEl.style.padding = '0';
-    dragEl.style.borderRadius = '0';
-  } else if (themeInput === 'outline-thick') {
-    dragEl.style.color = colorInput;
-    dragEl.style.backgroundColor = 'transparent';
-    const strokeWidth = 5.0 * scaleFactor;
-    dragEl.style.webkitTextStroke = `${strokeWidth}px black`;
-    dragEl.style.textShadow = 'none';
-    dragEl.style.padding = '0';
-    dragEl.style.borderRadius = '0';
-  } else if (themeInput === 'outline-shadow') {
-    dragEl.style.color = colorInput;
-    dragEl.style.backgroundColor = 'transparent';
-    const strokeWidth = 2.5 * scaleFactor;
-    const shadowSize = 3 * scaleFactor;
-    dragEl.style.webkitTextStroke = `${strokeWidth}px black`;
-    dragEl.style.textShadow = `${shadowSize}px ${shadowSize}px ${shadowSize * 1.3}px rgba(0, 0, 0, 0.8)`;
-    dragEl.style.padding = '0';
-    dragEl.style.borderRadius = '0';
-  } else { // 'outline'
-    dragEl.style.color = colorInput;
-    dragEl.style.backgroundColor = 'transparent';
-    const strokeWidth = 2.5 * scaleFactor;
-    const shadowSize = 1 * scaleFactor;
-    dragEl.style.webkitTextStroke = `${strokeWidth}px black`;
-    dragEl.style.textShadow = `${shadowSize}px ${shadowSize}px ${shadowSize * 2}px rgba(0, 0, 0, 0.8)`;
-    dragEl.style.padding = '0';
-    dragEl.style.borderRadius = '0';
-  }
-  
-  // Offset dimensions in canvas coordinates
-  const dragWidth = dragEl.offsetWidth;
-  const dragHeight = dragEl.offsetHeight;
-  
-  let left = 0;
-  let top = 0;
-  
-  if ([5, 6, 7].includes(alignment)) {
-    top = marginVInput;
-  } else if ([9, 10, 11].includes(alignment)) {
-    top = (H_act - dragHeight) / 2;
-  } else {
-    top = H_act - dragHeight - marginVInput;
-  }
-  
-  if ([1, 5, 9].includes(alignment)) {
-    left = marginHInput;
-  } else if ([3, 7, 11].includes(alignment)) {
-    left = W_act - dragWidth - marginHInput;
-  } else {
-    left = (W_act - dragWidth) / 2;
-  }
-  
-  // Constrain dragging to actual video bounds (canvas coordinates)
-  left = Math.max(0, Math.min(left, W_act - dragWidth));
-  top = Math.max(0, Math.min(top, H_act - dragHeight));
-  
-  dragEl.style.left = left + 'px';
-  dragEl.style.top = top + 'px';
-  
-  // Cập nhật vị trí hiển thị preview của video reaction/mặt
-  updateReactionPreview();
-}
-
-function updateReactionPreview() {
-  const pipEl = $('preview-reaction-pip');
-  const mainVideo = $('studio-video-preview');
-  const reactionVid = $('preview-reaction-video');
-  
-  if (!pipEl || !mainVideo) return;
-  
-  const reactionMode = $('reaction-mode').value;
-  if (!['upload', 'library'].includes(reactionMode) || !mainVideo.src) {
-    pipEl.classList.add('hidden');
-    if (reactionVid) {
-      reactionVid.pause();
+  if (!video.src || video.src === '') {
+    if (konvaStage) {
+      konvaStage.destroy();
+      konvaStage = null;
     }
     return;
   }
-  
-  pipEl.classList.remove('hidden');
-  
-  const containerRect = mainVideo.getBoundingClientRect();
-  if (containerRect.width === 0 || containerRect.height === 0) return;
-  
-  const videoRect = getVideoContentRect(mainVideo);
-  
-  const W_act = mainVideo.videoWidth || 1080;
-  const H_act = mainVideo.videoHeight || 1920;
-  
-  const widthInput = Number(document.querySelector('input[name="reactionWidth"]').value || 320);
-  
-  const scale = videoRect.width / W_act;
-  const pipWidthDisp = widthInput * scale;
-  
-  let ratio = 3 / 4; // Aspect ratio góc mặt chân dung mặc định
-  if (reactionVid && reactionVid.videoWidth && reactionVid.videoHeight) {
-    ratio = reactionVid.videoHeight / reactionVid.videoWidth;
-  }
-  const pipHeightDisp = pipWidthDisp * ratio;
-  
-  let left = 0;
-  let top = 0;
-  
-  // Check if we have custom geometry values stored
-  const rx = $('reaction-x').value;
-  const ry = $('reaction-y').value;
-  
-  if (rx !== '' && ry !== '' && pipEl.dataset.customGeometry === 'true') {
-    left = (videoRect.left - containerRect.left) + Number(rx) * scale;
-    top = (videoRect.top - containerRect.top) + Number(ry) * scale;
-    
-    // Constraint to video content bounds
-    const minLeft = videoRect.left - containerRect.left;
-    const maxLeft = videoRect.right - containerRect.left - pipWidthDisp;
-    const minTop = videoRect.top - containerRect.top;
-    const maxTop = videoRect.bottom - containerRect.top - pipHeightDisp;
-    
-    left = Math.max(minLeft, Math.min(left, maxLeft));
-    top = Math.max(minTop, Math.min(top, maxTop));
-  } else {
-    const position = document.querySelector('select[name="reactionPosition"]').value || 'bottom-right';
-    const marginDisp = 20 * scale;
-    
-    if (position === 'bottom-right') {
-      left = (videoRect.right - containerRect.left) - pipWidthDisp - marginDisp;
-      top = (videoRect.bottom - containerRect.top) - pipHeightDisp - marginDisp;
-    } else if (position === 'bottom-left') {
-      left = (videoRect.left - containerRect.left) + marginDisp;
-      top = (videoRect.bottom - containerRect.top) - pipHeightDisp - marginDisp;
-    } else if (position === 'top-right') {
-      left = (videoRect.right - containerRect.left) - pipWidthDisp - marginDisp;
-      top = (videoRect.top - containerRect.top) + marginDisp;
-    } else if (position === 'top-left') {
-      left = (videoRect.left - containerRect.left) + marginDisp;
-      top = (videoRect.top - containerRect.top) + marginDisp;
-    }
-  }
-  
-  pipEl.style.width = Math.max(20, pipWidthDisp) + 'px';
-  pipEl.style.height = Math.max(15, pipHeightDisp) + 'px';
-  pipEl.style.left = left + 'px';
-  pipEl.style.top = top + 'px';
-}
 
-function initDraggableSubtitle() {
-  const dragEl = $('draggable-subtitle');
-  const wrapper = $('video-preview-wrapper');
-  const handleEl = $('subtitle-resizer-handle');
-  const textContentEl = $('subtitle-text-content');
-  
-  if (!dragEl || !wrapper) return;
-  
-  let isDragging = false;
-  let isResizing = false;
-  let startX, startY;
-  let initialLeft, initialTop;
-  let initialWidth, initialHeight, initialFontSize;
-  
-  dragEl.addEventListener('mousedown', startDrag);
-  dragEl.addEventListener('touchstart', startDrag, { passive: true });
-  
-  if (textContentEl) {
-    textContentEl.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      if (!textContentEl.dataset.rawText) {
-        textContentEl.dataset.rawText = textContentEl.innerText.trim();
-      }
-      textContentEl.innerText = textContentEl.dataset.rawText;
-      
-      textContentEl.contentEditable = 'true';
-      textContentEl.focus();
-      dragEl.classList.add('editing');
-      
-      // Select all text
-      const range = document.createRange();
-      range.selectNodeContents(textContentEl);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
+  const containerRect = video.parentElement.getBoundingClientRect();
+  if (containerRect.width === 0 || containerRect.height === 0) return;
+
+  const videoRect = getVideoContentRect(video);
+  const W_act = video.videoWidth || 1080;
+  const H_act = video.videoHeight || 1920;
+  const font_scale = videoRect.height / H_act;
+  console.log(`[Overlay] updateSubtitleOverlayFromInputs: videoWidth=${video.videoWidth}, videoHeight=${video.videoHeight}, videoRect.height=${videoRect.height}, font_scale=${font_scale}`);
+
+  // Căn chỉnh và tỷ lệ container của stage khớp chính xác với video đang hiển thị
+  container.style.left = (videoRect.left - containerRect.left) + 'px';
+  container.style.top = (videoRect.top - containerRect.top) + 'px';
+  container.style.width = W_act + 'px';
+  container.style.height = H_act + 'px';
+  container.style.transform = `scale(${font_scale})`;
+  container.style.transformOrigin = 'top left';
+  container.style.pointerEvents = 'auto'; // Cho phép tương tác Konva Stage
+
+  // Khởi tạo Stage và Layer nếu chưa có
+  if (!konvaStage) {
+
+    konvaStage = new Konva.Stage({
+      container: 'konva-stage-container',
+      width: W_act,
+      height: H_act
+    });
+
+    konvaLayer = new Konva.Layer();
+    konvaStage.add(konvaLayer);
+
+    // 1. Phụ đề (Subtitle)
+    konvaSubtitle = new Konva.Group({
+      name: 'subtitle',
+      draggable: true
     });
     
-    textContentEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        textContentEl.blur();
+    const subText = new Konva.Text({
+      id: 'sub-text',
+      text: 'Phụ đề mẫu',
+      fontSize: 18,
+      fontFamily: 'Arial',
+      fill: '#FFFFFF',
+      align: 'center'
+    });
+
+    const subBg = new Konva.Rect({
+      id: 'sub-bg',
+      fill: 'transparent'
+    });
+
+    konvaSubtitle.add(subBg);
+    konvaSubtitle.add(subText);
+    konvaLayer.add(konvaSubtitle);
+
+    // 2. Reaction PIP
+    konvaReaction = new Konva.Group({
+      name: 'reaction',
+      draggable: true
+    });
+
+    const rxVideoElement = $('preview-reaction-video');
+    const rxVideoImage = new Konva.Image({
+      id: 'rx-video-image',
+      image: rxVideoElement,
+      draggable: false
+    });
+
+    const rxRect = new Konva.Rect({
+      id: 'rx-rect',
+      stroke: '#FF9800',
+      strokeWidth: 4,
+      fill: 'transparent',
+      dash: [10, 5]
+    });
+
+    const rxText = new Konva.Text({
+      id: 'rx-text',
+      text: 'Reaction PIP (Kéo & Co giãn)',
+      fontSize: 18,
+      fontFamily: 'Arial',
+      fill: '#FF9800',
+      align: 'center',
+      verticalAlign: 'middle'
+    });
+
+    konvaReaction.add(rxVideoImage);
+    konvaReaction.add(rxRect);
+    konvaReaction.add(rxText);
+    konvaLayer.add(konvaReaction);
+
+    // Vòng lặp vẽ lại liên tục khi video reaction chơi để cập nhật khung hình
+    const rxAnim = new Konva.Animation(() => {}, konvaLayer);
+    rxVideoElement.addEventListener('play', () => rxAnim.start());
+    rxVideoElement.addEventListener('pause', () => rxAnim.stop());
+    rxVideoElement.addEventListener('seeked', () => konvaLayer.batchDraw());
+    if (!rxVideoElement.paused) {
+      rxAnim.start();
+    }
+
+    // 3. Blur Box
+    konvaBlur = new Konva.Shape({
+      name: 'blur',
+      draggable: true,
+      stroke: '#00E5FF',
+      strokeWidth: 4,
+      fill: 'transparent',
+      dash: [10, 5],
+      sceneFunc: function (context, shape) {
+        const ctx = context._context;
+        const w = shape.width();
+        const h = shape.height();
+        
+        ctx.save();
+        
+        // 1. Vẽ nội dung video đã làm mờ
+        const mainVideo = $('studio-video-preview');
+        if (mainVideo && mainVideo.readyState >= 2) {
+          ctx.beginPath();
+          ctx.rect(0, 0, w, h);
+          ctx.clip();
+          
+          const x = shape.x();
+          const y = shape.y();
+          const radius = Number($('blur-radius-slider')?.value || 20);
+          ctx.filter = `blur(${radius}px)`;
+          
+          ctx.drawImage(
+            mainVideo,
+            x, y, w, h,
+            0, 0, w, h
+          );
+        } else {
+          ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+          ctx.fillRect(0, 0, w, h);
+        }
+        
+        ctx.restore();
+        
+        // 2. Vẽ viền nét đứt bên ngoài (không bị clip)
+        context.fillStrokeShape(shape);
       }
     });
-    
-    textContentEl.addEventListener('blur', () => {
-      textContentEl.contentEditable = 'false';
-      dragEl.classList.remove('editing');
-      textContentEl.dataset.rawText = textContentEl.innerText.trim();
+    konvaLayer.add(konvaBlur);
+
+    // Vòng lặp vẽ lại liên tục khi video chính chơi để cập nhật khung hình mờ
+    const mainAnim = new Konva.Animation(() => {}, konvaLayer);
+    const mainVideoElement = $('studio-video-preview');
+    mainVideoElement.addEventListener('play', () => mainAnim.start());
+    mainVideoElement.addEventListener('pause', () => mainAnim.stop());
+    mainVideoElement.addEventListener('seeked', () => konvaLayer.batchDraw());
+    mainVideoElement.addEventListener('timeupdate', () => konvaLayer.batchDraw());
+    if (!mainVideoElement.paused) {
+      mainAnim.start();
+    }
+
+    // Transformer co giãn
+    konvaTransformer = new Konva.Transformer({
+      nodes: [],
+      rotateEnabled: false,
+      enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+      boundBoxFunc: (oldBox, newBox) => {
+        if (newBox.width < 50 || newBox.height < 20) {
+          return oldBox;
+        }
+        return newBox;
+      }
+    });
+    konvaLayer.add(konvaTransformer);
+
+    // Xử lý sự kiện click trên Stage để chọn đối tượng hoặc chuyển tiếp click cho các control dưới canvas
+    konvaStage.on('mousedown touchstart', (e) => {
+      if (e.target === konvaStage) {
+        konvaTransformer.nodes([]);
+        konvaLayer.draw();
+
+        // 1. Tạm thời cho phép click xuyên qua để tìm phần tử bên dưới
+        container.style.pointerEvents = 'none';
+
+        let clientX = e.evt.clientX;
+        let clientY = e.evt.clientY;
+        if (e.evt.touches && e.evt.touches[0]) {
+          clientX = e.evt.touches[0].clientX;
+          clientY = e.evt.touches[0].clientY;
+        }
+
+        let clickedEl = null;
+        if (clientX !== undefined && clientY !== undefined) {
+          clickedEl = document.elementFromPoint(clientX, clientY);
+        }
+
+        container.style.pointerEvents = 'auto';
+
+        // 2. Chuyển tiếp sự kiện nếu click vào các control của safezone (mute, play/pause, timeline)
+        if (clickedEl && (
+          clickedEl.closest('.safezone-action-mute') ||
+          clickedEl.closest('.safezone-action-playpause') ||
+          clickedEl.closest('.safezone-timeline-container') ||
+          clickedEl.tagName === 'INPUT' ||
+          clickedEl.tagName === 'BUTTON'
+        )) {
+          const eventType = e.evt.type;
+          let clonedEvent;
+          if (typeof window.TouchEvent !== 'undefined' && e.evt instanceof TouchEvent) {
+            clonedEvent = new TouchEvent(eventType, e.evt);
+          } else {
+            clonedEvent = new MouseEvent(eventType, e.evt);
+          }
+          clickedEl.dispatchEvent(clonedEvent);
+        } else {
+          // Play/Pause video nếu click ngoài vùng control
+          const previewVideo = $('studio-video-preview');
+          if (previewVideo && previewVideo.src) {
+            if (previewVideo.paused) {
+              previewVideo.play().catch(() => {});
+            } else {
+              previewVideo.pause();
+            }
+          }
+        }
+        return;
+      }
+
+      // Nếu click vào chính Transformer hoặc các anchor của nó, không thay đổi selection
+      let isTransformer = false;
+      let check = e.target;
+      while (check && check !== konvaStage) {
+        if (check === konvaTransformer) {
+          isTransformer = true;
+          break;
+        }
+        check = check.parent;
+      }
+      if (isTransformer) return;
+
+      // Tìm đối tượng được chọn (Subtitle, Reaction, hoặc Blur)
+      let clickedNode = null;
+      let curr = e.target;
+      while (curr && curr !== konvaStage) {
+        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'blur') {
+          clickedNode = curr;
+          break;
+        }
+        curr = curr.parent;
+      }
+
+      if (clickedNode) {
+        // Cấu hình các điểm neo transformer tùy thuộc vào đối tượng được chọn
+        if (clickedNode.name() === 'blur') {
+          konvaTransformer.enabledAnchors([
+            'top-left', 'top-center', 'top-right',
+            'middle-right',
+            'bottom-right', 'bottom-center', 'bottom-left',
+            'middle-left'
+          ]);
+        } else if (clickedNode.name() === 'subtitle') {
+          // Phụ đề cho phép kéo góc và kéo cạnh bên (ngang) để chỉnh độ rộng khung chữ
+          konvaTransformer.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right']);
+        } else {
+          // Reaction chỉ kéo góc để tránh méo tỷ lệ khung hình video
+          konvaTransformer.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
+        }
+        konvaTransformer.nodes([clickedNode]);
+        konvaLayer.draw();
+      } else {
+        konvaTransformer.nodes([]);
+        konvaLayer.draw();
+      }
+    });
+
+    // Kéo phụ đề
+    konvaSubtitle.on('dragmove', () => {
+      const subTextNode = konvaSubtitle.findOne('#sub-text');
+      const w = subTextNode.width();
+      const h = subTextNode.height();
+      
+      let x = konvaSubtitle.x();
+      let y = konvaSubtitle.y();
+      x = Math.max(0, Math.min(x, W_act - w));
+      y = Math.max(0, Math.min(y, H_act - h));
+      konvaSubtitle.position({ x, y });
+
+      updateInputsFromSubtitlePosition(x, y, w, h);
+    });
+
+    // Co giãn phụ đề
+    konvaSubtitle.on('transform', () => {
+      const subTextNode = konvaSubtitle.findOne('#sub-text');
+      let scaleX = konvaSubtitle.scaleX();
+      let newW = subTextNode.width() * scaleX;
+      
+      const fontSizeInput = document.querySelector('input[name="subtitleSize"]');
+      const fontSizeVal = fontSizeInput ? (parseInt(fontSizeInput.value) || 32) : 32;
+      
+      let newMarginH = Math.round((W_act - newW) / 2);
+      newMarginH = Math.max(10, Math.min(newMarginH, Math.floor(W_act / 2) - 50));
+      
+      const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
+      if (marginHInput) marginHInput.value = newMarginH;
+
+      konvaSubtitle.scaleX(1);
+      konvaSubtitle.scaleY(1);
+
       updateSubtitleOverlayFromInputs();
     });
+
+    // Kéo & co giãn Reaction PIP
+    konvaReaction.on('dragmove transform', () => {
+      const rxRectNode = konvaReaction.findOne('#rx-rect');
+      let scaleX = konvaReaction.scaleX();
+      let scaleY = konvaReaction.scaleY();
+      
+      let w = rxRectNode.width() * scaleX;
+      let h = rxRectNode.height() * scaleY;
+      let x = konvaReaction.x();
+      let y = konvaReaction.y();
+
+      const minSize = 20;
+      if (scaleX !== 1 || scaleY !== 1) {
+        // Resizing - keep aspect ratio and clamp boundaries
+        const aspect = w / h || 4 / 3;
+        if (x < 0) {
+          w = Math.max(minSize, w + x);
+          h = w / aspect;
+          x = 0;
+        }
+        if (y < 0) {
+          h = Math.max(minSize, h + y);
+          w = h * aspect;
+          y = 0;
+        }
+        if (x + w > W_act) {
+          w = Math.max(minSize, W_act - x);
+          h = w / aspect;
+        }
+        if (y + h > H_act) {
+          h = Math.max(minSize, H_act - y);
+          w = h * aspect;
+        }
+      } else {
+        // Dragging/moving - clamp position within active bounds
+        x = Math.max(0, Math.min(x, W_act - w));
+        y = Math.max(0, Math.min(y, H_act - h));
+      }
+
+      konvaReaction.position({ x, y });
+
+      konvaReaction.scaleX(1);
+      konvaReaction.scaleY(1);
+      rxRectNode.width(w);
+      rxRectNode.height(h);
+      
+      const rxVideoImageNode = konvaReaction.findOne('#rx-video-image');
+      if (rxVideoImageNode) {
+        rxVideoImageNode.width(w);
+        rxVideoImageNode.height(h);
+      }
+      
+      const rxTextNode = konvaReaction.findOne('#rx-text');
+      rxTextNode.width(w);
+      rxTextNode.height(h);
+
+      $('reaction-x').value = Math.round(x);
+      $('reaction-y').value = Math.round(y);
+      
+      const widthInput = document.querySelector('input[name="reactionWidth"]');
+      if (widthInput) {
+        widthInput.value = Math.round(w);
+        const valSpan = $('reaction-width-val');
+        if (valSpan) valSpan.textContent = widthInput.value + 'px';
+      }
+
+      $('preview-reaction-pip').dataset.customGeometry = 'true';
+      const posSelect = document.querySelector('select[name="reactionPosition"]');
+      if (posSelect) posSelect.value = 'custom';
+      
+      konvaLayer.draw();
+    });
+
+    // Kéo & co giãn Blur Box
+    konvaBlur.on('dragmove transform', () => {
+      let scaleX = konvaBlur.scaleX();
+      let scaleY = konvaBlur.scaleY();
+      
+      let w = konvaBlur.width() * scaleX;
+      let h = konvaBlur.height() * scaleY;
+      let x = konvaBlur.x();
+      let y = konvaBlur.y();
+
+      const minSize = 10;
+      if (scaleX !== 1 || scaleY !== 1) {
+        // Resizing - clamp position and size
+        if (x < 0) {
+          w = Math.max(minSize, w + x);
+          x = 0;
+        }
+        if (y < 0) {
+          h = Math.max(minSize, h + y);
+          y = 0;
+        }
+        if (x + w > W_act) {
+          w = Math.max(minSize, W_act - x);
+        }
+        if (y + h > H_act) {
+          h = Math.max(minSize, H_act - y);
+        }
+      } else {
+        // Dragging/moving - clamp position within active bounds
+        x = Math.max(0, Math.min(x, W_act - w));
+        y = Math.max(0, Math.min(y, H_act - h));
+      }
+
+      konvaBlur.position({ x, y });
+      
+      konvaBlur.scaleX(1);
+      konvaBlur.scaleY(1);
+      konvaBlur.width(w);
+      konvaBlur.height(h);
+
+      const blurX = Math.round((x / W_act) * 100);
+      const blurY = Math.round((y / H_act) * 100);
+      const blurW = Math.round((w / W_act) * 100);
+      const blurH = Math.round((h / H_act) * 100);
+
+      $('blur-x-input').value = Math.max(0, Math.min(100, blurX));
+      $('blur-y-input').value = Math.max(0, Math.min(100, blurY));
+      $('blur-width-input').value = Math.max(1, Math.min(100, blurW));
+      $('blur-height-input').value = Math.max(1, Math.min(100, blurH));
+
+      konvaLayer.draw();
+    });
+  } else {
+    konvaStage.width(W_act);
+    konvaStage.height(H_act);
+  }
+
+  // 1. Cập nhật Phụ đề (Subtitle)
+  const subTextNode = konvaSubtitle.findOne('#sub-text');
+  const subBgNode = konvaSubtitle.findOne('#sub-bg');
+
+  const textContentEl = $('subtitle-text-content');
+  let rawText = 'Phụ đề mẫu';
+  if (textContentEl && textContentEl.dataset.rawText) {
+    rawText = textContentEl.dataset.rawText;
   }
   
-  function startDrag(e) {
-    if (e.target === handleEl || (textContentEl && textContentEl.contentEditable === 'true')) return;
-    isDragging = true;
-    dragEl.classList.add('dragging');
-    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-    
-    startX = clientX;
-    startY = clientY;
-    
-    initialLeft = dragEl.offsetLeft;
-    initialTop = dragEl.offsetTop;
-    
-    document.addEventListener('mousemove', drag);
-    document.addEventListener('touchmove', drag, { passive: false });
-    document.addEventListener('mouseup', stopDrag);
-    document.addEventListener('touchend', stopDrag);
+  const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 32);
+  const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
+  const maxLines = Number(document.querySelector('[name="subtitleMaxLines"]').value || 0);
+  const boxWidth = W_act - 2 * marginHInput;
+  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
+
+  let wrappedText = rawText;
+  if (maxLines === 1) {
+    wrappedText = rawText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  } else if (maxLines === 2) {
+    wrappedText = wrapTextToTwoLines(rawText, maxChars);
+  } else if (maxLines === 3) {
+    wrappedText = wrapTextToThreeLines(rawText, maxChars);
+  } else {
+    const clean = rawText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+    if (clean.length <= maxChars) {
+      wrappedText = clean;
+    } else if (clean.length <= maxChars * 1.6) {
+      wrappedText = wrapTextToTwoLines(clean, maxChars);
+    } else {
+      wrappedText = wrapTextToThreeLines(clean, maxChars);
+    }
   }
-  
-  function drag(e) {
-    if (!isDragging) return;
-    if (e.type === 'touchmove') e.preventDefault();
-    
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-    
-    const dx = clientX - startX;
-    const dy = clientY - startY;
-    
-    const video = $('studio-video-preview');
-    const videoRect = getVideoContentRect(video);
-    
-    const W_act = video.videoWidth || 1080;
-    const H_act = video.videoHeight || 1920;
-    const font_scale = videoRect.height / H_act;
-    
-    // Scale delta mouse movements to canvas coordinate space
-    const dx_canvas = dx / font_scale;
-    const dy_canvas = dy / font_scale;
-    
-    let newLeft = initialLeft + dx_canvas;
-    let newTop = initialTop + dy_canvas;
-    
-    const dragWidth = dragEl.offsetWidth;
-    const dragHeight = dragEl.offsetHeight;
-    
-    newLeft = Math.max(0, Math.min(newLeft, W_act - dragWidth));
-    newTop = Math.max(0, Math.min(newTop, H_act - dragHeight));
-    
-    dragEl.style.left = newLeft + 'px';
-    dragEl.style.top = newTop + 'px';
-    
-    updateInputsFromSubtitlePosition();
+
+  const scaleFactor = 1.35;
+  const fontSize_canvas = fontSizeInput * scaleFactor;
+
+  subTextNode.text(wrappedText);
+  subTextNode.fontSize(fontSize_canvas);
+  subTextNode.fontFamily(document.querySelector('select[name="subtitleFont"]').value || 'Arial');
+  subTextNode.fontStyle(document.querySelector('select[name="subtitleBold"]').value === 'true' ? 'bold' : 'normal');
+  subTextNode.width(boxWidth);
+
+  const colorInput = document.querySelector('[name="subtitleColor"]').value || '#FFFFFF';
+  const themeInput = document.querySelector('select[name="subtitleTheme"]').value || 'outline';
+
+  subTextNode.fill(colorInput);
+  subTextNode.stroke(null);
+  subTextNode.strokeWidth(0);
+  subTextNode.shadowEnabled(false);
+  subBgNode.fill('transparent');
+
+  if (themeInput === 'box') {
+    subBgNode.fill('rgba(0, 0, 0, 0.6)');
+    const paddingCanvas = 4.0 * scaleFactor;
+    subBgNode.width(subTextNode.width() + paddingCanvas * 3);
+    subBgNode.height(subTextNode.height() + paddingCanvas * 2);
+    subBgNode.x(-paddingCanvas * 1.5);
+    subBgNode.y(-paddingCanvas);
+    subBgNode.cornerRadius(4 * scaleFactor);
+  } else if (themeInput === 'box-deep') {
+    subBgNode.fill('rgba(0, 0, 0, 0.95)');
+    const paddingCanvas = 4.0 * scaleFactor;
+    subBgNode.width(subTextNode.width() + paddingCanvas * 3);
+    subBgNode.height(subTextNode.height() + paddingCanvas * 2);
+    subBgNode.x(-paddingCanvas * 1.5);
+    subBgNode.y(-paddingCanvas);
+    subBgNode.cornerRadius(4 * scaleFactor);
+  } else if (themeInput === 'shadow') {
+    const shadowSize = 2 * scaleFactor;
+    subTextNode.shadowColor('black');
+    subTextNode.shadowBlur(shadowSize * 2);
+    subTextNode.shadowOffset({ x: shadowSize, y: shadowSize });
+    subTextNode.shadowOpacity(0.8);
+    subTextNode.shadowEnabled(true);
+  } else if (themeInput === 'outline-thick') {
+    subTextNode.stroke('black');
+    subTextNode.strokeWidth(5.0 * scaleFactor);
+  } else if (themeInput === 'outline-shadow') {
+    subTextNode.stroke('black');
+    subTextNode.strokeWidth(2.5 * scaleFactor);
+    const shadowSize = 3 * scaleFactor;
+    subTextNode.shadowColor('black');
+    subTextNode.shadowBlur(shadowSize * 1.3);
+    subTextNode.shadowOffset({ x: shadowSize, y: shadowSize });
+    subTextNode.shadowOpacity(0.8);
+    subTextNode.shadowEnabled(true);
+  } else { // 'outline'
+    subTextNode.stroke('black');
+    subTextNode.strokeWidth(2.5 * scaleFactor);
+    const shadowSize = 1 * scaleFactor;
+    subTextNode.shadowColor('black');
+    subTextNode.shadowBlur(shadowSize * 2);
+    subTextNode.shadowOffset({ x: shadowSize, y: shadowSize });
+    subTextNode.shadowOpacity(0.8);
+    subTextNode.shadowEnabled(true);
   }
-  
-  function stopDrag() {
-    isDragging = false;
-    dragEl.classList.remove('dragging');
-    document.removeEventListener('mousemove', drag);
-    document.removeEventListener('touchmove', drag);
-    document.removeEventListener('mouseup', stopDrag);
-    document.removeEventListener('touchend', stopDrag);
+
+  const alignment = Number(document.querySelector('[name="subtitleAlignment"]').value || 2);
+  const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
+
+  const dragWidth = subTextNode.width();
+  const dragHeight = subTextNode.height();
+
+  let subX = marginHInput;
+  let subY = 0;
+
+  if ([5, 6, 7].includes(alignment)) {
+    subY = marginVInput;
+  } else if ([9, 10, 11].includes(alignment)) {
+    subY = (H_act - dragHeight) / 2;
+  } else {
+    subY = H_act - dragHeight - marginVInput;
   }
-  
-  if (handleEl) {
-    handleEl.addEventListener('mousedown', startResize);
-    handleEl.addEventListener('touchstart', startResize, { passive: false });
+
+  if ([1, 5, 9].includes(alignment)) {
+    subX = marginHInput;
+  } else if ([3, 7, 11].includes(alignment)) {
+    subX = W_act - dragWidth - marginHInput;
+  } else {
+    subX = (W_act - dragWidth) / 2;
   }
+
+  konvaSubtitle.position({ x: subX, y: subY });
   
-  function startResize(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    isResizing = true;
-    dragEl.classList.add('resizing');
+  const subMode = $('subtitle-mode').value;
+  konvaSubtitle.visible(subMode !== 'none');
+
+  // 2. Cập nhật Reaction PIP
+  const rxMode = $('reaction-mode').value;
+  if (!['upload', 'library'].includes(rxMode)) {
+    konvaReaction.visible(false);
+  } else {
+    konvaReaction.visible(true);
+    const rx = $('reaction-x').value;
+    const ry = $('reaction-y').value;
+    let widthInput = Number(document.querySelector('input[name="reactionWidth"]').value || 320);
     
-    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-    
-    startX = clientX;
-    startY = clientY;
-    
-    initialWidth = dragEl.offsetWidth;
-    initialHeight = dragEl.offsetHeight;
-    
-    const fontSizeInput = document.querySelector('input[name="subtitleSize"]');
-    initialFontSize = fontSizeInput ? (parseInt(fontSizeInput.value) || 18) : 18;
-    
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('touchmove', resize, { passive: false });
-    document.addEventListener('mouseup', stopResize);
-    document.addEventListener('touchend', stopResize);
-  }
-  
-  function resize(e) {
-    if (!isResizing) return;
-    e.preventDefault();
-    
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-    
-    const dx = clientX - startX;
-    const dy = clientY - startY;
-    
-    const video = $('studio-video-preview');
-    const videoRect = getVideoContentRect(video);
-    
-    const W_act = video.videoWidth || 1080;
-    const H_act = video.videoHeight || 1920;
-    const font_scale = videoRect.height / H_act;
-    
-    const dx_canvas = dx / font_scale;
-    const dy_canvas = dy / font_scale;
-    
-    const newWidth = Math.max(100, initialWidth + dx_canvas);
-    const newHeight = Math.max(20, initialHeight + dy_canvas);
-    
-    // 1. Update margin H based on new width (centered wrapper width constraint)
-    let newMarginH = Math.round((W_act - newWidth) / 2);
-    newMarginH = Math.max(10, Math.min(newMarginH, Math.floor(W_act / 2) - 50));
-    
-    // 2. Update line count based on vertical height
-    const fontSizeInput = document.querySelector('input[name="subtitleSize"]');
-    const fontSizeVal = fontSizeInput ? (parseInt(fontSizeInput.value) || 18) : 18;
-    const scaleFactor = 1.35;
-    const fontSize_canvas = fontSizeVal * scaleFactor;
-    const lineHeight = fontSize_canvas * 1.3;
-    
-    let detectedLines = Math.max(1, Math.round(newHeight / lineHeight));
-    detectedLines = Math.min(3, detectedLines); // Cap at 3 lines max
-    
-    const maxLinesSelect = document.querySelector('[name="subtitleMaxLines"]');
-    if (maxLinesSelect && Number(maxLinesSelect.value) !== detectedLines) {
-      maxLinesSelect.value = detectedLines;
-      maxLinesSelect.dispatchEvent(new Event('change'));
+    let ratio = 4 / 3;
+    const reactionVid = $('preview-reaction-video');
+    if (reactionVid && reactionVid.videoWidth && reactionVid.videoHeight) {
+      ratio = reactionVid.videoHeight / reactionVid.videoWidth;
+    }
+    if (isNaN(ratio) || !isFinite(ratio) || ratio <= 0) {
+      ratio = 4 / 3;
     }
     
-    const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
-    if (marginHInput) marginHInput.value = newMarginH;
+    // Clamp width input to not exceed active video bounds
+    widthInput = Math.max(20, Math.min(widthInput, W_act));
+    let heightInput = widthInput * ratio;
+    heightInput = Math.max(20, Math.min(heightInput, H_act));
+
+    console.log(`[Overlay] Reaction PIP: rxMode=${rxMode}, rx=${rx}, ry=${ry}, width=${widthInput}, height=${heightInput}`);
+
+    let rxX = rx !== '' ? Number(rx) : 0;
+    let rxY = ry !== '' ? Number(ry) : 0;
+
+    if (rx === '' || ry === '' || $('preview-reaction-pip').dataset.customGeometry !== 'true') {
+      const position = document.querySelector('select[name="reactionPosition"]').value || 'bottom-right';
+      const margin = 20;
+      if (position === 'bottom-right') {
+        rxX = W_act - widthInput - margin;
+        rxY = H_act - heightInput - margin;
+      } else if (position === 'bottom-left') {
+        rxX = margin;
+        rxY = H_act - heightInput - margin;
+      } else if (position === 'top-right') {
+        rxX = W_act - widthInput - margin;
+        rxY = margin;
+      } else if (position === 'top-left') {
+        rxX = margin;
+        rxY = margin;
+      }
+    }
+
+    // Clamp coordinates to keep Reaction PIP fully within canvas
+    rxX = Math.max(0, Math.min(rxX, W_act - widthInput));
+    rxY = Math.max(0, Math.min(rxY, H_act - heightInput));
+
+    konvaReaction.position({ x: rxX, y: rxY });
     
-    updateSubtitleOverlayFromInputs();
+    const rxRectNode = konvaReaction.findOne('#rx-rect');
+    rxRectNode.width(widthInput);
+    rxRectNode.height(heightInput);
+    rxRectNode.fill(reactionVid.src ? 'transparent' : 'rgba(255, 152, 0, 0.15)');
+
+    const rxVideoImageNode = konvaReaction.findOne('#rx-video-image');
+    if (rxVideoImageNode) {
+      rxVideoImageNode.width(widthInput);
+      rxVideoImageNode.height(heightInput);
+    }
+
+    const rxTextNode = konvaReaction.findOne('#rx-text');
+    rxTextNode.width(widthInput);
+    rxTextNode.height(heightInput);
+    rxTextNode.visible(!reactionVid.src || reactionVid.src === '');
     
-    // Explicitly set temporary height on dragEl during active resize so it visually stretches
-    dragEl.style.height = newHeight + 'px';
+    // Update inputs to match clamped values
+    $('reaction-x').value = Math.round(rxX);
+    $('reaction-y').value = Math.round(rxY);
+    const widthEl = document.querySelector('input[name="reactionWidth"]');
+    if (widthEl) {
+      widthEl.value = Math.round(widthInput);
+      const valSpan = $('reaction-width-val');
+      if (valSpan) valSpan.textContent = widthEl.value + 'px';
+    }
   }
-  
-  function stopResize() {
-    isResizing = false;
-    dragEl.classList.remove('resizing');
-    document.removeEventListener('mousemove', resize);
-    document.removeEventListener('touchmove', resize);
-    document.removeEventListener('mouseup', stopResize);
-    document.removeEventListener('touchend', stopResize);
-    
-    // Remove temporary height style so it snaps to text wrapped height
-    dragEl.style.height = '';
-    updateSubtitleOverlayFromInputs();
+
+  // 3. Cập nhật Blur Box
+  const blurCheck = $('blur-original-sub');
+  if (!blurCheck || !blurCheck.checked) {
+    konvaBlur.visible(false);
+  } else {
+    konvaBlur.visible(true);
+    let bxPercent = Math.max(0, Math.min(100, Number($('blur-x-input').value || 10)));
+    let byPercent = Math.max(0, Math.min(100, Number($('blur-y-input').value || 75)));
+    let bwPercent = Math.max(1, Math.min(100, Number($('blur-width-input').value || 80)));
+    let bhPercent = Math.max(1, Math.min(100, Number($('blur-height-input').value || 15)));
+
+    if (bxPercent + bwPercent > 100) {
+      bwPercent = 100 - bxPercent;
+    }
+    if (byPercent + bhPercent > 100) {
+      bhPercent = 100 - byPercent;
+    }
+
+    // Sync input values with clamped percentages
+    $('blur-x-input').value = bxPercent;
+    $('blur-y-input').value = byPercent;
+    $('blur-width-input').value = bwPercent;
+    $('blur-height-input').value = bhPercent;
+
+    const blurX = (bxPercent / 100) * W_act;
+    const blurY = (byPercent / 100) * H_act;
+    const blurW = (bwPercent / 100) * W_act;
+    const blurH = (bhPercent / 100) * H_act;
+    console.log(`[Overlay] Blur Box: bxPercent=${bxPercent}, byPercent=${byPercent}, bwPercent=${bwPercent}, bhPercent=${bhPercent}, blurX=${blurX}, blurY=${blurY}, blurW=${blurW}, blurH=${blurH}`);
+
+    konvaBlur.position({ x: blurX, y: blurY });
+    konvaBlur.width(blurW);
+    konvaBlur.height(blurH);
   }
+
+  konvaLayer.draw();
 }
 
 function updateBlurBoxPreview() {
-  const blurBox = $('preview-blur-box');
-  const video = $('studio-video-preview');
-  const wrapper = $('video-preview-wrapper');
-  const blurCheck = $('blur-original-sub');
-  
-  if (!blurBox || !video || !wrapper || !blurCheck) return;
-  
-  // Hide blur box if option is not checked, preview is hidden, or no video is loaded
-  if (!blurCheck.checked || wrapper.classList.contains('hidden') || !video.src || video.src === '' || !video.videoWidth || !video.videoHeight) {
-    blurBox.classList.add('hidden');
-    return;
-  }
-  
-  const containerRect = wrapper.getBoundingClientRect();
-  if (containerRect.width === 0 || containerRect.height === 0) {
-    blurBox.classList.add('hidden');
-    return;
-  }
-  
-  const videoRect = getVideoContentRect(video);
-  
-  const blurXInput = $('blur-x-input');
-  const blurWidthInput = $('blur-width-input');
-  const blurYInput = $('blur-y-input');
-  const blurHeightInput = $('blur-height-input');
-  
-  if (!blurXInput || !blurWidthInput || !blurYInput || !blurHeightInput) return;
-  
-  let blurX = parseFloat(blurXInput.value);
-  if (isNaN(blurX)) blurX = 10;
-  let blurWidth = parseFloat(blurWidthInput.value);
-  if (isNaN(blurWidth)) blurWidth = 80;
-  let blurY = parseFloat(blurYInput.value);
-  if (isNaN(blurY)) blurY = 75;
-  let blurHeight = parseFloat(blurHeightInput.value);
-  if (isNaN(blurHeight)) blurHeight = 15;
-  
-  // Keep boundaries sanitized:
-  if (blurX < 0) blurX = 0;
-  if (blurX > 100) blurX = 100;
-  if (blurWidth < 1) blurWidth = 1;
-  if (blurWidth > 100) blurWidth = 100;
-  if (blurX + blurWidth > 100) {
-    blurX = 100 - blurWidth;
-  }
-  
-  if (blurY < 0) blurY = 0;
-  if (blurY > 100) blurY = 100;
-  if (blurHeight < 1) blurHeight = 1;
-  if (blurHeight > 100) blurHeight = 100;
-  if (blurY + blurHeight > 100) {
-    blurY = 100 - blurHeight;
-  }
-  
-  // Show blur box
-  blurBox.classList.remove('hidden');
-  
-  // Calculate relative top, left, width, height inside container wrapper
-  const leftRel = videoRect.left - containerRect.left;
-  const topRel = videoRect.top - containerRect.top;
-  
-  const boxWidth = videoRect.width * (blurWidth / 100);
-  const boxLeft = leftRel + videoRect.width * (blurX / 100);
-  const boxTop = topRel + videoRect.height * (blurY / 100);
-  const boxHeight = videoRect.height * (blurHeight / 100);
-  
-  blurBox.style.left = `${boxLeft}px`;
-  blurBox.style.width = `${boxWidth}px`;
-  blurBox.style.top = `${boxTop}px`;
-  blurBox.style.height = `${boxHeight}px`;
+  updateSubtitleOverlayFromInputs();
+}
 
-  const blurRadiusSlider = $('blur-radius-slider');
-  let radius = 20;
-  if (blurRadiusSlider) {
-    radius = parseFloat(blurRadiusSlider.value) || 20;
+function updateReactionPreview() {
+  const reactionVid = $('preview-reaction-video');
+  const reactionMode = $('reaction-mode').value;
+  const mainVideo = $('studio-video-preview');
+  if (reactionVid) {
+    if (['upload', 'library'].includes(reactionMode) && mainVideo && mainVideo.src) {
+      // Đồng bộ trạng thái chơi video reaction
+    } else {
+      reactionVid.pause();
+    }
   }
-  const cssRadius = Math.max(1, radius * 0.5);
-  blurBox.style.backdropFilter = `blur(${cssRadius}px)`;
-  blurBox.style.webkitBackdropFilter = `blur(${cssRadius}px)`;
+  updateSubtitleOverlayFromInputs();
+}
+
+function initDraggableSubtitle() {
+  // Đã chuyển sang xử lý kéo thả của Konva
+}
+
+function initDraggableReaction() {
+  // Đã chuyển sang xử lý kéo thả của Konva
 }
 
 function initDraggableBlurBox() {
-  const blurBox = $('preview-blur-box');
-  const handleEl = $('blur-resizer-handle');
-  const mainVideo = $('studio-video-preview');
-  const wrapper = $('video-preview-wrapper');
-  
-  if (!blurBox || !handleEl || !mainVideo || !wrapper) return;
-  
-  let isDragging = false;
-  let isResizing = false;
-  
-  let startX, startY;
-  let initialLeft, initialTop, initialWidth, initialHeight;
-  
-  // Dragging blurBox body
-  blurBox.addEventListener('mousedown', (e) => {
-    if (e.target === handleEl) return;
-    startDrag(e);
-  });
-  blurBox.addEventListener('touchstart', (e) => {
-    if (e.target === handleEl) return;
-    startDrag(e);
-  }, { passive: false });
-  
-  // Resizing blurBox via handle
-  handleEl.addEventListener('mousedown', startResize);
-  handleEl.addEventListener('touchstart', startResize, { passive: false });
-  
-  function startDrag(e) {
-    e.preventDefault();
-    isDragging = true;
-    blurBox.classList.add('dragging');
-    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-    
-    startX = clientX;
-    startY = clientY;
-    initialLeft = blurBox.offsetLeft;
-    initialTop = blurBox.offsetTop;
-    
-    document.addEventListener('mousemove', drag);
-    document.addEventListener('touchmove', drag, { passive: false });
-    document.addEventListener('mouseup', stopDrag);
-    document.addEventListener('touchend', stopDrag);
-  }
-  
-  function drag(e) {
-    if (!isDragging) return;
-    e.preventDefault();
-    
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-    const dx = clientX - startX;
-    const dy = clientY - startY;
-    
-    let newLeft = initialLeft + dx;
-    let newTop = initialTop + dy;
-    
-    const containerRect = wrapper.getBoundingClientRect();
-    const videoRect = getVideoContentRect(mainVideo);
-    
-    const minLeft = videoRect.left - containerRect.left;
-    const maxLeft = videoRect.right - containerRect.left - blurBox.offsetWidth;
-    const minTop = videoRect.top - containerRect.top;
-    const maxTop = videoRect.bottom - containerRect.top - blurBox.offsetHeight;
-    
-    newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
-    newTop = Math.max(minTop, Math.min(newTop, maxTop));
-    
-    // Update input values
-    const leftInVideo = newLeft - minLeft;
-    const blurX = Math.round((leftInVideo / videoRect.width) * 100);
-    
-    const topInVideo = newTop - minTop;
-    const blurY = Math.round((topInVideo / videoRect.height) * 100);
-    
-    const blurXInput = $('blur-x-input');
-    if (blurXInput) {
-      blurXInput.value = blurX;
-    }
-    
-    const blurYInput = $('blur-y-input');
-    if (blurYInput) {
-      blurYInput.value = blurY;
-    }
-    
-    updateBlurBoxPreview();
-  }
-  
-  function stopDrag() {
-    isDragging = false;
-    blurBox.classList.remove('dragging');
-    document.removeEventListener('mousemove', drag);
-    document.removeEventListener('touchmove', drag);
-    document.removeEventListener('mouseup', stopDrag);
-    document.removeEventListener('touchend', stopDrag);
-  }
-  
-  function startResize(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    isResizing = true;
-    blurBox.classList.add('resizing');
-    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-    
-    startX = clientX;
-    startY = clientY;
-    initialWidth = blurBox.offsetWidth;
-    initialHeight = blurBox.offsetHeight;
-    
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('touchmove', resize, { passive: false });
-    document.addEventListener('mouseup', stopResize);
-    document.addEventListener('touchend', stopResize);
-  }
-  
-  function resize(e) {
-    if (!isResizing) return;
-    e.preventDefault();
-    
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-    const dx = clientX - startX;
-    const dy = clientY - startY;
-    
-    let newWidth = initialWidth + dx;
-    let newHeight = initialHeight + dy;
-    
-    const containerRect = wrapper.getBoundingClientRect();
-    const videoRect = getVideoContentRect(mainVideo);
-    
-    const spaceRight = (videoRect.right - containerRect.left) - blurBox.offsetLeft;
-    const spaceBottom = (videoRect.bottom - containerRect.top) - blurBox.offsetTop;
-    
-    newWidth = Math.max(10, Math.min(newWidth, spaceRight));
-    newHeight = Math.max(10, Math.min(newHeight, spaceBottom));
-    
-    // Update input values
-    const blurWidth = Math.round((newWidth / videoRect.width) * 100);
-    const blurHeight = Math.round((newHeight / videoRect.height) * 100);
-    
-    const blurWidthInput = $('blur-width-input');
-    if (blurWidthInput) {
-      blurWidthInput.value = blurWidth;
-    }
-    
-    const blurHeightInput = $('blur-height-input');
-    if (blurHeightInput) {
-      blurHeightInput.value = blurHeight;
-    }
-    
-    updateBlurBoxPreview();
-  }
-  
-  function stopResize() {
-    isResizing = false;
-    blurBox.classList.remove('resizing');
-    document.removeEventListener('mousemove', resize);
-    document.removeEventListener('touchmove', resize);
-    document.removeEventListener('mouseup', stopResize);
-    document.removeEventListener('touchend', stopResize);
-  }
-  
-  // Register manual inputs change listeners
-  const blurXInput = $('blur-x-input');
-  const blurWidthInput = $('blur-width-input');
-  const blurYInput = $('blur-y-input');
-  const blurHeightInput = $('blur-height-input');
-  
-  if (blurXInput) {
-    blurXInput.addEventListener('input', updateBlurBoxPreview);
-    blurXInput.addEventListener('change', updateBlurBoxPreview);
-  }
-  if (blurWidthInput) {
-    blurWidthInput.addEventListener('input', updateBlurBoxPreview);
-    blurWidthInput.addEventListener('change', updateBlurBoxPreview);
-  }
-  if (blurYInput) {
-    blurYInput.addEventListener('input', updateBlurBoxPreview);
-    blurYInput.addEventListener('change', updateBlurBoxPreview);
-  }
-  if (blurHeightInput) {
-    blurHeightInput.addEventListener('input', updateBlurBoxPreview);
-    blurHeightInput.addEventListener('change', updateBlurBoxPreview);
-  }
+  // Đã chuyển sang xử lý kéo thả của Konva
 }
 
 // Setup source video tabs
@@ -2069,7 +2063,8 @@ if (mainVideo && previewOverlay) {
 const subtitleInputs = [
   'subtitleSize', 'subtitleMargin', 'subtitleMarginH',
   'subtitleAlignment', 'subtitleFont', 'subtitleTheme',
-  'subtitleColor', 'subtitleBold', 'subtitleMaxLines', 'reactionPosition', 'reactionWidth'
+  'subtitleColor', 'subtitleBold', 'subtitleMaxLines', 'reactionPosition', 'reactionWidth',
+  'blurX', 'blurY', 'blurWidth', 'blurHeight'
 ];
 subtitleInputs.forEach(name => {
   const el = document.querySelector(`[name="${name}"]`);
@@ -2260,171 +2255,7 @@ function updateInputsFromReactionGeometry() {
 }
 
 function initDraggableReaction() {
-  const pipEl = $('preview-reaction-pip');
-  const handleEl = $('reaction-resizer-handle');
-  const mainVideo = $('studio-video-preview');
-  
-  if (!pipEl || !handleEl || !mainVideo) return;
-  
-  let isDragging = false;
-  let isResizing = false;
-  let startX, startY;
-  let initialLeft, initialTop, initialWidth;
-  let ratio = 3 / 4;
-  
-  // Dragging PIP body
-  pipEl.addEventListener('mousedown', (e) => {
-    if (e.target === handleEl) return;
-    startDrag(e);
-  });
-  pipEl.addEventListener('touchstart', (e) => {
-    if (e.target === handleEl) return;
-    startDrag(e);
-  }, { passive: false });
-  
-  // Resizing PIP via handle
-  handleEl.addEventListener('mousedown', startResize);
-  handleEl.addEventListener('touchstart', startResize, { passive: false });
-  
-  function startDrag(e) {
-    e.preventDefault();
-    isDragging = true;
-    pipEl.classList.add('dragging');
-    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-    
-    startX = clientX;
-    startY = clientY;
-    
-    initialLeft = pipEl.offsetLeft;
-    initialTop = pipEl.offsetTop;
-    
-    document.addEventListener('mousemove', drag);
-    document.addEventListener('touchmove', drag, { passive: false });
-    document.addEventListener('mouseup', stopDrag);
-    document.addEventListener('touchend', stopDrag);
-  }
-  
-  function drag(e) {
-    if (!isDragging) return;
-    e.preventDefault();
-    
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-    
-    const dx = clientX - startX;
-    const dy = clientY - startY;
-    
-    let newLeft = initialLeft + dx;
-    let newTop = initialTop + dy;
-    
-    const containerRect = mainVideo.getBoundingClientRect();
-    const videoRect = getVideoContentRect(mainVideo);
-    
-    const pipWidth = pipEl.offsetWidth;
-    const pipHeight = pipEl.offsetHeight;
-    
-    const minLeft = videoRect.left - containerRect.left;
-    const maxLeft = videoRect.right - containerRect.left - pipWidth;
-    const minTop = videoRect.top - containerRect.top;
-    const maxTop = videoRect.bottom - containerRect.top - pipHeight;
-    
-    newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
-    newTop = Math.max(minTop, Math.min(newTop, maxTop));
-    
-    pipEl.style.left = newLeft + 'px';
-    pipEl.style.top = newTop + 'px';
-    
-    updateInputsFromReactionGeometry();
-  }
-  
-  function stopDrag() {
-    isDragging = false;
-    pipEl.classList.remove('dragging');
-    document.removeEventListener('mousemove', drag);
-    document.removeEventListener('touchmove', drag);
-    document.removeEventListener('mouseup', stopDrag);
-    document.removeEventListener('touchend', stopDrag);
-  }
-  
-  function startResize(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    isResizing = true;
-    pipEl.classList.add('resizing');
-    const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-    
-    startX = clientX;
-    initialWidth = pipEl.offsetWidth;
-    
-    const reactionVid = $('preview-reaction-video');
-    if (reactionVid && reactionVid.videoWidth && reactionVid.videoHeight) {
-      ratio = reactionVid.videoHeight / reactionVid.videoWidth;
-    } else {
-      ratio = 3 / 4;
-    }
-    
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('touchmove', resize, { passive: false });
-    document.addEventListener('mouseup', stopResize);
-    document.addEventListener('touchend', stopResize);
-  }
-  
-  function resize(e) {
-    if (!isResizing) return;
-    e.preventDefault();
-    
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-    const dx = clientX - startX;
-    
-    let newWidth = initialWidth + dx;
-    
-    const videoRect = getVideoContentRect(mainVideo);
-    const W_act = mainVideo.videoWidth || 1280;
-    const scale = videoRect.width / W_act;
-    
-    // Bounds check on source width limits [100, 640]
-    const minWDisp = 100 * scale;
-    const maxWDisp = 640 * scale;
-    newWidth = Math.max(minWDisp, Math.min(newWidth, maxWDisp));
-    
-    // Constraints on edges of the video preview content area
-    const containerRect = mainVideo.getBoundingClientRect();
-    const spaceRight = (videoRect.right - containerRect.left) - pipEl.offsetLeft;
-    const spaceBottom = (videoRect.bottom - containerRect.top) - pipEl.offsetTop;
-    
-    const maxWByEdge = spaceRight;
-    const maxWByHeight = spaceBottom / ratio;
-    const maxWAllowed = Math.min(maxWByEdge, maxWByHeight);
-    
-    newWidth = Math.min(newWidth, maxWAllowed);
-    const newHeight = newWidth * ratio;
-    
-    pipEl.style.width = newWidth + 'px';
-    pipEl.style.height = newHeight + 'px';
-    
-    updateInputsFromReactionGeometry();
-  }
-  
-  function stopResize() {
-    isResizing = false;
-    pipEl.classList.remove('resizing');
-    document.removeEventListener('mousemove', resize);
-    document.removeEventListener('touchmove', resize);
-    document.removeEventListener('mouseup', stopResize);
-    document.removeEventListener('touchend', stopResize);
-  }
-  
-  // Register reset event on select element
-  const posSelect = document.querySelector('select[name="reactionPosition"]');
-  if (posSelect) {
-    posSelect.addEventListener('change', () => {
-      $('reaction-x').value = '';
-      $('reaction-y').value = '';
-      delete pipEl.dataset.customGeometry;
-      updateReactionPreview();
-    });
-  }
+  // Đã chuyển sang xử lý kéo thả của Konva
 }
 
 initDraggableSubtitle();
@@ -2457,7 +2288,23 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
     btn.classList.add('active');
     const input = $('subtitle-mode');
     if (input) {
-      input.value = btn.dataset.subMode;
+      const mode = btn.dataset.subMode;
+      input.value = mode;
+      
+      // Automatically center subtitle overlay when any active subtitle mode is selected
+      if (mode !== 'none') {
+        const alignInput = $('subtitle-alignment-input');
+        if (alignInput) {
+          alignInput.value = '10';
+        }
+        const alignGrid = $('alignment-visual-grid');
+        if (alignGrid) {
+          alignGrid.querySelectorAll('.grid-cell').forEach(c => {
+            c.classList.toggle('active', c.dataset.align === '10');
+          });
+        }
+      }
+      
       input.dispatchEvent(new Event('change'));
     }
   });
