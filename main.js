@@ -79,6 +79,13 @@ function createWindow(port) {
   console.log(`Đang tải trang giao diện: ${url}`);
   mainWindow.loadURL(url);
 
+  // Ghi log console từ render process vào file log chung
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const sourceFile = sourceId ? path.basename(sourceId) : 'unknown';
+    const levelStr = level === 3 ? 'ERROR' : (level === 2 ? 'WARN' : 'INFO');
+    logToFile(`[Web Console] ${message} (at ${sourceFile}:${line})`, levelStr);
+  });
+
   // Chỉ bật tự động DevTools ở môi trường phát triển (chưa đóng gói)
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
