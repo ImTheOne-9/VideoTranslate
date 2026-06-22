@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full bg-zinc-950 text-zinc-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bảng Quản Trị Bản Quyền - Video Studio Tools</title>
+  <!-- Google Fonts - Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons for premium design -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Custom scrollbar for premium feel */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #09090b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+    .gradient-border {
+      position: relative;
+    }
+    .gradient-border::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 0.75rem;
+      padding: 1px;
+      background: linear-gradient(to right, #6366f1, #a855f7);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="h-full font-sans antialiased overflow-x-hidden">
+
+  <!-- Token Dialog Modal -->
+  <div id="authModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md transition-opacity duration-300 hidden">
+    <div class="w-full max-w-md p-8 rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl transform scale-95 transition-transform duration-300">
+      <div class="text-center mb-6">
+        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 mb-4">
+          <i data-lucide="lock" class="h-6 w-6"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white">Yêu cầu xác thực Admin</h3>
+        <p class="text-sm text-zinc-400 mt-2">Vui lòng nhập Token bảo mật để truy cập bảng quản trị.</p>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Admin Security Token</label>
+          <input type="password" id="adminTokenInput" placeholder="Nhập mã token..." 
+            class="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+        </div>
+        <button onclick="submitAuthToken()" 
+          class="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-indigo-500/10 transition-all flex items-center justify-center gap-2">
+          <span>Xác nhận</span>
+          <i data-lucide="arrow-right" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generate Key Modal -->
+  <div id="generateModal" class="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300 hidden">
+    <div class="w-full max-w-md p-6 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i data-lucide="key" class="text-indigo-400 h-5 w-5"></i>
+          <span>Tạo Mã Bản Quyền Mới</span>
+        </h3>
+        <button onclick="toggleGenerateModal(false)" class="text-zinc-400 hover:text-white transition-colors">
+          <i data-lucide="x" class="h-5 w-5"></i>
+        </button>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Tên khách hàng</label>
+          <input type="text" id="customerName" placeholder="Ví dụ: Nguyễn Văn A..." 
+            class="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Thời hạn sử dụng (Ngày)</label>
+          <input type="number" id="licenseDays" value="30" min="1" 
+            class="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        </div>
+        <div class="pt-2">
+          <button onclick="generateKey()" 
+            class="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2">
+            <i data-lucide="plus" class="h-4 w-4"></i>
+            <span>Tạo Key Ngay</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Layout -->
+  <div class="min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="border-b border-zinc-900 bg-zinc-900/50 backdrop-blur-lg sticky top-0 z-30">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-16 items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-md">
+              <i data-lucide="shield-check" class="text-white h-5 w-5"></i>
+            </div>
+            <div>
+              <span class="text-lg font-bold tracking-tight text-white">Video Studio Tools</span>
+              <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">License Admin</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-sm text-zinc-400 hidden sm:block">
+              Server URL: <span class="font-mono text-zinc-300">http://127.0.0.1:4000</span>
+            </div>
+            <button onclick="changeToken()" class="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5">
+              <i data-lucide="key-round" class="h-3.5 w-3.5"></i>
+              <span>Đổi Token</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+      
+      <!-- Metrics Overview -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Tổng Số Key</p>
+            <h3 id="statTotal" class="text-2xl font-bold mt-1 text-white">0</h3>
+          </div>
+          <div class="h-10 w-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+            <i data-lucide="key" class="h-5 w-5"></i>
+          </div>
+        </div>
+
+        <div class="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Đang Hoạt Động</p>
+            <h3 id="statActive" class="text-2xl font-bold mt-1 text-emerald-400">0</h3>
+          </div>
+          <div class="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+            <i data-lucide="check-circle" class="h-5 w-5"></i>
+          </div>
+        </div>
+
+        <div class="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Bị Đình Chỉ</p>
+            <h3 id="statSuspended" class="text-2xl font-bold mt-1 text-rose-500">0</h3>
+          </div>
+          <div class="h-10 w-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-400">
+            <i data-lucide="alert-triangle" class="h-5 w-5"></i>
+          </div>
+        </div>
+
+        <div class="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Đã Hết Hạn</p>
+            <h3 id="statExpired" class="text-2xl font-bold mt-1 text-amber-500">0</h3>
+          </div>
+          <div class="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+            <i data-lucide="clock" class="h-5 w-5"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls & Actions -->
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <!-- Search & Filter -->
+        <div class="flex flex-1 flex-col sm:flex-row gap-3">
+          <div class="relative flex-1">
+            <i data-lucide="search" class="absolute left-3 top-3 h-4 w-4 text-zinc-500"></i>
+            <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Tìm kiếm theo Key, Tên khách hàng, HWID..." 
+              class="w-full rounded-lg bg-zinc-900 border border-zinc-800 pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+          </div>
+          
+          <!-- Filter Tabs -->
+          <div class="flex rounded-lg bg-zinc-900 p-1 border border-zinc-850 self-start sm:self-auto">
+            <button onclick="setFilterTab('all')" id="tabAll" class="px-3 py-1.5 text-xs font-semibold rounded-md bg-indigo-500 text-white transition-all">
+              Tất cả
+            </button>
+            <button onclick="setFilterTab('active')" id="tabActive" class="px-3 py-1.5 text-xs font-semibold rounded-md text-zinc-400 hover:text-white transition-all">
+              Hoạt động
+            </button>
+            <button onclick="setFilterTab('inactive')" id="tabInactive" class="px-3 py-1.5 text-xs font-semibold rounded-md text-zinc-400 hover:text-white transition-all">
+              Chờ kích hoạt
+            </button>
+            <button onclick="setFilterTab('suspended')" id="tabSuspended" class="px-3 py-1.5 text-xs font-semibold rounded-md text-zinc-400 hover:text-white transition-all">
+              Bị khóa
+            </button>
+            <button onclick="setFilterTab('expired')" id="tabExpired" class="px-3 py-1.5 text-xs font-semibold rounded-md text-zinc-400 hover:text-white transition-all">
+              Hết hạn
+            </button>
+          </div>
+        </div>
+
+        <!-- Add Button -->
+        <div>
+          <button onclick="toggleGenerateModal(true)" 
+            class="w-full md:w-auto px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-sm font-semibold text-white rounded-lg shadow-lg flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="plus-circle" class="h-4.5 w-4.5"></i>
+            <span>Tạo Key Bản Quyền</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Database Table -->
+      <div class="overflow-x-auto rounded-xl border border-zinc-900 bg-zinc-900/30">
+        <table class="min-w-full divide-y divide-zinc-900 text-left text-sm text-zinc-300">
+          <thead class="bg-zinc-900/80 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            <tr>
+              <th scope="col" class="px-6 py-4">Khách Hàng</th>
+              <th scope="col" class="px-6 py-4">Key Bản Quyền</th>
+              <th scope="col" class="px-6 py-4">Thiết Bị (HWID)</th>
+              <th scope="col" class="px-6 py-4">Ngày Tạo</th>
+              <th scope="col" class="px-6 py-4">Hạn Dùng</th>
+              <th scope="col" class="px-6 py-4 text-center">Trạng Thái</th>
+              <th scope="col" class="px-6 py-4 text-right">Thao Tác</th>
+            </tr>
+          </thead>
+          <tbody id="keysTableBody" class="divide-y divide-zinc-900/50 bg-transparent">
+            <!-- Row template loaded dynamically -->
+            <tr>
+              <td colspan="7" class="px-6 py-12 text-center text-zinc-500">
+                <div class="flex flex-col items-center justify-center gap-2">
+                  <i data-lucide="loader-2" class="h-6 w-6 animate-spin text-indigo-400"></i>
+                  <span>Đang tải danh sách key bản quyền...</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Footer Info -->
+      <div class="text-center text-xs text-zinc-600 pt-4 flex items-center justify-center gap-2">
+        <i data-lucide="shield-alert" class="h-4 w-4"></i>
+        <span>Hệ thống bảo vệ bản quyền nâng cao Ed25519 & Local verification engine.</span>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+
+  <script>
+    let rawKeys = [];
+    let currentFilter = 'all';
+
+    // Initialize Lucide Icons
+    window.addEventListener('load', () => {
+      lucide.createIcons();
+      initAuth();
+    });
+
+    // Toast utility
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg transform translate-y-2 opacity-0 transition-all duration-300 bg-zinc-900 text-sm ${
+        type === 'error' ? 'border-rose-900/50 text-rose-400' : 'border-emerald-900/50 text-emerald-400'
+      }`;
+      
+      const iconName = type === 'error' ? 'alert-triangle' : 'check-circle';
+      toast.innerHTML = `
+        <i data-lucide="${iconName}" class="h-5 w-5 shrink-0"></i>
+        <span>${message}</span>
+      `;
+      container.appendChild(toast);
+      lucide.createIcons();
+
+      // Animate in
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+
+      // Animate out and remove
+      setTimeout(() => {
+        toast.classList.add('translate-y-2', 'opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // Token logic
+    function getStoredToken() {
+      return localStorage.getItem('license_admin_token') || '';
+    }
+
+    function initAuth() {
+      const token = getStoredToken();
+      if (!token) {
+        showAuthModal(true);
+      } else {
+        loadKeys();
+      }
+    }
+
+    function showAuthModal(show) {
+      const modal = document.getElementById('authModal');
+      if (show) {
+        modal.classList.remove('hidden');
+        document.getElementById('adminTokenInput').focus();
+      } else {
+        modal.classList.add('hidden');
+      }
+    }
+
+    function submitAuthToken() {
+      const input = document.getElementById('adminTokenInput');
+      const val = input.value.trim();
+      if (!val) {
+        showToast('Vui lòng nhập token bản mật!', 'error');
+        return;
+      }
+      localStorage.setItem('license_admin_token', val);
+      showAuthModal(false);
+      loadKeys();
+    }
+
+    function changeToken() {
+      localStorage.removeItem('license_admin_token');
+      document.getElementById('adminTokenInput').value = '';
+      showAuthModal(true);
+    }
+
+    // Modal key generation toggle
+    function toggleGenerateModal(show) {
+      const modal = document.getElementById('generateModal');
+      if (show) {
+        modal.classList.remove('hidden');
+        document.getElementById('customerName').focus();
+      } else {
+        modal.classList.add('hidden');
+      }
+    }
+
+    // Fetch license keys from backend Express API
+    async function loadKeys() {
+      const token = getStoredToken();
+      if (!token) return;
+
+      try {
+        const res = await fetch('/api/admin/keys', {
+          headers: {
+            'x-admin-token': token
+          }
+        });
+
+        if (res.status === 401) {
+          showToast('Token bảo mật không hợp lệ. Vui lòng nhập lại.', 'error');
+          changeToken();
+          return;
+        }
+
+        const data = await res.json();
+        if (data.success) {
+          rawKeys = data.keys || [];
+          applyFilters();
+          updateStats();
+        } else {
+          showToast(data.error || 'Lỗi khi tải dữ liệu từ máy chủ', 'error');
+        }
+      } catch (err) {
+        showToast('Không kết nối được với License Server: ' + err.message, 'error');
+      }
+    }
+
+    // Update the statistical cards
+    function updateStats() {
+      const total = rawKeys.length;
+      let active = 0;
+      let suspended = 0;
+      let expired = 0;
+
+      const now = new Date();
+      rawKeys.forEach(k => {
+        if (k.status === 'suspended') {
+          suspended++;
+        } else if (new Date(k.expiresAt) < now) {
+          expired++;
+        } else if (k.status === 'active') {
+          active++;
+        }
+      });
+
+      document.getElementById('statTotal').innerText = total;
+      document.getElementById('statActive').innerText = active;
+      document.getElementById('statSuspended').innerText = suspended;
+      document.getElementById('statExpired').innerText = expired;
+    }
+
+    // Filter controls
+    function setFilterTab(tab) {
+      currentFilter = tab;
+      
+      const tabs = ['all', 'active', 'inactive', 'suspended', 'expired'];
+      tabs.forEach(t => {
+        const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+        if (t === tab) {
+          btn.className = "px-3 py-1.5 text-xs font-semibold rounded-md bg-indigo-500 text-white transition-all shadow-sm";
+        } else {
+          btn.className = "px-3 py-1.5 text-xs font-semibold rounded-md text-zinc-400 hover:text-white transition-all";
+        }
+      });
+
+      applyFilters();
+    }
+
+    function applyFilters() {
+      const search = document.getElementById('searchInput').value.toLowerCase().trim();
+      const tbody = document.getElementById('keysTableBody');
+      const now = new Date();
+
+      const filtered = rawKeys.filter(k => {
+        // Apply status filter
+        if (currentFilter === 'suspended' && k.status !== 'suspended') return false;
+        if (currentFilter === 'active' && (k.status !== 'active' || new Date(k.expiresAt) < now || !k.hwid)) return false;
+        if (currentFilter === 'inactive' && (k.status !== 'active' || k.hwid)) return false;
+        if (currentFilter === 'expired' && (k.status === 'suspended' || new Date(k.expiresAt) >= now)) return false;
+
+        // Apply text search
+        if (search) {
+          const keyMatch = k.key.toLowerCase().includes(search);
+          const nameMatch = (k.customerName || '').toLowerCase().includes(search);
+          const hwidMatch = (k.hwid || '').toLowerCase().includes(search);
+          return keyMatch || nameMatch || hwidMatch;
+        }
+
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="px-6 py-12 text-center text-zinc-500">
+              Không có mã bản quyền nào khớp với bộ lọc
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(k => {
+        const isExpired = new Date(k.expiresAt) < now;
+        let statusBadge = '';
+        
+        if (k.status === 'suspended') {
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-900/30">Bị Khóa</span>';
+        } else if (isExpired) {
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-900/30">Hết Hạn</span>';
+        } else if (k.hwid) {
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-900/30">Kích Hoạt</span>';
+        } else {
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-900/30">Chờ Kích Hoạt</span>';
+        }
+
+        const formattedCreated = new Date(k.createdAt).toLocaleDateString('vi-VN', {
+          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+        const formattedExpires = new Date(k.expiresAt).toLocaleDateString('vi-VN', {
+          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+
+        const copyIcon = `<i data-lucide="copy" class="h-3.5 w-3.5 inline ml-1.5 cursor-pointer text-zinc-500 hover:text-white" onclick="copyToClipboard('${k.key}')" title="Sao chép Key"></i>`;
+
+        return `
+          <tr class="hover:bg-zinc-900/20 transition-colors">
+            <td class="px-6 py-4 font-semibold text-white">${escapeHtml(k.customerName || 'Khách lẻ')}</td>
+            <td class="px-6 py-4 font-mono text-zinc-400 text-xs">
+              <span class="bg-zinc-900 border border-zinc-800 px-2 py-1 rounded select-all">${k.key}</span>
+              ${copyIcon}
+            </td>
+            <td class="px-6 py-4 font-mono text-zinc-500 text-xs max-w-xs truncate" title="${k.hwid || 'Chưa liên kết'}">
+              ${k.hwid ? `${k.hwid.slice(0, 16)}...` : '<span class="italic text-zinc-600">Chưa kích hoạt</span>'}
+            </td>
+            <td class="px-6 py-4 text-xs text-zinc-500">${formattedCreated}</td>
+            <td class="px-6 py-4 text-xs text-zinc-400">${formattedExpires}</td>
+            <td class="px-6 py-4 text-center">${statusBadge}</td>
+            <td class="px-6 py-4 text-right space-x-1.5">
+              <button onclick="resetHwid('${k.key}')" class="px-2.5 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-medium transition-colors" ${!k.hwid ? 'disabled class="opacity-50 cursor-not-allowed px-2.5 py-1 text-xs bg-zinc-850 text-zinc-600 rounded font-medium"' : ''}>
+                Reset HWID
+              </button>
+              <button onclick="toggleKeyStatus('${k.key}', '${k.status}')" class="px-2.5 py-1 text-xs font-semibold rounded transition-colors ${
+                k.status === 'suspended' ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-rose-950/40 hover:bg-rose-900/40 text-rose-400 border border-rose-900/50'
+              }">
+                ${k.status === 'suspended' ? 'Mở khóa' : 'Khóa'}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    // HTML escape utility
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Copy to clipboard helper
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text);
+      showToast('Đã sao chép mã bản quyền vào clipboard!');
+    }
+
+    // API calls to backend
+    async function generateKey() {
+      const nameInput = document.getElementById('customerName');
+      const daysInput = document.getElementById('licenseDays');
+      const name = nameInput.value.trim();
+      const days = Number(daysInput.value);
+
+      if (!days || days <= 0) {
+        showToast('Vui lòng nhập số ngày sử dụng hợp lệ', 'error');
+        return;
+      }
+
+      const token = getStoredToken();
+      try {
+        const res = await fetch('/api/admin/generate-key', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-admin-token': token
+          },
+          body: JSON.stringify({ days, customerName: name })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Đã tạo key mới cho ${data.customerName || 'Khách lẻ'}!`);
+          toggleGenerateModal(false);
+          // Clear form
+          nameInput.value = '';
+          daysInput.value = 30;
+          // Reload
+          loadKeys();
+        } else {
+          showToast(data.error || 'Không thể tạo key mới', 'error');
+        }
+      } catch (err) {
+        showToast('Lỗi khi gọi API tạo key: ' + err.message, 'error');
+      }
+    }
+
+    async function resetHwid(key) {
+      if (!confirm(`Bạn có chắc chắn muốn giải phóng HWID cho key: ${key}?`)) {
+        return;
+      }
+
+      const token = getStoredToken();
+      try {
+        const res = await fetch('/api/admin/reset-hwid', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-admin-token': token
+          },
+          body: JSON.stringify({ key })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showToast('Đã giải phóng thiết bị liên kết với key thành công!');
+          loadKeys();
+        } else {
+          showToast(data.error || 'Không thể reset HWID', 'error');
+        }
+      } catch (err) {
+        showToast('Lỗi khi gọi API reset HWID: ' + err.message, 'error');
+      }
+    }
+
+    async function toggleKeyStatus(key, currentStatus) {
+      const nextStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
+      const promptText = nextStatus === 'suspended' ? 'khóa' : 'mở khóa';
+      
+      if (!confirm(`Bạn có chắc chắn muốn ${promptText} key: ${key}?`)) {
+        return;
+      }
+
+      const token = getStoredToken();
+      try {
+        const res = await fetch('/api/admin/toggle-status', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-admin-token': token
+          },
+          body: JSON.stringify({ key, status: nextStatus })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Đã ${promptText} key thành công!`);
+          loadKeys();
+        } else {
+          showToast(data.error || 'Không thể cập nhật trạng thái key', 'error');
+        }
+      } catch (err) {
+        showToast('Lỗi khi cập nhật trạng thái key: ' + err.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>
