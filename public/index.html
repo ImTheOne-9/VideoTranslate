@@ -71,7 +71,17 @@
           </div>
           <div class="url-row">
             <input id="url-input" type="text" placeholder="Dán link video tại đây">
-            <button id="fetch-btn">Lấy thông tin</button>
+            <div style="display: flex; gap: 8px;">
+              <button id="fetch-btn">Lấy thông tin</button>
+              <button type="button" id="save-link-btn" class="ghost-btn" style="padding: 0 12px; height: 42px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;" onclick="saveCurrentLink()">⭐ Lưu</button>
+            </div>
+          </div>
+          <div id="saved-links-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
+            <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Link đã lưu</div>
+            <div id="saved-links-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
+              <!-- Sẽ render bằng JS -->
+            </div>
+            <div id="saved-links-pagination" style="display: flex; justify-content: center; gap: 6px; margin-top: 8px;"></div>
           </div>
           <div id="video-card" class="video-result hidden">
             <img id="video-thumbnail" alt="Thumbnail">
@@ -91,6 +101,7 @@
           <div id="download-history-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; padding-right: 4px;">
             <!-- Danh sách lịch sử tải sẽ được render bằng JS -->
           </div>
+          <div id="download-history-pagination" style="display: flex; justify-content: center; gap: 6px; margin-top: 12px;"></div>
         </div>
       </section>
 
@@ -846,10 +857,30 @@
           <div class="url-row">
             <input id="bulk-url-input" type="text" placeholder="Dán link kênh hoặc playlist">
             <input id="bulk-limit" type="number" value="10" min="1" max="1000">
-            <button id="bulk-fetch-btn">Bắt đầu</button>
+            <div style="display: flex; gap: 8px;">
+              <button id="bulk-fetch-btn">Bắt đầu</button>
+              <button type="button" id="save-channel-btn" class="ghost-btn" style="padding: 0 12px; height: 42px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;" onclick="saveCurrentChannel()">⭐ Lưu</button>
+            </div>
+          </div>
+          <div id="saved-channels-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
+            <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Kênh / Playlist đã lưu</div>
+            <div id="saved-channels-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
+              <!-- Sẽ render bằng JS -->
+            </div>
           </div>
           <div id="bulk-stats" class="status-line"></div>
-          <ul id="bulk-list" class="bulk-list"></ul>
+          <div id="bulk-results-container" class="hidden" style="margin-top: 20px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="bulk-select-all" style="width: 16px; height: 16px; cursor: pointer;" checked>
+                <label for="bulk-select-all" style="font-size: 13px; font-weight: 600; cursor: pointer; user-select: none;">Chọn tất cả</label>
+              </div>
+              <button id="bulk-download-selected-btn" class="primary-btn" style="height: 36px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">📥 Tải video đã chọn</button>
+            </div>
+            <div id="bulk-videos-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+              <!-- Danh sách video sẽ render ở đây -->
+            </div>
+          </div>
         </div>
       </section>
       <section class="view" id="view-pages">
@@ -1292,6 +1323,41 @@
         <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
           <button type="button" id="whisper-download-action-btn" class="premium-render-btn" style="flex: 1; margin: 0; background: var(--accent);" onclick="startWhisperDownload()">Bắt đầu tải</button>
           <button type="button" id="whisper-download-cancel-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeWhisperDownloadModal()">Đóng</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Download Progress Modal -->
+  <div id="bulk-download-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 520px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(24, 119, 242, 0.1); border-bottom-color: rgba(24, 119, 242, 0.2);">
+        <h3 style="color: var(--accent); display: flex; align-items: center; gap: 8px;">
+          📥 Tiến trình tải hàng loạt
+        </h3>
+        <button id="bulk-download-close-btn" class="fb-modal-close" onclick="closeBulkDownloadModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600;">
+          <span id="bulk-progress-status-label" style="color: var(--accent);">Đang chuẩn bị...</span>
+          <span id="bulk-progress-percent-label">0%</span>
+        </div>
+        
+        <div style="width: 100%; height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; position: relative;">
+          <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+        </div>
+        
+        <div id="bulk-progress-stats" style="font-size: 12px; color: var(--muted); text-align: center; font-weight: 500;">
+          Tiến trình: 0/0 video
+        </div>
+
+        <div style="border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); max-height: 200px; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px;" id="bulk-download-progress-list">
+          <!-- Item progress will be inserted here dynamically -->
+        </div>
+
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="bulk-download-modal-cancel-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);" onclick="cancelBulkDownload()">Hủy tải hàng loạt</button>
+          <button type="button" id="bulk-download-modal-close-action-btn" class="premium-render-btn hidden" style="flex: 1; margin: 0; background: var(--accent); color: white;" onclick="closeBulkDownloadModal()">Đóng</button>
         </div>
       </div>
     </div>

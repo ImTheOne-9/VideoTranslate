@@ -18,6 +18,22 @@
   box-sizing: border-box;
 }
 
+/* Custom Scrollbars globally */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--soft);
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -269,6 +285,57 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
+}
+
+.video-result-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 30px;
+  text-align: center;
+  min-height: 148px;
+}
+
+.info-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.video-result-loading span {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.bulk-video-card {
+  display: grid;
+  grid-template-columns: 40px 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.bulk-video-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: #090d12;
+  border: 1px solid var(--border);
 }
 
 .video-result img {
@@ -527,6 +594,10 @@ label {
   .two-cols,
   .url-row {
     grid-template-columns: 1fr;
+  }
+
+  .bulk-video-card {
+    grid-template-columns: 40px 1fr;
   }
 
   .topbar,
@@ -1967,10 +2038,29 @@ input[type="number"] {
 /* Subtitle Presets Grid Selector */
 .subtitle-presets-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
   margin-top: 6px;
   margin-bottom: 4px;
+}
+
+.preset-group {
+  margin-bottom: 12px;
+}
+
+.preset-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.preset-group-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
 }
 
 .preset-card {
@@ -2012,3 +2102,15 @@ input[type="number"] {
   border-radius: 4px !important;
   cursor: text;
 }
+
+/* Style for select option tags globally to prevent white-on-white text issues */
+select option {
+  background-color: var(--panel-2) !important;
+  color: var(--text) !important;
+}
+
+.quality-select option {
+  background-color: var(--panel-2) !important;
+  color: var(--text) !important;
+}
+

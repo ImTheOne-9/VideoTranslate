@@ -149,13 +149,7 @@ app.whenReady().then(async () => {
       // Có thể hiển thị alert cho người dùng ở đây, hiện tại bỏ qua để tiếp tục chạy app
     }
 
-    // 4. Đóng màn hình Loading
-    if (loadingWin && !loadingWin.isDestroyed()) {
-      loadingWin.close();
-      loadingWin = null;
-    }
-
-    // 5. Khởi chạy Server và màn hình chính
+    // 4. Khởi chạy Server và màn hình chính
     const preferredPort = 3456;
     console.log(`Đang dò port trống và khởi chạy Express server...`);
     const result = await startServer(preferredPort);
@@ -164,7 +158,7 @@ app.whenReady().then(async () => {
     global.runningPort = result.port;
     console.log(`Express server đã khởi chạy thành công trên 127.0.0.1:${global.runningPort}`);
 
-    // 6. Kiểm tra bản quyền bản cài đặt
+    // 5. Kiểm tra bản quyền bản cài đặt
     const licenseCheck = await checkLicenseStartup();
     if (licenseCheck.valid) {
       console.log('Xác thực bản quyền thành công!');
@@ -172,6 +166,12 @@ app.whenReady().then(async () => {
     } else {
       console.warn(`Xác thực bản quyền thất bại: ${licenseCheck.error}`);
       createWindow(global.runningPort, false, licenseCheck.error);
+    }
+
+    // 6. Đóng màn hình Loading (Chỉ đóng sau khi đã khởi tạo cửa sổ chính để tránh Electron tự động thoát khi không còn cửa sổ nào mở)
+    if (loadingWin && !loadingWin.isDestroyed()) {
+      loadingWin.close();
+      loadingWin = null;
     }
   } catch (err) {
     console.error('Lỗi nghiêm trọng khi khởi động Express server:', err.message);

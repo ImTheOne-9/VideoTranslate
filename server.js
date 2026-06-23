@@ -146,10 +146,19 @@ app.use('/voices', express.static(VOICES_DIR));
 app.use('/music', express.static(MUSIC_DIR));
 
 // Helper: Run yt-dlp command and get JSON output
-function runYtDlp(args, retryCount = 0) {
+function runYtDlp(args, options = {}, retryCount = 0) {
+  if (typeof options === 'number') {
+    retryCount = options;
+    options = {};
+  }
   return new Promise((resolve, reject) => {
-    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const { signal, ...execOptions } = options;
+    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024, signal, ...execOptions }, (error, stdout, stderr) => {
       if (error) {
+        if (error.name === 'AbortError' || signal?.aborted) {
+          reject(new Error('Tải xuống bị hủy'));
+          return;
+        }
         const errStr = stderr || error.message || '';
         console.error('yt-dlp stderr:', errStr);
         
@@ -181,7 +190,7 @@ function runYtDlp(args, retryCount = 0) {
           
           // Wait 1.5 seconds before retry
           setTimeout(() => {
-            runYtDlp(newArgs, retryCount + 1).then(resolve).catch(reject);
+            runYtDlp(newArgs, options, retryCount + 1).then(resolve).catch(reject);
           }, 1500);
           return;
         }
@@ -198,6 +207,54 @@ function extractUrl(text) {
   if (!text) return '';
   const match = text.match(/https?:\/\/[^\s]+/);
   return match ? match[0] : text;
+}
+
+function removeVietnameseTones(str) {
+  if (!str) return '';
+  let result = str;
+  result = result.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
+  result = result.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
+  result = result.replace(/ì|í|ị|ỉ|ĩ/g, "i");
+  result = result.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
+  result = result.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
+  result = result.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
+  result = result.replace(/đ/g, "d");
+  result = result.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
+  result = result.replace(/È|É|Ẹ|Ẻ|E|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
+  result = result.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
+  result = result.replace(/Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
+  result = result.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
+  result = result.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
+  result = result.replace(/Đ/g, "D");
+  return result;
+}
+
+function cleanupTempFiles(tempFilePath) {
+  try {
+    if (!tempFilePath) return;
+    const dir = path.dirname(tempFilePath);
+    const baseWithoutExt = path.basename(tempFilePath, path.extname(tempFilePath));
+    
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+    
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        if (file.startsWith(baseWithoutExt)) {
+          const fullPath = path.join(dir, file);
+          try {
+            if (fs.existsSync(fullPath)) {
+              fs.unlinkSync(fullPath);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Lỗi dọn dẹp file tạm:', err.message);
+  }
 }
 
 function cleanVideoTitle(title) {
@@ -224,7 +281,7 @@ function cleanVideoTitle(title) {
 // Validate Video URL
 function isValidVideoUrl(url) {
   const cleanUrl = extractUrl(url);
-  return /^https?:\/\/(www\.|vt\.|vm\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/)/.test(cleanUrl);
+  return /^https?:\/\/(www\.|vt\.|vm\.|v\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|iesdouyin\.com\/)/.test(cleanUrl);
 }
 
 function safeFileName(name) {
@@ -457,7 +514,8 @@ app.post('/api/info', async (req, res) => {
     const ytArgs = [
       '--dump-json',
       '--no-warnings',
-      '--no-playlist'
+      '--no-playlist',
+      '--ignore-no-formats-error'
     ];
     if (url.includes('tiktok.com')) ytArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytArgs.push(url);
@@ -506,10 +564,44 @@ app.post('/api/info', async (req, res) => {
     const thumbnail = info.thumbnail || (info.thumbnails && info.thumbnails.length > 0 ? info.thumbnails[info.thumbnails.length - 1].url : '');
     
     // Get author properly
-    const author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
+    let author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
+    let title = cleanVideoTitle(info.title);
+
+    // Thử cào lấy tiêu đề & tên tác giả nếu là link Xiaohongshu và dữ liệu yt-dlp trả về bị trống/dummy ID
+    if (url.includes('xiaohongshu.com') && (title.startsWith('XiaoHongShu video #') || author === 'Xiaohongshu User' || /^[a-f0-9]{24}$/.test(author))) {
+      try {
+        const axios = require('axios');
+        const response = await axios.get(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          },
+          timeout: 5000
+        });
+        const html = response.data;
+        
+        // Trích xuất tiêu đề từ og:title hoặc thẻ title
+        const titleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/) || html.match(/<title>([^<]+)<\/title>/);
+        if (titleMatch) {
+          let scrapedTitle = titleMatch[1].trim();
+          scrapedTitle = scrapedTitle.replace(/\s*\|\s*小红书\s*-\s*.*$/, '');
+          if (scrapedTitle && !scrapedTitle.includes('你访问的页面不见了')) {
+            title = scrapedTitle;
+          }
+        }
+
+        // Trích xuất tên tác giả từ trường nickname
+        const nickMatch = html.match(/"nickname"\s*:\s*"([^"]+)"/);
+        if (nickMatch && nickMatch[1]) {
+          author = nickMatch[1];
+        }
+      } catch (e) {
+        console.error('Scraping fallback error:', e.message);
+      }
+    }
 
     res.json({
-      title: cleanVideoTitle(info.title),
+      title,
       thumbnail,
       duration: info.duration || 0,
       author,
@@ -518,12 +610,35 @@ app.post('/api/info', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting info:', error.message);
-    res.status(500).json({ error: 'Không thể lấy thông tin video. Vui lòng thử lại.' });
+    let errorMsg = 'Không thể lấy thông tin video. Vui lòng thử lại.';
+    if (error.message.includes('No video formats found')) {
+      errorMsg = 'Bài viết không chứa video (đây có thể là bài đăng hình ảnh/slide).';
+    } else if (error.message.includes('Sign in to confirm your age') || error.message.includes('confirm your age')) {
+      errorMsg = 'Video giới hạn độ tuổi, yêu cầu tài khoản.';
+    } else if (error.message.includes('Private video')) {
+      errorMsg = 'Video ở chế độ riêng tư hoặc đã bị xóa.';
+    }
+    res.status(500).json({ error: errorMsg });
   }
 });
 
 // API: Download video
 app.get('/api/download', async (req, res) => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let tempFilePath = null;
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      if (tempFilePath) {
+        setTimeout(() => {
+          cleanupTempFiles(tempFilePath);
+        }, 1000);
+      }
+    }
+  });
+
   try {
     let { url, format_id } = req.query;
     url = extractUrl(url);
@@ -534,7 +649,6 @@ app.get('/api/download', async (req, res) => {
     if (!isValidVideoUrl(url)) {
       return res.status(400).json({ error: 'URL không hợp lệ' });
     }
-
     // Get video title first
     const ytInfoArgs = [
       '--dump-json',
@@ -544,12 +658,12 @@ app.get('/api/download', async (req, res) => {
     if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytInfoArgs.push(url);
 
-    const infoOutput = await runYtDlp(ytInfoArgs);
+    const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
-    const safeTitle = cleanVideoTitle(info.title).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
 
     const tempFileName = `temp-${Date.now()}-${Math.floor(Math.random()*1000)}.mp4`;
-    const tempFilePath = path.join(DOWNLOADS_DIR, tempFileName);
+    tempFilePath = path.join(DOWNLOADS_DIR, tempFileName);
 
     // Build yt-dlp args for download
     const args = [
@@ -586,7 +700,7 @@ app.get('/api/download', async (req, res) => {
     console.log('Downloading with args:', args.join(' '));
 
     try {
-      await runYtDlp(args);
+      await runYtDlp(args, { signal });
       if (fs.existsSync(tempFilePath)) {
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Content-Disposition', contentDisposition(`${safeTitle}.mp4`));
@@ -595,28 +709,50 @@ app.get('/api/download', async (req, res) => {
         stream.pipe(res);
         
         stream.on('end', () => {
-          try { fs.unlinkSync(tempFilePath); } catch (e) {}
+          cleanupTempFiles(tempFilePath);
         });
       } else {
-        res.status(500).json({ error: 'Quá trình tải video thất bại' });
+        console.error('Quá trình tải video thất bại - File không tồn tại:', tempFilePath);
+        res.status(500).json({ error: 'Quá trình tải video thất bại: File không tồn tại trên server' });
       }
     } catch (err) {
       console.error('yt-dlp download error:', err.message);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Không thể tải video' });
+        res.status(500).json({ error: 'Không thể tải video: ' + err.message });
       }
     }
 
   } catch (error) {
     console.error('Download error:', error.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Không thể tải video. Vui lòng thử lại.' });
+      res.status(500).json({ error: 'Không thể tải video. Vui lòng thử lại. Chi tiết: ' + error.message });
     }
   }
 });
 
 // API: Download video with hardcoded Vietnamese subtitles
 app.get('/api/download-vi', async (req, res) => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let tempDir = null;
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      if (tempDir) {
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+          } catch (e) {
+            console.error('Lỗi khi xóa tempDir (req close):', e.message);
+          }
+        }, 1000);
+      }
+    }
+  });
+
   try {
     let { url, geminiApiKey } = req.query;
     url = extractUrl(url);
@@ -629,12 +765,12 @@ app.get('/api/download-vi', async (req, res) => {
     const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
     if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytInfoArgs.push(url);
-    const infoOutput = await runYtDlp(ytInfoArgs);
+    const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
-    const safeTitle = cleanVideoTitle(info.title).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
     const videoId = info.id || Date.now();
 
-    const tempDir = path.join(DOWNLOADS_DIR, `temp_${videoId}_${Math.floor(Math.random() * 1000)}`);
+    tempDir = path.join(DOWNLOADS_DIR, `temp_${videoId}_${Math.floor(Math.random() * 1000)}`);
     fs.mkdirSync(tempDir, { recursive: true });
 
     const videoPathPattern = path.join(tempDir, `video.%(ext)s`);
@@ -648,7 +784,7 @@ app.get('/api/download-vi', async (req, res) => {
     videoArgs.push(url);
     if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
     
-    await runYtDlp(videoArgs);
+    await runYtDlp(videoArgs, { signal });
 
     // Find actual video path
     const files = fs.readdirSync(tempDir);
@@ -658,7 +794,7 @@ app.get('/api/download-vi', async (req, res) => {
 
     // 2. Download subtitles
     const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, url];
-    try { await runYtDlp(subArgs); } catch (e) {}
+    try { await runYtDlp(subArgs, { signal }); } catch (e) {}
 
     const updatedFiles = fs.readdirSync(tempDir);
     let subFile = updatedFiles.find(f => f.startsWith('sub.') && f.endsWith('.srt'));
@@ -705,7 +841,7 @@ app.get('/api/download-vi', async (req, res) => {
 
         console.log('Đang hardcode phụ đề...');
         await new Promise((resolve, reject) => {
-          execFile(FFMPEG_PATH, ffmpegArgs, (err, stdout, stderr) => {
+          execFile(FFMPEG_PATH, ffmpegArgs, { signal }, (err, stdout, stderr) => {
             if (err) reject(new Error('Lỗi chèn phụ đề: ' + stderr));
             else resolve();
           });
@@ -737,20 +873,10 @@ app.get('/api/download-vi', async (req, res) => {
     } else {
       throw new Error('Lỗi xuất video cuối');
     }
-
-    req.on('close', () => {
-      try {
-        if (fs.existsSync(tempDir)) {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-      } catch (e) {
-        console.error('Lỗi khi xóa tempDir (req close):', e.message);
-      }
-    });
   } catch (error) {
     console.error('Download Vietsub error:', error.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Không thể tải video kèm Vietsub. Vui lòng thử lại.' });
+      res.status(500).json({ error: 'Không thể tải video kèm Vietsub. Vui lòng thử lại. Chi tiết: ' + error.message });
     }
   }
 });
@@ -780,11 +906,29 @@ app.post('/api/playlist', async (req, res) => {
     const videos = lines.map(line => {
       try {
         const item = JSON.parse(line);
+        let videoUrl = item.url;
+        if (!videoUrl || !videoUrl.startsWith('http')) {
+          if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            videoUrl = `https://www.youtube.com/watch?v=${item.id}`;
+          } else if (url.includes('facebook.com')) {
+            videoUrl = `https://www.facebook.com/watch/?v=${item.id}`;
+          } else if (url.includes('tiktok.com')) {
+            videoUrl = `https://www.tiktok.com/@placeholder/video/${item.id}`;
+          } else if (url.includes('xiaohongshu.com') || url.includes('xhslink.com')) {
+            videoUrl = `https://www.xiaohongshu.com/discovery/item/${item.id}`;
+          } else if (item.id) {
+            videoUrl = `https://www.youtube.com/watch?v=${item.id}`;
+          } else {
+            videoUrl = '';
+          }
+        }
+
         return {
           id: item.id,
           title: item.title,
-          url: item.url || `https://www.youtube.com/watch?v=${item.id}`,
-          duration: item.duration
+          url: videoUrl,
+          duration: item.duration,
+          thumbnail: item.thumbnail || (item.thumbnails && item.thumbnails.length > 0 ? item.thumbnails[0].url : '')
         };
       } catch(e) {
         return null;
@@ -800,37 +944,160 @@ app.post('/api/playlist', async (req, res) => {
 
 // API: Download locally
 app.post('/api/download-local', async (req, res) => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let tempDir = null;
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      if (tempDir) {
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+          } catch (e) {
+            console.error('Lỗi khi xóa tempDir (local req close):', e.message);
+          }
+        }, 1000);
+      }
+    }
+  });
+
   try {
-    let { url } = req.body;
+    let { url, format_id, geminiApiKey, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
-    const args = [
-      '--no-warnings',
-      '--no-playlist',
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-      '--merge-output-format', 'mp4',
-      '-o', path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'),
-    ];
-    if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    // 1. Lấy thông tin tiêu đề video để đặt tên file an toàn
+    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
+    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    ytInfoArgs.push(url);
+    
+    const infoOutput = await runYtDlp(ytInfoArgs, { signal });
+    const info = JSON.parse(infoOutput);
+    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    
+    const isVietsub = format_id === 'vietsub';
 
-    if (fs.existsSync(FFMPEG_PATH)) {
-      args.push('--ffmpeg-location', FFMPEG_PATH);
-    }
+    if (isVietsub) {
+      // --- LOGIC TẢI VIETSUB LOCAL ---
+      const videoId = info.id || Date.now();
+      tempDir = path.join(DOWNLOADS_DIR, `temp_local_${videoId}_${Math.floor(Math.random() * 1000)}`);
+      fs.mkdirSync(tempDir, { recursive: true });
 
-    args.push(url);
+      const videoPathPattern = path.join(tempDir, `video.%(ext)s`);
+      const subPathPattern = path.join(tempDir, `sub.%(ext)s`);
+      const finalVideoPath = path.join(DOWNLOADS_DIR, `${safeTitle}_Vietsub.mp4`);
+      const translatedSubPath = path.join(tempDir, `translated.srt`);
 
-    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        console.error('yt-dlp local stderr:', stderr);
-        return res.status(500).json({ error: 'Lỗi tải video' });
+      // Tải video gốc
+      const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern];
+      if (url.includes('tiktok.com')) videoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+      videoArgs.push(url);
+      if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
+      
+      await runYtDlp(videoArgs, { signal });
+
+      const files = fs.readdirSync(tempDir);
+      const videoFile = files.find(f => f.startsWith('video.'));
+      if (!videoFile) throw new Error('Không tìm thấy video đã tải');
+      const actualVideoPath = path.join(tempDir, videoFile);
+
+      // Tải phụ đề rời
+      const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, url];
+      try { await runYtDlp(subArgs, { signal }); } catch (e) {}
+
+      let subFile = fs.readdirSync(tempDir).find(f => f.startsWith('sub.') && f.endsWith('.srt'));
+      let actualSubPath = subFile ? path.join(tempDir, subFile) : null;
+
+      // Nếu không có phụ đề rời, dùng Whisper Audio-to-Text
+      if (!actualSubPath) {
+        console.log('Không có phụ đề rời, khởi chạy Whisper Audio-to-Text...');
+        const { extractAudioAndTranscribe } = require('./lib/whisper-helper');
+        actualSubPath = await extractAudioAndTranscribe(actualVideoPath, tempDir, FFMPEG_PATH);
       }
-      res.json({ success: true, message: 'Đã tải thành công' });
-    });
+
+      if (actualSubPath) {
+        console.log('Tìm thấy phụ đề, tiến hành dịch:', actualSubPath);
+        const downloadMaxLines = Number(subtitleMaxLines || 0);
+        const downloadFontSize = Math.round(Number(subtitleSize || 18) * 1.35);
+        const downloadMarginH = Number(subtitleMarginH || 20);
+        const downloadWidth = 1080;
+        const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
+        const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
+        await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey, downloadMaxLines, downloadMaxChars);
+
+        let hasSubtitles = false;
+        try {
+          if (fs.existsSync(translatedSubPath) && fs.readFileSync(translatedSubPath, 'utf8').trim().length > 0) {
+            hasSubtitles = true;
+          }
+        } catch (e) {}
+
+        if (hasSubtitles) {
+          const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+          const ffmpegArgs = [
+            '-i', actualVideoPath,
+            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+            '-c:a', 'copy',
+            '-y', finalVideoPath
+          ];
+          await new Promise((resolve, reject) => {
+            execFile(FFMPEG_PATH, ffmpegArgs, { signal }, (err, stdout, stderr) => {
+              if (err) reject(new Error('Lỗi chèn phụ đề: ' + stderr));
+              else resolve();
+            });
+          });
+        } else {
+          fs.copyFileSync(actualVideoPath, finalVideoPath);
+        }
+      } else {
+        fs.copyFileSync(actualVideoPath, finalVideoPath);
+      }
+
+      // Dọn dẹp thư mục tạm
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } catch (e) {}
+      
+      res.json({ success: true, message: 'Đã tải thành công video Vietsub', filename: `${safeTitle}_Vietsub.mp4` });
+
+    } else {
+      // --- LOGIC TẢI CHẤT LƯỢNG THƯỜNG LOCAL ---
+      const finalVideoPath = path.join(DOWNLOADS_DIR, `${safeTitle}.mp4`);
+      
+      const args = [
+        '--no-warnings',
+        '--no-playlist',
+        '-o', finalVideoPath,
+      ];
+      if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+      if (fs.existsSync(FFMPEG_PATH)) args.push('--ffmpeg-location', FFMPEG_PATH);
+
+      if (format_id && format_id !== 'best') {
+        const selectedFormat = (info.formats || []).find(f => f.format_id === format_id);
+        if (selectedFormat && selectedFormat.acodec === 'none') {
+          args.push('-f', `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/best`);
+        } else {
+          args.push('-f', `${format_id}+bestaudio[ext=m4a]/${format_id}/best`);
+        }
+      } else {
+        args.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
+      }
+      args.push('--merge-output-format', 'mp4');
+      args.push(url);
+
+      await runYtDlp(args, { signal });
+      res.json({ success: true, message: 'Đã tải thành công', filename: `${safeTitle}.mp4` });
+    }
 
   } catch (error) {
     console.error('Download local error:', error.message);
-    res.status(500).json({ error: 'Lỗi tải video' });
+    res.status(500).json({ error: 'Lỗi tải video: ' + error.message });
   }
 });
 
@@ -852,6 +1119,72 @@ app.get('/api/open-folder', async (req, res) => {
   }
   child_process.exec(command);
   res.json({ success: true });
+});
+
+// API: Open specific file in folder
+app.get('/api/open-file-folder', async (req, res) => {
+  try {
+    const { filename } = req.query;
+    if (!filename) {
+      return res.status(400).json({ error: 'Thiếu tên file' });
+    }
+
+    let fullPath = path.join(DOWNLOADS_DIR, filename);
+    if (!fs.existsSync(fullPath)) {
+      fullPath = path.join(RENDERS_DIR, filename);
+    }
+    if (!fs.existsSync(fullPath)) {
+      const homeDir = os.homedir();
+      fullPath = path.join(homeDir, 'Downloads', filename);
+    }
+
+    if (fs.existsSync(fullPath)) {
+      if (electronShell) {
+        try {
+          electronShell.showItemInFolder(fullPath);
+          return res.json({ success: true });
+        } catch (err) {
+          console.error('Lỗi khi hiển thị file bằng Electron shell:', err.message);
+        }
+      }
+
+      let command = '';
+      switch (process.platform) {
+        case 'win32':
+          command = `explorer.exe /select,"${fullPath}"`;
+          break;
+        case 'darwin':
+          command = `open -R "${fullPath}"`;
+          break;
+        default:
+          command = `xdg-open "${path.dirname(fullPath)}"`;
+          break;
+      }
+      child_process.exec(command);
+      return res.json({ success: true });
+    } else {
+      // Fallback: Open directory if file not found
+      if (electronShell) {
+        try {
+          await electronShell.openPath(DOWNLOADS_DIR);
+          return res.json({ success: true });
+        } catch (err) {
+          console.error('Lỗi khi mở thư mục bằng Electron shell:', err.message);
+        }
+      }
+      let command = '';
+      switch (process.platform) { 
+        case 'win32': command = `explorer "${DOWNLOADS_DIR}"`; break;
+        case 'darwin': command = `open "${DOWNLOADS_DIR}"`; break;
+        default: command = `xdg-open "${DOWNLOADS_DIR}"`; break;
+      }
+      child_process.exec(command);
+      return res.json({ success: true });
+    }
+  } catch (error) {
+    console.error('Open file folder error:', error.message);
+    res.status(500).json({ error: 'Lỗi mở thư mục' });
+  }
 });
 
 // API: Đăng video lên Facebook và bình luận
@@ -2016,6 +2349,12 @@ function startServer(preferredPort = 3456) {
         console.log(`   http://127.0.0.1:${port}\n`);
         resolve({ server, port });
       });
+      
+      // Tăng timeouts cho server tránh ngắt kết nối khi tải video dung lượng lớn
+      server.timeout = 600000; // 10 phút
+      // Giữ keepAliveTimeout mặc định nhỏ (5 giây) để tránh rò rỉ socket/port (ERR_NO_BUFFER_SPACE)
+      server.keepAliveTimeout = 5000;
+
       server.on('error', (err) => {
         reject(err);
       });
