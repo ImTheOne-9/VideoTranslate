@@ -1273,7 +1273,13 @@ app.get('/download', (req, res) => {
   // Delete to make it single-use
   downloadTokens.delete(token);
 
-  // Absolute path safe resolving
+  // Nếu cấu hình link lưu trữ ngoài (ví dụ link Google Drive trên Render)
+  const installerUrl = process.env.INSTALLER_URL;
+  if (installerUrl) {
+    return res.redirect(installerUrl);
+  }
+
+  // Absolute path safe resolving (Fallback ở localhost)
   const filePath = path.resolve(__dirname, '..', 'dist', 'Video Studio Tools Setup 1.0.0.exe');
   
   res.attachment('Video Studio Tools Setup 1.0.0.exe');
