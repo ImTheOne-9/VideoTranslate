@@ -1960,8 +1960,8 @@ app.post('/api/render-studio', studioUpload.fields([
 
     let sourceVideo = null;
     if (files.videoUpload?.[0]) {
-      sourceVideo = moveUploadedFile(files.videoUpload[0], workDir, 'source.mp4');
-      tempFiles.push(sourceVideo);
+      const originalName = files.videoUpload[0].originalname;
+      sourceVideo = moveUploadedFile(files.videoUpload[0], DOWNLOADS_DIR, originalName);
     } else if (body.mainVideoFile) {
       sourceVideo = resolveAssetPath('video', body.mainVideoFile);
     }
