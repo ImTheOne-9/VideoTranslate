@@ -18,6 +18,22 @@
   box-sizing: border-box;
 }
 
+/* Custom Scrollbars globally */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--soft);
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -269,6 +285,57 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
+}
+
+.video-result-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 30px;
+  text-align: center;
+  min-height: 148px;
+}
+
+.info-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.video-result-loading span {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.bulk-video-card {
+  display: grid;
+  grid-template-columns: 40px 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.bulk-video-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: #090d12;
+  border: 1px solid var(--border);
 }
 
 .video-result img {
@@ -527,6 +594,10 @@ label {
   .two-cols,
   .url-row {
     grid-template-columns: 1fr;
+  }
+
+  .bulk-video-card {
+    grid-template-columns: 40px 1fr;
   }
 
   .topbar,
@@ -932,7 +1003,7 @@ label {
 /* Studio Workspace Two-Column Layout */
 .studio-workspace-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 600px minmax(0, 1fr);
   gap: 18px;
   align-items: stretch;
 }
@@ -1508,23 +1579,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .number-input-wrapper input {
-  padding-right: 32px !important;
+  padding-right: 48px !important;
 }
 
-/* Hide native spinner arrows globally for all number inputs */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-input[type="number"] {
-  -moz-appearance: textfield;
-}
+/* Restored native spinner arrows for all number inputs */
 
 .input-unit {
   position: absolute;
-  right: 12px;
+  right: 28px;
   font-size: 11px;
   color: var(--soft);
   font-weight: 700;
@@ -1967,10 +2029,29 @@ input[type="number"] {
 /* Subtitle Presets Grid Selector */
 .subtitle-presets-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
   margin-top: 6px;
   margin-bottom: 4px;
+}
+
+.preset-group {
+  margin-bottom: 12px;
+}
+
+.preset-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.preset-group-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
 }
 
 .preset-card {
@@ -2012,3 +2093,163 @@ input[type="number"] {
   border-radius: 4px !important;
   cursor: text;
 }
+
+/* Style for select option tags globally to prevent white-on-white text issues */
+select option {
+  background-color: #10161d !important;
+  color: #edf2f7 !important;
+}
+
+.quality-select option {
+  background-color: #10161d !important;
+  color: #edf2f7 !important;
+}
+
+/* Premium Dropdown Component */
+.premium-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.premium-dropdown-btn {
+  background: var(--accent);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+  height: 42px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.premium-dropdown-btn:hover {
+  filter: brightness(1.08);
+}
+
+.premium-dropdown-content {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  min-width: 200px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.premium-dropdown-content.hidden {
+  display: none !important;
+}
+
+.premium-dropdown-content a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.premium-dropdown-content a:hover {
+  background: #1c2635;
+  color: white;
+}
+
+.premium-dropdown-content a + a {
+  border-top: 1px solid var(--border);
+}
+
+/* Interactive Timeline Styling */
+.timeline-block {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1.5px solid #00e5ff;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  padding: 0 8px;
+  user-select: none;
+  box-sizing: border-box;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.timeline-block:active {
+  cursor: grabbing;
+}
+
+.timeline-block.active {
+  background: rgba(22, 163, 74, 0.25);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(22, 163, 74, 0.35), 0 2px 6px rgba(0,0,0,0.25);
+}
+
+.timeline-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: rgba(255, 255, 255, 0.15);
+  cursor: ew-resize;
+  transition: background-color 0.15s;
+}
+
+.timeline-resize-handle:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.timeline-resize-handle.left-handle {
+  left: 0;
+  border-right: 1px solid rgba(0,0,0,0.2);
+  border-radius: 4px 0 0 4px;
+}
+
+.timeline-resize-handle.right-handle {
+  right: 0;
+  border-left: 1px solid rgba(0,0,0,0.2);
+  border-radius: 0 4px 4px 0;
+}
+
+.timeline-ruler-tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 6px;
+  background: var(--border);
+}
+
+.timeline-ruler-tick.major {
+  height: 12px;
+  background: var(--soft);
+}
+
+.timeline-ruler-label {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+

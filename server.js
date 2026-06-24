@@ -10,6 +10,10 @@ const net = require('net');
 
 const axios = require('axios');
 
+// Vbee AI API credentials configuration
+const VBEE_APP_ID = process.env.VBEE_APP_ID || '470eb36b-eca1-4d22-96b6-c88c997b5bea';
+const VBEE_TOKEN = process.env.VBEE_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3ODIxNzkwMzd9.5k5_aMzZw-BQLLBPtFZMNL0O2bCS6mootc_UBMKlNIU';
+
 // Tích hợp Electron shell API nếu chạy trong Electron
 let electronShell = null;
 try {
@@ -50,6 +54,24 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 for (const dir of [VOICES_DIR, MUSIC_DIR, SUBTITLES_DIR, TMP_UPLOADS_DIR, RENDERS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+// Tự động sao chép các file giọng mẫu mặc định từ bộ cài khi khởi động
+const DEFAULT_VOICES_SRC = path.join(__dirname, 'public', 'default_voices');
+if (fs.existsSync(DEFAULT_VOICES_SRC)) {
+  try {
+    const defaultFiles = fs.readdirSync(DEFAULT_VOICES_SRC);
+    defaultFiles.forEach(file => {
+      const srcPath = path.join(DEFAULT_VOICES_SRC, file);
+      const destPath = path.join(VOICES_DIR, file);
+      if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`[Init] Đã sao chép giọng mẫu mặc định: ${file}`);
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi khởi tạo giọng mẫu mặc định:', err.message);
+  }
 }
 
 // Quản lý và dọn dẹp các tiến trình con tập trung
@@ -118,8 +140,15 @@ const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'Video
 const MODELS_DIR = path.join(appDataRoot, 'models');
 const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(MODELS_DIR, 'omnivoice-q8_0.gguf');
 
-// Tự động tìm kiếm và thêm đường dẫn CUDA vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
+// Tự động tìm kiếm và thêm đường dẫn CUDA và tools vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
 if (process.platform === 'win32') {
+  const toolsDir = getExtPath('tools');
+  const omnivoiceDir = getExtPath('tools', 'omnivoice');
+  const pathParts = [];
+  
+  if (fs.existsSync(toolsDir)) pathParts.push(toolsDir);
+  if (fs.existsSync(omnivoiceDir)) pathParts.push(omnivoiceDir);
+
   const cudaRoot = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA';
   if (fs.existsSync(cudaRoot)) {
     try {
@@ -128,13 +157,19 @@ if (process.platform === 'win32') {
         const binX64 = path.join(cudaRoot, ver, 'bin', 'x64');
         const binBase = path.join(cudaRoot, ver, 'bin');
         if (fs.existsSync(binX64)) {
-          process.env.PATH = `${binX64};${binBase};${process.env.PATH || ''}`;
+          pathParts.push(binX64);
+          pathParts.push(binBase);
           console.log(`[CUDA] Đã tự động thêm đường dẫn DLL vào PATH: ${binX64}`);
         }
       });
     } catch (e) {
       console.error('[CUDA] Lỗi quét thư mục CUDA:', e.message);
     }
+  }
+  
+  if (pathParts.length > 0) {
+    process.env.PATH = `${pathParts.join(';')};${process.env.PATH || ''}`;
+    console.log(`[PATH] Đã thiết lập PATH cho các tiến trình con: ${process.env.PATH}`);
   }
 }
 
@@ -146,10 +181,19 @@ app.use('/voices', express.static(VOICES_DIR));
 app.use('/music', express.static(MUSIC_DIR));
 
 // Helper: Run yt-dlp command and get JSON output
-function runYtDlp(args, retryCount = 0) {
+function runYtDlp(args, options = {}, retryCount = 0) {
+  if (typeof options === 'number') {
+    retryCount = options;
+    options = {};
+  }
   return new Promise((resolve, reject) => {
-    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const { signal, ...execOptions } = options;
+    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024, signal, ...execOptions }, (error, stdout, stderr) => {
       if (error) {
+        if (error.name === 'AbortError' || signal?.aborted) {
+          reject(new Error('Tải xuống bị hủy'));
+          return;
+        }
         const errStr = stderr || error.message || '';
         console.error('yt-dlp stderr:', errStr);
         
@@ -181,7 +225,7 @@ function runYtDlp(args, retryCount = 0) {
           
           // Wait 1.5 seconds before retry
           setTimeout(() => {
-            runYtDlp(newArgs, retryCount + 1).then(resolve).catch(reject);
+            runYtDlp(newArgs, options, retryCount + 1).then(resolve).catch(reject);
           }, 1500);
           return;
         }
@@ -198,6 +242,64 @@ function extractUrl(text) {
   if (!text) return '';
   const match = text.match(/https?:\/\/[^\s]+/);
   return match ? match[0] : text;
+}
+
+function removeVietnameseTones(str) {
+  if (!str) return '';
+  let result = str;
+  result = result.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
+  result = result.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
+  result = result.replace(/ì|í|ị|ỉ|ĩ/g, "i");
+  result = result.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
+  result = result.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
+  result = result.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
+  result = result.replace(/đ/g, "d");
+  result = result.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
+  result = result.replace(/È|É|Ẹ|Ẻ|E|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
+  result = result.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
+  result = result.replace(/Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
+  result = result.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
+  result = result.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
+  result = result.replace(/Đ/g, "D");
+  return result;
+}
+
+function getCustomExtractorArgs(url) {
+  const args = [];
+  if (url.includes('youtube.com') || url.includes('youtu.be')) {
+    args.push('--extractor-args', 'youtube:player_client=android_vr,android');
+  } else if (url.includes('tiktok.com')) {
+    args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+  }
+  return args;
+}
+
+function cleanupTempFiles(tempFilePath) {
+  try {
+    if (!tempFilePath) return;
+    const dir = path.dirname(tempFilePath);
+    const baseWithoutExt = path.basename(tempFilePath, path.extname(tempFilePath));
+    
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+    
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        if (file.startsWith(baseWithoutExt)) {
+          const fullPath = path.join(dir, file);
+          try {
+            if (fs.existsSync(fullPath)) {
+              fs.unlinkSync(fullPath);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Lỗi dọn dẹp file tạm:', err.message);
+  }
 }
 
 function cleanVideoTitle(title) {
@@ -224,7 +326,7 @@ function cleanVideoTitle(title) {
 // Validate Video URL
 function isValidVideoUrl(url) {
   const cleanUrl = extractUrl(url);
-  return /^https?:\/\/(www\.|vt\.|vm\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/)/.test(cleanUrl);
+  return /^https?:\/\/(www\.|vt\.|vm\.|v\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|iesdouyin\.com\/)/.test(cleanUrl);
 }
 
 function safeFileName(name) {
@@ -328,14 +430,28 @@ function convertSrtToAss(srtPath, assPath, options) {
   const srtArray = parser.fromSrt(srtContent);
 
   function convertSrtTime(srtTime) {
+    if (!srtTime) return "0:00:00.00";
     const parts = srtTime.split(':');
-    if (parts.length < 3) return "0:00:00.00";
-    const hours = parseInt(parts[0], 10);
-    const minutes = parts[1];
-    const secParts = parts[2].split(',');
-    const seconds = secParts[0];
-    const ms = secParts[1] || '000';
-    const cs = ms.substring(0, 2);
+    let hours = 0;
+    let minutes = "00";
+    let seconds = "00";
+    let ms = "000";
+    
+    if (parts.length === 2) {
+      minutes = parts[0];
+      const secParts = parts[1].split(',');
+      seconds = secParts[0];
+      ms = secParts[1] || '000';
+    } else if (parts.length >= 3) {
+      hours = parseInt(parts[0], 10);
+      minutes = parts[1];
+      const secParts = parts[2].split(',');
+      seconds = secParts[0];
+      ms = secParts[1] || '000';
+    } else {
+      return "0:00:00.00";
+    }
+    const cs = ms.substring(0, 2).padEnd(2, '0');
     return `${hours}:${minutes}:${seconds}.${cs}`;
   }
 
@@ -391,6 +507,66 @@ function runExecFile(command, args, options = {}) {
       resolve({ stdout, stderr });
     });
   });
+}
+
+async function runOmnivoiceCLI(args, options = {}, omiDevice = 'cpu') {
+  if (process.platform === 'win32') {
+    const cliDir = path.dirname(OMNIVOICE_CLI_PATH);
+    const cudaDllPath = path.join(cliDir, 'ggml-cuda.dll');
+    const cudaDllDisabledPath = path.join(cliDir, 'ggml-cuda.dll.disabled');
+
+    const hasNvidiaDriver = fs.existsSync('C:\\Windows\\System32\\nvcuda.dll');
+    const useCuda = omiDevice.includes('cuda') && hasNvidiaDriver;
+
+    if (useCuda) {
+      if (fs.existsSync(cudaDllDisabledPath)) {
+        try {
+          fs.renameSync(cudaDllDisabledPath, cudaDllPath);
+          console.log('[OmniVoice] Đã bật lại ggml-cuda.dll để sử dụng GPU');
+        } catch (e) {
+          console.error('[OmniVoice] Lỗi khi bật lại ggml-cuda.dll:', e.message);
+        }
+      }
+    } else {
+      if (fs.existsSync(cudaDllPath)) {
+        try {
+          fs.renameSync(cudaDllPath, cudaDllDisabledPath);
+          console.log('[OmniVoice] Đã tạm thời vô hiệu hóa ggml-cuda.dll để chạy trên CPU tránh lỗi thiếu DLL');
+        } catch (e) {
+          console.error('[OmniVoice] Lỗi khi vô hiệu hóa ggml-cuda.dll:', e.message);
+        }
+      }
+    }
+  }
+
+  try {
+    return await runExecFile(OMNIVOICE_CLI_PATH, args, options);
+  } catch (err) {
+    if (omiDevice.includes('cuda')) {
+      console.warn(`[OmniVoice] Thử chạy bằng GPU thất bại (${err.message}). Đang tự động chuyển đổi sang CPU để xử lý...`);
+      
+      const cpuArgs = [...args];
+      for (let i = 0; i < cpuArgs.length; i++) {
+        if (cpuArgs[i] === '--device') {
+          cpuArgs[i + 1] = 'cpu';
+        }
+      }
+      
+      if (process.platform === 'win32') {
+        const cliDir = path.dirname(OMNIVOICE_CLI_PATH);
+        const cudaDllPath = path.join(cliDir, 'ggml-cuda.dll');
+        const cudaDllDisabledPath = path.join(cliDir, 'ggml-cuda.dll.disabled');
+        if (fs.existsSync(cudaDllPath)) {
+          try {
+            fs.renameSync(cudaDllPath, cudaDllDisabledPath);
+          } catch (e) {}
+        }
+      }
+      
+      return runExecFile(OMNIVOICE_CLI_PATH, cpuArgs, options);
+    }
+    throw err;
+  }
 }
 
 function escapeSubtitleForFilter(filePath) {
@@ -457,20 +633,20 @@ app.post('/api/info', async (req, res) => {
     const ytArgs = [
       '--dump-json',
       '--no-warnings',
-      '--no-playlist'
+      '--no-playlist',
+      '--ignore-no-formats-error',
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) ytArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytArgs.push(url);
 
     const output = await runYtDlp(ytArgs);
 
     const info = JSON.parse(output);
 
-    // Extract formats - only mp4 with video
+    // Extract formats - any video with height
     const formats = (info.formats || [])
       .filter(f => {
-        // Only mp4 container with video
-        return f.ext === 'mp4' && f.vcodec && f.vcodec !== 'none' && f.height;
+        return f.vcodec && f.vcodec !== 'none' && f.height;
       })
       .map(f => ({
         format_id: f.format_id,
@@ -506,10 +682,44 @@ app.post('/api/info', async (req, res) => {
     const thumbnail = info.thumbnail || (info.thumbnails && info.thumbnails.length > 0 ? info.thumbnails[info.thumbnails.length - 1].url : '');
     
     // Get author properly
-    const author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
+    let author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
+    let title = cleanVideoTitle(info.title);
+
+    // Thử cào lấy tiêu đề & tên tác giả nếu là link Xiaohongshu và dữ liệu yt-dlp trả về bị trống/dummy ID
+    if (url.includes('xiaohongshu.com') && (title.startsWith('XiaoHongShu video #') || author === 'Xiaohongshu User' || /^[a-f0-9]{24}$/.test(author))) {
+      try {
+        const axios = require('axios');
+        const response = await axios.get(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          },
+          timeout: 5000
+        });
+        const html = response.data;
+        
+        // Trích xuất tiêu đề từ og:title hoặc thẻ title
+        const titleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/) || html.match(/<title>([^<]+)<\/title>/);
+        if (titleMatch) {
+          let scrapedTitle = titleMatch[1].trim();
+          scrapedTitle = scrapedTitle.replace(/\s*\|\s*小红书\s*-\s*.*$/, '');
+          if (scrapedTitle && !scrapedTitle.includes('你访问的页面不见了')) {
+            title = scrapedTitle;
+          }
+        }
+
+        // Trích xuất tên tác giả từ trường nickname
+        const nickMatch = html.match(/"nickname"\s*:\s*"([^"]+)"/);
+        if (nickMatch && nickMatch[1]) {
+          author = nickMatch[1];
+        }
+      } catch (e) {
+        console.error('Scraping fallback error:', e.message);
+      }
+    }
 
     res.json({
-      title: cleanVideoTitle(info.title),
+      title,
       thumbnail,
       duration: info.duration || 0,
       author,
@@ -518,12 +728,35 @@ app.post('/api/info', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting info:', error.message);
-    res.status(500).json({ error: 'Không thể lấy thông tin video. Vui lòng thử lại.' });
+    let errorMsg = 'Không thể lấy thông tin video. Vui lòng thử lại.';
+    if (error.message.includes('No video formats found')) {
+      errorMsg = 'Bài viết không chứa video (đây có thể là bài đăng hình ảnh/slide).';
+    } else if (error.message.includes('Sign in to confirm your age') || error.message.includes('confirm your age')) {
+      errorMsg = 'Video giới hạn độ tuổi, yêu cầu tài khoản.';
+    } else if (error.message.includes('Private video')) {
+      errorMsg = 'Video ở chế độ riêng tư hoặc đã bị xóa.';
+    }
+    res.status(500).json({ error: errorMsg });
   }
 });
 
 // API: Download video
 app.get('/api/download', async (req, res) => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let tempFilePath = null;
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      if (tempFilePath) {
+        setTimeout(() => {
+          cleanupTempFiles(tempFilePath);
+        }, 1000);
+      }
+    }
+  });
+
   try {
     let { url, format_id } = req.query;
     url = extractUrl(url);
@@ -534,30 +767,29 @@ app.get('/api/download', async (req, res) => {
     if (!isValidVideoUrl(url)) {
       return res.status(400).json({ error: 'URL không hợp lệ' });
     }
-
     // Get video title first
     const ytInfoArgs = [
       '--dump-json',
       '--no-warnings',
-      '--no-playlist'
+      '--no-playlist',
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytInfoArgs.push(url);
 
-    const infoOutput = await runYtDlp(ytInfoArgs);
+    const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
-    const safeTitle = cleanVideoTitle(info.title).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
 
     const tempFileName = `temp-${Date.now()}-${Math.floor(Math.random()*1000)}.mp4`;
-    const tempFilePath = path.join(DOWNLOADS_DIR, tempFileName);
+    tempFilePath = path.join(DOWNLOADS_DIR, tempFileName);
 
     // Build yt-dlp args for download
     const args = [
       '--no-warnings',
       '--no-playlist',
       '-o', tempFilePath,
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
 
     if (fs.existsSync(FFMPEG_PATH)) {
       args.push('--ffmpeg-location', FFMPEG_PATH);
@@ -586,7 +818,7 @@ app.get('/api/download', async (req, res) => {
     console.log('Downloading with args:', args.join(' '));
 
     try {
-      await runYtDlp(args);
+      await runYtDlp(args, { signal });
       if (fs.existsSync(tempFilePath)) {
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Content-Disposition', contentDisposition(`${safeTitle}.mp4`));
@@ -595,30 +827,52 @@ app.get('/api/download', async (req, res) => {
         stream.pipe(res);
         
         stream.on('end', () => {
-          try { fs.unlinkSync(tempFilePath); } catch (e) {}
+          cleanupTempFiles(tempFilePath);
         });
       } else {
-        res.status(500).json({ error: 'Quá trình tải video thất bại' });
+        console.error('Quá trình tải video thất bại - File không tồn tại:', tempFilePath);
+        res.status(500).json({ error: 'Quá trình tải video thất bại: File không tồn tại trên server' });
       }
     } catch (err) {
       console.error('yt-dlp download error:', err.message);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Không thể tải video' });
+        res.status(500).json({ error: 'Không thể tải video: ' + err.message });
       }
     }
 
   } catch (error) {
     console.error('Download error:', error.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Không thể tải video. Vui lòng thử lại.' });
+      res.status(500).json({ error: 'Không thể tải video. Vui lòng thử lại. Chi tiết: ' + error.message });
     }
   }
 });
 
 // API: Download video with hardcoded Vietnamese subtitles
 app.get('/api/download-vi', async (req, res) => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let tempDir = null;
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      if (tempDir) {
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+          } catch (e) {
+            console.error('Lỗi khi xóa tempDir (req close):', e.message);
+          }
+        }, 1000);
+      }
+    }
+  });
+
   try {
-    let { url, geminiApiKey } = req.query;
+    let { url, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel } = req.query;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -626,15 +880,14 @@ app.get('/api/download-vi', async (req, res) => {
     console.log('Bắt đầu tải video kèm Vietsub:', url);
 
     // Get video title and ID
-    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
-    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist', ...getCustomExtractorArgs(url)];
     ytInfoArgs.push(url);
-    const infoOutput = await runYtDlp(ytInfoArgs);
+    const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
-    const safeTitle = cleanVideoTitle(info.title).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
     const videoId = info.id || Date.now();
 
-    const tempDir = path.join(DOWNLOADS_DIR, `temp_${videoId}_${Math.floor(Math.random() * 1000)}`);
+    tempDir = path.join(DOWNLOADS_DIR, `temp_${videoId}_${Math.floor(Math.random() * 1000)}`);
     fs.mkdirSync(tempDir, { recursive: true });
 
     const videoPathPattern = path.join(tempDir, `video.%(ext)s`);
@@ -643,12 +896,11 @@ app.get('/api/download-vi', async (req, res) => {
     const translatedSubPath = path.join(tempDir, `translated.srt`);
 
     // 1. Download video
-    const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern];
-    if (url.includes('tiktok.com')) videoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...getCustomExtractorArgs(url)];
     videoArgs.push(url);
     if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
     
-    await runYtDlp(videoArgs);
+    await runYtDlp(videoArgs, { signal });
 
     // Find actual video path
     const files = fs.readdirSync(tempDir);
@@ -657,8 +909,8 @@ app.get('/api/download-vi', async (req, res) => {
     const actualVideoPath = path.join(tempDir, videoFile);
 
     // 2. Download subtitles
-    const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, url];
-    try { await runYtDlp(subArgs); } catch (e) {}
+    const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, ...getCustomExtractorArgs(url), url];
+    try { await runYtDlp(subArgs, { signal }); } catch (e) {}
 
     const updatedFiles = fs.readdirSync(tempDir);
     let subFile = updatedFiles.find(f => f.startsWith('sub.') && f.endsWith('.srt'));
@@ -679,7 +931,7 @@ app.get('/api/download-vi', async (req, res) => {
       const downloadWidth = 1080;
       const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
       const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-      await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey, downloadMaxLines, downloadMaxChars);
+      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
       let hasSubtitles = false;
       try {
@@ -705,7 +957,7 @@ app.get('/api/download-vi', async (req, res) => {
 
         console.log('Đang hardcode phụ đề...');
         await new Promise((resolve, reject) => {
-          execFile(FFMPEG_PATH, ffmpegArgs, (err, stdout, stderr) => {
+          execFile(FFMPEG_PATH, ffmpegArgs, { signal }, (err, stdout, stderr) => {
             if (err) reject(new Error('Lỗi chèn phụ đề: ' + stderr));
             else resolve();
           });
@@ -737,20 +989,10 @@ app.get('/api/download-vi', async (req, res) => {
     } else {
       throw new Error('Lỗi xuất video cuối');
     }
-
-    req.on('close', () => {
-      try {
-        if (fs.existsSync(tempDir)) {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-      } catch (e) {
-        console.error('Lỗi khi xóa tempDir (req close):', e.message);
-      }
-    });
   } catch (error) {
     console.error('Download Vietsub error:', error.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Không thể tải video kèm Vietsub. Vui lòng thử lại.' });
+      res.status(500).json({ error: 'Không thể tải video kèm Vietsub. Vui lòng thử lại. Chi tiết: ' + error.message });
     }
   }
 });
@@ -768,9 +1010,9 @@ app.post('/api/playlist', async (req, res) => {
       '--dump-json',
       '--flat-playlist',
       '--playlist-end', limit.toString(),
-      '--no-warnings'
+      '--no-warnings',
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) ytListArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytListArgs.push(url);
 
     const output = await runYtDlp(ytListArgs);
@@ -780,18 +1022,39 @@ app.post('/api/playlist', async (req, res) => {
     const videos = lines.map(line => {
       try {
         const item = JSON.parse(line);
+        let videoUrl = item.url;
+        if (!videoUrl || !videoUrl.startsWith('http')) {
+          if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            videoUrl = `https://www.youtube.com/watch?v=${item.id}`;
+          } else if (url.includes('facebook.com')) {
+            videoUrl = `https://www.facebook.com/watch/?v=${item.id}`;
+          } else if (url.includes('tiktok.com')) {
+            videoUrl = `https://www.tiktok.com/@placeholder/video/${item.id}`;
+          } else if (url.includes('xiaohongshu.com') || url.includes('xhslink.com')) {
+            videoUrl = `https://www.xiaohongshu.com/discovery/item/${item.id}`;
+          } else if (item.id) {
+            videoUrl = `https://www.youtube.com/watch?v=${item.id}`;
+          } else {
+            videoUrl = '';
+          }
+        }
+
         return {
           id: item.id,
           title: item.title,
-          url: item.url || `https://www.youtube.com/watch?v=${item.id}`,
-          duration: item.duration
+          url: videoUrl,
+          duration: item.duration,
+          thumbnail: item.thumbnail || (item.thumbnails && item.thumbnails.length > 0 ? item.thumbnails[0].url : '')
         };
       } catch(e) {
         return null;
       }
     }).filter(v => v);
 
-    res.json({ videos });
+    // Giới hạn đúng số lượng yêu cầu do yt-dlp áp dụng --playlist-end cho từng sub-playlist (Videos, Shorts, Live) dẫn đến bị nhân lên
+    const limitedVideos = videos.slice(0, limit);
+
+    res.json({ videos: limitedVideos });
   } catch (error) {
     console.error('Playlist error:', error.message);
     res.status(500).json({ error: 'Không thể lấy thông tin kênh/playlist.' });
@@ -800,37 +1063,158 @@ app.post('/api/playlist', async (req, res) => {
 
 // API: Download locally
 app.post('/api/download-local', async (req, res) => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let tempDir = null;
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      if (tempDir) {
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+          } catch (e) {
+            console.error('Lỗi khi xóa tempDir (local req close):', e.message);
+          }
+        }, 1000);
+      }
+    }
+  });
+
   try {
-    let { url } = req.body;
+    let { url, format_id, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
-    const args = [
-      '--no-warnings',
-      '--no-playlist',
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-      '--merge-output-format', 'mp4',
-      '-o', path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'),
-    ];
-    if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    // 1. Lấy thông tin tiêu đề video để đặt tên file an toàn
+    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist', ...getCustomExtractorArgs(url)];
+    ytInfoArgs.push(url);
+    
+    const infoOutput = await runYtDlp(ytInfoArgs, { signal });
+    const info = JSON.parse(infoOutput);
+    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    
+    const isVietsub = format_id === 'vietsub';
 
-    if (fs.existsSync(FFMPEG_PATH)) {
-      args.push('--ffmpeg-location', FFMPEG_PATH);
-    }
+    if (isVietsub) {
+      // --- LOGIC TẢI VIETSUB LOCAL ---
+      const videoId = info.id || Date.now();
+      tempDir = path.join(DOWNLOADS_DIR, `temp_local_${videoId}_${Math.floor(Math.random() * 1000)}`);
+      fs.mkdirSync(tempDir, { recursive: true });
 
-    args.push(url);
+      const videoPathPattern = path.join(tempDir, `video.%(ext)s`);
+      const subPathPattern = path.join(tempDir, `sub.%(ext)s`);
+      const finalVideoPath = path.join(DOWNLOADS_DIR, `${safeTitle}_Vietsub.mp4`);
+      const translatedSubPath = path.join(tempDir, `translated.srt`);
 
-    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        console.error('yt-dlp local stderr:', stderr);
-        return res.status(500).json({ error: 'Lỗi tải video' });
+      // Tải video gốc
+      const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...getCustomExtractorArgs(url)];
+      videoArgs.push(url);
+      if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
+      
+      await runYtDlp(videoArgs, { signal });
+
+      const files = fs.readdirSync(tempDir);
+      const videoFile = files.find(f => f.startsWith('video.'));
+      if (!videoFile) throw new Error('Không tìm thấy video đã tải');
+      const actualVideoPath = path.join(tempDir, videoFile);
+
+      // Tải phụ đề rời
+      const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, ...getCustomExtractorArgs(url), url];
+      try { await runYtDlp(subArgs, { signal }); } catch (e) {}
+
+      let subFile = fs.readdirSync(tempDir).find(f => f.startsWith('sub.') && f.endsWith('.srt'));
+      let actualSubPath = subFile ? path.join(tempDir, subFile) : null;
+
+      // Nếu không có phụ đề rời, dùng Whisper Audio-to-Text
+      if (!actualSubPath) {
+        console.log('Không có phụ đề rời, khởi chạy Whisper Audio-to-Text...');
+        const { extractAudioAndTranscribe } = require('./lib/whisper-helper');
+        actualSubPath = await extractAudioAndTranscribe(actualVideoPath, tempDir, FFMPEG_PATH);
       }
-      res.json({ success: true, message: 'Đã tải thành công' });
-    });
+
+      if (actualSubPath) {
+        console.log('Tìm thấy phụ đề, tiến hành dịch:', actualSubPath);
+        const downloadMaxLines = Number(subtitleMaxLines || 0);
+        const downloadFontSize = Math.round(Number(subtitleSize || 18) * 1.35);
+        const downloadMarginH = Number(subtitleMarginH || 20);
+        const downloadWidth = 1080;
+        const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
+        const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+
+        let hasSubtitles = false;
+        try {
+          if (fs.existsSync(translatedSubPath) && fs.readFileSync(translatedSubPath, 'utf8').trim().length > 0) {
+            hasSubtitles = true;
+          }
+        } catch (e) {}
+
+        if (hasSubtitles) {
+          const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+          const ffmpegArgs = [
+            '-i', actualVideoPath,
+            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+            '-c:a', 'copy',
+            '-y', finalVideoPath
+          ];
+          await new Promise((resolve, reject) => {
+            execFile(FFMPEG_PATH, ffmpegArgs, { signal }, (err, stdout, stderr) => {
+              if (err) reject(new Error('Lỗi chèn phụ đề: ' + stderr));
+              else resolve();
+            });
+          });
+        } else {
+          fs.copyFileSync(actualVideoPath, finalVideoPath);
+        }
+      } else {
+        fs.copyFileSync(actualVideoPath, finalVideoPath);
+      }
+
+      // Dọn dẹp thư mục tạm
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } catch (e) {}
+      
+      res.json({ success: true, message: 'Đã tải thành công video Vietsub', filename: `${safeTitle}_Vietsub.mp4` });
+
+    } else {
+      // --- LOGIC TẢI CHẤT LƯỢNG THƯỜNG LOCAL ---
+      const finalVideoPath = path.join(DOWNLOADS_DIR, `${safeTitle}.mp4`);
+      
+      const args = [
+        '--no-warnings',
+        '--no-playlist',
+        '-o', finalVideoPath,
+        ...getCustomExtractorArgs(url)
+      ];
+      if (fs.existsSync(FFMPEG_PATH)) args.push('--ffmpeg-location', FFMPEG_PATH);
+
+      if (format_id && format_id !== 'best') {
+        const selectedFormat = (info.formats || []).find(f => f.format_id === format_id);
+        if (selectedFormat && selectedFormat.acodec === 'none') {
+          args.push('-f', `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/best`);
+        } else {
+          args.push('-f', `${format_id}+bestaudio[ext=m4a]/${format_id}/best`);
+        }
+      } else {
+        args.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
+      }
+      args.push('--merge-output-format', 'mp4');
+      args.push(url);
+
+      await runYtDlp(args, { signal });
+      res.json({ success: true, message: 'Đã tải thành công', filename: `${safeTitle}.mp4` });
+    }
 
   } catch (error) {
     console.error('Download local error:', error.message);
-    res.status(500).json({ error: 'Lỗi tải video' });
+    res.status(500).json({ error: 'Lỗi tải video: ' + error.message });
   }
 });
 
@@ -852,6 +1236,72 @@ app.get('/api/open-folder', async (req, res) => {
   }
   child_process.exec(command);
   res.json({ success: true });
+});
+
+// API: Open specific file in folder
+app.get('/api/open-file-folder', async (req, res) => {
+  try {
+    const { filename } = req.query;
+    if (!filename) {
+      return res.status(400).json({ error: 'Thiếu tên file' });
+    }
+
+    let fullPath = path.join(DOWNLOADS_DIR, filename);
+    if (!fs.existsSync(fullPath)) {
+      fullPath = path.join(RENDERS_DIR, filename);
+    }
+    if (!fs.existsSync(fullPath)) {
+      const homeDir = os.homedir();
+      fullPath = path.join(homeDir, 'Downloads', filename);
+    }
+
+    if (fs.existsSync(fullPath)) {
+      if (electronShell) {
+        try {
+          electronShell.showItemInFolder(fullPath);
+          return res.json({ success: true });
+        } catch (err) {
+          console.error('Lỗi khi hiển thị file bằng Electron shell:', err.message);
+        }
+      }
+
+      let command = '';
+      switch (process.platform) {
+        case 'win32':
+          command = `explorer.exe /select,"${fullPath}"`;
+          break;
+        case 'darwin':
+          command = `open -R "${fullPath}"`;
+          break;
+        default:
+          command = `xdg-open "${path.dirname(fullPath)}"`;
+          break;
+      }
+      child_process.exec(command);
+      return res.json({ success: true });
+    } else {
+      // Fallback: Open directory if file not found
+      if (electronShell) {
+        try {
+          await electronShell.openPath(DOWNLOADS_DIR);
+          return res.json({ success: true });
+        } catch (err) {
+          console.error('Lỗi khi mở thư mục bằng Electron shell:', err.message);
+        }
+      }
+      let command = '';
+      switch (process.platform) { 
+        case 'win32': command = `explorer "${DOWNLOADS_DIR}"`; break;
+        case 'darwin': command = `open "${DOWNLOADS_DIR}"`; break;
+        default: command = `xdg-open "${DOWNLOADS_DIR}"`; break;
+      }
+      child_process.exec(command);
+      return res.json({ success: true });
+    }
+  } catch (error) {
+    console.error('Open file folder error:', error.message);
+    res.status(500).json({ error: 'Lỗi mở thư mục' });
+  }
 });
 
 // API: Đăng video lên Facebook và bình luận
@@ -934,6 +1384,17 @@ app.delete('/api/voices/:filename', (req, res) => {
     const filePath = path.join(VOICES_DIR, filename);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+      
+      // Đồng thời xóa file kịch bản .txt đi kèm nếu có
+      const txtPath = filePath.replace(path.extname(filePath), '.txt');
+      if (fs.existsSync(txtPath)) {
+        try {
+          fs.unlinkSync(txtPath);
+        } catch (e) {
+          console.error('Lỗi khi xóa file kịch bản kèm theo:', e.message);
+        }
+      }
+      
       return res.json({ success: true, message: 'Đã xóa giọng mẫu thành công!' });
     } else {
       return res.status(404).json({ error: 'Không tìm thấy file giọng mẫu' });
@@ -1088,8 +1549,20 @@ app.get('/api/whisper-model/status', (req, res) => {
     return res.json({ exists: true, downloading: false, percent: 100 });
   }
 
-  const modelPath = path.join(MODELS_DIR, 'whisper', model, 'model.bin');
-  const exists = fs.existsSync(modelPath);
+  const { WHISPER_MODELS_CONFIG } = require('./lib/model-downloader');
+  const modelConfig = WHISPER_MODELS_CONFIG[model];
+  let exists = false;
+
+  if (modelConfig) {
+    const whisperDir = path.join(MODELS_DIR, 'whisper', model);
+    exists = modelConfig.files.every(file => {
+      const filePath = path.join(whisperDir, file.name);
+      return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+    });
+  } else {
+    const modelPath = path.join(MODELS_DIR, 'whisper', model, 'model.bin');
+    exists = fs.existsSync(modelPath);
+  }
   
   const status = whisperDownloadStatus[model] || { downloading: false, percent: 0, error: null };
   res.json({
@@ -1130,10 +1603,167 @@ app.post('/api/download-whisper-model', async (req, res) => {
   }
 });
 
+app.post('/api/generate-vbee-voice', async (req, res) => {
+  const { voiceCode, text, voiceName } = req.body;
+  
+  if (!voiceCode || !text || !voiceName) {
+    return res.status(400).json({ error: 'Thiếu thông tin yêu cầu: voiceCode, text hoặc voiceName' });
+  }
+
+  const baseName = safeFileName(voiceName);
+  if (!baseName) {
+    return res.status(400).json({ error: 'Tên giọng mẫu không hợp lệ' });
+  }
+
+  const audioPath = path.join(VOICES_DIR, `${baseName}.wav`);
+  const txtPath = path.join(VOICES_DIR, `${baseName}.txt`);
+
+  if (fs.existsSync(audioPath) || fs.existsSync(txtPath)) {
+    return res.status(400).json({ error: 'Giọng mẫu với tên này đã tồn tại, vui lòng chọn tên khác.' });
+  }
+
+  try {
+    const isFemale = voiceCode.includes('female');
+    let success = false;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VBEE_TOKEN}`,
+      'App-Id': VBEE_APP_ID
+    };
+
+    const callVbeeSync = async () => {
+      console.log(`[Vbee API Sync] Requesting ${baseName} (${voiceCode})...`);
+      const response = await axios.post('https://api.vbee.vn/v1/tts', {
+        text: text,
+        voiceCode: voiceCode,
+        outputFormat: 'wav',
+        speed: 1.0,
+        mode: 'sync'
+      }, {
+        headers,
+        responseType: 'arraybuffer',
+        timeout: 30000
+      });
+      fs.writeFileSync(audioPath, response.data);
+      fs.writeFileSync(txtPath, text, 'utf8');
+      console.log(`[Vbee API Sync] Saved to ${audioPath}`);
+      return true;
+    };
+
+    const callVbeeAsync = async () => {
+      console.log(`[Vbee API Async] Requesting ${baseName} (${voiceCode})...`);
+      const response = await axios.post('https://api.vbee.vn/v1/tts', {
+        text: text,
+        voiceCode: voiceCode,
+        outputFormat: 'wav',
+        speed: 1.0,
+        mode: 'async',
+        bitrate: 128,
+        webhookUrl: 'https://example.com/callback'
+      }, {
+        headers,
+        timeout: 30000
+      });
+
+      const requestId = response.data?.requestId;
+      if (!requestId) {
+        throw new Error(response.data?.message || 'Không nhận được requestId từ Vbee.');
+      }
+
+      console.log(`[Vbee API Async] Request ID: ${requestId}. Bắt đầu polling...`);
+      let status = 'PROCESSING';
+      let audioLink = null;
+      const maxAttempts = 30;
+      let attempts = 0;
+
+      while (status === 'PROCESSING' && attempts < maxAttempts) {
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const pollRes = await axios.get(`https://api.vbee.vn/v1/tts/requests/${requestId}`, {
+          headers,
+          timeout: 10000
+        });
+
+        status = pollRes.data?.status;
+        console.log(`[Vbee Polling] Lần ${attempts}/${maxAttempts} - Trạng thái: ${status}`);
+
+        if (status === 'COMPLETED') {
+          audioLink = pollRes.data?.audioLink;
+          break;
+        } else if (status === 'FAILED') {
+          throw new Error('Yêu cầu xử lý giọng nói bị lỗi trên Vbee.');
+        }
+      }
+
+      if (!audioLink) {
+        throw new Error('Vbee xử lý quá thời gian chờ (timeout) hoặc không tìm thấy liên kết âm thanh.');
+      }
+
+      console.log(`[Vbee Downloading] Đang tải audio từ: ${audioLink}`);
+      const audioRes = await axios.get(audioLink, {
+        responseType: 'arraybuffer',
+        timeout: 30000
+      });
+
+      fs.writeFileSync(audioPath, audioRes.data);
+      fs.writeFileSync(txtPath, text, 'utf8');
+      console.log(`[Vbee API Async] Saved to ${audioPath}`);
+      return true;
+    };
+
+    if (isFemale) {
+      try {
+        success = await callVbeeSync();
+      } catch (syncErr) {
+        console.warn(`[Vbee Sync Warning] Sync failed: ${syncErr.message}. Thử lại bằng Async...`);
+        success = await callVbeeAsync();
+      }
+    } else {
+      success = await callVbeeAsync();
+    }
+
+    if (success) {
+      return res.json({ success: true, message: 'Tạo giọng mẫu thành công!' });
+    } else {
+      throw new Error('Không thể sinh file hoặc lưu file.');
+    }
+
+  } catch (err) {
+    console.error('Error generating Vbee voice:', err.message);
+    let detailedError = err.message;
+    if (err.response?.data) {
+      try {
+        const errorData = err.response.data;
+        const errorBody = Buffer.isBuffer(errorData) 
+          ? JSON.parse(errorData.toString('utf8'))
+          : (typeof errorData === 'object' ? errorData : JSON.parse(errorData));
+        if (errorBody.message) detailedError = errorBody.message;
+        else if (errorBody.error) detailedError = errorBody.error;
+      } catch (parseErr) {}
+    }
+    
+    // Dọn dẹp nếu có file sinh lỗi
+    try {
+      if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+      if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath);
+    } catch (cleanupErr) {}
+
+    res.status(500).json({ error: `Lỗi gọi API Vbee AI: ${detailedError}` });
+  }
+});
+
 app.post('/api/save-voice', studioUpload.single('voice'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file giọng mẫu' });
     const savedPath = moveUploadedFile(req.file, VOICES_DIR, req.body.voiceName || req.file.originalname);
+    
+    if (req.body.voiceText && req.body.voiceText.trim()) {
+      const txtPath = savedPath.replace(path.extname(savedPath), '.txt');
+      fs.writeFileSync(txtPath, req.body.voiceText.trim(), 'utf8');
+    }
+
     res.json({
       success: true,
       message: 'Đã lưu giọng mẫu',
@@ -1227,7 +1857,12 @@ app.post('/api/render-studio', studioUpload.fields([
 
     if (subtitlePath && body.translateVi === 'true') {
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
-      await translateSubtitles(subtitlePath, translatedPath, body.geminiApiKey, Number(body.subtitleMaxLines || 0), studioMaxChars);
+      await translateSubtitles(subtitlePath, translatedPath, {
+        aiProvider: body.aiProvider,
+        geminiApiKey: body.geminiApiKey,
+        openRouterApiKey: body.openRouterApiKey,
+        openRouterModel: body.openRouterModel
+      }, Number(body.subtitleMaxLines || 0), studioMaxChars);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
       // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
@@ -1259,6 +1894,19 @@ app.post('/api/render-studio', studioUpload.fields([
 
       let finalRefAudioPath = null;
       if (refAudioPath) {
+        // Kiểm tra xem có file kịch bản .txt đi kèm giọng mẫu không để dùng trực tiếp
+        if (!refText && refAudioPath) {
+          const txtPath = refAudioPath.replace(path.extname(refAudioPath), '.txt');
+          if (fs.existsSync(txtPath)) {
+            try {
+              refText = fs.readFileSync(txtPath, 'utf8').trim();
+              console.log('Đã tìm thấy kịch bản giọng mẫu có sẵn:', refText);
+            } catch (txtErr) {
+              console.error('Lỗi khi đọc file kịch bản có sẵn:', txtErr.message);
+            }
+          }
+        }
+
         // Tự động trích xuất Ref-text từ giọng mẫu bằng Whisper nếu người dùng để trống
         if (!refText) {
           try {
@@ -1396,7 +2044,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
           console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
           try {
-            await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
+            await runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
             if (fs.existsSync(chunkPath)) {
               // Kiểm tra xem thời lượng thực tế của file âm thanh có vượt quá thời lượng phụ đề không
               try {
@@ -1604,7 +2252,7 @@ app.post('/api/render-studio', studioUpload.fields([
         fs.writeFileSync(path.join(RENDERS_DIR, scriptOutName), omiScript, 'utf8');
         console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(RENDERS_DIR, scriptOutName)}`);
 
-        await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
+        await runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
         tempFiles.push(voicePath);
       }
     }
@@ -1767,33 +2415,95 @@ app.post('/api/render-studio', studioUpload.fields([
     let baseVideoLabel = '0:v';
     let blurFilterString = '';
 
+    const hasReaction = !!reactionVideoPath;
+    const hasSubtitles = !!renderSubtitlePath;
+
     if (body.blurOriginalSub === 'true') {
       hasVideoFilter = true;
-      baseVideoLabel = 'v_base';
+      baseVideoLabel = (hasReaction || hasSubtitles) ? 'v_base' : 'vout';
       
-      const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
-      const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
-      const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
-      const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
-      const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
-      
-      let blurXPercent = blurXPercentVal;
-      if (blurXPercent + blurWidthPercentVal > 1) {
-        blurXPercent = 1 - blurWidthPercentVal;
-      }
-      let blurYPercent = blurYPercentVal;
-      if (blurYPercent + blurHeightPercentVal > 1) {
-        blurYPercent = 1 - blurHeightPercentVal;
+      // Parse blurBoxes from body
+      let blurBoxes = [];
+      if (body.blurBoxes) {
+        try {
+          blurBoxes = JSON.parse(body.blurBoxes);
+        } catch (e) {
+          console.error('Lỗi parse blurBoxes JSON:', e.message);
+        }
       }
       
-      const cropW = videoWidth * blurWidthPercentVal;
-      const cropH = videoHeight * blurHeightPercentVal;
-      const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
-      const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
-      const safeLumaRadius = Math.min(blurRadius, maxLumaR);
-      const safeChromaRadius = Math.min(blurRadius, maxChromaR);
-      
-      blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[v_base]`;
+      // Nếu không có blurBoxes hoặc parse lỗi, fallback về cấu hình đơn lẻ cũ để tương thích ngược
+      if (!Array.isArray(blurBoxes) || blurBoxes.length === 0) {
+        const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
+        const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
+        const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
+        const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
+        const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
+        
+        let blurXPercent = blurXPercentVal;
+        if (blurXPercent + blurWidthPercentVal > 1) {
+          blurXPercent = 1 - blurWidthPercentVal;
+        }
+        let blurYPercent = blurYPercentVal;
+        if (blurYPercent + blurHeightPercentVal > 1) {
+          blurYPercent = 1 - blurHeightPercentVal;
+        }
+        
+        const cropW = videoWidth * blurWidthPercentVal;
+        const cropH = videoHeight * blurHeightPercentVal;
+        const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
+        const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+        const safeLumaRadius = Math.min(blurRadius, maxLumaR);
+        const safeChromaRadius = Math.min(blurRadius, maxChromaR);
+        
+        blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[${baseVideoLabel}]`;
+      } else {
+        // Có blurBoxes -> Xây dựng chuỗi nối tiếp
+        let currentInputLabel = '0:v';
+        const filters = [];
+        
+        blurBoxes.forEach((box, index) => {
+          const isLast = index === blurBoxes.length - 1;
+          const outputLabel = isLast ? baseVideoLabel : `v_blur_${index}`;
+          
+          const xPercent = Math.min(100, Math.max(0, Number(box.x !== undefined ? box.x : 10))) / 100;
+          const widthPercent = Math.min(100, Math.max(1, Number(box.width !== undefined ? box.width : 80))) / 100;
+          const yPercent = Math.min(100, Math.max(0, Number(box.y !== undefined ? box.y : 75))) / 100;
+          const heightPercent = Math.min(100, Math.max(1, Number(box.height !== undefined ? box.height : 15))) / 100;
+          const radius = Math.min(50, Math.max(1, Number(box.radius || 20)));
+          
+          let clampedX = xPercent;
+          if (clampedX + widthPercent > 1) {
+            clampedX = 1 - widthPercent;
+          }
+          let clampedY = yPercent;
+          if (clampedY + heightPercent > 1) {
+            clampedY = 1 - heightPercent;
+          }
+          
+          const cropW = videoWidth * widthPercent;
+          const cropH = videoHeight * heightPercent;
+          const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
+          const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+          const safeLumaRadius = Math.min(radius, maxLumaR);
+          const safeChromaRadius = Math.min(radius, maxChromaR);
+          
+          const start = Number(box.start !== undefined ? box.start : 0);
+          const end = Number(box.end !== undefined ? box.end : 99999);
+          
+          const origLabel = `orig_${index}`;
+          const copyLabel = `copy_${index}`;
+          const blurredLabel = `blurred_${index}`;
+          
+          filters.push(`[${currentInputLabel}]split[${origLabel}][${copyLabel}]`);
+          filters.push(`[${copyLabel}]crop=iw*${widthPercent}:ih*${heightPercent}:iw*${clampedX}:ih*${clampedY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[${blurredLabel}]`);
+          filters.push(`[${origLabel}][${blurredLabel}]overlay=W*${clampedX}:H*${clampedY}:enable='between(t,${start},${end})'[${outputLabel}]`);
+          
+          currentInputLabel = outputLabel;
+        });
+        
+        blurFilterString = filters.join(';');
+      }
     }
 
     if (reactionVideoPath) {
@@ -1835,29 +2545,7 @@ app.post('/api/render-studio', studioUpload.fields([
       filterChain += `[${baseVideoLabel}]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
       videoFilter = filterChain;
     } else if (body.blurOriginalSub === 'true') {
-      const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
-      const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
-      const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
-      const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
-      const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
-      
-      let blurXPercent = blurXPercentVal;
-      if (blurXPercent + blurWidthPercentVal > 1) {
-        blurXPercent = 1 - blurWidthPercentVal;
-      }
-      let blurYPercent = blurYPercentVal;
-      if (blurYPercent + blurHeightPercentVal > 1) {
-        blurYPercent = 1 - blurHeightPercentVal;
-      }
-      
-      const cropW = videoWidth * blurWidthPercentVal;
-      const cropH = videoHeight * blurHeightPercentVal;
-      const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
-      const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
-      const safeLumaRadius = Math.min(blurRadius, maxLumaR);
-      const safeChromaRadius = Math.min(blurRadius, maxChromaR);
-      
-      videoFilter = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[vout]`;
+      videoFilter = blurFilterString;
     }
 
     // Build filter complex array
@@ -1908,6 +2596,18 @@ app.post('/api/render-studio', studioUpload.fields([
 
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);
     await runExecFile(FFMPEG_PATH, args);
+
+    // Sao chép file phụ đề kết quả vào thư mục renders và subtitles để người dùng chỉnh sửa hoặc lồng tiếng tiếp
+    if (subtitlePath && fs.existsSync(subtitlePath)) {
+      try {
+        const outSrtName = `studio_${timestamp}.srt`;
+        fs.copyFileSync(subtitlePath, path.join(RENDERS_DIR, outSrtName));
+        fs.copyFileSync(subtitlePath, path.join(SUBTITLES_DIR, outSrtName));
+        console.log(`[Studio Render] Đã xuất file phụ đề bổ sung: ${outSrtName}`);
+      } catch (srtCopyErr) {
+        console.error('Lỗi khi sao chép file phụ đề kết quả:', srtCopyErr.message);
+      }
+    }
 
     res.json({
       success: true,
@@ -2016,6 +2716,12 @@ function startServer(preferredPort = 3456) {
         console.log(`   http://127.0.0.1:${port}\n`);
         resolve({ server, port });
       });
+      
+      // Tăng timeouts cho server tránh ngắt kết nối khi tải video dung lượng lớn
+      server.timeout = 600000; // 10 phút
+      // Giữ keepAliveTimeout mặc định nhỏ (5 giây) để tránh rò rỉ socket/port (ERR_NO_BUFFER_SPACE)
+      server.keepAliveTimeout = 5000;
+
       server.on('error', (err) => {
         reject(err);
       });
