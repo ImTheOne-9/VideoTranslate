@@ -1,7 +1,7 @@
 const views = {
   download: {
     title: 'Tải video',
-    desc: 'Dán link YouTube Shorts, YouTube hoặc Xiaohongshu để tải về thư mục downloads.'
+    desc: 'Dán link video đơn lẻ hoặc link kênh/playlist để tải về thư mục downloads.'
   },
   studio: {
     title: 'Studio render',
@@ -19,10 +19,6 @@ const views = {
     title: 'Kho nhạc nền',
     desc: 'Quản lý các file nhạc nền để chèn vào video khi render.'
   },
-  bulk: {
-    title: 'Tải hàng loạt',
-    desc: 'Tải video từ playlist hoặc kênh theo số lượng đã chọn.'
-  },
   pages: {
     title: 'Quản lý Fanpage',
     desc: 'Quản lý danh sách các Fanpage của bạn, bao gồm thêm, sửa, xóa và tìm kiếm.'
@@ -34,7 +30,11 @@ let currentHistoryPage = 1;
 const historyPerPage = 10;
 let currentSavedLinkPage = 1;
 const savedLinksPerPage = 5;
+let currentBulkPage = 1;
+const bulkVideosPerPage = 10;
 let currentPlaylistVideos = [];
+let currentSavedChannelPage = 1;
+const savedChannelsPerPage = 5;
 let currentPlaylistSessionId = null;
 let assets = { videos: [], voices: [], music: [], subtitles: [], renders: [], omiConfigured: false };
 let isBulkDownloadCancelled = false;
@@ -48,6 +48,10 @@ let konvaBlur = null;
 let konvaTransformer = null;
 let vGuideline = null;
 let hGuideline = null;
+
+// Timed multiple blur boxes variables
+let blurBoxes = [];
+let activeBlurBoxId = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -258,7 +262,8 @@ async function fetchVideoInfo() {
   const btn = $('fetch-btn');
   setBusy(btn, true, 'Đang lấy...');
   $('video-card').classList.add('hidden');
-  $('video-card-loading').classList.remove('hidden');
+  const loadingIndicator = $('video-card-loading');
+  if (loadingIndicator) loadingIndicator.classList.remove('hidden');
   try {
     const response = await fetch('/api/info', {
       method: 'POST',
@@ -297,7 +302,7 @@ async function fetchVideoInfo() {
     }
   } finally {
     setBusy(btn, false);
-    $('video-card-loading').classList.add('hidden');
+    if (loadingIndicator) loadingIndicator.classList.add('hidden');
   }
 }
 
@@ -623,9 +628,10 @@ async function renderStudio(event) {
     }
   }
 
-  data.set('translateVi', $('translate-vi').checked ? 'true' : 'false');
-  data.set('burnSub', $('burn-sub').checked ? 'true' : 'false');
-  data.set('blurOriginalSub', $('blur-original-sub').checked ? 'true' : 'false');
+  data.set('translateVi', ($('translate-vi') && $('translate-vi').checked) ? 'true' : 'false');
+  data.set('burnSub', ($('burn-sub') && $('burn-sub').checked) ? 'true' : 'false');
+  data.set('blurOriginalSub', ($('blur-original-sub') && $('blur-original-sub').checked) ? 'true' : 'false');
+  data.append('blurBoxes', JSON.stringify(blurBoxes));
 
   setBusy(btn, true, 'Đang render...');
   status.textContent = 'Đang xử lý. Video dài hoặc tạo sub Whisper sẽ mất thời gian.';
@@ -738,23 +744,86 @@ async function renderStudio(event) {
 }
 
 async function fetchPlaylistInfo() {
-  let url = $('bulk-url-input').value.trim();
-  const match = url.match(/https?:\/\/[^\s]+/);
-  if (match) {
-    url = match[0];
-    $('bulk-url-input').value = url;
+  const rawInput = $('bulk-url-input').value.trim();
+  if (!rawInput) {
+    toast('Nhập link kênh hoặc danh sách link video.', 'error');
+    return;
   }
-  const limit = Number($('bulk-limit').value || 10);
-  if (!url) {
-    toast('Nhập link kênh hoặc playlist.', 'error');
+
+  // Tách các dòng và tìm link hợp lệ trên từng dòng
+  const lines = rawInput.split('\n')
+    .map(line => {
+      const match = line.trim().match(/https?:\/\/[^\s]+/);
+      return match ? match[0] : '';
+    })
+    .filter(link => link !== '');
+
+  if (lines.length === 0) {
+    toast('Nhập link kênh hoặc danh sách link video hợp lệ.', 'error');
     return;
   }
 
   const btn = $('bulk-fetch-btn');
   const stats = $('bulk-stats');
   const resultsContainer = $('bulk-results-container');
+
+  if (lines.length > 1) {
+    // CHẾ ĐỘ: TẢI HÀNG LOẠT TỪ DANH SÁCH LINK TỰ NHẬP
+    setBusy(btn, true, 'Đang tải...');
+    if (resultsContainer) resultsContainer.classList.add('hidden');
+    const loadingContainer = $('bulk-loading-container');
+    if (loadingContainer) {
+      const loadingText = $('bulk-loading-text');
+      if (loadingText) loadingText.textContent = 'Đang xử lý danh sách liên kết tự nhập...';
+      loadingContainer.classList.remove('hidden');
+    }
+    stats.textContent = 'Đang xử lý danh sách link...';
+
+    const sessionId = Date.now();
+    currentPlaylistSessionId = sessionId;
+    currentPlaylistVideos = lines.map((link, index) => {
+      // Trích xuất ID từ link nếu có thể để hiển thị ảnh thu nhỏ Youtube (nếu là link Youtube)
+      let id = `manual-${index}-${sessionId}`;
+      const ytIdMatch = link.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+      if (ytIdMatch) {
+        id = ytIdMatch[1];
+      }
+      return {
+        id: id,
+        title: `Video liên kết #${index + 1}`,
+        url: link,
+        duration: 0,
+        thumbnail: '',
+        selected: true // Mặc định chọn tất cả để tải
+      };
+    });
+
+    currentBulkPage = 1;
+    setBusy(btn, false);
+    if (loadingContainer) {
+      loadingContainer.classList.add('hidden');
+    }
+    if (resultsContainer) resultsContainer.classList.remove('hidden');
+    renderPlaylistVideos();
+    stats.textContent = `Đã nhận diện ${currentPlaylistVideos.length} video từ danh sách tự nhập.`;
+
+    // Tự động tải chất lượng của các video này
+    loadAllPlaylistFormats(sessionId);
+    return;
+  }
+
+  // CHẾ ĐỘ MẶC ĐỊNH: QUÉT MỘT KÊNH / PLAYLIST
+  let url = lines[0];
+  const limit = Number($('bulk-limit').value || 10);
+
   setBusy(btn, true, 'Đang quét...');
   if (resultsContainer) resultsContainer.classList.add('hidden');
+  const loadingContainer = $('bulk-loading-container');
+  if (loadingContainer) {
+    const loadingText = $('bulk-loading-text');
+    if (loadingText) loadingText.textContent = 'Đang quét danh sách video từ kênh/playlist...';
+    loadingContainer.classList.remove('hidden');
+  }
   stats.textContent = 'Đang lấy danh sách video...';
   currentPlaylistVideos = [];
   const sessionId = Date.now();
@@ -772,6 +841,11 @@ async function fetchPlaylistInfo() {
     if (sessionId !== currentPlaylistSessionId) return;
 
     currentPlaylistVideos = data.videos || [];
+    currentBulkPage = 1;
+    currentPlaylistVideos.forEach(v => {
+      v.selected = true;
+      v.selectedFormat = '';
+    });
     renderPlaylistVideos();
     stats.textContent = `Tìm thấy ${currentPlaylistVideos.length} video.`;
     if (resultsContainer) {
@@ -789,6 +863,9 @@ async function fetchPlaylistInfo() {
   } finally {
     if (sessionId === currentPlaylistSessionId) {
       setBusy(btn, false);
+      if (loadingContainer) {
+        loadingContainer.classList.add('hidden');
+      }
     }
   }
 }
@@ -800,10 +877,21 @@ function renderPlaylistVideos() {
 
   if (currentPlaylistVideos.length === 0) {
     listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--muted); font-size: 13px;">Không có video nào trong danh sách.</div>';
+    const pagContainer = $('bulk-pagination');
+    if (pagContainer) pagContainer.innerHTML = '';
     return;
   }
 
-  currentPlaylistVideos.forEach((video, index) => {
+  const totalPages = Math.ceil(currentPlaylistVideos.length / bulkVideosPerPage);
+  if (currentBulkPage > totalPages) currentBulkPage = totalPages;
+  if (currentBulkPage < 1) currentBulkPage = 1;
+
+  const startIndex = (currentBulkPage - 1) * bulkVideosPerPage;
+  const endIndex = Math.min(startIndex + bulkVideosPerPage, currentPlaylistVideos.length);
+  const pageVideos = currentPlaylistVideos.slice(startIndex, endIndex);
+
+  pageVideos.forEach((video, pageIndex) => {
+    const index = startIndex + pageIndex;
     const card = document.createElement('div');
     card.className = 'bulk-video-card';
     
@@ -812,7 +900,7 @@ function renderPlaylistVideos() {
 
     card.innerHTML = `
       <div style="align-self: center; display: flex; justify-content: center; align-items: center; height: 100%;">
-        <input type="checkbox" class="bulk-video-checkbox" data-index="${index}" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);" checked>
+        <input type="checkbox" class="bulk-video-checkbox" data-index="${index}" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);" ${video.selected ? 'checked' : ''}>
       </div>
       <div style="position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden; background: #090d12; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
         ${thumbUrl ? `<img src="${thumbUrl}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">` : ''}
@@ -834,16 +922,35 @@ function renderPlaylistVideos() {
       </div>
     `;
     listContainer.appendChild(card);
+
+    if (video.formats) {
+      renderVideoCardFormats(index, { formats: video.formats });
+    }
   });
 
-  // Đồng bộ trạng thái checkbox "Chọn tất cả" khi thay đổi các checkbox thành viên
+  // Đồng bộ trạng thái checkbox thành viên
   const checkBoxes = listContainer.querySelectorAll('.bulk-video-checkbox');
   checkBoxes.forEach(cb => {
     cb.addEventListener('change', () => {
-      const allChecked = Array.from(checkBoxes).every(c => c.checked);
+      const index = Number(cb.dataset.index);
+      currentPlaylistVideos[index].selected = cb.checked;
+      
       const selectAll = $('bulk-select-all');
-      if (selectAll) selectAll.checked = allChecked;
+      if (selectAll) {
+        selectAll.checked = currentPlaylistVideos.every(v => v.selected);
+      }
     });
+  });
+
+  const selectAll = $('bulk-select-all');
+  if (selectAll) {
+    selectAll.checked = currentPlaylistVideos.every(v => v.selected);
+  }
+
+  // Render các nút phân trang
+  renderPaginationControls('bulk-pagination', currentBulkPage, totalPages, (newPage) => {
+    currentBulkPage = newPage;
+    renderPlaylistVideos();
   });
 
   // Bắt đầu tải danh sách định dạng/chất lượng cho tất cả các video
@@ -873,7 +980,6 @@ async function fetchVideoFormatsForIndex(index, sessionId) {
   if (!video) return;
   
   const grid = $(`quality-grid-${index}`);
-  if (!grid) return;
   
   try {
     const res = await fetch('/api/info', {
@@ -891,7 +997,9 @@ async function fetchVideoFormatsForIndex(index, sessionId) {
   } catch (error) {
     if (sessionId !== currentPlaylistSessionId) return;
     console.error(`Lỗi tải format cho video ${index}:`, error);
-    grid.innerHTML = `<span style="font-size: 11px; color: var(--danger); font-weight: 500;">⚠️ Không lấy được tùy chọn tải</span>`;
+    if (grid) {
+      grid.innerHTML = `<span style="font-size: 11px; color: var(--danger); font-weight: 500;">⚠️ Không lấy được tùy chọn tải</span>`;
+    }
   }
 }
 
@@ -940,6 +1048,14 @@ function renderVideoCardFormats(index, data) {
     opt.textContent = `${format.quality} · ${format.size}`;
     select.appendChild(opt);
   }
+
+  if (video.selectedFormat) {
+    select.value = video.selectedFormat;
+  }
+
+  select.addEventListener('change', () => {
+    video.selectedFormat = select.value;
+  });
 
   container.appendChild(select);
 
@@ -1039,26 +1155,36 @@ async function downloadSingleBulkVideo(btn, index) {
 }
 
 async function downloadSelectedBulkVideos() {
-  const checkboxes = document.querySelectorAll('.bulk-video-checkbox:checked');
-  if (checkboxes.length === 0) {
+  const selectedVideos = currentPlaylistVideos.filter(v => v.selected);
+  if (selectedVideos.length === 0) {
     toast('Vui lòng chọn ít nhất 1 video để tải.', 'warn');
     return;
   }
 
   // Validate format selected for all checked videos
-  for (const cb of checkboxes) {
-    const index = Number(cb.dataset.index);
-    const select = $(`format-select-${index}`);
-    if (select && !select.value) {
+  for (const video of selectedVideos) {
+    if (!video.formats) {
+      toast(`Đang tải danh sách định dạng cho video "${video.title || video.id}", vui lòng đợi...`, 'warn');
+      return;
+    }
+    if (!video.selectedFormat) {
       toast('Vui lòng chọn chất lượng tải cho tất cả các video đã tích!', 'warn');
       
-      const card = cb.closest('.bulk-video-card');
-      if (card) {
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const globalIndex = currentPlaylistVideos.indexOf(video);
+      const pageOfVideo = Math.floor(globalIndex / bulkVideosPerPage) + 1;
+      if (currentBulkPage !== pageOfVideo) {
+        currentBulkPage = pageOfVideo;
+        renderPlaylistVideos();
       }
-      select.focus();
-      select.style.borderColor = 'var(--danger)';
-      setTimeout(() => { select.style.borderColor = ''; }, 3000);
+      
+      setTimeout(() => {
+        const select = $(`format-select-${globalIndex}`);
+        if (select) {
+          select.focus();
+          select.style.borderColor = 'var(--danger)';
+          setTimeout(() => { select.style.borderColor = ''; }, 3000);
+        }
+      }, 100);
       return;
     }
   }
@@ -1066,7 +1192,7 @@ async function downloadSelectedBulkVideos() {
   const dlBtn = $('bulk-download-selected-btn');
   const stats = $('bulk-stats');
   
-  const total = checkboxes.length;
+  const total = selectedVideos.length;
   let ok = 0;
   let fail = 0;
 
@@ -1084,19 +1210,24 @@ async function downloadSelectedBulkVideos() {
 
   // Clear and populate progress details list
   progressList.innerHTML = '';
-  checkboxes.forEach((cb, idx) => {
-    const index = Number(cb.dataset.index);
-    const video = currentPlaylistVideos[index];
-    const select = $(`format-select-${index}`);
-    const selectedOpt = select ? select.options[select.selectedIndex] : null;
-    const formatName = selectedOpt ? selectedOpt.textContent.split(' · ')[0] : 'Tự động';
+  selectedVideos.forEach((video, idx) => {
+    const index = currentPlaylistVideos.indexOf(video);
+    let formatLabel = 'Tự động';
+    if (video.selectedFormat === 'vietsub') {
+      formatLabel = 'Vietsub';
+    } else if (video.formats) {
+      const matched = video.formats.find(f => f.format_id === video.selectedFormat);
+      if (matched) {
+        formatLabel = matched.quality;
+      }
+    }
     
     const item = document.createElement('div');
     item.id = `bulk-progress-item-${index}`;
     item.style = 'display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--border);';
     item.innerHTML = `
       <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; font-weight: 500;" title="${(video.title || '').replace(/"/g, '&quot;')}">
-        ${idx + 1}. ${video.title || 'Video ' + video.id} (${formatName})
+        ${idx + 1}. ${video.title || 'Video ' + video.id} (${formatLabel})
       </span>
       <span class="bulk-item-status" style="font-weight: 600; color: var(--muted);">Đang chờ...</span>
     `;
@@ -1126,12 +1257,12 @@ async function downloadSelectedBulkVideos() {
       break;
     }
 
-    const cb = checkboxes[i];
-    const index = Number(cb.dataset.index);
-    const video = currentPlaylistVideos[index];
+    const video = selectedVideos[i];
+    const index = currentPlaylistVideos.indexOf(video);
     if (!video) continue;
 
-    const card = cb.closest('.bulk-video-card');
+    const selectEl = $(`format-select-${index}`);
+    const card = selectEl ? selectEl.closest('.bulk-video-card') : null;
     const cardStatusLabel = card ? card.querySelector('.bulk-video-status') : null;
     const itemRow = $(`bulk-progress-item-${index}`);
     const itemStatusLabel = itemRow ? itemRow.querySelector('.bulk-item-status') : null;
@@ -1153,8 +1284,7 @@ async function downloadSelectedBulkVideos() {
     activeBulkDownloadController = new AbortController();
 
     try {
-      const select = $(`format-select-${index}`);
-      const formatId = select ? select.value : '';
+      const formatId = video.selectedFormat;
       const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
       const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
       const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
@@ -1202,8 +1332,8 @@ async function downloadSelectedBulkVideos() {
         }
         // Mark remaining items as cancelled
         for (let j = i + 1; j < total; j++) {
-          const nextCb = checkboxes[j];
-          const nextIndex = Number(nextCb.dataset.index);
+          const nextVideo = selectedVideos[j];
+          const nextIndex = currentPlaylistVideos.indexOf(nextVideo);
           const nextItemRow = $(`bulk-progress-item-${nextIndex}`);
           const nextItemStatus = nextItemRow ? nextItemRow.querySelector('.bulk-item-status') : null;
           if (nextItemStatus) {
@@ -1240,8 +1370,8 @@ async function downloadSelectedBulkVideos() {
     statusLabel.textContent = 'Đã hủy tải hàng loạt';
     statusLabel.style.color = '#ef4444';
     // Mark items that were still "Đang chờ..." as "Đã hủy"
-    checkboxes.forEach(cb => {
-      const index = Number(cb.dataset.index);
+    selectedVideos.forEach(video => {
+      const index = currentPlaylistVideos.indexOf(video);
       const itemRow = $(`bulk-progress-item-${index}`);
       const itemStatusLabel = itemRow ? itemRow.querySelector('.bulk-item-status') : null;
       if (itemStatusLabel && itemStatusLabel.textContent === 'Đang chờ...') {
@@ -1508,16 +1638,21 @@ function setPreviewVideo(url) {
   const video = $('studio-video-preview');
   const wrapper = $('video-preview-wrapper');
   const placeholder = $('preview-placeholder');
+  const timelinePanel = $('studio-timeline-panel');
   
   if (url) {
     video.src = url;
     if (wrapper) wrapper.classList.remove('hidden');
     if (placeholder) placeholder.classList.add('hidden');
+    if (timelinePanel) timelinePanel.classList.remove('hidden');
     
     const onMetadataLoaded = () => {
       updateSubtitleOverlayFromInputs();
       if (typeof updateBlurBoxPreview === 'function') {
         updateBlurBoxPreview();
+      }
+      if (typeof renderTimeline === 'function') {
+        renderTimeline();
       }
     };
 
@@ -1532,6 +1667,7 @@ function setPreviewVideo(url) {
     video.removeAttribute('src');
     if (wrapper) wrapper.classList.add('hidden');
     if (placeholder) placeholder.classList.remove('hidden');
+    if (timelinePanel) timelinePanel.classList.add('hidden');
     
     // Clean up reaction preview
     const rxVid = $('preview-reaction-video');
@@ -1745,6 +1881,70 @@ function updateSubtitleOverlayFromInputs() {
   const video = $('studio-video-preview');
   const container = $('konva-stage-container');
   if (!video || !container) return;
+
+  const applySnapping = (node, w, h, currentX, currentY) => {
+    let x = currentX;
+    let y = currentY;
+    
+    if (!konvaStage) return { x, y };
+    
+    const stageW = konvaStage.width();
+    const stageH = konvaStage.height();
+    
+    const SNAP_THRESHOLD = 8;
+    const stageCenterX = Math.round(stageW / 2);
+    const stageCenterY = Math.round(stageH / 2);
+    
+    const centerX = x + w / 2;
+    const centerY = y + h / 2;
+    
+    let snappedX = false;
+    let snappedY = false;
+    
+    if (Math.abs(centerX - stageCenterX) < SNAP_THRESHOLD) {
+      x = stageCenterX - w / 2;
+      snappedX = true;
+    }
+    
+    if (Math.abs(centerY - stageCenterY) < SNAP_THRESHOLD) {
+      y = stageCenterY - h / 2;
+      snappedY = true;
+    }
+    
+    // Cập nhật đường căn dọc
+    if (vGuideline) {
+      if (snappedX) {
+        vGuideline.points([stageCenterX, 0, stageCenterX, stageH]);
+        vGuideline.visible(true);
+        vGuideline.moveToTop();
+      } else {
+        vGuideline.visible(false);
+      }
+    }
+    
+    // Cập nhật đường căn ngang
+    if (hGuideline) {
+      if (snappedY) {
+        hGuideline.points([0, stageCenterY, stageW, stageCenterY]);
+        hGuideline.visible(true);
+        hGuideline.moveToTop();
+      } else {
+        hGuideline.visible(false);
+      }
+    }
+    
+    if (konvaLayer) {
+      konvaLayer.draw();
+    }
+    
+    return { x, y };
+  };
+
+  const hideGuidelines = () => {
+    if (vGuideline) vGuideline.visible(false);
+    if (hGuideline) hGuideline.visible(false);
+    if (konvaLayer) konvaLayer.draw();
+  };
 
   if (!video.src || video.src === '') {
     if (konvaStage) {
@@ -2011,7 +2211,7 @@ function updateSubtitleOverlayFromInputs() {
       let clickedNode = null;
       let curr = e.target;
       while (curr && curr !== konvaStage) {
-        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'blur') {
+        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'blur' || curr.name() === 'blur-box-shape') {
           clickedNode = curr;
           break;
         }
@@ -2020,7 +2220,13 @@ function updateSubtitleOverlayFromInputs() {
 
       if (clickedNode) {
         // Cấu hình các điểm neo transformer tùy thuộc vào đối tượng được chọn
-        if (clickedNode.name() === 'blur') {
+        if (clickedNode.name() === 'blur' || clickedNode.name() === 'blur-box-shape') {
+          if (clickedNode.name() === 'blur-box-shape') {
+            const boxId = clickedNode.getAttr('boxId');
+            if (boxId && boxId !== activeBlurBoxId) {
+              selectBlurBox(boxId);
+            }
+          }
           konvaTransformer.enabledAnchors([
             'top-left', 'top-center', 'top-right',
             'middle-right',
@@ -2041,72 +2247,6 @@ function updateSubtitleOverlayFromInputs() {
         konvaLayer.draw();
       }
     });
-
-    const applySnapping = (node, w, h, currentX, currentY) => {
-      let x = currentX;
-      let y = currentY;
-      
-      const stageW = konvaStage.width();
-      const stageH = konvaStage.height();
-      
-      const SNAP_THRESHOLD = 8;
-      const stageCenterX = Math.round(stageW / 2);
-      const stageCenterY = Math.round(stageH / 2);
-      
-      const centerX = x + w / 2;
-      const centerY = y + h / 2;
-      
-      let snappedX = false;
-      let snappedY = false;
-      
-      if (Math.abs(centerX - stageCenterX) < SNAP_THRESHOLD) {
-        x = stageCenterX - w / 2;
-        snappedX = true;
-      }
-      
-      if (Math.abs(centerY - stageCenterY) < SNAP_THRESHOLD) {
-        y = stageCenterY - h / 2;
-        snappedY = true;
-      }
-      
-      console.log(`[Snapping] node=${node.name()}, w=${w}, h=${h}, x=${x}, y=${y}, stageCenterX=${stageCenterX}, stageCenterY=${stageCenterY}, centerX=${centerX}, centerY=${centerY}, snappedX=${snappedX}, snappedY=${snappedY}`);
-
-      // Cập nhật đường căn dọc
-      if (vGuideline) {
-        if (snappedX) {
-          vGuideline.points([stageCenterX, 0, stageCenterX, stageH]);
-          vGuideline.visible(true);
-          vGuideline.moveToTop();
-          console.log(`[Snapping] Show vertical guideline at ${stageCenterX}, stageH=${stageH}`);
-        } else {
-          vGuideline.visible(false);
-        }
-      }
-      
-      // Cập nhật đường căn ngang
-      if (hGuideline) {
-        if (snappedY) {
-          hGuideline.points([0, stageCenterY, stageW, stageCenterY]);
-          hGuideline.visible(true);
-          hGuideline.moveToTop();
-          console.log(`[Snapping] Show horizontal guideline at ${stageCenterY}, stageW=${stageW}`);
-        } else {
-          hGuideline.visible(false);
-        }
-      }
-      
-      if (konvaLayer) {
-        konvaLayer.draw();
-      }
-      
-      return { x, y };
-    };
-
-    const hideGuidelines = () => {
-      if (vGuideline) vGuideline.visible(false);
-      if (hGuideline) hGuideline.visible(false);
-      if (konvaLayer) konvaLayer.draw();
-    };
 
     // Kéo phụ đề
     konvaSubtitle.on('dragmove', () => {
@@ -2522,45 +2662,905 @@ function updateSubtitleOverlayFromInputs() {
     }
   }
 
-  // 3. Cập nhật Blur Box
+  // 3. Cập nhật các vùng làm mờ (Multiple Blur Boxes)
+  if (konvaBlur) {
+    konvaBlur.visible(false); // Ẩn blur box đơn lẻ cũ
+  }
+
   const blurCheck = $('blur-original-sub');
-  if (!blurCheck || !blurCheck.checked) {
-    konvaBlur.visible(false);
+  const isBlurEnabled = blurCheck && blurCheck.checked;
+  const mainVideoElement = $('studio-video-preview');
+  const currentTime = mainVideoElement ? mainVideoElement.currentTime : 0;
+
+  // Xóa các vùng mờ không còn trong danh sách blurBoxes
+  if (konvaLayer) {
+    const existingShapes = konvaLayer.find('.blur-box-shape');
+    existingShapes.forEach(shape => {
+      const boxId = shape.getAttr('boxId');
+      if (!blurBoxes.some(b => b.id === boxId)) {
+        shape.destroy();
+      }
+    });
+  }
+
+  if (isBlurEnabled && konvaLayer) {
+    blurBoxes.forEach((box, index) => {
+      const shapeId = 'blur-box-' + box.id;
+      let shape = konvaLayer.findOne('#' + shapeId);
+      const isActive = activeBlurBoxId === box.id;
+
+      // Xác định xem vùng mờ có hiển thị không
+      // Hiển thị nếu: thời gian hiện tại nằm trong khoảng [start, end], HOẶC vùng mờ này đang được chỉnh sửa
+      const isTimeActive = currentTime >= box.start && currentTime <= box.end;
+      const shouldShow = isTimeActive || isActive;
+
+      if (!shouldShow) {
+        if (shape) {
+          shape.visible(false);
+          if (isActive && konvaTransformer.nodes().includes(shape)) {
+            konvaTransformer.nodes([]);
+          }
+        }
+        return;
+      }
+
+      // Đổi tọa độ phần trạng sang pixel trên canvas
+      const blurX = (box.x / 100) * W_act;
+      const blurY = (box.y / 100) * H_act;
+      const blurW = (box.width / 100) * W_act;
+      const blurH = (box.height / 100) * H_act;
+
+      if (!shape) {
+        shape = new Konva.Shape({
+          id: shapeId,
+          name: 'blur-box-shape',
+          boxId: box.id,
+          draggable: true,
+          stroke: '#00E5FF',
+          strokeWidth: 3,
+          fill: 'transparent',
+          dash: [8, 4],
+          sceneFunc: function (context, shape) {
+            const ctx = context._context;
+            const w = shape.width();
+            const h = shape.height();
+
+            ctx.save();
+
+            // Vẽ nội dung video đã làm mờ
+            const mainVideo = $('studio-video-preview');
+            if (mainVideo && mainVideo.readyState >= 2) {
+              ctx.beginPath();
+              ctx.rect(0, 0, w, h);
+              ctx.clip();
+
+              const x = shape.x();
+              const y = shape.y();
+              const radius = Number(box.radius || 20);
+              ctx.filter = `blur(${radius}px)`;
+
+              ctx.drawImage(
+                mainVideo,
+                x, y, w, h,
+                0, 0, w, h
+              );
+            } else {
+              ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+              ctx.fillRect(0, 0, w, h);
+            }
+
+            ctx.restore();
+
+            // Vẽ viền ngoài
+            context.fillStrokeShape(shape);
+          }
+        });
+
+        // Bắt sự kiện kéo thả/co giãn
+        shape.on('dragmove transform', () => {
+          let scaleX = shape.scaleX();
+          let scaleY = shape.scaleY();
+
+          let w = shape.width() * scaleX;
+          let h = shape.height() * scaleY;
+          let x = shape.x();
+          let y = shape.y();
+
+          const stageW = konvaStage.width();
+          const stageH = konvaStage.height();
+
+          const minSize = 10;
+          if (scaleX !== 1 || scaleY !== 1) {
+            // Đang co giãn
+            if (x < 0) {
+              w = Math.max(minSize, w + x);
+              x = 0;
+            }
+            if (y < 0) {
+              h = Math.max(minSize, h + y);
+              y = 0;
+            }
+            if (x + w > stageW) {
+              w = Math.max(minSize, stageW - x);
+            }
+            if (y + h > stageH) {
+              h = Math.max(minSize, stageH - y);
+            }
+          } else {
+            // Đang kéo thả
+            x = Math.max(0, Math.min(x, stageW - w));
+            y = Math.max(0, Math.min(y, stageH - h));
+
+            // Bắt dính căn giữa
+            const snapped = applySnapping(shape, w, h, x, y);
+            x = snapped.x;
+            y = snapped.y;
+          }
+
+          shape.position({ x, y });
+          shape.scaleX(1);
+          shape.scaleY(1);
+          shape.width(w);
+          shape.height(h);
+
+          // Cập nhật giá trị vào object
+          box.x = Math.max(0, Math.min(100, Math.round((x / stageW) * 100)));
+          box.y = Math.max(0, Math.min(100, Math.round((y / stageH) * 100)));
+          box.width = Math.max(1, Math.min(100, Math.round((w / stageW) * 100)));
+          box.height = Math.max(1, Math.min(100, Math.round((h / stageH) * 100)));
+
+          // Đồng bộ trực tiếp giá trị lên giao diện (không render lại danh sách để tránh mất focus)
+          const itemEl = document.querySelector(`.blur-box-item[data-id="${box.id}"]`);
+          if (itemEl) {
+            const xInput = itemEl.querySelector('input[data-field="x"]');
+            const yInput = itemEl.querySelector('input[data-field="y"]');
+            const wInput = itemEl.querySelector('input[data-field="width"]');
+            const hInput = itemEl.querySelector('input[data-field="height"]');
+            if (xInput) xInput.value = box.x;
+            if (yInput) yInput.value = box.y;
+            if (wInput) wInput.value = box.width;
+            if (hInput) hInput.value = box.height;
+          }
+
+          konvaLayer.draw();
+        });
+
+        shape.on('dragend', () => {
+          hideGuidelines();
+        });
+
+        konvaLayer.add(shape);
+      }
+
+      // Cập nhật các thuộc tính của shape
+      shape.visible(true);
+      shape.position({ x: blurX, y: blurY });
+      shape.width(blurW);
+      shape.height(blurH);
+      shape.stroke(isActive ? 'var(--accent)' : '#00E5FF');
+      shape.strokeWidth(isActive ? 4 : 2);
+
+      // Nếu đang active, đưa vào transformer
+      if (isActive) {
+        const currentNodes = konvaTransformer.nodes();
+        const isEditingOther = currentNodes.length > 0 && 
+                               (currentNodes[0].name() === 'subtitle' || currentNodes[0].name() === 'reaction');
+        
+        if (!isEditingOther && !currentNodes.includes(shape)) {
+          konvaTransformer.enabledAnchors([
+            'top-left', 'top-center', 'top-right',
+            'middle-right',
+            'bottom-right', 'bottom-center', 'bottom-left',
+            'middle-left'
+          ]);
+          konvaTransformer.nodes([shape]);
+          shape.moveToTop();
+          konvaTransformer.moveToTop();
+        }
+      }
+    });
   } else {
-    konvaBlur.visible(true);
-    let bxPercent = Math.max(0, Math.min(100, Number($('blur-x-input').value || 10)));
-    let byPercent = Math.max(0, Math.min(100, Number($('blur-y-input').value || 75)));
-    let bwPercent = Math.max(1, Math.min(100, Number($('blur-width-input').value || 80)));
-    let bhPercent = Math.max(1, Math.min(100, Number($('blur-height-input').value || 15)));
-
-    if (bxPercent + bwPercent > 100) {
-      bwPercent = 100 - bxPercent;
+    // Nếu tắt làm mờ hoặc layer chưa được tạo, ẩn toàn bộ shapes vùng mờ
+    if (konvaLayer) {
+      konvaLayer.find('.blur-box-shape').forEach(shape => {
+        shape.visible(false);
+      });
     }
-    if (byPercent + bhPercent > 100) {
-      bhPercent = 100 - byPercent;
+  }
+
+  // Đảm bảo thứ tự hiển thị (Z-Index): Blur box dưới cùng -> Reaction PIP -> Phụ đề -> Đường căn -> Transformer
+  if (konvaLayer) {
+    konvaLayer.find('.blur-box-shape').forEach(shape => {
+      shape.moveToBottom();
+    });
+    if (konvaReaction) {
+      konvaReaction.moveToTop();
     }
-
-    // Sync input values with clamped percentages
-    $('blur-x-input').value = bxPercent;
-    $('blur-y-input').value = byPercent;
-    $('blur-width-input').value = bwPercent;
-    $('blur-height-input').value = bhPercent;
-
-    const blurX = (bxPercent / 100) * W_act;
-    const blurY = (byPercent / 100) * H_act;
-    const blurW = (bwPercent / 100) * W_act;
-    const blurH = (bhPercent / 100) * H_act;
-    console.log(`[Overlay] Blur Box: bxPercent=${bxPercent}, byPercent=${byPercent}, bwPercent=${bwPercent}, bhPercent=${bhPercent}, blurX=${blurX}, blurY=${blurY}, blurW=${blurW}, blurH=${blurH}`);
-
-    konvaBlur.position({ x: blurX, y: blurY });
-    konvaBlur.width(blurW);
-    konvaBlur.height(blurH);
+    if (konvaSubtitle) {
+      konvaSubtitle.moveToTop();
+    }
+    if (vGuideline) vGuideline.moveToTop();
+    if (hGuideline) hGuideline.moveToTop();
+    if (konvaTransformer) {
+      konvaTransformer.moveToTop();
+    }
   }
 
   konvaLayer.draw();
 }
 
 function updateBlurBoxPreview() {
+  updateSubtitleOverlayFromInputs();
+}
+
+// --- MULTIPLE TIMED BLUR BOXES LOGIC ---
+function addBlurBox() {
+  const newBox = {
+    id: Date.now(),
+    x: 10,
+    y: 75,
+    width: 80,
+    height: 15,
+    radius: 20,
+    start: 0,
+    end: 99999
+  };
+  blurBoxes.push(newBox);
+  activeBlurBoxId = newBox.id;
+  renderBlurBoxesList();
+  updateSubtitleOverlayFromInputs();
+}
+
+function removeBlurBox(id) {
+  blurBoxes = blurBoxes.filter(b => b.id !== id);
+  if (activeBlurBoxId === id) {
+    activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
+  }
+  renderBlurBoxesList();
+  updateSubtitleOverlayFromInputs();
+}
+
+function selectBlurBox(id) {
+  activeBlurBoxId = id;
+  
+  // 1. Update active class and styles on the list items directly
+  document.querySelectorAll('.blur-box-item').forEach(item => {
+    const itemId = parseInt(item.dataset.id);
+    const isActive = itemId === id;
+    item.classList.toggle('active', isActive);
+    
+    // Update container style inline
+    item.style.background = isActive ? '#141e2a' : '#10161d';
+    item.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';
+    
+    // Update title span text and color
+    const titleSpan = item.querySelector('span');
+    if (titleSpan) {
+      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
+      if (match) {
+        const num = match[1];
+        titleSpan.textContent = `Vùng mờ #${num} ${isActive ? '(Đang chỉnh)' : ''}`;
+      }
+      titleSpan.style.color = isActive ? 'var(--accent)' : 'var(--text)';
+    }
+  });
+
+  // 2. Update active class on timeline blocks
+  document.querySelectorAll('.timeline-block').forEach(block => {
+    const blockId = parseInt(block.dataset.id);
+    block.classList.toggle('active', blockId === id);
+  });
+  
+  // 3. Update Konva stage selection
+  updateSubtitleOverlayFromInputs();
+}
+
+function renderBlurBoxesList() {
+  const container = $('blur-boxes-list');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  if (blurBoxes.length === 0) {
+    container.innerHTML = `<div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">Chưa có vùng làm mờ nào. Nhấn "Thêm vùng mờ" để bắt đầu.</div>`;
+    if (typeof renderTimeline === 'function') {
+      renderTimeline();
+    }
+    return;
+  }
+  
+  blurBoxes.forEach((box, index) => {
+    const isActive = activeBlurBoxId === box.id;
+    const item = document.createElement('div');
+    item.className = `blur-box-item ${isActive ? 'active' : ''}`;
+    item.dataset.id = box.id;
+    item.style = `margin-top: 10px; padding: 10px; background: ${isActive ? '#141e2a' : '#10161d'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;`;
+    
+    // Switch to this box on click (unless clicking inside input or delete button)
+    item.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+        selectBlurBox(box.id);
+      }
+    });
+
+    item.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+        <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">🗑️ Xóa</button>
+      </div>
+      
+      <!-- Hidden coordinates to prevent JS code crash -->
+      <div style="display: none;">
+        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="x" value="${box.x}">
+        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="y" value="${box.y}">
+        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="width" value="${box.width}">
+        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="height" value="${box.height}">
+      </div>
+
+      <!-- Time bounds & blur slider settings -->
+      <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">⏱️ Bắt đầu (s)</label>
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="0.1" style="padding: 4px 6px; height: 32px;">
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">⏱️ Kết thúc (s)</label>
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="0.1" style="padding: 4px 6px; height: 32px;">
+        </div>
+      </div>
+      
+      <!-- Blur Radius Slider -->
+      <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <label style="font-size: 10px; margin: 0; font-weight: 600;">💧 Độ mờ (Radius)</label>
+          <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
+        </div>
+        <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
+      </div>
+    `;
+    container.appendChild(item);
+  });
+
+  // Bind change event to input fields
+  document.querySelectorAll('.blur-input').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const id = parseInt(e.target.dataset.id);
+      const field = e.target.dataset.field;
+      let val = parseFloat(e.target.value);
+      if (isNaN(val)) val = 0;
+      
+      const box = blurBoxes.find(b => b.id === id);
+      if (box) {
+        box[field] = val;
+        // Limit bounds
+        if (field === 'x' && box.x + box.width > 100) box.width = 100 - box.x;
+        if (field === 'width' && box.x + box.width > 100) box.x = 100 - box.width;
+        if (field === 'y' && box.y + box.height > 100) box.height = 100 - box.y;
+        if (field === 'height' && box.y + box.height > 100) box.y = 100 - box.height;
+        
+        // Re-draw preview
+        updateSubtitleOverlayFromInputs();
+        if (typeof renderTimeline === 'function') {
+          renderTimeline();
+        }
+      }
+    });
+  });
+
+  if (typeof renderTimeline === 'function') {
+    renderTimeline();
+  }
+}
+
+// --- INTERACTIVE VISUAL EDITING TIMELINE LOGIC ---
+
+function syncBoxInputs(box) {
+  const video = $('studio-video-preview');
+  const duration = video ? (video.duration || 0) : 0;
+  
+  document.querySelectorAll(`.blur-input[data-id="${box.id}"]`).forEach(input => {
+    const field = input.dataset.field;
+    if (field === 'start') {
+      input.value = Number(box.start).toFixed(1);
+    } else if (field === 'end') {
+      input.value = box.end === 99999 ? (duration > 0 ? duration.toFixed(1) : 99999) : Number(box.end).toFixed(1);
+    }
+  });
+}
+
+function syncPlayhead() {
+  const video = $('studio-video-preview');
+  if (!video || !video.duration) return;
+  
+  const duration = video.duration;
+  const timeLabel = $('timeline-time-label');
+  if (timeLabel) {
+    timeLabel.textContent = `${formatTime(video.currentTime)} / ${formatTime(duration)}`;
+  }
+  
+  const ruler = $('timeline-ruler');
+  if (ruler) {
+    const rulerWidth = ruler.clientWidth;
+    const playhead = $('timeline-playhead');
+    if (playhead && rulerWidth > 0) {
+      const playheadLeft = (video.currentTime / duration) * rulerWidth;
+      playhead.style.left = `${playheadLeft}px`;
+    }
+  }
+}
+
+function renderTimeline() {
+  const video = $('studio-video-preview');
+  if (!video || !video.duration) return;
+  
+  const duration = video.duration;
+  const ruler = $('timeline-ruler');
+  if (!ruler) return;
+  const rulerWidth = ruler.clientWidth;
+  if (rulerWidth === 0) return; // Not visible/rendered yet
+  
+  // 1. Draw ruler ticks and labels
+  ruler.innerHTML = '';
+  
+  let tickInterval = 1;
+  let labelInterval = 5;
+  if (duration <= 30) {
+    tickInterval = 1;
+    labelInterval = 5;
+  } else if (duration <= 120) {
+    tickInterval = 5;
+    labelInterval = 10;
+  } else if (duration <= 600) {
+    tickInterval = 10;
+    labelInterval = 60;
+  } else {
+    tickInterval = 30;
+    labelInterval = 120;
+  }
+  
+  for (let t = 0; t <= duration; t += tickInterval) {
+    const leftPx = (t / duration) * rulerWidth;
+    const isMajor = (t % labelInterval === 0);
+    
+    const tick = document.createElement('div');
+    tick.className = `timeline-ruler-tick ${isMajor ? 'major' : ''}`;
+    tick.style.left = `${leftPx}px`;
+    ruler.appendChild(tick);
+    
+    if (isMajor) {
+      const label = document.createElement('div');
+      label.className = 'timeline-ruler-label';
+      label.style.left = `${leftPx}px`;
+      label.textContent = formatTime(t);
+      ruler.appendChild(label);
+    }
+  }
+  
+  // 2. Draw capsules on blur-track
+  const blurTrack = $('blur-track');
+  if (blurTrack) {
+    blurTrack.innerHTML = '';
+    
+    blurBoxes.forEach((box, index) => {
+      const isSelected = activeBlurBoxId === box.id;
+      const block = document.createElement('div');
+      block.className = `timeline-block ${isSelected ? 'active' : ''}`;
+      block.dataset.id = box.id;
+      
+      const start = Math.max(0, Math.min(duration, box.start));
+      const end = Math.max(start, Math.min(duration, box.end === 99999 ? duration : box.end));
+      
+      const leftPx = (start / duration) * rulerWidth;
+      const rightPx = (end / duration) * rulerWidth;
+      const widthPx = Math.max(15, rightPx - leftPx);
+      
+      block.style.left = `${leftPx}px`;
+      block.style.width = `${widthPx}px`;
+      
+      block.innerHTML = `
+        <div class="timeline-resize-handle left-handle"></div>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; pointer-events: none; user-select: none;">Vùng mờ #${index + 1} (${start.toFixed(1)}s-${end.toFixed(1)}s)</span>
+        <div class="timeline-resize-handle right-handle"></div>
+      `;
+      
+      block.addEventListener('click', (e) => {
+        if (!block.dataset.dragging && !block.dataset.resizing) {
+          selectBlurBox(box.id);
+        }
+      });
+      
+      block.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        
+        selectBlurBox(box.id);
+        
+        const initialClientX = e.clientX;
+        const initialStart = box.start;
+        const initialEnd = box.end === 99999 ? duration : box.end;
+        const handle = e.target;
+        const isLeftResize = handle.classList.contains('left-handle');
+        const isRightResize = handle.classList.contains('right-handle');
+        const isMove = !isLeftResize && !isRightResize;
+        
+        if (isLeftResize) block.dataset.resizing = 'left';
+        if (isRightResize) block.dataset.resizing = 'right';
+        if (isMove) block.dataset.dragging = 'true';
+        
+        let lastMoveEvent = null;
+        let animationFrameId = null;
+        let seekTimeout = null;
+        
+        const seekVideoDebounced = (time) => {
+          if (seekTimeout) {
+            clearTimeout(seekTimeout);
+          }
+          seekTimeout = setTimeout(() => {
+            video.currentTime = time;
+          }, 80);
+        };
+        
+        const onMouseMove = (moveEvent) => {
+          lastMoveEvent = moveEvent;
+          
+          if (!animationFrameId) {
+            animationFrameId = requestAnimationFrame(() => {
+              if (lastMoveEvent) {
+                const deltaX = lastMoveEvent.clientX - initialClientX;
+                const deltaSec = (deltaX / rulerWidth) * duration;
+                
+                if (isMove) {
+                  let newStart = initialStart + deltaSec;
+                  let newEnd = initialEnd + deltaSec;
+                  const diff = newEnd - newStart;
+                  if (newStart < 0) {
+                    newStart = 0;
+                    newEnd = diff;
+                  }
+                  if (newEnd > duration) {
+                    newEnd = duration;
+                    newStart = duration - diff;
+                  }
+                  box.start = Number(newStart.toFixed(3));
+                  box.end = Number(newEnd.toFixed(3));
+                  seekVideoDebounced(box.start);
+                } else if (isLeftResize) {
+                  let newStart = initialStart + deltaSec;
+                  if (newStart < 0) newStart = 0;
+                  if (newStart > initialEnd - 0.2) newStart = initialEnd - 0.2;
+                  box.start = Number(newStart.toFixed(3));
+                  seekVideoDebounced(box.start);
+                } else if (isRightResize) {
+                  let newEnd = initialEnd + deltaSec;
+                  if (newEnd > duration) newEnd = duration;
+                  if (newEnd < initialStart + 0.2) newEnd = initialStart + 0.2;
+                  box.end = Number(newEnd.toFixed(3));
+                  seekVideoDebounced(box.end === 99999 ? duration : box.end);
+                }
+                
+                // Fast UI updates
+                const finalStart = box.start;
+                const finalEnd = box.end === 99999 ? duration : box.end;
+                block.style.left = `${(finalStart / duration) * rulerWidth}px`;
+                block.style.width = `${Math.max(15, ((finalEnd - finalStart) / duration) * rulerWidth)}px`;
+                const textSpan = block.querySelector('span');
+                if (textSpan) {
+                  textSpan.textContent = `Vùng mờ #${index + 1} (${finalStart.toFixed(1)}s-${finalEnd.toFixed(1)}s)`;
+                }
+                
+                syncBoxInputs(box);
+                updateSubtitleOverlayFromInputs();
+              }
+              animationFrameId = null;
+            });
+          }
+        };
+        
+        const onMouseUp = () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+          
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+          if (seekTimeout) {
+            clearTimeout(seekTimeout);
+            seekTimeout = null;
+          }
+          
+          // Final instant seek on release
+          const finalTime = isRightResize ? (box.end === 99999 ? duration : box.end) : box.start;
+          video.currentTime = finalTime;
+          
+          setTimeout(() => {
+            delete block.dataset.dragging;
+            delete block.dataset.resizing;
+          }, 50);
+          
+          renderBlurBoxesList();
+        };
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+      
+      blurTrack.appendChild(block);
+    });
+  }
+  
+  syncPlayhead();
+}
+
+function initTimelineControls() {
+  const video = $('studio-video-preview');
+  const ruler = $('timeline-ruler');
+  if (!video || !ruler) return;
+  
+  const playBtn = $('timeline-play-btn');
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      if (video.paused) {
+        video.play().catch(err => console.log("Play interrupted:", err));
+      } else {
+        video.pause();
+      }
+    });
+  }
+  
+  video.addEventListener('play', () => {
+    if (playBtn) playBtn.textContent = '⏸ Tạm dừng';
+  });
+  video.addEventListener('pause', () => {
+    if (playBtn) playBtn.textContent = '▶ Phát';
+  });
+  
+  video.addEventListener('timeupdate', () => {
+    syncPlayhead();
+  });
+  
+  let lastScrubEvent = null;
+  let scrubFrameId = null;
+  
+  const seekToPosition = (e) => {
+    lastScrubEvent = e;
+    
+    if (!scrubFrameId) {
+      scrubFrameId = requestAnimationFrame(() => {
+        if (lastScrubEvent) {
+          const rect = ruler.getBoundingClientRect();
+          const clickX = lastScrubEvent.clientX - rect.left;
+          const percent = Math.max(0, Math.min(1, clickX / rect.width));
+          if (video.duration) {
+            video.currentTime = percent * video.duration;
+            syncPlayhead();
+          }
+        }
+        scrubFrameId = null;
+      });
+    }
+  };
+  
+  ruler.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    seekToPosition(e);
+    
+    const onMouseMove = (moveEvent) => {
+      seekToPosition(moveEvent);
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      if (scrubFrameId) {
+        cancelAnimationFrame(scrubFrameId);
+        scrubFrameId = null;
+      }
+    };
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+  
+  window.addEventListener('resize', () => {
+    renderTimeline();
+  });
+}
+
+// --- AUTOMATION STUDIO TEMPLATES MANAGEMENT ---
+function closeSaveTemplateModal() {
+  const modal = $('save-template-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function saveStudioTemplate() {
+  const modal = $('save-template-modal');
+  const input = $('save-template-name-input');
+  if (modal && input) {
+    input.value = '';
+    modal.classList.remove('hidden');
+    input.focus();
+  }
+}
+
+function submitSaveTemplate(event) {
+  event.preventDefault();
+  const input = $('save-template-name-input');
+  if (!input) return;
+  const templateName = input.value.trim();
+  if (!templateName) return;
+
+  closeSaveTemplateModal();
+
+  let templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
+
+  templates[templateName] = {
+    subtitleSize: document.querySelector('input[name="subtitleSize"]').value,
+    subtitleFont: document.querySelector('select[name="subtitleFont"]').value,
+    subtitleColor: document.querySelector('input[name="subtitleColor"]').value,
+    subtitleTheme: document.querySelector('select[name="subtitleTheme"]').value,
+    subtitleBold: document.querySelector('select[name="subtitleBold"]').value,
+    subtitleMaxLines: document.querySelector('select[name="subtitleMaxLines"]').value,
+    subtitleMargin: document.querySelector('input[name="subtitleMargin"]').value,
+    subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
+    blurOriginalSub: $('blur-original-sub').checked,
+    blurBoxes: blurBoxes,
+    voiceMode: $('voice-mode').value,
+    savedVoiceFile: $('saved-voice-select').value,
+    omiLanguage: document.querySelector('select[name="omiLanguage"]').value,
+    omiDevice: document.querySelector('select[name="omiDevice"]').value,
+    omiSteps: document.querySelector('input[name="omiSteps"]').value,
+    omiSeed: $('omi-seed-preset').value,
+    omiCustomSeed: $('omi-seed-input').value,
+    musicMode: $('music-mode').value,
+    savedMusicFile: $('saved-music-select').value,
+    originalVolume: document.querySelector('input[name="originalVolume"]').value,
+    voiceVolume: document.querySelector('input[name="voiceVolume"]').value,
+    musicVolume: document.querySelector('input[name="musicVolume"]').value,
+  };
+
+  localStorage.setItem('studio_templates', JSON.stringify(templates));
+  toast('🎉 Đã lưu template thành công!', 'success');
+  updateTemplateSelectDropdown();
+  $('studio-template-select').value = templateName;
+}
+
+function deleteStudioTemplate() {
+  const select = $('studio-template-select');
+  const templateName = select.value;
+  if (!templateName) {
+    toast('❌ Vui lòng chọn template muốn xóa!', 'error');
+    return;
+  }
+
+  if (confirm(`Bạn có chắc chắn muốn xóa template "${templateName}" không?`)) {
+    let templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
+    delete templates[templateName];
+    localStorage.setItem('studio_templates', JSON.stringify(templates));
+    toast('🎉 Đã xóa template thành công!', 'success');
+    updateTemplateSelectDropdown();
+  }
+}
+
+function updateTemplateSelectDropdown() {
+  const select = $('studio-template-select');
+  if (!select) return;
+
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">-- Chọn Template Đã Lưu --</option>';
+
+  const templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
+  Object.keys(templates).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+
+  if (templates[currentVal]) {
+    select.value = currentVal;
+  }
+}
+
+function loadStudioTemplate(templateName) {
+  if (!templateName) return;
+
+  const templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
+  const template = templates[templateName];
+  if (!template) return;
+
+  // Restore subtitle styles
+  const sizeInput = document.querySelector('input[name="subtitleSize"]');
+  if (sizeInput) {
+    sizeInput.value = template.subtitleSize;
+    sizeInput.dispatchEvent(new Event('input'));
+  }
+  document.querySelector('select[name="subtitleFont"]').value = template.subtitleFont;
+  
+  // Set subtitle color input and preview swatch
+  const colorInput = document.querySelector('input[name="subtitleColor"]');
+  if (colorInput) {
+    colorInput.value = template.subtitleColor;
+    const colorValSpan = $('subtitle-color-val');
+    if (colorValSpan) colorValSpan.textContent = template.subtitleColor;
+  }
+
+  document.querySelector('select[name="subtitleTheme"]').value = template.subtitleTheme;
+  document.querySelector('select[name="subtitleBold"]').value = template.subtitleBold;
+  document.querySelector('select[name="subtitleMaxLines"]').value = template.subtitleMaxLines;
+  document.querySelector('input[name="subtitleMargin"]').value = template.subtitleMargin;
+  document.querySelector('input[name="subtitleMarginH"]').value = template.subtitleMarginH;
+
+  // Restore blur settings
+  const blurCheck = $('blur-original-sub');
+  if (blurCheck) {
+    blurCheck.checked = template.blurOriginalSub;
+    blurCheck.dispatchEvent(new Event('change'));
+  }
+  
+  blurBoxes = template.blurBoxes || [];
+  activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
+  renderBlurBoxesList();
+
+  // Restore voice mode
+  const voiceModeBtn = document.querySelector(`.voice-tab-btn[data-voice-mode="${template.voiceMode}"]`);
+  if (voiceModeBtn) {
+    voiceModeBtn.click();
+  }
+  if (template.savedVoiceFile) {
+    $('saved-voice-select').value = template.savedVoiceFile;
+  }
+
+  // Restore Omi settings
+  document.querySelector('select[name="omiLanguage"]').value = template.omiLanguage;
+  document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
+  
+  const stepsSlider = document.querySelector('input[name="omiSteps"]');
+  if (stepsSlider) {
+    stepsSlider.value = template.omiSteps;
+    const stepsBadge = $('omi-steps-badge');
+    if (stepsBadge) stepsBadge.textContent = template.omiSteps;
+  }
+
+  const omiSeedPreset = $('omi-seed-preset');
+  if (omiSeedPreset) {
+    omiSeedPreset.value = template.omiSeed;
+    omiSeedPreset.dispatchEvent(new Event('change'));
+  }
+  if (template.omiCustomSeed) {
+    $('omi-seed-input').value = template.omiCustomSeed;
+  }
+
+  // Restore music mode
+  const musicModeBtn = document.querySelector(`.music-tab-btn[data-music-mode="${template.musicMode}"]`);
+  if (musicModeBtn) {
+    musicModeBtn.click();
+  }
+  if (template.savedMusicFile) {
+    $('saved-music-select').value = template.savedMusicFile;
+  }
+
+  // Restore volumes
+  const originalSlider = document.querySelector('input[name="originalVolume"]');
+  if (originalSlider) {
+    originalSlider.value = template.originalVolume;
+    const valEl = $('original-volume-val');
+    if (valEl) valEl.textContent = Math.round(template.originalVolume * 100) + '%';
+  }
+
+  const voiceSlider = document.querySelector('input[name="voiceVolume"]');
+  if (voiceSlider) {
+    voiceSlider.value = template.voiceVolume;
+    const valEl = $('voice-volume-val');
+    if (valEl) valEl.textContent = Math.round(template.voiceVolume * 100) + '%';
+  }
+
+  const musicSlider = document.querySelector('input[name="musicVolume"]');
+  if (musicSlider) {
+    musicSlider.value = template.musicVolume;
+    const valEl = $('music-volume-val');
+    if (valEl) valEl.textContent = Math.round(template.musicVolume * 100) + '%';
+  }
+
+  toast(`🎉 Đã áp dụng template "${templateName}"!`, 'success');
   updateSubtitleOverlayFromInputs();
 }
 
@@ -2678,9 +3678,10 @@ const selectAllCheck = $('bulk-select-all');
 if (selectAllCheck) {
   selectAllCheck.addEventListener('change', (e) => {
     const checked = e.target.checked;
-    document.querySelectorAll('.bulk-video-checkbox').forEach(cb => {
-      cb.checked = checked;
+    currentPlaylistVideos.forEach(v => {
+      v.selected = checked;
     });
+    renderPlaylistVideos();
   });
 }
 const bulkDlBtn = $('bulk-download-selected-btn');
@@ -2691,6 +3692,17 @@ if (bulkDlBtn) {
   const el = $(id);
   if (el) el.addEventListener('change', updateConditionalFields);
 });
+
+// Update template select dropdown on startup
+updateTemplateSelectDropdown();
+
+// Bind studio-template-select change event listener
+const templateSelect = $('studio-template-select');
+if (templateSelect) {
+  templateSelect.addEventListener('change', (e) => {
+    loadStudioTemplate(e.target.value);
+  });
+}
 
 function formatTime(secs) {
   if (isNaN(secs)) return '00:00';
@@ -2723,6 +3735,9 @@ function bindSafezoneControls(video, container) {
       icon.textContent = video.paused ? '▶' : '⏸';
     });
     container.querySelectorAll('.fb-playpause-icon').forEach(icon => {
+      icon.textContent = video.paused ? '▶' : '⏸';
+    });
+    container.querySelectorAll('.tiktok-playpause-icon').forEach(icon => {
       icon.textContent = video.paused ? '▶' : '⏸';
     });
   });
@@ -3172,6 +4187,19 @@ if (blurRadiusSlider) {
   blurRadiusSlider.addEventListener('change', updateBlurRadius);
   updateBlurRadius();
 }
+
+// Live updating Subtitle Size badge
+const subtitleSizeSlider = document.getElementById('subtitle-size-slider');
+if (subtitleSizeSlider) {
+  const subtitleSizeVal = document.getElementById('subtitle-size-val');
+  const updateSubtitleSize = () => {
+    if (subtitleSizeVal) subtitleSizeVal.textContent = subtitleSizeSlider.value + 'px';
+  };
+  subtitleSizeSlider.addEventListener('input', updateSubtitleSize);
+  subtitleSizeSlider.addEventListener('change', updateSubtitleSize);
+  updateSubtitleSize();
+}
+
 
 // Link Omi Cloner Seed Presets dropdown to hidden numeric input
 const seedPreset = $('omi-seed-preset');
@@ -4006,6 +5034,79 @@ function closeVoiceModal() {
   }
 }
 
+function toggleVoiceDropdown(e) {
+  if (e) e.stopPropagation();
+  const dropdown = $('voice-dropdown-content');
+  if (dropdown) {
+    dropdown.classList.toggle('hidden');
+  }
+}
+
+// Close the voice dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  const dropdown = $('voice-dropdown-content');
+  if (dropdown && !dropdown.classList.contains('hidden')) {
+    const trigger = $('open-add-voice-btn');
+    const isClickInside = dropdown.contains(e.target) || (trigger && trigger.contains(e.target));
+    if (!isClickInside) {
+      dropdown.classList.add('hidden');
+    }
+  }
+});
+
+function openVbeeGenerateVoiceModal() {
+  const modal = $('vbee-generate-voice-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+}
+
+function closeVbeeGenerateVoiceModal() {
+  const modal = $('vbee-generate-voice-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+    $('vbee-generate-voice-form').reset();
+  }
+}
+
+async function generateVbeeVoice(event) {
+  event.preventDefault();
+  const voiceName = $('vbee-voice-name').value.trim();
+  const voiceCode = $('vbee-voice-code').value;
+  const text = $('vbee-text').value.trim();
+
+  if (!voiceName || !voiceCode || !text) {
+    toast('❌ Vui lòng nhập đầy đủ thông tin!', 'error');
+    return;
+  }
+
+  const btn = $('vbee-generate-btn');
+  setBusy(btn, true, 'Đang tạo giọng...');
+
+  try {
+    const res = await fetch('/api/generate-vbee-voice', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ voiceName, voiceCode, text })
+    });
+
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.error || 'Lỗi khi kết nối với Vbee AI');
+    }
+
+    toast('🎉 ' + (result.message || 'Tạo giọng mẫu thành công!'), 'success');
+    closeVbeeGenerateVoiceModal();
+    await loadAssets();
+  } catch (err) {
+    toast('❌ Lỗi tạo giọng: ' + err.message, 'error');
+  } finally {
+    setBusy(btn, false);
+  }
+}
+
 function renderVoicesList(searchFilter = '') {
   const tbody = $('voice-list-tbody');
   const countBadge = $('voice-count-badge');
@@ -4298,6 +5399,10 @@ function initVoicesAndMusic() {
       currentMusicPage = 1;
       renderMusicList(e.target.value);
     });
+  }
+
+  if (typeof initTimelineControls === 'function') {
+    initTimelineControls();
   }
 }
 
@@ -4909,6 +6014,7 @@ function saveCurrentChannel() {
 
   savedChannels.unshift(newItem);
   saveSavedChannels();
+  currentSavedChannelPage = 1;
   renderSavedChannels();
   toast('⭐ Đã lưu kênh thành công', 'success');
 }
@@ -4916,6 +6022,10 @@ function saveCurrentChannel() {
 function deleteSavedChannel(id) {
   savedChannels = savedChannels.filter(item => item.id !== id);
   saveSavedChannels();
+  const totalPages = Math.ceil(savedChannels.length / savedChannelsPerPage) || 1;
+  if (currentSavedChannelPage > totalPages) {
+    currentSavedChannelPage = totalPages;
+  }
   renderSavedChannels();
   toast('Đã xóa kênh đã lưu', 'info');
 }
@@ -4932,18 +6042,31 @@ function loadSavedChannel(url) {
 function renderSavedChannels() {
   const container = $('saved-channels-container');
   const list = $('saved-channels-list');
+  const paginationContainer = $('saved-channels-pagination');
   if (!container || !list) return;
 
   if (savedChannels.length === 0) {
     container.style.display = 'none';
     list.innerHTML = '';
+    if (paginationContainer) paginationContainer.innerHTML = '';
     return;
   }
 
   container.style.display = 'block';
   list.innerHTML = '';
+  if (paginationContainer) paginationContainer.innerHTML = '';
 
-  savedChannels.forEach(item => {
+  const totalPages = Math.ceil(savedChannels.length / savedChannelsPerPage);
+  if (currentSavedChannelPage > totalPages) {
+    currentSavedChannelPage = totalPages;
+  }
+  if (currentSavedChannelPage < 1) {
+    currentSavedChannelPage = 1;
+  }
+
+  const paginatedItems = savedChannels.slice((currentSavedChannelPage - 1) * savedChannelsPerPage, currentSavedChannelPage * savedChannelsPerPage);
+
+  paginatedItems.forEach(item => {
     const card = document.createElement('div');
     card.className = 'saved-item';
     card.style = 'display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; gap: 10px; transition: all 0.15s;';
@@ -4955,6 +6078,11 @@ function renderSavedChannels() {
       <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0;" onclick="deleteSavedChannel('${item.id}'); event.stopPropagation();">🗑️</button>
     `;
     list.appendChild(card);
+  });
+
+  renderPaginationControls('saved-channels-pagination', currentSavedChannelPage, totalPages, (newPage) => {
+    currentSavedChannelPage = newPage;
+    renderSavedChannels();
   });
 }
 
@@ -4991,6 +6119,25 @@ function cancelBulkDownload() {
   }
 }
 
+function switchDownloadMode(mode) {
+  const singleBtn = $('download-mode-single-btn');
+  const bulkBtn = $('download-mode-bulk-btn');
+  const singleCont = $('download-single-container');
+  const bulkCont = $('download-bulk-container');
+  
+  if (mode === 'single') {
+    if (singleBtn) singleBtn.classList.add('active');
+    if (bulkBtn) bulkBtn.classList.remove('active');
+    if (singleCont) singleCont.classList.remove('hidden');
+    if (bulkCont) bulkCont.classList.add('hidden');
+  } else {
+    if (singleBtn) singleBtn.classList.remove('active');
+    if (bulkBtn) bulkBtn.classList.add('active');
+    if (singleCont) singleCont.classList.add('hidden');
+    if (bulkCont) bulkCont.classList.remove('hidden');
+  }
+}
+
 // Khởi chạy nạp danh sách đã lưu
 loadSavedLinks();
 loadSavedChannels();
@@ -5007,5 +6154,7 @@ window.downloadSelectedBulkVideos = downloadSelectedBulkVideos;
 window.openBulkDownloadModal = openBulkDownloadModal;
 window.closeBulkDownloadModal = closeBulkDownloadModal;
 window.cancelBulkDownload = cancelBulkDownload;
+window.switchDownloadMode = switchDownloadMode;
+
 
 

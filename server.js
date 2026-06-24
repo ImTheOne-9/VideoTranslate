@@ -10,6 +10,10 @@ const net = require('net');
 
 const axios = require('axios');
 
+// Vbee AI API credentials configuration
+const VBEE_APP_ID = process.env.VBEE_APP_ID || '470eb36b-eca1-4d22-96b6-c88c997b5bea';
+const VBEE_TOKEN = process.env.VBEE_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3ODIxNzkwMzd9.5k5_aMzZw-BQLLBPtFZMNL0O2bCS6mootc_UBMKlNIU';
+
 // Tích hợp Electron shell API nếu chạy trong Electron
 let electronShell = null;
 try {
@@ -50,6 +54,24 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 for (const dir of [VOICES_DIR, MUSIC_DIR, SUBTITLES_DIR, TMP_UPLOADS_DIR, RENDERS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+// Tự động sao chép các file giọng mẫu mặc định từ bộ cài khi khởi động
+const DEFAULT_VOICES_SRC = path.join(__dirname, 'public', 'default_voices');
+if (fs.existsSync(DEFAULT_VOICES_SRC)) {
+  try {
+    const defaultFiles = fs.readdirSync(DEFAULT_VOICES_SRC);
+    defaultFiles.forEach(file => {
+      const srcPath = path.join(DEFAULT_VOICES_SRC, file);
+      const destPath = path.join(VOICES_DIR, file);
+      if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`[Init] Đã sao chép giọng mẫu mặc định: ${file}`);
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi khởi tạo giọng mẫu mặc định:', err.message);
+  }
 }
 
 // Quản lý và dọn dẹp các tiến trình con tập trung
@@ -118,8 +140,15 @@ const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'Video
 const MODELS_DIR = path.join(appDataRoot, 'models');
 const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(MODELS_DIR, 'omnivoice-q8_0.gguf');
 
-// Tự động tìm kiếm và thêm đường dẫn CUDA vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
+// Tự động tìm kiếm và thêm đường dẫn CUDA và tools vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
 if (process.platform === 'win32') {
+  const toolsDir = getExtPath('tools');
+  const omnivoiceDir = getExtPath('tools', 'omnivoice');
+  const pathParts = [];
+  
+  if (fs.existsSync(toolsDir)) pathParts.push(toolsDir);
+  if (fs.existsSync(omnivoiceDir)) pathParts.push(omnivoiceDir);
+
   const cudaRoot = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA';
   if (fs.existsSync(cudaRoot)) {
     try {
@@ -128,13 +157,19 @@ if (process.platform === 'win32') {
         const binX64 = path.join(cudaRoot, ver, 'bin', 'x64');
         const binBase = path.join(cudaRoot, ver, 'bin');
         if (fs.existsSync(binX64)) {
-          process.env.PATH = `${binX64};${binBase};${process.env.PATH || ''}`;
+          pathParts.push(binX64);
+          pathParts.push(binBase);
           console.log(`[CUDA] Đã tự động thêm đường dẫn DLL vào PATH: ${binX64}`);
         }
       });
     } catch (e) {
       console.error('[CUDA] Lỗi quét thư mục CUDA:', e.message);
     }
+  }
+  
+  if (pathParts.length > 0) {
+    process.env.PATH = `${pathParts.join(';')};${process.env.PATH || ''}`;
+    console.log(`[PATH] Đã thiết lập PATH cho các tiến trình con: ${process.env.PATH}`);
   }
 }
 
@@ -227,6 +262,16 @@ function removeVietnameseTones(str) {
   result = result.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
   result = result.replace(/Đ/g, "D");
   return result;
+}
+
+function getCustomExtractorArgs(url) {
+  const args = [];
+  if (url.includes('youtube.com') || url.includes('youtu.be')) {
+    args.push('--extractor-args', 'youtube:player_client=android_vr,android');
+  } else if (url.includes('tiktok.com')) {
+    args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+  }
+  return args;
 }
 
 function cleanupTempFiles(tempFilePath) {
@@ -450,6 +495,66 @@ function runExecFile(command, args, options = {}) {
   });
 }
 
+async function runOmnivoiceCLI(args, options = {}, omiDevice = 'cpu') {
+  if (process.platform === 'win32') {
+    const cliDir = path.dirname(OMNIVOICE_CLI_PATH);
+    const cudaDllPath = path.join(cliDir, 'ggml-cuda.dll');
+    const cudaDllDisabledPath = path.join(cliDir, 'ggml-cuda.dll.disabled');
+
+    const hasNvidiaDriver = fs.existsSync('C:\\Windows\\System32\\nvcuda.dll');
+    const useCuda = omiDevice.includes('cuda') && hasNvidiaDriver;
+
+    if (useCuda) {
+      if (fs.existsSync(cudaDllDisabledPath)) {
+        try {
+          fs.renameSync(cudaDllDisabledPath, cudaDllPath);
+          console.log('[OmniVoice] Đã bật lại ggml-cuda.dll để sử dụng GPU');
+        } catch (e) {
+          console.error('[OmniVoice] Lỗi khi bật lại ggml-cuda.dll:', e.message);
+        }
+      }
+    } else {
+      if (fs.existsSync(cudaDllPath)) {
+        try {
+          fs.renameSync(cudaDllPath, cudaDllDisabledPath);
+          console.log('[OmniVoice] Đã tạm thời vô hiệu hóa ggml-cuda.dll để chạy trên CPU tránh lỗi thiếu DLL');
+        } catch (e) {
+          console.error('[OmniVoice] Lỗi khi vô hiệu hóa ggml-cuda.dll:', e.message);
+        }
+      }
+    }
+  }
+
+  try {
+    return await runExecFile(OMNIVOICE_CLI_PATH, args, options);
+  } catch (err) {
+    if (omiDevice.includes('cuda')) {
+      console.warn(`[OmniVoice] Thử chạy bằng GPU thất bại (${err.message}). Đang tự động chuyển đổi sang CPU để xử lý...`);
+      
+      const cpuArgs = [...args];
+      for (let i = 0; i < cpuArgs.length; i++) {
+        if (cpuArgs[i] === '--device') {
+          cpuArgs[i + 1] = 'cpu';
+        }
+      }
+      
+      if (process.platform === 'win32') {
+        const cliDir = path.dirname(OMNIVOICE_CLI_PATH);
+        const cudaDllPath = path.join(cliDir, 'ggml-cuda.dll');
+        const cudaDllDisabledPath = path.join(cliDir, 'ggml-cuda.dll.disabled');
+        if (fs.existsSync(cudaDllPath)) {
+          try {
+            fs.renameSync(cudaDllPath, cudaDllDisabledPath);
+          } catch (e) {}
+        }
+      }
+      
+      return runExecFile(OMNIVOICE_CLI_PATH, cpuArgs, options);
+    }
+    throw err;
+  }
+}
+
 function escapeSubtitleForFilter(filePath) {
   return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
 }
@@ -515,20 +620,19 @@ app.post('/api/info', async (req, res) => {
       '--dump-json',
       '--no-warnings',
       '--no-playlist',
-      '--ignore-no-formats-error'
+      '--ignore-no-formats-error',
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) ytArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytArgs.push(url);
 
     const output = await runYtDlp(ytArgs);
 
     const info = JSON.parse(output);
 
-    // Extract formats - only mp4 with video
+    // Extract formats - any video with height
     const formats = (info.formats || [])
       .filter(f => {
-        // Only mp4 container with video
-        return f.ext === 'mp4' && f.vcodec && f.vcodec !== 'none' && f.height;
+        return f.vcodec && f.vcodec !== 'none' && f.height;
       })
       .map(f => ({
         format_id: f.format_id,
@@ -653,9 +757,9 @@ app.get('/api/download', async (req, res) => {
     const ytInfoArgs = [
       '--dump-json',
       '--no-warnings',
-      '--no-playlist'
+      '--no-playlist',
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytInfoArgs.push(url);
 
     const infoOutput = await runYtDlp(ytInfoArgs, { signal });
@@ -670,8 +774,8 @@ app.get('/api/download', async (req, res) => {
       '--no-warnings',
       '--no-playlist',
       '-o', tempFilePath,
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
 
     if (fs.existsSync(FFMPEG_PATH)) {
       args.push('--ffmpeg-location', FFMPEG_PATH);
@@ -762,8 +866,7 @@ app.get('/api/download-vi', async (req, res) => {
     console.log('Bắt đầu tải video kèm Vietsub:', url);
 
     // Get video title and ID
-    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
-    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist', ...getCustomExtractorArgs(url)];
     ytInfoArgs.push(url);
     const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
@@ -779,8 +882,7 @@ app.get('/api/download-vi', async (req, res) => {
     const translatedSubPath = path.join(tempDir, `translated.srt`);
 
     // 1. Download video
-    const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern];
-    if (url.includes('tiktok.com')) videoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...getCustomExtractorArgs(url)];
     videoArgs.push(url);
     if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
     
@@ -793,7 +895,7 @@ app.get('/api/download-vi', async (req, res) => {
     const actualVideoPath = path.join(tempDir, videoFile);
 
     // 2. Download subtitles
-    const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, url];
+    const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, ...getCustomExtractorArgs(url), url];
     try { await runYtDlp(subArgs, { signal }); } catch (e) {}
 
     const updatedFiles = fs.readdirSync(tempDir);
@@ -894,9 +996,9 @@ app.post('/api/playlist', async (req, res) => {
       '--dump-json',
       '--flat-playlist',
       '--playlist-end', limit.toString(),
-      '--no-warnings'
+      '--no-warnings',
+      ...getCustomExtractorArgs(url)
     ];
-    if (url.includes('tiktok.com')) ytListArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
     ytListArgs.push(url);
 
     const output = await runYtDlp(ytListArgs);
@@ -935,7 +1037,10 @@ app.post('/api/playlist', async (req, res) => {
       }
     }).filter(v => v);
 
-    res.json({ videos });
+    // Giới hạn đúng số lượng yêu cầu do yt-dlp áp dụng --playlist-end cho từng sub-playlist (Videos, Shorts, Live) dẫn đến bị nhân lên
+    const limitedVideos = videos.slice(0, limit);
+
+    res.json({ videos: limitedVideos });
   } catch (error) {
     console.error('Playlist error:', error.message);
     res.status(500).json({ error: 'Không thể lấy thông tin kênh/playlist.' });
@@ -971,8 +1076,7 @@ app.post('/api/download-local', async (req, res) => {
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
     // 1. Lấy thông tin tiêu đề video để đặt tên file an toàn
-    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
-    if (url.includes('tiktok.com')) ytInfoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+    const ytInfoArgs = ['--dump-json', '--no-warnings', '--no-playlist', ...getCustomExtractorArgs(url)];
     ytInfoArgs.push(url);
     
     const infoOutput = await runYtDlp(ytInfoArgs, { signal });
@@ -993,8 +1097,7 @@ app.post('/api/download-local', async (req, res) => {
       const translatedSubPath = path.join(tempDir, `translated.srt`);
 
       // Tải video gốc
-      const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern];
-      if (url.includes('tiktok.com')) videoArgs.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
+      const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...getCustomExtractorArgs(url)];
       videoArgs.push(url);
       if (fs.existsSync(FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', FFMPEG_PATH);
       
@@ -1006,7 +1109,7 @@ app.post('/api/download-local', async (req, res) => {
       const actualVideoPath = path.join(tempDir, videoFile);
 
       // Tải phụ đề rời
-      const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, url];
+      const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, ...getCustomExtractorArgs(url), url];
       try { await runYtDlp(subArgs, { signal }); } catch (e) {}
 
       let subFile = fs.readdirSync(tempDir).find(f => f.startsWith('sub.') && f.endsWith('.srt'));
@@ -1074,8 +1177,8 @@ app.post('/api/download-local', async (req, res) => {
         '--no-warnings',
         '--no-playlist',
         '-o', finalVideoPath,
+        ...getCustomExtractorArgs(url)
       ];
-      if (url.includes('tiktok.com')) args.push('--extractor-args', 'tiktok:api_hostname=api22-normal-c-alisg.tiktokv.com;app_info=7355_1.1.1-7355_0');
       if (fs.existsSync(FFMPEG_PATH)) args.push('--ffmpeg-location', FFMPEG_PATH);
 
       if (format_id && format_id !== 'best') {
@@ -1267,6 +1370,17 @@ app.delete('/api/voices/:filename', (req, res) => {
     const filePath = path.join(VOICES_DIR, filename);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+      
+      // Đồng thời xóa file kịch bản .txt đi kèm nếu có
+      const txtPath = filePath.replace(path.extname(filePath), '.txt');
+      if (fs.existsSync(txtPath)) {
+        try {
+          fs.unlinkSync(txtPath);
+        } catch (e) {
+          console.error('Lỗi khi xóa file kịch bản kèm theo:', e.message);
+        }
+      }
+      
       return res.json({ success: true, message: 'Đã xóa giọng mẫu thành công!' });
     } else {
       return res.status(404).json({ error: 'Không tìm thấy file giọng mẫu' });
@@ -1463,10 +1577,167 @@ app.post('/api/download-whisper-model', async (req, res) => {
   }
 });
 
+app.post('/api/generate-vbee-voice', async (req, res) => {
+  const { voiceCode, text, voiceName } = req.body;
+  
+  if (!voiceCode || !text || !voiceName) {
+    return res.status(400).json({ error: 'Thiếu thông tin yêu cầu: voiceCode, text hoặc voiceName' });
+  }
+
+  const baseName = safeFileName(voiceName);
+  if (!baseName) {
+    return res.status(400).json({ error: 'Tên giọng mẫu không hợp lệ' });
+  }
+
+  const audioPath = path.join(VOICES_DIR, `${baseName}.wav`);
+  const txtPath = path.join(VOICES_DIR, `${baseName}.txt`);
+
+  if (fs.existsSync(audioPath) || fs.existsSync(txtPath)) {
+    return res.status(400).json({ error: 'Giọng mẫu với tên này đã tồn tại, vui lòng chọn tên khác.' });
+  }
+
+  try {
+    const isFemale = voiceCode.includes('female');
+    let success = false;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VBEE_TOKEN}`,
+      'App-Id': VBEE_APP_ID
+    };
+
+    const callVbeeSync = async () => {
+      console.log(`[Vbee API Sync] Requesting ${baseName} (${voiceCode})...`);
+      const response = await axios.post('https://api.vbee.vn/v1/tts', {
+        text: text,
+        voiceCode: voiceCode,
+        outputFormat: 'wav',
+        speed: 1.0,
+        mode: 'sync'
+      }, {
+        headers,
+        responseType: 'arraybuffer',
+        timeout: 30000
+      });
+      fs.writeFileSync(audioPath, response.data);
+      fs.writeFileSync(txtPath, text, 'utf8');
+      console.log(`[Vbee API Sync] Saved to ${audioPath}`);
+      return true;
+    };
+
+    const callVbeeAsync = async () => {
+      console.log(`[Vbee API Async] Requesting ${baseName} (${voiceCode})...`);
+      const response = await axios.post('https://api.vbee.vn/v1/tts', {
+        text: text,
+        voiceCode: voiceCode,
+        outputFormat: 'wav',
+        speed: 1.0,
+        mode: 'async',
+        bitrate: 128,
+        webhookUrl: 'https://example.com/callback'
+      }, {
+        headers,
+        timeout: 30000
+      });
+
+      const requestId = response.data?.requestId;
+      if (!requestId) {
+        throw new Error(response.data?.message || 'Không nhận được requestId từ Vbee.');
+      }
+
+      console.log(`[Vbee API Async] Request ID: ${requestId}. Bắt đầu polling...`);
+      let status = 'PROCESSING';
+      let audioLink = null;
+      const maxAttempts = 30;
+      let attempts = 0;
+
+      while (status === 'PROCESSING' && attempts < maxAttempts) {
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const pollRes = await axios.get(`https://api.vbee.vn/v1/tts/requests/${requestId}`, {
+          headers,
+          timeout: 10000
+        });
+
+        status = pollRes.data?.status;
+        console.log(`[Vbee Polling] Lần ${attempts}/${maxAttempts} - Trạng thái: ${status}`);
+
+        if (status === 'COMPLETED') {
+          audioLink = pollRes.data?.audioLink;
+          break;
+        } else if (status === 'FAILED') {
+          throw new Error('Yêu cầu xử lý giọng nói bị lỗi trên Vbee.');
+        }
+      }
+
+      if (!audioLink) {
+        throw new Error('Vbee xử lý quá thời gian chờ (timeout) hoặc không tìm thấy liên kết âm thanh.');
+      }
+
+      console.log(`[Vbee Downloading] Đang tải audio từ: ${audioLink}`);
+      const audioRes = await axios.get(audioLink, {
+        responseType: 'arraybuffer',
+        timeout: 30000
+      });
+
+      fs.writeFileSync(audioPath, audioRes.data);
+      fs.writeFileSync(txtPath, text, 'utf8');
+      console.log(`[Vbee API Async] Saved to ${audioPath}`);
+      return true;
+    };
+
+    if (isFemale) {
+      try {
+        success = await callVbeeSync();
+      } catch (syncErr) {
+        console.warn(`[Vbee Sync Warning] Sync failed: ${syncErr.message}. Thử lại bằng Async...`);
+        success = await callVbeeAsync();
+      }
+    } else {
+      success = await callVbeeAsync();
+    }
+
+    if (success) {
+      return res.json({ success: true, message: 'Tạo giọng mẫu thành công!' });
+    } else {
+      throw new Error('Không thể sinh file hoặc lưu file.');
+    }
+
+  } catch (err) {
+    console.error('Error generating Vbee voice:', err.message);
+    let detailedError = err.message;
+    if (err.response?.data) {
+      try {
+        const errorData = err.response.data;
+        const errorBody = Buffer.isBuffer(errorData) 
+          ? JSON.parse(errorData.toString('utf8'))
+          : (typeof errorData === 'object' ? errorData : JSON.parse(errorData));
+        if (errorBody.message) detailedError = errorBody.message;
+        else if (errorBody.error) detailedError = errorBody.error;
+      } catch (parseErr) {}
+    }
+    
+    // Dọn dẹp nếu có file sinh lỗi
+    try {
+      if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+      if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath);
+    } catch (cleanupErr) {}
+
+    res.status(500).json({ error: `Lỗi gọi API Vbee AI: ${detailedError}` });
+  }
+});
+
 app.post('/api/save-voice', studioUpload.single('voice'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file giọng mẫu' });
     const savedPath = moveUploadedFile(req.file, VOICES_DIR, req.body.voiceName || req.file.originalname);
+    
+    if (req.body.voiceText && req.body.voiceText.trim()) {
+      const txtPath = savedPath.replace(path.extname(savedPath), '.txt');
+      fs.writeFileSync(txtPath, req.body.voiceText.trim(), 'utf8');
+    }
+
     res.json({
       success: true,
       message: 'Đã lưu giọng mẫu',
@@ -1592,6 +1863,19 @@ app.post('/api/render-studio', studioUpload.fields([
 
       let finalRefAudioPath = null;
       if (refAudioPath) {
+        // Kiểm tra xem có file kịch bản .txt đi kèm giọng mẫu không để dùng trực tiếp
+        if (!refText && refAudioPath) {
+          const txtPath = refAudioPath.replace(path.extname(refAudioPath), '.txt');
+          if (fs.existsSync(txtPath)) {
+            try {
+              refText = fs.readFileSync(txtPath, 'utf8').trim();
+              console.log('Đã tìm thấy kịch bản giọng mẫu có sẵn:', refText);
+            } catch (txtErr) {
+              console.error('Lỗi khi đọc file kịch bản có sẵn:', txtErr.message);
+            }
+          }
+        }
+
         // Tự động trích xuất Ref-text từ giọng mẫu bằng Whisper nếu người dùng để trống
         if (!refText) {
           try {
@@ -1729,7 +2013,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
           console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
           try {
-            await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
+            await runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
             if (fs.existsSync(chunkPath)) {
               // Kiểm tra xem thời lượng thực tế của file âm thanh có vượt quá thời lượng phụ đề không
               try {
@@ -1937,7 +2221,7 @@ app.post('/api/render-studio', studioUpload.fields([
         fs.writeFileSync(path.join(RENDERS_DIR, scriptOutName), omiScript, 'utf8');
         console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(RENDERS_DIR, scriptOutName)}`);
 
-        await runExecFile(OMNIVOICE_CLI_PATH, omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) });
+        await runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
         tempFiles.push(voicePath);
       }
     }
@@ -2100,33 +2384,95 @@ app.post('/api/render-studio', studioUpload.fields([
     let baseVideoLabel = '0:v';
     let blurFilterString = '';
 
+    const hasReaction = !!reactionVideoPath;
+    const hasSubtitles = !!renderSubtitlePath;
+
     if (body.blurOriginalSub === 'true') {
       hasVideoFilter = true;
-      baseVideoLabel = 'v_base';
+      baseVideoLabel = (hasReaction || hasSubtitles) ? 'v_base' : 'vout';
       
-      const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
-      const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
-      const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
-      const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
-      const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
-      
-      let blurXPercent = blurXPercentVal;
-      if (blurXPercent + blurWidthPercentVal > 1) {
-        blurXPercent = 1 - blurWidthPercentVal;
-      }
-      let blurYPercent = blurYPercentVal;
-      if (blurYPercent + blurHeightPercentVal > 1) {
-        blurYPercent = 1 - blurHeightPercentVal;
+      // Parse blurBoxes from body
+      let blurBoxes = [];
+      if (body.blurBoxes) {
+        try {
+          blurBoxes = JSON.parse(body.blurBoxes);
+        } catch (e) {
+          console.error('Lỗi parse blurBoxes JSON:', e.message);
+        }
       }
       
-      const cropW = videoWidth * blurWidthPercentVal;
-      const cropH = videoHeight * blurHeightPercentVal;
-      const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
-      const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
-      const safeLumaRadius = Math.min(blurRadius, maxLumaR);
-      const safeChromaRadius = Math.min(blurRadius, maxChromaR);
-      
-      blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[v_base]`;
+      // Nếu không có blurBoxes hoặc parse lỗi, fallback về cấu hình đơn lẻ cũ để tương thích ngược
+      if (!Array.isArray(blurBoxes) || blurBoxes.length === 0) {
+        const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
+        const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
+        const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
+        const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
+        const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
+        
+        let blurXPercent = blurXPercentVal;
+        if (blurXPercent + blurWidthPercentVal > 1) {
+          blurXPercent = 1 - blurWidthPercentVal;
+        }
+        let blurYPercent = blurYPercentVal;
+        if (blurYPercent + blurHeightPercentVal > 1) {
+          blurYPercent = 1 - blurHeightPercentVal;
+        }
+        
+        const cropW = videoWidth * blurWidthPercentVal;
+        const cropH = videoHeight * blurHeightPercentVal;
+        const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
+        const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+        const safeLumaRadius = Math.min(blurRadius, maxLumaR);
+        const safeChromaRadius = Math.min(blurRadius, maxChromaR);
+        
+        blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[${baseVideoLabel}]`;
+      } else {
+        // Có blurBoxes -> Xây dựng chuỗi nối tiếp
+        let currentInputLabel = '0:v';
+        const filters = [];
+        
+        blurBoxes.forEach((box, index) => {
+          const isLast = index === blurBoxes.length - 1;
+          const outputLabel = isLast ? baseVideoLabel : `v_blur_${index}`;
+          
+          const xPercent = Math.min(100, Math.max(0, Number(box.x !== undefined ? box.x : 10))) / 100;
+          const widthPercent = Math.min(100, Math.max(1, Number(box.width !== undefined ? box.width : 80))) / 100;
+          const yPercent = Math.min(100, Math.max(0, Number(box.y !== undefined ? box.y : 75))) / 100;
+          const heightPercent = Math.min(100, Math.max(1, Number(box.height !== undefined ? box.height : 15))) / 100;
+          const radius = Math.min(50, Math.max(1, Number(box.radius || 20)));
+          
+          let clampedX = xPercent;
+          if (clampedX + widthPercent > 1) {
+            clampedX = 1 - widthPercent;
+          }
+          let clampedY = yPercent;
+          if (clampedY + heightPercent > 1) {
+            clampedY = 1 - heightPercent;
+          }
+          
+          const cropW = videoWidth * widthPercent;
+          const cropH = videoHeight * heightPercent;
+          const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
+          const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+          const safeLumaRadius = Math.min(radius, maxLumaR);
+          const safeChromaRadius = Math.min(radius, maxChromaR);
+          
+          const start = Number(box.start !== undefined ? box.start : 0);
+          const end = Number(box.end !== undefined ? box.end : 99999);
+          
+          const origLabel = `orig_${index}`;
+          const copyLabel = `copy_${index}`;
+          const blurredLabel = `blurred_${index}`;
+          
+          filters.push(`[${currentInputLabel}]split[${origLabel}][${copyLabel}]`);
+          filters.push(`[${copyLabel}]crop=iw*${widthPercent}:ih*${heightPercent}:iw*${clampedX}:ih*${clampedY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[${blurredLabel}]`);
+          filters.push(`[${origLabel}][${blurredLabel}]overlay=W*${clampedX}:H*${clampedY}:enable='between(t,${start},${end})'[${outputLabel}]`);
+          
+          currentInputLabel = outputLabel;
+        });
+        
+        blurFilterString = filters.join(';');
+      }
     }
 
     if (reactionVideoPath) {
@@ -2168,29 +2514,7 @@ app.post('/api/render-studio', studioUpload.fields([
       filterChain += `[${baseVideoLabel}]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
       videoFilter = filterChain;
     } else if (body.blurOriginalSub === 'true') {
-      const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
-      const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
-      const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
-      const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
-      const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
-      
-      let blurXPercent = blurXPercentVal;
-      if (blurXPercent + blurWidthPercentVal > 1) {
-        blurXPercent = 1 - blurWidthPercentVal;
-      }
-      let blurYPercent = blurYPercentVal;
-      if (blurYPercent + blurHeightPercentVal > 1) {
-        blurYPercent = 1 - blurHeightPercentVal;
-      }
-      
-      const cropW = videoWidth * blurWidthPercentVal;
-      const cropH = videoHeight * blurHeightPercentVal;
-      const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
-      const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
-      const safeLumaRadius = Math.min(blurRadius, maxLumaR);
-      const safeChromaRadius = Math.min(blurRadius, maxChromaR);
-      
-      videoFilter = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[vout]`;
+      videoFilter = blurFilterString;
     }
 
     // Build filter complex array

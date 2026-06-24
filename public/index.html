@@ -38,9 +38,7 @@
         <button class="nav-btn" data-view="music" title="Kho nhạc">
           <span>♫</span><strong>Kho nhạc</strong>
         </button>
-        <button class="nav-btn" data-view="bulk" title="Tải hàng loạt">
-          <span>☰</span><strong>Tải hàng loạt</strong>
-        </button>
+
         <button class="nav-btn" data-view="pages" title="Quản lý Page">
           <span>▤</span><strong>Quản lý Page</strong>
         </button>
@@ -64,31 +62,87 @@
       </header>
 
       <section class="view active" id="view-download">
-        <div class="panel">
-          <div class="panel-head">
-            <h3>Tải một video</h3>
-            <span>MP4, tự merge audio bằng FFmpeg local</span>
-          </div>
-          <div class="url-row">
-            <input id="url-input" type="text" placeholder="Dán link video tại đây">
-            <div style="display: flex; gap: 8px;">
-              <button id="fetch-btn">Lấy thông tin</button>
-              <button type="button" id="save-link-btn" class="ghost-btn" style="padding: 0 12px; height: 42px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;" onclick="saveCurrentLink()">⭐ Lưu</button>
+        <!-- Sub tabs navigation -->
+        <div class="studio-source-tabs" style="margin-bottom: 14px; display: flex; gap: 4px;">
+          <button type="button" class="source-tab-btn active" id="download-mode-single-btn" onclick="switchDownloadMode('single')">⬇ Tải đơn lẻ</button>
+          <button type="button" class="source-tab-btn" id="download-mode-bulk-btn" onclick="switchDownloadMode('bulk')">🗂️ Tải hàng loạt</button>
+        </div>
+
+        <!-- Download Single Section -->
+        <div id="download-single-container" class="download-subview">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Tải một video</h3>
+              <span>MP4, tự merge audio bằng FFmpeg local</span>
+            </div>
+            <div class="url-row">
+              <input id="url-input" type="text" placeholder="Dán link video tại đây">
+              <div style="display: flex; gap: 8px;">
+                <button id="fetch-btn">Lấy thông tin</button>
+                <button type="button" id="save-link-btn" class="ghost-btn" style="padding: 0 12px; height: 42px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;" onclick="saveCurrentLink()">⭐ Lưu</button>
+              </div>
+            </div>
+            <div id="saved-links-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
+              <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Link đã lưu</div>
+              <div id="saved-links-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
+                <!-- Sẽ render bằng JS -->
+              </div>
+              <div id="saved-links-pagination" style="display: flex; justify-content: center; gap: 6px; margin-top: 8px;"></div>
+            </div>
+            <div id="video-card-loading" class="hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; text-align: center; gap: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); margin-top: 16px;">
+              <div class="info-spinner" style="width: 28px; height: 28px; border-width: 3px; margin: 0;"></div>
+              <div style="font-size: 13px; color: var(--muted); font-weight: 500;">Đang lấy thông tin video...</div>
+            </div>
+            <div id="video-card" class="video-result hidden">
+              <img id="video-thumbnail" alt="Thumbnail">
+              <div>
+                <h4 id="video-title"></h4>
+                <p id="video-meta"></p>
+                <div id="quality-grid" class="quality-grid"></div>
+              </div>
             </div>
           </div>
-          <div id="saved-links-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
-            <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Link đã lưu</div>
-            <div id="saved-links-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
-              <!-- Sẽ render bằng JS -->
+        </div>
+
+        <!-- Download Bulk Section -->
+        <div id="download-bulk-container" class="download-subview hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Tải từ kênh / playlist</h3>
+              <span>Tải tuần tự vào thư mục downloads</span>
             </div>
-            <div id="saved-links-pagination" style="display: flex; justify-content: center; gap: 6px; margin-top: 8px;"></div>
-          </div>
-          <div id="video-card" class="video-result hidden">
-            <img id="video-thumbnail" alt="Thumbnail">
-            <div>
-              <h4 id="video-title"></h4>
-              <p id="video-meta"></p>
-              <div id="quality-grid" class="quality-grid"></div>
+            <div class="url-row">
+              <textarea id="bulk-url-input" placeholder="Dán link kênh / playlist, hoặc dán danh sách nhiều link video (mỗi dòng 1 link)" rows="1" style="height: 42px; min-height: 42px; padding: 10px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text); font-size: 14px; outline: none; transition: border-color 0.2s; resize: vertical; font-family: inherit; box-sizing: border-box;"></textarea>
+              <input id="bulk-limit" type="number" value="10" min="1" max="1000">
+              <div style="display: flex; gap: 8px;">
+                <button id="bulk-fetch-btn">Bắt đầu</button>
+                <button type="button" id="save-channel-btn" class="ghost-btn" style="padding: 0 12px; height: 42px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;" onclick="saveCurrentChannel()">⭐ Lưu</button>
+              </div>
+            </div>
+            <div id="saved-channels-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
+              <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Kênh / Playlist đã lưu</div>
+              <div id="saved-channels-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
+                <!-- Sẽ render bằng JS -->
+              </div>
+              <div id="saved-channels-pagination" style="display: flex; justify-content: center; gap: 6px; margin-top: 8px;"></div>
+            </div>
+            <div id="bulk-stats" class="status-line"></div>
+            <div id="bulk-loading-container" class="hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; text-align: center; gap: 12px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel-2); margin-top: 20px;">
+              <div class="info-spinner" style="width: 28px; height: 28px; border-width: 3px; margin: 0;"></div>
+              <div id="bulk-loading-text" style="font-size: 13px; color: var(--muted); font-weight: 500;">Đang lấy danh sách video...</div>
+            </div>
+            <div id="bulk-results-container" class="hidden" style="margin-top: 20px; border-top: 1px dashed var(--border); padding-top: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <input type="checkbox" id="bulk-select-all" style="width: 16px; height: 16px; cursor: pointer;" checked>
+                  <label for="bulk-select-all" style="font-size: 13px; font-weight: 600; cursor: pointer; user-select: none;">Chọn tất cả</label>
+                </div>
+                <button id="bulk-download-selected-btn" class="primary-btn" style="height: 36px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">📥 Tải video đã chọn</button>
+              </div>
+              <div id="bulk-videos-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+                <!-- Danh sách video sẽ render ở đây -->
+              </div>
+              <div id="bulk-pagination" style="display: flex; justify-content: center; gap: 6px; margin-top: 12px;"></div>
             </div>
           </div>
         </div>
@@ -109,6 +163,21 @@
         <form class="studio-workspace-layout" id="studio-form">
           <!-- Cột cấu hình (Bên trái) -->
           <div class="studio-config-column">
+            <!-- Automation Template Panel -->
+            <div class="panel" style="margin-bottom: 14px; background: rgba(37, 99, 235, 0.05); border-color: rgba(37, 99, 235, 0.2);">
+              <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+                <h3 style="color: var(--accent-2);">📁 Template Thiết Lập</h3>
+                <span class="badge mixer-badge" style="background: var(--accent-2); color: white;">Automation</span>
+              </div>
+              <div class="url-row" style="margin-top: 14px; display: flex; gap: 8px;">
+                <select id="studio-template-select" class="premium-select" style="flex: 1; height: 38px; margin: 0;">
+                  <option value="">-- Chọn Template Đã Lưu --</option>
+                </select>
+                <button type="button" class="premium-dropdown-btn" style="width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 38px; background: var(--accent-2); color: white;" onclick="saveStudioTemplate()">💾 Lưu</button>
+                <button type="button" class="premium-dropdown-btn" style="width: auto; margin: 0; padding: 0 12px; font-size: 13px; height: 38px; background: var(--danger); color: white;" onclick="deleteStudioTemplate()">🗑️ Xóa</button>
+              </div>
+            </div>
+
             <div class="panel">
               <div class="panel-head">
                 <h3>Video nguồn</h3>
@@ -225,43 +294,43 @@
 
             <div class="panel premium-sub-panel">
               <div class="panel-head">
-                <h3>Dịch & chèn sub</h3>
-                <span class="badge sub-badge">CapCut Style</span>
+                <h3>Phụ đề (Subtitle)</h3>
+                <span class="badge subtitle-badge">Tùy chỉnh phụ đề</span>
               </div>
               
               <div class="form-group">
-                <label>Chế độ sub</label>
+                <label>Nguồn phụ đề</label>
                 <div class="studio-source-tabs">
-                  <button type="button" class="sub-tab-btn active" data-sub-mode="none" title="Không dùng sub">❌ Không dùng</button>
-                  <button type="button" class="sub-tab-btn" data-sub-mode="saved" title="Dùng sub đã lưu">📝 Đã lưu</button>
-                  <button type="button" class="sub-tab-btn" data-sub-mode="upload" title="Upload file sub .srt, .vtt, .ass">⬆️ Tải lên</button>
+                  <button type="button" class="sub-tab-btn active" data-sub-mode="none" title="Không chèn phụ đề">❌ Không dùng</button>
+                  <button type="button" class="sub-tab-btn" data-sub-mode="saved" title="Chọn file phụ đề đã lưu" style="display: none;">📁 Đã lưu</button>
+                  <button type="button" class="sub-tab-btn" data-sub-mode="upload" title="Tải lên file phụ đề mới" style="display: none;">⬆️ Tải lên</button>
                   <button type="button" class="sub-tab-btn whisper-tab" data-sub-mode="generate" title="Tạo sub tự động bằng AI Whisper">✨ Phụ đề tự động</button>
                 </div>
                 <input type="hidden" id="subtitle-mode" name="subtitleMode" value="none">
               </div>
 
+              <div id="sub-saved-wrapper" class="form-group hidden">
+                <label>Chọn file phụ đề đã lưu</label>
+                <select id="saved-subtitle-select" name="savedSubtitleFile" class="premium-select"></select>
+              </div>
+
               <div id="sub-upload-wrapper" class="form-group hidden">
                 <input type="file" id="subtitle-upload" name="subtitleUpload" accept=".srt,.vtt,.ass" class="hidden-input">
                 <label for="subtitle-upload" class="premium-upload-zone">
-                  <span>📄</span> Tải lên file phụ đề (.srt, .vtt, .ass)
+                  <span>⬆️</span> Tải lên file phụ đề (.srt, .vtt, .ass)
                 </label>
               </div>
 
-              <div id="sub-saved-wrapper" class="form-group hidden">
-                <select id="saved-subtitle-select" name="savedSubtitleFile" class="premium-select"></select>
-              </div>
-              
-              <div id="sub-settings-container">
-              <div class="switch-row premium-switch-row">
-                <label class="premium-switch">
-                  <input type="checkbox" id="translate-vi" name="translateVi" value="true" checked>
-                  <span class="switch-slider"></span>
-                  <span class="switch-label">Dịch sang tiếng Việt</span>
-                </label>
+              <div class="switch-container" style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
                 <label class="premium-switch">
                   <input type="checkbox" id="burn-sub" name="burnSub" value="true" checked>
                   <span class="switch-slider"></span>
                   <span class="switch-label">Chèn sub vào video</span>
+                </label>
+                <label class="premium-switch">
+                  <input type="checkbox" id="translate-vi" name="translateVi" value="true">
+                  <span class="switch-slider"></span>
+                  <span class="switch-label">Dịch phụ đề sang Tiếng Việt</span>
                 </label>
                 <label class="premium-switch">
                   <input type="checkbox" id="blur-original-sub" name="blurOriginalSub" value="true">
@@ -271,30 +340,13 @@
               </div>
               
               <div id="blur-settings-container" class="hidden" style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
-                <div class="sub-settings-grid">
-                  <div class="form-group" style="margin-bottom: 8px;">
-                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Vị trí ngang X (%)</label>
-                    <input type="number" id="blur-x-input" name="blurX" value="10" min="0" max="100" class="premium-input" style="height: 38px;">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 8px;">
-                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Vị trí dọc Y (%)</label>
-                    <input type="number" id="blur-y-input" name="blurY" value="75" min="0" max="100" class="premium-input" style="height: 38px;">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 8px;">
-                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Chiều rộng W (%)</label>
-                    <input type="number" id="blur-width-input" name="blurWidth" value="80" min="1" max="100" class="premium-input" style="height: 38px;">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 8px;">
-                    <label style="font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block;">Chiều cao H (%)</label>
-                    <input type="number" id="blur-height-input" name="blurHeight" value="15" min="1" max="100" class="premium-input" style="height: 38px;">
-                  </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng làm mờ</label>
+                  <button type="button" class="premium-dropdown-btn" style="padding: 4px 10px; font-size: 11px; height: auto; margin: 0; background: var(--accent); color: white;" onclick="addBlurBox()">➕ Thêm vùng</button>
                 </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                  <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
-                    <span>Độ mờ (Bán kính)</span>
-                    <span id="blur-radius-val" style="color: var(--accent); font-weight: bold;">20</span>
-                  </label>
-                  <input type="range" name="blurRadius" id="blur-radius-slider" value="20" min="5" max="50" step="1" class="premium-slider" style="width: 100%; margin-top: 5px; height: 20px;">
+                
+                <div id="blur-boxes-list" style="max-height: 350px; overflow-y: auto; padding-right: 4px;">
+                  <!-- Vùng làm mờ sẽ được render động tại đây -->
                 </div>
               </div>
               
@@ -323,10 +375,12 @@
 
               <div class="sub-settings-grid">
                 <div class="form-group">
-                  <label>Cỡ chữ sub</label>
-                  <div class="number-input-wrapper">
-                    <input type="number" name="subtitleSize" value="32" min="1" max="200" class="premium-input">
-                    <span class="input-unit">px</span>
+                  <label style="display: flex; justify-content: space-between;">
+                    <span>Cỡ chữ sub</span>
+                    <span id="subtitle-size-val" style="color: var(--accent); font-weight: bold;">32px</span>
+                  </label>
+                  <div style="height: 38px; display: flex; align-items: center;">
+                    <input type="range" name="subtitleSize" id="subtitle-size-slider" value="32" min="10" max="120" step="1" class="premium-slider" style="width: 100%; margin: 0;">
                   </div>
                 </div>
 
@@ -365,60 +419,135 @@
                 </div>
               </div>
 
-              <div class="sub-settings-grid">
-                <div class="form-group">
-                  <label>Lề dọc (MarginV)</label>
-                  <input type="number" name="subtitleMargin" value="28" min="0" class="premium-input">
+              <!-- Hidden subtitle sub-settings grid to prevent JS crash -->
+              <div style="display: none;">
+                <div class="sub-settings-grid">
+                  <div class="form-group">
+                    <label>Lề dọc (MarginV)</label>
+                    <input type="number" name="subtitleMargin" value="28" min="0" class="premium-input">
+                  </div>
+                  <div class="form-group">
+                    <label>Lề ngang (MarginH)</label>
+                    <input type="number" name="subtitleMarginH" value="20" min="0" class="premium-input">
+                  </div>
                 </div>
+
                 <div class="form-group">
-                  <label>Lề ngang (MarginH)</label>
-                  <input type="number" name="subtitleMarginH" value="20" min="0" class="premium-input">
+                  <label>Màu sắc chữ</label>
+                  <div class="color-swatches" id="color-swatches-container">
+                    <button type="button" class="color-swatch active" data-color="#FFFFFF" style="background-color: #FFFFFF;" title="Trắng"></button>
+                    <button type="button" class="color-swatch" data-color="#FFEB3B" style="background-color: #FFEB3B;" title="Vàng TikTok"></button>
+                    <button type="button" class="color-swatch" data-color="#00E5FF" style="background-color: #00E5FF;" title="Cyan Neon"></button>
+                    <button type="button" class="color-swatch" data-color="#00FF00" style="background-color: #00FF00;" title="Xanh Lá"></button>
+                    <button type="button" class="color-swatch" data-color="#FF4081" style="background-color: #FF4081;" title="Hồng"></button>
+                    <button type="button" class="color-swatch" data-color="#FF0000" style="background-color: #FF0000;" title="Đỏ tươi"></button>
+                    <button type="button" class="color-swatch" data-color="#FF9800" style="background-color: #FF9800;" title="Cam"></button>
+                    <button type="button" class="color-swatch" data-color="#000000" style="background-color: #000000;" title="Đen"></button>
+                  </div>
+                  <input type="hidden" name="subtitleColor" id="subtitle-color-input" value="#FFFFFF">
+                </div>
+
+                <div class="sub-settings-grid">
+                  <div class="form-group">
+                    <label>Hiệu ứng chữ</label>
+                    <select name="subtitleTheme" class="premium-select">
+                      <option value="outline" selected>Viền mỏng (Tiêu chuẩn)</option>
+                      <option value="outline-thick">Viền đen cực đậm (Tiktok)</option>
+                      <option value="box">Hộp nền đen mờ</option>
+                      <option value="box-deep">Hộp nền đen sâu</option>
+                      <option value="shadow">Đổ bóng chữ</option>
+                      <option value="outline-shadow">Viền đen + Đổ bóng</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Độ đậm</label>
+                    <select name="subtitleBold" class="premium-select">
+                      <option value="true" selected>Chữ đậm (Bold)</option>
+                      <option value="false">Chữ thường</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div class="form-group">
-                <label>Mẫu chữ nhanh (Presets)</label>
-                <div class="subtitle-presets-grid" id="subtitle-presets-grid">
-                  <button type="button" class="preset-card active" data-preset="classic" style="font-family: Arial; font-weight: bold; color: #FFFFFF; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); background: #080c10;">Abc</button>
-                  <button type="button" class="preset-card" data-preset="tiktok" style="font-family: Impact; font-weight: bold; color: #FFEB3B; -webkit-text-stroke: 1px #000000; text-shadow: none; background: #080c10;">Abc</button>
-                  <button type="button" class="preset-card" data-preset="netflix" style="font-family: Arial; font-weight: normal; color: #FFFFFF; text-shadow: none; background: rgba(0,0,0,0.75); border: 1.5px solid rgba(255,255,255,0.2); padding: 0px 4px; border-radius: 3px;">Abc</button>
-                  <button type="button" class="preset-card" data-preset="cyber" style="font-family: 'Trebuchet MS'; font-weight: bold; color: #00E5FF; -webkit-text-stroke: 0.8px #000000; text-shadow: 1.5px 1.5px 0px #FF4081; background: #080c10;">Abc</button>
-                </div>
-              </div>
+              <!-- Mẫu chữ nhanh (40 Presets) -->
+              <div class="form-group" id="subtitle-presets-container" style="background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 10px;">
+                <label style="font-weight: 700; color: var(--accent); margin-bottom: 12px; font-size: 11px; display: block; text-transform: uppercase; letter-spacing: 0.5px;">⚡ MẪU CHỮ NHANH (COMBINED PRESETS)</label>
+                
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                  <!-- Row 1: Viền Dày (TikTok Style) -->
+                  <div>
+                    <div style="font-size: 10px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">🎬 Viền cực dày (Impact)</div>
+                    <div class="subtitle-presets-grid" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;">
+                      <button type="button" class="preset-card" data-preset="thick-white" style="font-family: Impact; font-weight: bold; color: #FFFFFF; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày trắng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-yellow" style="font-family: Impact; font-weight: bold; color: #FFEB3B; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày vàng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-cyan" style="font-family: Impact; font-weight: bold; color: #00E5FF; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày xanh neon">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-green" style="font-family: Impact; font-weight: bold; color: #00FF00; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày xanh lá">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-pink" style="font-family: Impact; font-weight: bold; color: #FF4081; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày hồng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-red" style="font-family: Impact; font-weight: bold; color: #FF0000; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày đỏ">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-orange" style="font-family: Impact; font-weight: bold; color: #FF9800; -webkit-text-stroke: 0.8px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày cam">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thick-black" style="font-family: Impact; font-weight: bold; color: #000000; -webkit-text-stroke: 0.8px #FFFFFF; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền dày đen">Aa</button>
+                    </div>
+                  </div>
 
-              <div class="form-group">
-                <label>Màu sắc chữ</label>
-                <div class="color-swatches" id="color-swatches-container">
-                  <button type="button" class="color-swatch active" data-color="#FFFFFF" style="background-color: #FFFFFF;" title="Trắng"></button>
-                  <button type="button" class="color-swatch" data-color="#FFEB3B" style="background-color: #FFEB3B;" title="Vàng TikTok"></button>
-                  <button type="button" class="color-swatch" data-color="#00E5FF" style="background-color: #00E5FF;" title="Cyan Neon"></button>
-                  <button type="button" class="color-swatch" data-color="#00FF00" style="background-color: #00FF00;" title="Xanh Lá"></button>
-                  <button type="button" class="color-swatch" data-color="#FF4081" style="background-color: #FF4081;" title="Hồng"></button>
-                  <button type="button" class="color-swatch" data-color="#FF0000" style="background-color: #FF0000;" title="Đỏ tươi"></button>
-                  <button type="button" class="color-swatch" data-color="#FF9800" style="background-color: #FF9800;" title="Cam"></button>
-                  <button type="button" class="color-swatch" data-color="#000000" style="background-color: #000000;" title="Đen"></button>
-                </div>
-                <input type="hidden" name="subtitleColor" id="subtitle-color-input" value="#FFFFFF">
-              </div>
+                  <!-- Row 2: Hộp Nền Mờ -->
+                  <div>
+                    <div style="font-size: 10px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">🔲 Hộp nền mờ (Arial)</div>
+                    <div class="subtitle-presets-grid" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;">
+                      <button type="button" class="preset-card" data-preset="box-white" style="font-family: Arial; font-weight: bold; color: #FFFFFF; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ trắng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-yellow" style="font-family: Arial; font-weight: bold; color: #FFEB3B; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ vàng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-cyan" style="font-family: Arial; font-weight: bold; color: #00E5FF; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ xanh neon">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-green" style="font-family: Arial; font-weight: bold; color: #00FF00; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ xanh lá">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-pink" style="font-family: Arial; font-weight: bold; color: #FF4081; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ hồng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-red" style="font-family: Arial; font-weight: bold; color: #FF0000; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ đỏ">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-orange" style="font-family: Arial; font-weight: bold; color: #FF9800; background: rgba(0,0,0,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ cam">Aa</button>
+                      <button type="button" class="preset-card" data-preset="box-black" style="font-family: Arial; font-weight: bold; color: #000000; background: rgba(255,255,255,0.55); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp mờ đen">Aa</button>
+                    </div>
+                  </div>
 
-              <div class="sub-settings-grid">
-                <div class="form-group">
-                  <label>Hiệu ứng chữ</label>
-                  <select name="subtitleTheme" class="premium-select">
-                    <option value="outline" selected>Viền mỏng (Tiêu chuẩn)</option>
-                    <option value="outline-thick">Viền đen cực đậm (Tiktok)</option>
-                    <option value="box">Hộp nền đen mờ</option>
-                    <option value="box-deep">Hộp nền đen sâu</option>
-                    <option value="shadow">Đổ bóng chữ</option>
-                    <option value="outline-shadow">Viền đen + Đổ bóng</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Độ đậm</label>
-                  <select name="subtitleBold" class="premium-select">
-                    <option value="true" selected>Chữ đậm (Bold)</option>
-                    <option value="false">Chữ thường</option>
-                  </select>
+                  <!-- Row 3: Hộp Nền Đen Sâu -->
+                  <div>
+                    <div style="font-size: 10px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">⬛ Hộp nền đậm (Arial)</div>
+                    <div class="subtitle-presets-grid" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;">
+                      <button type="button" class="preset-card" data-preset="boxdeep-white" style="font-family: Arial; font-weight: bold; color: #FFFFFF; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm trắng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-yellow" style="font-family: Arial; font-weight: bold; color: #FFEB3B; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm vàng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-cyan" style="font-family: Arial; font-weight: bold; color: #00E5FF; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm xanh neon">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-green" style="font-family: Arial; font-weight: bold; color: #00FF00; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm xanh lá">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-pink" style="font-family: Arial; font-weight: bold; color: #FF4081; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm hồng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-red" style="font-family: Arial; font-weight: bold; color: #FF0000; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm đỏ">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-orange" style="font-family: Arial; font-weight: bold; color: #FF9800; background: rgba(0,0,0,0.9); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm cam">Aa</button>
+                      <button type="button" class="preset-card" data-preset="boxdeep-black" style="font-family: Arial; font-weight: bold; color: #000000; background: rgba(255,255,255,0.8); padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Hộp đậm đen">Aa</button>
+                    </div>
+                  </div>
+
+                  <!-- Row 4: Đổ Bóng -->
+                  <div>
+                    <div style="font-size: 10px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">👥 Đổ bóng (Tahoma)</div>
+                    <div class="subtitle-presets-grid" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;">
+                      <button type="button" class="preset-card" data-preset="shadow-white" style="font-family: Tahoma; font-weight: bold; color: #FFFFFF; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng trắng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-yellow" style="font-family: Tahoma; font-weight: bold; color: #FFEB3B; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng vàng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-cyan" style="font-family: Tahoma; font-weight: bold; color: #00E5FF; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng xanh neon">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-green" style="font-family: Tahoma; font-weight: bold; color: #00FF00; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng xanh lá">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-pink" style="font-family: Tahoma; font-weight: bold; color: #FF4081; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng hồng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-red" style="font-family: Tahoma; font-weight: bold; color: #FF0000; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng đỏ">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-orange" style="font-family: Tahoma; font-weight: bold; color: #FF9800; text-shadow: 2px 2px 2px rgba(0,0,0,0.85); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng cam">Aa</button>
+                      <button type="button" class="preset-card" data-preset="shadow-black" style="font-family: Tahoma; font-weight: bold; color: #000000; text-shadow: 2px 2px 2px rgba(255,255,255,0.45); background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Đổ bóng đen">Aa</button>
+                    </div>
+                  </div>
+
+                  <!-- Row 5: Viền Mỏng -->
+                  <div>
+                    <div style="font-size: 10px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">🖊️ Viền mỏng (Arial)</div>
+                    <div class="subtitle-presets-grid" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;">
+                      <button type="button" class="preset-card" data-preset="thin-white" style="font-family: Arial; font-weight: bold; color: #FFFFFF; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng trắng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-yellow" style="font-family: Arial; font-weight: bold; color: #FFEB3B; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng vàng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-cyan" style="font-family: Arial; font-weight: bold; color: #00E5FF; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng xanh neon">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-green" style="font-family: Arial; font-weight: bold; color: #00FF00; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng xanh lá">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-pink" style="font-family: Arial; font-weight: bold; color: #FF4081; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng hồng">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-red" style="font-family: Arial; font-weight: bold; color: #FF0000; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng đỏ">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-orange" style="font-family: Arial; font-weight: bold; color: #FF9800; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng cam">Aa</button>
+                      <button type="button" class="preset-card" data-preset="thin-black" style="font-family: Arial; font-weight: bold; color: #000000; -webkit-text-stroke: 0.4px #FFFFFF; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng đen">Aa</button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -430,7 +559,6 @@
                   <option value="2">Tối đa 2 dòng (Thông thường)</option>
                   <option value="3">Tối đa 3 dòng (Chi tiết)</option>
                 </select>
-              </div>
               </div>
             </div>
 
@@ -444,8 +572,8 @@
                 <label>Chế độ giọng nói</label>
                 <div class="studio-source-tabs">
                   <button type="button" class="voice-tab-btn active" data-voice-mode="none" title="Không chèn giọng">❌ Không chèn</button>
-                  <button type="button" class="voice-tab-btn" data-voice-mode="saved" title="Chèn giọng thuyết minh đã lưu">🎙️ Đã lưu</button>
-                  <button type="button" class="voice-tab-btn" data-voice-mode="upload" title="Tải lên file thu âm mới">⬆️ Tải lên</button>
+                  <button type="button" class="voice-tab-btn" data-voice-mode="saved" title="Chèn giọng thuyết minh đã lưu" style="display: none;">🎙️ Đã lưu</button>
+                  <button type="button" class="voice-tab-btn" data-voice-mode="upload" title="Tải lên file thu âm mới" style="display: none;">⬆️ Tải lên</button>
                   <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi" title="Omi Cloner (Nhái giọng AI)">🤖 Thuyết minh tự động</button>
                 </div>
                 <input type="hidden" id="voice-mode" name="voiceMode" value="none">
@@ -482,42 +610,17 @@
                   </div>
                 </div>
                 
-                <details class="advanced-settings-details" style="margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 15px;">
-                  <summary style="cursor: pointer; color: var(--accent); font-weight: 500; user-select: none;">⚙️ Hiển thị Tùy chỉnh Nâng cao (Steps & Seed)</summary>
-                  <div class="omi-advanced-grid" style="margin-top: 15px;">
-                    <div class="form-group">
-                      <label style="display: flex; justify-content: space-between;">
-                        <span>Chất lượng giọng (Steps)</span>
-                        <span id="omi-steps-badge" style="color: var(--accent); font-weight: bold;">25</span>
-                      </label>
-                      <input type="range" name="omiSteps" id="omi-steps-slider" value="25" min="10" max="50" step="1" class="premium-slider" style="width: 100%; margin-top: 5px;">
-                      <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 8px;">
-                        <span>Nhanh / Hơi máy</span>
-                        <span>Chậm / Cảm xúc</span>
-                      </div>
-                    </div>
-                    <div class="form-group">
-                      <label>Phong cách đọc (Seed)</label>
-                      <select id="omi-seed-preset" class="premium-select" style="margin-bottom: 8px;">
-                        <option value="">🎲 Tự động ngẫu nhiên (Mỗi lần render một ngữ điệu khác nhau)</option>
-                        <option value="42">🎙️ Giọng kể chuyện (Trầm ấm, chậm rãi)</option>
-                        <option value="1024">📢 Giọng đọc tin tức (Dõng dạc, chính luận)</option>
-                        <option value="2026">❤️ Giọng tâm sự (Nhẹ nhàng, sâu lắng)</option>
-                        <option value="99999">⚡ Giọng sôi nổi (Nhanh nhẹn, năng động)</option>
-                        <option value="55555">🎯 Giọng quảng cáo (Cuốn hút, nhấn nhá)</option>
-                        <option value="77777">🎬 Giọng kịch tính (Hồi hộp, giật gân, bí ẩn)</option>
-                        <option value="12345">🤡 Giọng hài hước (Vui nhộn, dí dỏ)</option>
-                        <option value="88888">🍿 Giọng review phim (Lôi cuốn, nhịp điệu)</option>
-                        <option value="33333">💡 Giọng chia sẻ kiến thức (Tự tin, rõ ràng)</option>
-                        <option value="66666">💬 Giọng trò chuyện (Tự nhiên, gần gũi)</option>
-                        <option value="custom">✏️ Tự nhập số tùy chỉnh (Nâng cao)</option>
-                      </select>
-                      <div id="omi-custom-seed-wrapper" class="hidden">
-                        <input type="number" id="omi-seed-input" name="omiSeed" placeholder="Nhập một số bất kỳ (ví dụ: 12345)" class="premium-input">
-                      </div>
-                    </div>
+                <!-- Hidden advanced omi cloner settings container to keep them in DOM for compatibility -->
+                <div style="display: none;">
+                  <span id="omi-steps-badge">40</span>
+                  <input type="range" name="omiSteps" id="omi-steps-slider" value="40" min="10" max="50" step="1">
+                  <select id="omi-seed-preset">
+                    <option value="" selected>🎲 Tự động ngẫu nhiên</option>
+                  </select>
+                  <div id="omi-custom-seed-wrapper" class="hidden">
+                    <input type="number" id="omi-seed-input" name="omiSeed" value="">
                   </div>
-                </details>
+                </div>
               </div>
               <p class="note info-note">💡 Omi Cloner yêu cầu file giọng mẫu ngắn trong thư viện để tiến hành sao chép giọng.</p>
             </div>
@@ -666,6 +769,11 @@
                           <div style="background: rgba(0,0,0,0.3); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px;">•••</div>
                         </div>
 
+                        <!-- Center play/pause overlay -->
+                        <div class="tiktok-center-action safezone-action-playpause" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: auto; cursor: pointer;">
+                          <div class="tiktok-playpause-icon" style="background: rgba(0,0,0,0.45); border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px; border: 1.5px solid rgba(255,255,255,0.1);">⏸</div>
+                        </div>
+
                         <!-- Bottom info -->
                         <div class="safezone-bottom" style="position: absolute; left: 12px; bottom: 16px; right: 80px; display: flex; flex-direction: column; gap: 6px; color: white; text-align: left;">
                           <div class="safezone-capcut-badge" style="background: rgba(0, 0, 0, 0.4); padding: 4px 8px; border-radius: 4px; font-size: 10px; width: max-content; border: 1px solid rgba(255, 255, 255, 0.08); font-weight: 500;">🎬 CapCut - Chỉnh sửa như chuyên gia</div>
@@ -757,6 +865,40 @@
                   </div>
                 </div>
 
+                  <!-- Timeline Panel -->
+                  <div id="studio-timeline-panel" class="studio-timeline-panel hidden" style="margin-top: 15px; background: rgba(8, 12, 16, 0.6); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; font-family: inherit; position: relative;">
+                    <div class="timeline-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <button type="button" id="timeline-play-btn" style="background: var(--accent); padding: 4px 10px; font-size: 11px; height: 28px; width: auto; margin: 0; color: white;">▶ Phát</button>
+                        <span id="timeline-time-label" style="font-size: 12px; font-weight: 600; color: var(--muted);">00:00 / 00:00</span>
+                      </div>
+                      <span style="font-size: 11px; color: var(--soft); font-weight: 500;">Kéo thước đo để tua, kéo khối để chỉnh thời gian</span>
+                    </div>
+
+                    <div id="timeline-tracks-area" style="position: relative; background: #080c10; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; height: 110px; user-select: none;">
+                      <!-- Playhead vertical marker -->
+                      <div id="timeline-playhead" style="position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #ff2442; z-index: 100; pointer-events: none;">
+                        <div style="position: absolute; top: 0; left: -5px; width: 12px; height: 12px; background: #ff2442; border-radius: 50%;"></div>
+                      </div>
+                      
+                      <!-- Time Ruler Track -->
+                      <div id="timeline-ruler" style="height: 25px; border-bottom: 1px solid var(--border); position: relative; background: #10161d; cursor: ew-resize;"></div>
+                      
+                      <!-- Tracks Container -->
+                      <div id="timeline-tracks-scroller" style="position: relative; height: 85px; overflow-y: auto;">
+                        <!-- Track 1: Video Track -->
+                        <div class="timeline-track" id="video-track" style="height: 36px; border-bottom: 1px solid rgba(255,255,255,0.03); position: relative; display: flex; align-items: center; padding: 0 4px;">
+                          <div style="position: absolute; top: 4px; bottom: 4px; left: 0; right: 0; background: rgba(37, 99, 235, 0.15); border: 1.5px solid rgba(37, 99, 235, 0.4); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--accent-2); font-weight: 600;">
+                            🎞️ Video nguồn
+                          </div>
+                        </div>
+                        
+                        <!-- Track 2: Blur Boxes Track -->
+                        <div class="timeline-track" id="blur-track" style="height: 48px; position: relative; background: rgba(255,255,255,0.01);"></div>
+                      </div>
+                    </div>
+                  </div>
+
                 <!-- Render controls and status -->
                 <div class="render-controls-bar">
                   <div class="studio-render-btn-container" style="display: flex; flex-direction: column; gap: 12px; margin-top: 24px;">
@@ -788,7 +930,19 @@
           </div>
           <div class="url-row" style="margin-top: 14px;">
             <input type="text" id="voice-search-input" placeholder="Tìm kiếm giọng theo tên..." class="premium-input">
-            <button type="button" id="open-add-voice-btn" onclick="openVoiceModal()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ THÊM GIỌNG MỚI</button>
+            <div class="premium-dropdown">
+              <button type="button" id="open-add-voice-btn" class="premium-dropdown-btn" onclick="toggleVoiceDropdown(event)">
+                ➕ THÊM GIỌNG MỚI <span style="font-size: 8px; margin-left: 2px;">▼</span>
+              </button>
+              <div class="premium-dropdown-content hidden" id="voice-dropdown-content">
+                <a href="#" onclick="event.preventDefault(); toggleVoiceDropdown(); openVbeeGenerateVoiceModal();">
+                  ✨ Tạo giọng từ Vbee AI
+                </a>
+                <a href="#" onclick="event.preventDefault(); toggleVoiceDropdown(); openVoiceModal();">
+                  🎙️ Thêm giọng thủ công
+                </a>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -848,41 +1002,7 @@
         </div>
       </section>
 
-      <section class="view" id="view-bulk">
-        <div class="panel">
-          <div class="panel-head">
-            <h3>Tải từ kênh / playlist</h3>
-            <span>Tải tuần tự vào thư mục downloads</span>
-          </div>
-          <div class="url-row">
-            <input id="bulk-url-input" type="text" placeholder="Dán link kênh hoặc playlist">
-            <input id="bulk-limit" type="number" value="10" min="1" max="1000">
-            <div style="display: flex; gap: 8px;">
-              <button id="bulk-fetch-btn">Bắt đầu</button>
-              <button type="button" id="save-channel-btn" class="ghost-btn" style="padding: 0 12px; height: 42px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;" onclick="saveCurrentChannel()">⭐ Lưu</button>
-            </div>
-          </div>
-          <div id="saved-channels-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
-            <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Kênh / Playlist đã lưu</div>
-            <div id="saved-channels-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
-              <!-- Sẽ render bằng JS -->
-            </div>
-          </div>
-          <div id="bulk-stats" class="status-line"></div>
-          <div id="bulk-results-container" class="hidden" style="margin-top: 20px; border-top: 1px dashed var(--border); padding-top: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="bulk-select-all" style="width: 16px; height: 16px; cursor: pointer;" checked>
-                <label for="bulk-select-all" style="font-size: 13px; font-weight: 600; cursor: pointer; user-select: none;">Chọn tất cả</label>
-              </div>
-              <button id="bulk-download-selected-btn" class="primary-btn" style="height: 36px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">📥 Tải video đã chọn</button>
-            </div>
-            <div id="bulk-videos-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
-              <!-- Danh sách video sẽ render ở đây -->
-            </div>
-          </div>
-        </div>
-      </section>
+
       <section class="view" id="view-pages">
         <div class="panel" style="margin-bottom: 14px;">
           <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
@@ -1144,6 +1264,63 @@
     </div>
   </div>
 
+  <!-- Vbee Generate Voice Modal -->
+  <div id="vbee-generate-voice-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content">
+      <div class="fb-modal-header" style="background: rgba(139, 92, 246, 0.1); border-bottom-color: rgba(139, 92, 246, 0.2);">
+        <h3 style="color: var(--accent-2, #8b5cf6); display: flex; align-items: center; gap: 8px;">
+          ✨ Tạo giọng mẫu từ Vbee AI
+        </h3>
+        <button class="fb-modal-close" onclick="closeVbeeGenerateVoiceModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body">
+        <form id="vbee-generate-voice-form" onsubmit="generateVbeeVoice(event)">
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Tên giọng mẫu gợi nhớ</label>
+            <input type="text" id="vbee-voice-name" required class="premium-input" placeholder="Ví dụ: Giọng kể chuyện Lan Phương">
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Chọn giọng AI Vbee</label>
+            <select id="vbee-voice-code" required class="premium-select">
+              <option value="hn_female_ngochuyen_full_48k-fhg" selected>HN - Ngọc Huyền (Nữ Bắc)</option>
+              <option value="hn_female_maiphuong_vdts_48k-fhg">HN - Mai Phương (Nữ Bắc)</option>
+              <option value="sg_female_lantrinh_vdts_48k-fhg">SG - Lan Trinh (Nữ Nam)</option>
+              <option value="hue_female_huonggiang_full_48k-fhg">Huế - Hương Giang (Nữ Trung)</option>
+              <option value="sg_female_thaotrinh_full_48k-fhg">SG - Thảo Trinh (Nữ Nam)</option>
+              <option value="sg_male_trungkien_vdts_48k-fhg">SG - Trung Kiên (Nam Nam)</option>
+              <option value="hue_male_duyphuong_full_48k-fhg">Huế - Duy Phương (Nam Trung)</option>
+              <option value="sg_male_minhhoang_full_48k-fhg">SG - Minh Hoàng (Nam Nam)</option>
+              <option value="hn_male_manhdung_news_48k-fhg">HN - Mạnh Dũng (Nam Bắc)</option>
+              <option value="hn_male_thanhlong_talk_48k-fhg">HN - Thanh Long (Nam Bắc)</option>
+              <option value="hn_male_phuthang_news65dt_44k-fhg">HN - Anh Khôi (Nam Bắc)</option>
+              <option value="sg_female_tuongvy_call_44k-fhg">SG - Tường Vy (Nữ Nam)</option>
+              <option value="sg_female_thaotrinh_full_44k-phg">SG - Thảo Trinh (Nữ Nam - Phg)</option>
+              <option value="hn_male_manhdung_news_48k-phg">HN - Mạnh Dũng (Nam Bắc - Phg)</option>
+              <option value="hn_male_phuthang_stor80dt_48k-fhg">HN - Anh Khôi (Nam Bắc - Kể chuyện)</option>
+              <option value="hn_female_hermer_stor_48k-fhg">HN - Ngọc Lan (Nữ Bắc)</option>
+              <option value="hn_female_lenka_stor_48k-phg">HN - Nguyệt Dương (Nữ Bắc)</option>
+              <option value="sg_male_chidat_ebook_48k-phg">SG - Chí Đạt (Nam Nam)</option>
+              <option value="hn_female_hachi_book_22k-vc">HN - Hà Chi (Nữ Bắc)</option>
+              <option value="hn_male_vietbach_child_22k-vc">HN - Việt Bách (Nam Bắc - Trẻ em)</option>
+              <option value="hn_female_nganha_child_22k-vc">HN - Ngân Hà (Nữ Bắc - Trẻ em)</option>
+              <option value="hn_male_minhquan_yt-stable">HN - Minh Quân (Nam Bắc)</option>
+              <option value="hn_female_ngochuyen_full_24k-st">Ngọc Huyền 2.0 (Nữ Bắc)</option>
+              <option value="hn_male_manhdung_full_24k-st">Mạnh Dũng 2.0 (Nam Bắc - Beta)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Nội dung câu nói mẫu</label>
+            <textarea id="vbee-text" required class="premium-textarea" rows="4" placeholder="Nhập văn bản mẫu...">Chào mừng bạn đến với công cụ Video Studio Tools. Đây là giọng đọc mẫu lồng tiếng chất lượng cao.</textarea>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" id="vbee-generate-btn" class="premium-render-btn" style="flex: 1; margin: 0; background: var(--accent-2, #8b5cf6); color: white;">Tạo giọng mẫu</button>
+            <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeVbeeGenerateVoiceModal()">Hủy</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Voice Upload Modal -->
   <div id="voice-modal" class="fb-modal-overlay hidden">
     <div class="fb-modal-content">
@@ -1162,6 +1339,10 @@
           <div class="form-group" style="margin-bottom: 8px;">
             <label style="margin: 0 0 6px 0;">Chọn file âm thanh mẫu</label>
             <input type="file" name="voice" accept="audio/*" required class="premium-input">
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="margin: 0 0 6px 0;">Kịch bản câu nói mẫu (Không bắt buộc)</label>
+            <textarea name="voiceText" class="premium-textarea" rows="3" placeholder="Nhập kịch bản tương ứng với file âm thanh để bypass Whisper..."></textarea>
           </div>
           <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button type="submit" id="save-voice-btn" class="premium-render-btn" style="flex: 1; margin: 0;">Lưu giọng</button>
@@ -1359,6 +1540,30 @@
           <button type="button" id="bulk-download-modal-cancel-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);" onclick="cancelBulkDownload()">Hủy tải hàng loạt</button>
           <button type="button" id="bulk-download-modal-close-action-btn" class="premium-render-btn hidden" style="flex: 1; margin: 0; background: var(--accent); color: white;" onclick="closeBulkDownloadModal()">Đóng</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Template Dialog Modal -->
+  <div id="save-template-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="max-width: 420px; width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(24, 119, 242, 0.1); border-bottom-color: rgba(24, 119, 242, 0.2);">
+        <h3 style="color: var(--accent); display: flex; align-items: center; gap: 8px;">
+          💾 Lưu cấu hình Template
+        </h3>
+        <button class="fb-modal-close" onclick="closeSaveTemplateModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px;">
+        <form id="save-template-form" onsubmit="submitSaveTemplate(event)">
+          <div class="form-group" style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tên cấu hình template gợi nhớ</label>
+            <input type="text" id="save-template-name-input" required class="premium-input" placeholder="Ví dụ: Kênh Review Corgi, Video Short Tiktok...">
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 24px; width: 100%;">
+            <button type="submit" class="premium-render-btn" style="flex: 1; margin: 0; background: var(--accent); color: white;">Lưu cấu hình</button>
+            <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeSaveTemplateModal()">Hủy</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
