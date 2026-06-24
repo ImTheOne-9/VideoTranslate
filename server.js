@@ -104,9 +104,31 @@ function killAllActiveProcesses() {
   activeProcesses.clear();
 }
 
-// Wrapper bọc spawn và execFile để tự động đăng ký dọn dẹp
+const customTempDir = isPackaged 
+  ? path.join(os.homedir(), 'VideoStudio', 'temp_env')
+  : path.join(__dirname, 'temp_env');
+
+if (!fs.existsSync(customTempDir)) {
+  try {
+    fs.mkdirSync(customTempDir, { recursive: true });
+  } catch (e) {
+    console.error('Failed to create customTempDir:', e.message);
+  }
+}
+
+// Wrapper bọc spawn và execFile để tự động đăng ký dọn dẹp và chuyển hướng thư mục tạm (TEMP/TMP)
 function spawn(command, args, options) {
-  const proc = child_process.spawn(command, args, options);
+  let actualOptions = options || {};
+  actualOptions = { ...actualOptions };
+  const env = {
+    ...process.env,
+    ...actualOptions.env,
+    TEMP: customTempDir,
+    TMP: customTempDir
+  };
+  actualOptions.env = env;
+
+  const proc = child_process.spawn(command, args, actualOptions);
   registerChildProcess(proc);
   return proc;
 }
@@ -118,6 +140,15 @@ function execFile(file, args, options, callback) {
     actualCallback = options;
     actualOptions = {};
   }
+  actualOptions = { ...actualOptions };
+  const env = {
+    ...process.env,
+    ...actualOptions.env,
+    TEMP: customTempDir,
+    TMP: customTempDir
+  };
+  actualOptions.env = env;
+
   const proc = child_process.execFile(file, args, actualOptions, actualCallback);
   registerChildProcess(proc);
   return proc;
@@ -1505,6 +1536,33 @@ app.get('/api/studio-assets', (req, res) => {
   });
 });
 
+app.get('/api/check-dependencies', (req, res) => {
+  const ffmpegOk = fs.existsSync(FFMPEG_PATH);
+  const ytdlpOk = fs.existsSync(YTDLP_PATH);
+  const whisperCliOk = fs.existsSync(getExtPath('tools', 'whisper_onnx.exe'));
+
+  const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
+  const downloadedWhisperModels = whisperModels.filter(model => 
+    fs.existsSync(path.join(MODELS_DIR, 'whisper', model, 'model.bin'))
+  );
+  const whisperModelOk = downloadedWhisperModels.length > 0;
+
+  const omnivoiceCliOk = fs.existsSync(OMNIVOICE_CLI_PATH);
+  const omnivoiceModelOk = fs.existsSync(OMNIVOICE_MODEL_PATH);
+
+  res.json({
+    ffmpeg: ffmpegOk,
+    ytdlp: ytdlpOk,
+    whisper: whisperCliOk && whisperModelOk,
+    whisperCli: whisperCliOk,
+    whisperModel: whisperModelOk,
+    downloadedWhisperModels: downloadedWhisperModels,
+    omnivoice: omnivoiceCliOk && omnivoiceModelOk,
+    omnivoiceCli: omnivoiceCliOk,
+    omnivoiceModel: omnivoiceModelOk
+  });
+});
+
 let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
 
 app.post('/api/download-model', async (req, res) => {
@@ -1790,6 +1848,94 @@ app.post('/api/save-music', studioUpload.single('music'), (req, res) => {
   }
 });
 
+// ==========================================================
+// HỆ THỐNG THEO DÕI TIẾN TRÌNH RENDER STUDIO
+// ==========================================================
+let studioProgress = {
+  status: 'idle',
+  percent: 0,
+  step: '',
+  error: null
+};
+
+function updateStudioProgress(percent, step) {
+  studioProgress.percent = percent;
+  if (step) studioProgress.step = step;
+  console.log(`[Studio Progress] ${percent}% - ${studioProgress.step}`);
+}
+
+global.updateStudioProgress = updateStudioProgress;
+
+app.get('/api/render-progress', (req, res) => {
+  res.json(studioProgress);
+});
+
+function getVideoDurationInSeconds(videoPath) {
+  return new Promise((resolve) => {
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      return resolve(0);
+    }
+    child_process.execFile(FFMPEG_PATH, ['-i', videoPath], (err, stdout, stderr) => {
+      const output = stderr || '';
+      const match = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+      if (match) {
+        const hours = parseInt(match[1], 10);
+        const minutes = parseInt(match[2], 10);
+        const seconds = parseInt(match[3], 10);
+        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+        resolve(totalSeconds);
+      } else {
+        resolve(0);
+      }
+    });
+  });
+}
+
+function runFFmpegWithProgress(args, totalDuration) {
+  return new Promise((resolve, reject) => {
+    console.log(`[FFmpeg Progress] Running FFmpeg with total duration ${totalDuration}s`);
+    const proc = child_process.spawn(FFMPEG_PATH, args);
+    registerChildProcess(proc);
+    
+    let stderrOutput = '';
+    
+    proc.stderr.on('data', (data) => {
+      const chunk = data.toString('utf8');
+      stderrOutput += chunk;
+      
+      if (totalDuration > 0) {
+        const match = chunk.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+        if (match) {
+          const hours = parseInt(match[1], 10);
+          const minutes = parseInt(match[2], 10);
+          const seconds = parseInt(match[3], 10);
+          const currentTime = hours * 3600 + minutes * 60 + seconds;
+          
+          const ffmpegProgress = Math.min(99, Math.floor((currentTime / totalDuration) * 100));
+          // Ánh xạ tiến trình FFmpeg từ 83% đến 97% trong tổng tiến trình render
+          const overallPercent = 83 + Math.floor((ffmpegProgress / 100) * 14);
+          updateStudioProgress(overallPercent, `Đang kết xuất (render) video: ${ffmpegProgress}%`);
+        }
+      }
+    });
+    
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        const err = new Error(`FFmpeg error (code ${code})`);
+        err.stderr = stderrOutput;
+        reject(err);
+      }
+    });
+    
+    proc.on('error', (err) => {
+      err.stderr = stderrOutput;
+      reject(err);
+    });
+  });
+}
+
 app.post('/api/render-studio', studioUpload.fields([
   { name: 'videoUpload', maxCount: 1 },
   { name: 'subtitleUpload', maxCount: 1 },
@@ -1800,6 +1946,12 @@ app.post('/api/render-studio', studioUpload.fields([
   const tempFiles = [];
   const voiceChunks = [];
   try {
+    studioProgress = {
+      status: 'rendering',
+      percent: 2,
+      step: 'Khởi tạo thư mục làm việc...',
+      error: null
+    };
     const body = req.body;
     const files = req.files || {};
     const timestamp = Date.now();
@@ -1815,10 +1967,12 @@ app.post('/api/render-studio', studioUpload.fields([
     }
     if (!sourceVideo) return res.status(400).json({ error: 'Thiếu video nguồn' });
 
+    updateStudioProgress(5, 'Đang phân tích thông tin video nguồn...');
     const dimensions = await getVideoDimensions(sourceVideo);
     const videoWidth = dimensions.width;
     const videoHeight = dimensions.height;
-    console.log(`[Studio Render] Kích thước video nguồn: ${videoWidth}x${videoHeight}`);
+    const totalDuration = await getVideoDurationInSeconds(sourceVideo);
+    console.log(`[Studio Render] Kích thước video nguồn: ${videoWidth}x${videoHeight}, Thời lượng: ${totalDuration}s`);
 
     let reactionVideoPath = null;
     const reactionMode = body.reactionMode || 'none';
@@ -1832,10 +1986,13 @@ app.post('/api/render-studio', studioUpload.fields([
     let subtitlePath = null;
     const subtitleMode = body.subtitleMode || 'none';
     if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
+      updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
       subtitlePath = moveUploadedFile(files.subtitleUpload[0], SUBTITLES_DIR, files.subtitleUpload[0].originalname);
     } else if (subtitleMode === 'saved') {
+      updateStudioProgress(10, 'Đang nạp file phụ đề đã chọn...');
       subtitlePath = resolveAssetPath('subtitle', body.savedSubtitleFile);
     } else if (subtitleMode === 'generate') {
+      updateStudioProgress(12, 'Đang chuẩn bị tạo phụ đề tự động bằng AI (Whisper)...');
       const { extractAudioAndTranscribe } = require('./lib/whisper-helper');
       subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, FFMPEG_PATH, body.whisperModel || 'base');
     }
@@ -1856,6 +2013,7 @@ app.post('/api/render-studio', studioUpload.fields([
     const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * 0.5)));
 
     if (subtitlePath && body.translateVi === 'true') {
+      updateStudioProgress(35, 'Đang dịch phụ đề sang tiếng Việt bằng AI...');
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
       await translateSubtitles(subtitlePath, translatedPath, {
         aiProvider: body.aiProvider,
@@ -1865,6 +2023,7 @@ app.post('/api/render-studio', studioUpload.fields([
       }, Number(body.subtitleMaxLines || 0), studioMaxChars);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
+      updateStudioProgress(35, 'Đang định dạng cấu trúc phụ đề...');
       // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
       try {
         formatSubtitleFile(subtitlePath, Number(body.subtitleMaxLines || 0), studioMaxChars);
@@ -1876,11 +2035,14 @@ app.post('/api/render-studio', studioUpload.fields([
     let voicePath = null;
     const voiceMode = body.voiceMode || 'none';
     if (voiceMode === 'upload' && files.voiceUpload?.[0]) {
+      updateStudioProgress(38, 'Đang chuẩn bị file lồng tiếng tải lên...');
       voicePath = moveUploadedFile(files.voiceUpload[0], workDir, files.voiceUpload[0].originalname);
       tempFiles.push(voicePath);
     } else if (voiceMode === 'saved') {
+      updateStudioProgress(38, 'Đang nạp giọng lồng tiếng đã chọn...');
       voicePath = resolveAssetPath('voice', body.savedVoiceFile);
     } else if (voiceMode === 'omi') {
+      updateStudioProgress(40, 'Đang khởi động bộ nhân bản giọng nói AI (OmniVoice)...');
       const refAudioPath = resolveAssetPath('voice', body.savedVoiceFile);
       let refText = (body.refText || '').trim();
       let omiScript = (body.omiScript || '').trim();
@@ -1910,6 +2072,7 @@ app.post('/api/render-studio', studioUpload.fields([
         // Tự động trích xuất Ref-text từ giọng mẫu bằng Whisper nếu người dùng để trống
         if (!refText) {
           try {
+            updateStudioProgress(42, 'Đang trích xuất câu thoại từ giọng mẫu (AI Whisper)...');
             const { transcribeVoice } = require('./lib/whisper-helper');
             console.log('Đang tự động nhận diện câu thoại trong giọng mẫu...');
             refText = await transcribeVoice(refAudioPath, workDir, FFMPEG_PATH, body.whisperModel || 'base');
@@ -1931,6 +2094,7 @@ app.post('/api/render-studio', studioUpload.fields([
         finalRefAudioPath = refAudioPath;
         const refWavPath = path.join(workDir, `ref_voice_${timestamp}.wav`);
         try {
+          updateStudioProgress(45, 'Đang chuẩn bị giọng mẫu (FFmpeg)...');
           console.log('Đang chuyển đổi giọng mẫu sang định dạng WAV chuẩn 16kHz cho OmniVoice...');
           await new Promise((resolve, reject) => {
             execFile(FFMPEG_PATH, [
@@ -2007,6 +2171,9 @@ app.post('/api/render-studio', studioUpload.fields([
           // Gộp văn bản trong nhóm thành một chuỗi duy nhất để đọc liền mạch
           const lineText = group.map(item => item.text.replace(/\n/g, ' ').trim()).join(' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
           if (!lineText) continue;
+
+          const progressPercent = 48 + Math.floor((idx / groups.length) * 30);
+          updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
 
           const chunkPath = path.join(workDir, `chunk_${idx}_${timestamp}.wav`);
           
@@ -2110,6 +2277,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
         // Gộp các chunk thành một file duy nhất
         try {
+          updateStudioProgress(78, 'Đang gộp các đoạn giọng nói...');
           console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
           let maxEndMs = 0;
           const chunkDataList = [];
@@ -2252,11 +2420,13 @@ app.post('/api/render-studio', studioUpload.fields([
         fs.writeFileSync(path.join(RENDERS_DIR, scriptOutName), omiScript, 'utf8');
         console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(RENDERS_DIR, scriptOutName)}`);
 
+        updateStudioProgress(55, 'AI Cloner: Đang đọc toàn bộ kịch bản...');
         await runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
         tempFiles.push(voicePath);
       }
     }
 
+    updateStudioProgress(80, 'Đang chuẩn bị các track nhạc nền và lồng tiếng...');
     let musicPath = null;
     const musicMode = body.musicMode || 'none';
     if (musicMode === 'upload' && files.musicUpload?.[0]) {
@@ -2595,11 +2765,13 @@ app.post('/api/render-studio', studioUpload.fields([
     }
 
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);
-    await runExecFile(FFMPEG_PATH, args);
+    updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
+    await runFFmpegWithProgress(args, totalDuration);
 
     // Sao chép file phụ đề kết quả vào thư mục renders và subtitles để người dùng chỉnh sửa hoặc lồng tiếng tiếp
     if (subtitlePath && fs.existsSync(subtitlePath)) {
       try {
+        updateStudioProgress(98, 'Đang xuất các file phụ đề bổ sung...');
         const outSrtName = `studio_${timestamp}.srt`;
         fs.copyFileSync(subtitlePath, path.join(RENDERS_DIR, outSrtName));
         fs.copyFileSync(subtitlePath, path.join(SUBTITLES_DIR, outSrtName));
@@ -2609,6 +2781,9 @@ app.post('/api/render-studio', studioUpload.fields([
       }
     }
 
+    updateStudioProgress(100, 'Hoàn tất render!');
+    studioProgress.status = 'success';
+
     res.json({
       success: true,
       message: 'Đã render video',
@@ -2617,6 +2792,8 @@ app.post('/api/render-studio', studioUpload.fields([
     });
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message);
+    studioProgress.status = 'error';
+    studioProgress.error = error.message;
     res.status(500).json({ error: 'Không thể render video. Kiểm tra video, sub, voice hoặc nhạc nền.' });
   }
 });

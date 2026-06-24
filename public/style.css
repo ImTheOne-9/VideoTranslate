@@ -115,6 +115,14 @@ label {
   min-width: 0;
 }
 
+.workspace {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 36px);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+}
+
 .sidebar {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -214,6 +222,7 @@ label {
 
 .dot.ok { background: var(--accent); }
 .dot.warn { background: var(--warn); }
+.dot.error { background: var(--danger); }
 
 .topbar {
   display: flex;
@@ -263,6 +272,16 @@ label {
 
 .view.active {
   display: block;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#view-studio.view.active {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
 }
 
 .url-row {
@@ -920,16 +939,15 @@ label {
 
 .video-preview-wrapper {
   position: relative;
-  width: 100%;
-  aspect-ratio: 9 / 16;
-  max-width: 338px;
-  margin: 0 auto;
+  margin: auto;
   background: #000;
   border-radius: 6px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .video-preview-wrapper video {
@@ -2250,6 +2268,178 @@ select option {
   font-size: 9px;
   color: var(--muted);
   font-weight: 600;
+}
+
+/* ==========================================================
+   NEW REDESIGNED STUDIO WORKSPACE LAYOUT
+   ========================================================== */
+#studio-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  gap: 16px;
+}
+
+.studio-workspace-layout-new {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 16px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.studio-preview-column-new {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.studio-preview-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 14px;
+}
+
+#tab-preview-content,
+#tab-result-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 14px;
+}
+
+#tab-preview-content.hidden,
+#tab-result-content.hidden {
+  display: none !important;
+}
+
+#subtitle-positioner-container {
+  flex: 1;
+  min-height: 0;
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.studio-config-column-new {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.studio-config-panels-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Custom scrollbar for config panels container */
+.studio-config-panels-container::-webkit-scrollbar {
+  width: 4px;
+}
+.studio-config-panels-container::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+
+.system-log-panel {
+  margin-top: 0;
+  background: #090d13;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-family: monospace;
+}
+
+.system-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.system-log-content {
+  color: #60a5fa;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 90px;
+  overflow-y: auto;
+}
+
+/* Tab icons style */
+.studio-config-tabs-bar {
+  display: flex;
+  justify-content: space-around;
+  background: #090d13;
+  border: 1px solid var(--border);
+  padding: 6px;
+  border-radius: var(--radius);
+  margin-top: 12px;
+}
+
+.config-tab-icon-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: var(--soft);
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.config-tab-icon-btn:hover {
+  background: rgba(255,255,255,0.03);
+  color: var(--text);
+}
+
+.config-tab-icon-btn.active {
+  background: rgba(37, 99, 235, 0.15);
+  color: #3b82f6 !important;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.05);
+}
+
+/* Aspect ratio support */
+.video-preview-wrapper.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+  height: 100%;
+  width: auto;
+}
+
+.video-preview-wrapper.aspect-16-9 {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: auto;
 }
 
 

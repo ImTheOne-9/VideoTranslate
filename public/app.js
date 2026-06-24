@@ -126,6 +126,44 @@ document.querySelectorAll('.preview-tab-btn').forEach(btn => {
   });
 });
 
+// Setup bottom configuration tabs switcher
+document.querySelectorAll('.config-tab-icon-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.config-tab-icon-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const targetPanelId = btn.dataset.target;
+    
+    const panels = ['panel-source-video', 'panel-reaction', 'panel-subtitle', 'panel-voice', 'panel-music'];
+    panels.forEach(id => {
+      const el = $(id);
+      if (el) el.classList.toggle('hidden', id !== targetPanelId);
+    });
+  });
+});
+
+// Setup aspect ratio dropdown changer
+const aspectSelect = $('preview-aspect-select');
+if (aspectSelect) {
+  aspectSelect.addEventListener('change', (e) => {
+    const val = e.target.value;
+    const previewWrapper = $('video-preview-wrapper');
+    if (previewWrapper) {
+      previewWrapper.classList.toggle('aspect-9-16', val === '9-16');
+      previewWrapper.classList.toggle('aspect-16-9', val === '16-9');
+    }
+    
+    // Update dynamically generated result wrapper if present
+    document.querySelectorAll('.result-video-wrapper').forEach(wrapper => {
+      wrapper.classList.toggle('aspect-9-16', val === '9-16');
+      wrapper.classList.toggle('aspect-16-9', val === '16-9');
+    });
+    
+    if (typeof updateSubtitleOverlayFromInputs === 'function') {
+      updateSubtitleOverlayFromInputs();
+    }
+  });
+}
+
 function switchToResultTab() {
   const resultBtn = document.querySelector('.preview-tab-btn[data-tab="result"]');
   if (resultBtn) resultBtn.click();
@@ -653,9 +691,16 @@ async function renderStudio(event) {
   // Hiển thị hiệu ứng Loading trực quan trên Tab kết quả
   const loadingHtml = `
     <div class="render-loading-state">
-      <div class="loading-spinner"></div>
-      <h3>Đang Render Video...</h3>
-      <p>Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
+      <div class="loading-spinner" style="border-top-color: var(--accent-2);"></div>
+      <h3>Đang Render Video... <span id="render-progress-percent">0%</span></h3>
+      
+      <!-- Premium Progress Bar Container -->
+      <div class="render-progress-container" style="width: 100%; max-width: 400px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 20px; height: 10px; margin: 16px auto; overflow: hidden; position: relative;">
+        <div id="render-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-2), #a855f7); border-radius: 20px; transition: width 0.3s ease-out;"></div>
+      </div>
+      
+      <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">Đang chuẩn bị...</p>
+      <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
     </div>
   `;
   const renderResultSidebar = $('render-result');
@@ -670,18 +715,39 @@ async function renderStudio(event) {
   // Chuyển sang tab Xem trước ngay lập tức
   switchToResultTab();
 
+  let progressInterval = setInterval(async () => {
+    try {
+      const pRes = await fetch('/api/render-progress');
+      if (!pRes.ok) return;
+      const pData = await pRes.json();
+      if (pData && pData.status === 'rendering') {
+        document.querySelectorAll('#render-progress-bar').forEach(progressBar => {
+          progressBar.style.width = `${pData.percent}%`;
+        });
+        document.querySelectorAll('#render-progress-percent').forEach(progressPercent => {
+          progressPercent.textContent = `${pData.percent}%`;
+        });
+        document.querySelectorAll('#render-progress-text').forEach(progressText => {
+          progressText.textContent = pData.step || 'Đang xử lý...';
+        });
+      }
+    } catch (err) {
+      console.error('Lỗi khi lấy tiến trình render:', err);
+    }
+  }, 1000);
+
   try {
     const res = await fetch('/api/render-studio', { method: 'POST', body: data });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Render lỗi');
     status.textContent = ''; // Bỏ chữ đang xử lý/hoàn tất trên nút
     const resultHtml = `
-      <div class="video-preview-wrapper result-video-wrapper" style="margin-bottom: 10px;">
+      <div class="video-preview-wrapper result-video-wrapper" style="margin: 0 auto 10px auto;">
         <video controls src="${result.url}"></video>
       </div>
       <button type="button" class="premium-render-btn" style="background: #1877F2; color: white;" onclick="openFbModal('${result.url}')">
-        <svg viewBox="0 0 36 36" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
-          <path d="M15 35.8C6.5 34.3 0 26.9 0 18 0s18 8.1 18 18c0 8.9-6.5 16.3-15 17.8l-1-.8h-4l-1 .8z"></path><path fill="#fff" d="M21 18h-3v11h-4V18h-2v-3h2v-2c0-2.8 1.7-4 4.1-4 1.2 0 2.2.1 2.5.1v3h-1.7c-1.3 0-1.6.6-1.6 1.5v1.4h3.3L21 18z"></path>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
+          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
         </svg>
         Đăng lên Fanpage
       </button>
@@ -696,8 +762,13 @@ async function renderStudio(event) {
     if (studioResult_updated) {
       studioResult_updated.innerHTML = resultHtml;
       
-      // Clone safezone overlay to result wrapper
       const resultWrapper = studioResult_updated.querySelector('.result-video-wrapper');
+      if (resultWrapper) {
+        const aspectVal = $('preview-aspect-select')?.value || '9-16';
+        resultWrapper.classList.add(aspectVal === '9-16' ? 'aspect-9-16' : 'aspect-16-9');
+      }
+      
+      // Clone safezone overlay to result wrapper
       const resultVideo = resultWrapper ? resultWrapper.querySelector('video') : null;
       const previewOverlay = $('preview-safezone-overlay');
       if (resultWrapper && resultVideo && previewOverlay) {
@@ -750,6 +821,9 @@ async function renderStudio(event) {
     if ($('render-result')) $('render-result').innerHTML = errorHtml;
     if ($('studio-render-result')) $('studio-render-result').innerHTML = errorHtml;
   } finally {
+    if (progressInterval) {
+      clearInterval(progressInterval);
+    }
     setBusy(btn, false);
   }
 }
@@ -3679,8 +3753,7 @@ $('fetch-btn').addEventListener('click', fetchVideoInfo);
 $('url-input').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') fetchVideoInfo();
 });
-$('refresh-assets-btn').addEventListener('click', loadAssets);
-$('open-folder-btn')?.addEventListener('click', () => fetch('/api/open-folder'));
+$('refresh-assets-btn').addEventListener('click', openConnectionStatusModal);
 $('save-voice-form').addEventListener('submit', saveVoice);
 $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
@@ -6250,6 +6323,138 @@ window.openGlobalSettingsModal = openGlobalSettingsModal;
 window.closeGlobalSettingsModal = closeGlobalSettingsModal;
 window.toggleGlobalAiProviderFields = toggleGlobalAiProviderFields;
 window.saveGlobalSettings = saveGlobalSettings;
+
+function openConnectionStatusModal() {
+  const modal = $('connection-status-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    checkSystemConnections();
+  }
+}
+
+function closeConnectionStatusModal() {
+  const modal = $('connection-status-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+async function checkSystemConnections() {
+  const tools = ['ffmpeg', 'ytdlp', 'whisper', 'omnivoice'];
+  tools.forEach(tool => {
+    const dot = $(`conn-${tool}-dot`);
+    const desc = $(`conn-${tool}-desc`);
+    const action = $(`conn-${tool}-action`);
+    if (dot) {
+      dot.className = 'dot';
+      dot.style.background = '#888';
+      dot.style.boxShadow = 'none';
+    }
+    if (desc) desc.textContent = 'Đang kiểm tra...';
+    if (action) action.innerHTML = '';
+  });
+
+  try {
+    loadAssets();
+  } catch (err) {
+    console.error('Error loadAssets in connection check:', err);
+  }
+
+  try {
+    const res = await fetch('/api/check-dependencies');
+    const data = await res.json();
+
+    // 1. FFmpeg
+    const ffmpegDot = $('conn-ffmpeg-dot');
+    const ffmpegDesc = $('conn-ffmpeg-desc');
+    if (data.ffmpeg) {
+      ffmpegDot.className = 'dot ok';
+      ffmpegDot.style.background = 'var(--accent)';
+      ffmpegDot.style.boxShadow = '0 0 8px var(--accent)';
+      ffmpegDesc.textContent = 'Đã kết nối';
+    } else {
+      ffmpegDot.className = 'dot error';
+      ffmpegDot.style.background = 'var(--danger)';
+      ffmpegDot.style.boxShadow = '0 0 8px var(--danger)';
+      ffmpegDesc.textContent = 'Thiếu bộ xử lý video';
+    }
+
+    // 2. yt-dlp
+    const ytdlpDot = $('conn-ytdlp-dot');
+    const ytdlpDesc = $('conn-ytdlp-desc');
+    if (data.ytdlp) {
+      ytdlpDot.className = 'dot ok';
+      ytdlpDot.style.background = 'var(--accent)';
+      ytdlpDot.style.boxShadow = '0 0 8px var(--accent)';
+      ytdlpDesc.textContent = 'Đã kết nối';
+    } else {
+      ytdlpDot.className = 'dot error';
+      ytdlpDot.style.background = 'var(--danger)';
+      ytdlpDot.style.boxShadow = '0 0 8px var(--danger)';
+      ytdlpDesc.textContent = 'Thiếu bộ tải video';
+    }
+
+    // 3. Whisper (Speech to text)
+    const whisperDot = $('conn-whisper-dot');
+    const whisperDesc = $('conn-whisper-desc');
+    const whisperAction = $('conn-whisper-action');
+    if (data.whisper) {
+      whisperDot.className = 'dot ok';
+      whisperDot.style.background = 'var(--accent)';
+      whisperDot.style.boxShadow = '0 0 8px var(--accent)';
+      whisperDesc.textContent = 'Đã sẵn sàng';
+    } else {
+      if (!data.whisperCli) {
+        whisperDot.className = 'dot error';
+        whisperDot.style.background = 'var(--danger)';
+        whisperDot.style.boxShadow = '0 0 8px var(--danger)';
+        whisperDesc.textContent = 'Thiếu công cụ nhận diện giọng nói';
+      } else {
+        whisperDot.className = 'dot warn';
+        whisperDot.style.background = 'var(--warn)';
+        whisperDot.style.boxShadow = '0 0 8px var(--warn)';
+        whisperDesc.textContent = 'Thiếu tệp dữ liệu AI';
+        if (whisperAction) {
+          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">📥 Tải</button>`;
+        }
+      }
+    }
+
+    // 4. OmniVoice
+    const omnivoiceDot = $('conn-omnivoice-dot');
+    const omnivoiceDesc = $('conn-omnivoice-desc');
+    const omnivoiceAction = $('conn-omnivoice-action');
+    if (data.omnivoice) {
+      omnivoiceDot.className = 'dot ok';
+      omnivoiceDot.style.background = 'var(--accent)';
+      omnivoiceDot.style.boxShadow = '0 0 8px var(--accent)';
+      omnivoiceDesc.textContent = 'Đã sẵn sàng';
+    } else {
+      if (!data.omnivoiceCli) {
+        omnivoiceDot.className = 'dot error';
+        omnivoiceDot.style.background = 'var(--danger)';
+        omnivoiceDot.style.boxShadow = '0 0 8px var(--danger)';
+        omnivoiceDesc.textContent = 'Thiếu công cụ thuyết minh';
+      } else {
+        omnivoiceDot.className = 'dot warn';
+        omnivoiceDot.style.background = 'var(--warn)';
+        omnivoiceDot.style.boxShadow = '0 0 8px var(--warn)';
+        omnivoiceDesc.textContent = 'Thiếu tệp giọng nói AI';
+        if (omnivoiceAction) {
+          omnivoiceAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openModelDownloadModal();">📥 Tải</button>`;
+        }
+      }
+    }
+
+  } catch (err) {
+    console.error('Error checking connection status:', err);
+    toast('Lỗi khi kết nối với máy chủ kiểm tra', 'error');
+  }
+}
+
+window.openConnectionStatusModal = openConnectionStatusModal;
+window.closeConnectionStatusModal = closeConnectionStatusModal;
+window.checkSystemConnections = checkSystemConnections;
 
 
 
