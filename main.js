@@ -118,6 +118,17 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
 // Khởi chạy server và ứng dụng khi Electron sẵn sàng
 app.whenReady().then(async () => {
   try {
+    // Tự động dọn dẹp bộ nhớ đệm (cache) khi khởi động để tránh lỗi Invalid cache size của Chromium
+    try {
+      const { session } = require('electron');
+      if (session && session.defaultSession) {
+        await session.defaultSession.clearCache();
+        console.log('[Init] Đã tự động dọn dẹp cache của Electron.');
+      }
+    } catch (cacheErr) {
+      console.error('Không thể dọn dẹp cache:', cacheErr.message);
+    }
+
     // 1. Hiển thị màn hình Loading tải dữ liệu AI
     let loadingWin = new BrowserWindow({
       width: 450,
