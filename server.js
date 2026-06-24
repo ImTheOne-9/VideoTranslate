@@ -430,14 +430,28 @@ function convertSrtToAss(srtPath, assPath, options) {
   const srtArray = parser.fromSrt(srtContent);
 
   function convertSrtTime(srtTime) {
+    if (!srtTime) return "0:00:00.00";
     const parts = srtTime.split(':');
-    if (parts.length < 3) return "0:00:00.00";
-    const hours = parseInt(parts[0], 10);
-    const minutes = parts[1];
-    const secParts = parts[2].split(',');
-    const seconds = secParts[0];
-    const ms = secParts[1] || '000';
-    const cs = ms.substring(0, 2);
+    let hours = 0;
+    let minutes = "00";
+    let seconds = "00";
+    let ms = "000";
+    
+    if (parts.length === 2) {
+      minutes = parts[0];
+      const secParts = parts[1].split(',');
+      seconds = secParts[0];
+      ms = secParts[1] || '000';
+    } else if (parts.length >= 3) {
+      hours = parseInt(parts[0], 10);
+      minutes = parts[1];
+      const secParts = parts[2].split(',');
+      seconds = secParts[0];
+      ms = secParts[1] || '000';
+    } else {
+      return "0:00:00.00";
+    }
+    const cs = ms.substring(0, 2).padEnd(2, '0');
     return `${hours}:${minutes}:${seconds}.${cs}`;
   }
 
@@ -858,7 +872,7 @@ app.get('/api/download-vi', async (req, res) => {
   });
 
   try {
-    let { url, geminiApiKey } = req.query;
+    let { url, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel } = req.query;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -917,7 +931,7 @@ app.get('/api/download-vi', async (req, res) => {
       const downloadWidth = 1080;
       const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
       const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-      await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey, downloadMaxLines, downloadMaxChars);
+      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
       let hasSubtitles = false;
       try {
@@ -1071,7 +1085,7 @@ app.post('/api/download-local', async (req, res) => {
   });
 
   try {
-    let { url, format_id, geminiApiKey, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+    let { url, format_id, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -1130,7 +1144,7 @@ app.post('/api/download-local', async (req, res) => {
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, geminiApiKey, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -1535,8 +1549,20 @@ app.get('/api/whisper-model/status', (req, res) => {
     return res.json({ exists: true, downloading: false, percent: 100 });
   }
 
-  const modelPath = path.join(MODELS_DIR, 'whisper', model, 'model.bin');
-  const exists = fs.existsSync(modelPath);
+  const { WHISPER_MODELS_CONFIG } = require('./lib/model-downloader');
+  const modelConfig = WHISPER_MODELS_CONFIG[model];
+  let exists = false;
+
+  if (modelConfig) {
+    const whisperDir = path.join(MODELS_DIR, 'whisper', model);
+    exists = modelConfig.files.every(file => {
+      const filePath = path.join(whisperDir, file.name);
+      return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+    });
+  } else {
+    const modelPath = path.join(MODELS_DIR, 'whisper', model, 'model.bin');
+    exists = fs.existsSync(modelPath);
+  }
   
   const status = whisperDownloadStatus[model] || { downloading: false, percent: 0, error: null };
   res.json({
@@ -1831,7 +1857,12 @@ app.post('/api/render-studio', studioUpload.fields([
 
     if (subtitlePath && body.translateVi === 'true') {
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
-      await translateSubtitles(subtitlePath, translatedPath, body.geminiApiKey, Number(body.subtitleMaxLines || 0), studioMaxChars);
+      await translateSubtitles(subtitlePath, translatedPath, {
+        aiProvider: body.aiProvider,
+        geminiApiKey: body.geminiApiKey,
+        openRouterApiKey: body.openRouterApiKey,
+        openRouterModel: body.openRouterModel
+      }, Number(body.subtitleMaxLines || 0), studioMaxChars);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
       // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
@@ -2565,6 +2596,18 @@ app.post('/api/render-studio', studioUpload.fields([
 
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);
     await runExecFile(FFMPEG_PATH, args);
+
+    // Sao chép file phụ đề kết quả vào thư mục renders và subtitles để người dùng chỉnh sửa hoặc lồng tiếng tiếp
+    if (subtitlePath && fs.existsSync(subtitlePath)) {
+      try {
+        const outSrtName = `studio_${timestamp}.srt`;
+        fs.copyFileSync(subtitlePath, path.join(RENDERS_DIR, outSrtName));
+        fs.copyFileSync(subtitlePath, path.join(SUBTITLES_DIR, outSrtName));
+        console.log(`[Studio Render] Đã xuất file phụ đề bổ sung: ${outSrtName}`);
+      } catch (srtCopyErr) {
+        console.error('Lỗi khi sao chép file phụ đề kết quả:', srtCopyErr.message);
+      }
+    }
 
     res.json({
       success: true,

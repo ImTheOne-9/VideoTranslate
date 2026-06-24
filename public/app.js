@@ -7,17 +7,9 @@ const views = {
     title: 'Studio render',
     desc: 'Dịch tiếng Việt, chèn sub, thêm voiceover hoặc nhạc nền rồi render ra MP4.'
   },
-  'rendered-videos': {
-    title: 'Kho video render',
-    desc: 'Quản lý các video đã render thành công: Xem trước, đăng lên Facebook hoặc xóa.'
-  },
-  voices: {
-    title: 'Kho giọng mẫu',
-    desc: 'Quản lý các giọng mẫu đã lưu để lồng tiếng AI bằng Omni Cloner.'
-  },
-  music: {
-    title: 'Kho nhạc nền',
-    desc: 'Quản lý các file nhạc nền để chèn vào video khi render.'
+  library: {
+    title: 'Thư viện',
+    desc: 'Quản lý các tài nguyên của bạn: Video đã render, giọng lồng tiếng, và nhạc nền.'
   },
   pages: {
     title: 'Quản lý Fanpage',
@@ -89,17 +81,34 @@ function switchView(name) {
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
   $('view-title').textContent = views[name].title;
   $('view-desc').textContent = views[name].desc;
-  if (name === 'rendered-videos') {
+  if (name === 'library') {
+    switchLibraryTab(currentLibraryTab);
+  }
+}
+
+let currentLibraryTab = 'videos';
+
+function switchLibraryTab(tabName) {
+  currentLibraryTab = tabName;
+  document.querySelectorAll('.library-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.libTab === tabName);
+  });
+  document.querySelectorAll('.library-subview').forEach(view => {
+    view.classList.toggle('hidden', view.id !== `lib-content-${tabName}`);
+  });
+  
+  if (tabName === 'videos') {
     currentVideoPage = 1;
     renderRenderedVideosGrid($('rendered-search-input')?.value || '');
-  } else if (name === 'voices') {
+  } else if (tabName === 'voices') {
     currentVoicePage = 1;
     renderVoicesList($('voice-search-input')?.value || '');
-  } else if (name === 'music') {
+  } else if (tabName === 'music') {
     currentMusicPage = 1;
     renderMusicList($('music-search-input')?.value || '');
   }
 }
+window.switchLibraryTab = switchLibraryTab;
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
@@ -326,8 +335,7 @@ function renderVideoInfo(data) {
     const vietsub = document.createElement('button');
     vietsub.className = 'quality-btn green';
     vietsub.type = 'button';
-    const savedGeminiKey = localStorage.getItem('geminiApiKey') || '';
-    const vietsubUrl = `/api/download-vi?url=${encodeURIComponent(currentUrl)}&geminiApiKey=${encodeURIComponent(savedGeminiKey)}`;
+    const vietsubUrl = `/api/download-vi?url=${encodeURIComponent(currentUrl)}&${getGlobalAiQueryParams()}`;
     vietsub.onclick = (e) => startDownload(e.target, vietsubUrl, data.title, data.thumbnail, 'Vietsub');
     vietsub.textContent = 'Tải + dịch Vietsub';
     grid.appendChild(vietsub);
@@ -619,12 +627,12 @@ async function renderStudio(event) {
       const checkRes = await fetch(`/api/whisper-model/status?model=${whisperModel}`);
       const checkStatus = await checkRes.json();
       if (!checkStatus.exists) {
-        toast(`⚠️ Thiếu file Model Whisper ${whisperModel.toUpperCase()}. Vui lòng tải xuống!`, 'warn');
+        toast(`⚠️ Thiếu file Model AI ${whisperModel.toUpperCase()}. Vui lòng tải xuống!`, 'warn');
         openWhisperDownloadModal();
         return;
       }
     } catch (e) {
-      console.error('Lỗi khi kiểm tra model Whisper trước khi render:', e);
+      console.error('Lỗi khi kiểm tra model AI trước khi render:', e);
     }
   }
 
@@ -633,15 +641,21 @@ async function renderStudio(event) {
   data.set('blurOriginalSub', ($('blur-original-sub') && $('blur-original-sub').checked) ? 'true' : 'false');
   data.append('blurBoxes', JSON.stringify(blurBoxes));
 
+  const aiSettings = getGlobalAiSettings();
+  data.set('aiProvider', aiSettings.aiProvider);
+  data.set('geminiApiKey', aiSettings.geminiApiKey);
+  data.set('openRouterApiKey', aiSettings.openRouterApiKey);
+  data.set('openRouterModel', aiSettings.openRouterModel);
+
   setBusy(btn, true, 'Đang render...');
-  status.textContent = 'Đang xử lý. Video dài hoặc tạo sub Whisper sẽ mất thời gian.';
+  status.textContent = 'Đang xử lý. Video dài hoặc nhận diện giọng nói AI sẽ mất thời gian.';
   
   // Hiển thị hiệu ứng Loading trực quan trên Tab kết quả
   const loadingHtml = `
     <div class="render-loading-state">
       <div class="loading-spinner"></div>
       <h3>Đang Render Video...</h3>
-      <p>Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Whisper, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
+      <p>Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
     </div>
   `;
   const renderResultSidebar = $('render-result');
@@ -665,9 +679,6 @@ async function renderStudio(event) {
       <div class="video-preview-wrapper result-video-wrapper" style="margin-bottom: 10px;">
         <video controls src="${result.url}"></video>
       </div>
-      <a class="premium-download-btn" href="${result.url}" download style="margin-bottom: 10px;">
-        <span>📥</span> Tải video về máy
-      </a>
       <button type="button" class="premium-render-btn" style="background: #1877F2; color: white;" onclick="openFbModal('${result.url}')">
         <svg viewBox="0 0 36 36" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
           <path d="M15 35.8C6.5 34.3 0 26.9 0 18 0s18 8.1 18 18c0 8.9-6.5 16.3-15 17.8l-1-.8h-4l-1 .8z"></path><path fill="#fff" d="M21 18h-3v11h-4V18h-2v-3h2v-2c0-2.8 1.7-4 4.1-4 1.2 0 2.2.1 2.5.1v3h-1.7c-1.3 0-1.6.6-1.6 1.5v1.4h3.3L21 18z"></path>
@@ -1109,7 +1120,7 @@ async function downloadSingleBulkVideo(btn, index) {
     const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
     const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
     const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-    const geminiApiKey = localStorage.getItem('geminiApiKey') || '';
+    const aiSettings = getGlobalAiSettings();
 
     const res = await fetch('/api/download-local', {
       method: 'POST',
@@ -1117,7 +1128,7 @@ async function downloadSingleBulkVideo(btn, index) {
       body: JSON.stringify({
         url: video.url,
         format_id: val,
-        geminiApiKey,
+        ...aiSettings,
         subtitleMaxLines,
         subtitleSize,
         subtitleMarginH
@@ -1288,7 +1299,7 @@ async function downloadSelectedBulkVideos() {
       const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
       const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
       const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-      const geminiApiKey = localStorage.getItem('geminiApiKey') || '';
+      const aiSettings = getGlobalAiSettings();
 
       const res = await fetch('/api/download-local', {
         method: 'POST',
@@ -1296,7 +1307,7 @@ async function downloadSelectedBulkVideos() {
         body: JSON.stringify({
           url: video.url,
           format_id: formatId,
-          geminiApiKey,
+          ...aiSettings,
           subtitleMaxLines,
           subtitleSize,
           subtitleMarginH
@@ -3669,7 +3680,7 @@ $('url-input').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') fetchVideoInfo();
 });
 $('refresh-assets-btn').addEventListener('click', loadAssets);
-$('open-folder-btn').addEventListener('click', () => fetch('/api/open-folder'));
+$('open-folder-btn')?.addEventListener('click', () => fetch('/api/open-folder'));
 $('save-voice-form').addEventListener('submit', saveVoice);
 $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
@@ -4221,15 +4232,9 @@ if (seedPreset && seedInput && customSeedWrapper) {
   seedInput.value = seedPreset.value;
 }
 
-// Restore and save Gemini API Key
-const savedGeminiKey = localStorage.getItem('geminiApiKey');
-if (savedGeminiKey && $('gemini-api-key')) {
-  $('gemini-api-key').value = savedGeminiKey;
-}
-if ($('gemini-api-key')) {
-  $('gemini-api-key').addEventListener('input', (e) => {
-    localStorage.setItem('geminiApiKey', e.target.value.trim());
-  });
+// Initialize default global settings if not set
+if (!localStorage.getItem('global_ai_provider')) {
+  localStorage.setItem('global_ai_provider', 'google-translate');
 }
 
 loadAssets().then(updateConditionalFields).catch(() => toast('Không đọc được thư viện local.', 'error'));
@@ -5577,7 +5582,7 @@ function openWhisperDownloadModal() {
 
 function closeWhisperDownloadModal() {
   if (isDownloadingWhisper) {
-    toast('⚠️ Đang tải model Whisper, vui lòng không đóng bảng!', 'warn');
+    toast('⚠️ Đang tải model AI, vui lòng không đóng bảng!', 'warn');
     return;
   }
   const modal = $('whisper-download-modal');
@@ -5606,7 +5611,7 @@ function updateWhisperDownloadUI(status, model) {
 
   if (status.downloading) {
     isDownloadingWhisper = true;
-    if (statusLabel) statusLabel.textContent = 'Đang tải model từ HuggingFace...';
+    if (statusLabel) statusLabel.textContent = 'Đang tải model từ máy chủ...';
     if (percentLabel) percentLabel.textContent = `${status.percent}%`;
     if (progressBar) progressBar.style.width = `${status.percent}%`;
     
@@ -5684,7 +5689,7 @@ function startWhisperDownload() {
     .then(res => res.json())
     .then(data => {
       if (data.success) {
-        toast('🚀 Bắt đầu tải bộ nhận diện giọng nói Whisper...', 'info');
+        toast('🚀 Bắt đầu tải bộ nhận diện giọng nói AI...', 'info');
         startWhisperStatusPolling(model);
       }
     })
@@ -5704,10 +5709,10 @@ function startWhisperStatusPolling(model) {
         if (!status.downloading) {
           clearInterval(whisperDownloadInterval);
           if (status.exists) {
-            toast(`🎉 Tải xuống model Whisper ${model.toUpperCase()} thành công!`, 'success');
+            toast(`🎉 Tải xuống model AI ${model.toUpperCase()} thành công!`, 'success');
             checkWhisperModelStatus();
           } else if (status.error) {
-            toast('❌ Lỗi khi tải model Whisper: ' + status.error, 'error');
+            toast('❌ Lỗi khi tải model AI: ' + status.error, 'error');
           }
         }
       })
@@ -6155,6 +6160,96 @@ window.openBulkDownloadModal = openBulkDownloadModal;
 window.closeBulkDownloadModal = closeBulkDownloadModal;
 window.cancelBulkDownload = cancelBulkDownload;
 window.switchDownloadMode = switchDownloadMode;
+
+/* ==========================================================================
+   GLOBAL AI SETTINGS MODAL & HELPERS
+   ========================================================================== */
+
+function getGlobalAiSettings() {
+  return {
+    aiProvider: localStorage.getItem('global_ai_provider') || 'google-translate',
+    geminiApiKey: localStorage.getItem('global_gemini_key') || '',
+    openRouterApiKey: localStorage.getItem('global_openrouter_key') || '',
+    openRouterModel: localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha'
+  };
+}
+
+function getGlobalAiQueryParams() {
+  const settings = getGlobalAiSettings();
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}`;
+}
+
+function openGlobalSettingsModal() {
+  const modal = $('global-settings-modal');
+  if (!modal) return;
+
+  const settings = getGlobalAiSettings();
+
+  const providerSelect = $('global-ai-provider');
+  const geminiInput = $('global-gemini-key');
+  const openRouterInput = $('global-openrouter-key');
+  const openRouterModelSelect = $('global-openrouter-model');
+
+  if (providerSelect) providerSelect.value = settings.aiProvider;
+  if (geminiInput) geminiInput.value = settings.geminiApiKey;
+  if (openRouterInput) openRouterInput.value = settings.openRouterApiKey;
+  if (openRouterModelSelect) openRouterModelSelect.value = settings.openRouterModel;
+
+  toggleGlobalAiProviderFields();
+  modal.classList.remove('hidden');
+}
+
+function closeGlobalSettingsModal() {
+  const modal = $('global-settings-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+function toggleGlobalAiProviderFields() {
+  const providerSelect = $('global-ai-provider');
+  if (!providerSelect) return;
+
+  const val = providerSelect.value;
+  const geminiFields = $('global-gemini-fields');
+  const openRouterFields = $('global-openrouter-fields');
+
+  if (geminiFields) {
+    if (val === 'gemini') {
+      geminiFields.classList.remove('hidden');
+    } else {
+      geminiFields.classList.add('hidden');
+    }
+  }
+
+  if (openRouterFields) {
+    if (val === 'openrouter') {
+      openRouterFields.classList.remove('hidden');
+    } else {
+      openRouterFields.classList.add('hidden');
+    }
+  }
+}
+
+function saveGlobalSettings() {
+  const providerSelect = $('global-ai-provider');
+  const geminiInput = $('global-gemini-key');
+  const openRouterInput = $('global-openrouter-key');
+  const openRouterModelSelect = $('global-openrouter-model');
+
+  if (providerSelect) localStorage.setItem('global_ai_provider', providerSelect.value);
+  if (geminiInput) localStorage.setItem('global_gemini_key', geminiInput.value);
+  if (openRouterInput) localStorage.setItem('global_openrouter_key', openRouterInput.value);
+  if (openRouterModelSelect) localStorage.setItem('global_openrouter_model', openRouterModelSelect.value);
+
+  toast('🎉 Đã lưu cài đặt AI toàn cục thành công!', 'success');
+  closeGlobalSettingsModal();
+}
+
+window.openGlobalSettingsModal = openGlobalSettingsModal;
+window.closeGlobalSettingsModal = closeGlobalSettingsModal;
+window.toggleGlobalAiProviderFields = toggleGlobalAiProviderFields;
+window.saveGlobalSettings = saveGlobalSettings;
 
 
 

@@ -29,14 +29,8 @@
         <button class="nav-btn" data-view="studio" title="Render studio">
           <span>▣</span><strong>Studio render</strong>
         </button>
-        <button class="nav-btn" data-view="rendered-videos" title="Kho video">
-          <span>▶</span><strong>Kho video</strong>
-        </button>
-        <button class="nav-btn" data-view="voices" title="Kho giọng">
-          <span>◉</span><strong>Kho giọng</strong>
-        </button>
-        <button class="nav-btn" data-view="music" title="Kho nhạc">
-          <span>♫</span><strong>Kho nhạc</strong>
+        <button class="nav-btn" data-view="library" title="Thư viện">
+          <span>🗀</span><strong>Thư viện</strong>
         </button>
 
         <button class="nav-btn" data-view="pages" title="Quản lý Page">
@@ -47,7 +41,7 @@
       <div class="tool-status">
         <div><span class="dot ok"></span> FFmpeg local</div>
         <div><span class="dot ok"></span> yt-dlp local</div>
-        <div><span class="dot ok"></span> Whisper local</div>
+        <div><span class="dot ok"></span> Nhận diện giọng nói</div>
         <div id="omi-status"><span class="dot warn"></span> Omi chưa cấu hình</div>
       </div>
     </aside>
@@ -58,7 +52,10 @@
           <h2 id="view-title">Tải video</h2>
           <p id="view-desc">Dán link YouTube Shorts, YouTube hoặc Xiaohongshu để tải về thư mục downloads.</p>
         </div>
-        <button class="ghost-btn" id="refresh-assets-btn">Làm mới thư viện</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="ghost-btn" id="refresh-assets-btn">Làm mới thư viện</button>
+          <button type="button" class="ghost-btn" id="open-settings-btn" onclick="openGlobalSettingsModal()">⚙️ Cài đặt AI</button>
+        </div>
       </header>
 
       <section class="view active" id="view-download">
@@ -304,7 +301,7 @@
                   <button type="button" class="sub-tab-btn active" data-sub-mode="none" title="Không chèn phụ đề">❌ Không dùng</button>
                   <button type="button" class="sub-tab-btn" data-sub-mode="saved" title="Chọn file phụ đề đã lưu" style="display: none;">📁 Đã lưu</button>
                   <button type="button" class="sub-tab-btn" data-sub-mode="upload" title="Tải lên file phụ đề mới" style="display: none;">⬆️ Tải lên</button>
-                  <button type="button" class="sub-tab-btn whisper-tab" data-sub-mode="generate" title="Tạo sub tự động bằng AI Whisper">✨ Phụ đề tự động</button>
+                  <button type="button" class="sub-tab-btn whisper-tab" data-sub-mode="generate" title="Tạo phụ đề tự động bằng trí tuệ nhân tạo">✨ Phụ đề tự động</button>
                 </div>
                 <input type="hidden" id="subtitle-mode" name="subtitleMode" value="none">
               </div>
@@ -352,7 +349,7 @@
               
               <div id="whisper-model-wrapper" class="form-group hidden" style="margin-top: 10px; margin-bottom: 15px;">
                 <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span>Độ chính xác (Model Whisper)</span>
+                  <span>Độ chính xác (Model AI)</span>
                   <span id="whisper-model-status" style="font-size: 11px; font-weight: bold; color: var(--accent);">Đang kiểm tra...</span>
                 </label>
                 <div style="display: flex; gap: 8px;">
@@ -367,11 +364,7 @@
                 </div>
               </div>
 
-              <div id="gemini-key-wrapper" class="form-group" style="margin-top: 10px; margin-bottom: 15px;">
-                <label>Google Gemini API Key (Tùy chọn)</label>
-                <input type="password" id="gemini-api-key" name="geminiApiKey" class="premium-input" placeholder="Nhập API Key để dịch siêu mượt">
-                <p style="font-size: 11px; color: var(--muted); margin-top: 4px;">Nếu để trống, ứng dụng sẽ dùng Google Translate mặc định.</p>
-              </div>
+              <!-- Gemini API Key field removed and moved globally -->
 
               <div class="sub-settings-grid">
                 <div class="form-group">
@@ -903,7 +896,6 @@
                 <div class="render-controls-bar">
                   <div class="studio-render-btn-container" style="display: flex; flex-direction: column; gap: 12px; margin-top: 24px;">
                     <button type="submit" id="render-btn" class="premium-render-btn">✨ RENDER VIDEO ✨</button>
-                    <button type="button" id="open-folder-btn" class="premium-folder-btn">📂 Mở thư mục Download</button>
                   </div>
                   <span id="render-status" style="line-height: 1.4; display: block; text-align: center; margin-top: 10px; color: var(--muted);"></span>
                 </div>
@@ -922,86 +914,121 @@
         </form>
       </section>
 
-      <section class="view" id="view-voices">
-        <div class="panel" style="margin-bottom: 14px;">
-          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
-            <h3>Quản lý Kho Giọng Mẫu</h3>
-            <span id="voice-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Giọng</span>
+      <section class="view" id="view-library">
+        <!-- Sub tabs navigation -->
+        <div class="studio-source-tabs" style="margin-bottom: 14px; display: flex; gap: 4px;">
+          <button type="button" class="source-tab-btn library-tab-btn active" data-lib-tab="videos" onclick="switchLibraryTab('videos')">🎥 Video đã render</button>
+          <button type="button" class="source-tab-btn library-tab-btn" data-lib-tab="voices" onclick="switchLibraryTab('voices')">🎙️ Kho giọng mẫu</button>
+          <button type="button" class="source-tab-btn library-tab-btn" data-lib-tab="music" onclick="switchLibraryTab('music')">🎵 Kho nhạc nền</button>
+        </div>
+
+        <!-- Subview: Videos -->
+        <div id="lib-content-videos" class="library-subview">
+          <div class="panel" style="margin-bottom: 14px;">
+            <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+              <h3>Kho Video Đã Render</h3>
+              <span id="rendered-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Video</span>
+            </div>
+            <div class="url-row" style="margin-top: 14px;">
+              <input type="text" id="rendered-search-input" placeholder="Tìm kiếm video theo tên..." class="premium-input" style="flex: 1;">
+              <button type="button" id="refresh-rendered-btn" onclick="renderRenderedVideosGrid($('rendered-search-input')?.value || '')" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">🔄 CẬP NHẬT</button>
+            </div>
           </div>
-          <div class="url-row" style="margin-top: 14px;">
-            <input type="text" id="voice-search-input" placeholder="Tìm kiếm giọng theo tên..." class="premium-input">
-            <div class="premium-dropdown">
-              <button type="button" id="open-add-voice-btn" class="premium-dropdown-btn" onclick="toggleVoiceDropdown(event)">
-                ➕ THÊM GIỌNG MỚI <span style="font-size: 8px; margin-left: 2px;">▼</span>
-              </button>
-              <div class="premium-dropdown-content hidden" id="voice-dropdown-content">
-                <a href="#" onclick="event.preventDefault(); toggleVoiceDropdown(); openVbeeGenerateVoiceModal();">
-                  ✨ Tạo giọng từ Vbee AI
-                </a>
-                <a href="#" onclick="event.preventDefault(); toggleVoiceDropdown(); openVoiceModal();">
-                  🎙️ Thêm giọng thủ công
-                </a>
+
+          <div class="panel">
+            <div id="rendered-grid-container" style="max-height: calc(100vh - 415px); overflow-y: auto; padding-right: 4px;">
+              <div id="rendered-videos-grid" class="rendered-videos-grid">
+                <!-- Video cards will be inserted here dynamically -->
               </div>
+            </div>
+            <div id="rendered-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+              <!-- Các nút chuyển trang -->
             </div>
           </div>
         </div>
 
-        <div class="panel">
-          <div id="voice-list-container" style="max-height: calc(100vh - 360px); overflow-y: auto; padding-right: 4px;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left;">
-              <thead>
-                <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                  <th style="padding: 12px 8px; font-weight: 700;">Tên Giọng mẫu</th>
-                  <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
-                  <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
-                  <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
-                </tr>
-              </thead>
-              <tbody id="voice-list-tbody">
-                <!-- Danh sách giọng mẫu sẽ được render bằng JS -->
-              </tbody>
-            </table>
+        <!-- Subview: Voices -->
+        <div id="lib-content-voices" class="library-subview hidden">
+          <div class="panel" style="margin-bottom: 14px;">
+            <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+              <h3>Quản lý Kho Giọng Mẫu</h3>
+              <span id="voice-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Giọng</span>
+            </div>
+            <div class="url-row" style="margin-top: 14px;">
+              <input type="text" id="voice-search-input" placeholder="Tìm kiếm giọng theo tên..." class="premium-input">
+              <div class="premium-dropdown">
+                <button type="button" id="open-add-voice-btn" class="premium-dropdown-btn" onclick="toggleVoiceDropdown(event)">
+                  ➕ THÊM GIỌNG MỚI <span style="font-size: 8px; margin-left: 2px;">▼</span>
+                </button>
+                <div class="premium-dropdown-content hidden" id="voice-dropdown-content">
+                  <a href="#" onclick="event.preventDefault(); toggleVoiceDropdown(); openVbeeGenerateVoiceModal();">
+                    ✨ Tạo giọng từ Vbee AI
+                  </a>
+                  <a href="#" onclick="event.preventDefault(); toggleVoiceDropdown(); openVoiceModal();">
+                    🎙️ Thêm giọng thủ công
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
-          <div id="voice-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
-            <!-- Các nút chuyển trang -->
+
+          <div class="panel">
+            <div id="voice-list-container" style="max-height: calc(100vh - 415px); overflow-y: auto; padding-right: 4px;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <th style="padding: 12px 8px; font-weight: 700;">Tên Giọng mẫu</th>
+                    <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
+                    <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
+                    <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
+                  </tr>
+                </thead>
+                <tbody id="voice-list-tbody">
+                  <!-- Danh sách giọng mẫu sẽ được render bằng JS -->
+                </tbody>
+              </table>
+            </div>
+            <div id="voice-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+              <!-- Các nút chuyển trang -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Subview: Music -->
+        <div id="lib-content-music" class="library-subview hidden">
+          <div class="panel" style="margin-bottom: 14px;">
+            <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+              <h3>Quản lý Kho Nhạc Nền</h3>
+              <span id="music-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Nhạc</span>
+            </div>
+            <div class="url-row" style="margin-top: 14px;">
+              <input type="text" id="music-search-input" placeholder="Tìm kiếm nhạc theo tên..." class="premium-input">
+              <button type="button" id="open-add-music-btn" onclick="openMusicModal()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ THÊM NHẠC MỚI</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div id="music-list-container" style="max-height: calc(100vh - 415px); overflow-y: auto; padding-right: 4px;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <th style="padding: 12px 8px; font-weight: 700;">Tên File Nhạc</th>
+                    <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
+                    <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
+                    <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
+                  </tr>
+                </thead>
+                <tbody id="music-list-tbody">
+                  <!-- Danh sách nhạc sẽ được render bằng JS -->
+                </tbody>
+              </table>
+            </div>
+            <div id="music-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+              <!-- Các nút chuyển trang -->
+            </div>
           </div>
         </div>
       </section>
-
-      <section class="view" id="view-music">
-        <div class="panel" style="margin-bottom: 14px;">
-          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
-            <h3>Quản lý Kho Nhạc Nền</h3>
-            <span id="music-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Nhạc</span>
-          </div>
-          <div class="url-row" style="margin-top: 14px;">
-            <input type="text" id="music-search-input" placeholder="Tìm kiếm nhạc theo tên..." class="premium-input">
-            <button type="button" id="open-add-music-btn" onclick="openMusicModal()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ THÊM NHẠC MỚI</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div id="music-list-container" style="max-height: calc(100vh - 360px); overflow-y: auto; padding-right: 4px;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left;">
-              <thead>
-                <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                  <th style="padding: 12px 8px; font-weight: 700;">Tên File Nhạc</th>
-                  <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
-                  <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
-                  <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
-                </tr>
-              </thead>
-              <tbody id="music-list-tbody">
-                <!-- Danh sách nhạc sẽ được render bằng JS -->
-              </tbody>
-            </table>
-          </div>
-          <div id="music-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
-            <!-- Các nút chuyển trang -->
-          </div>
-        </div>
-      </section>
-
 
       <section class="view" id="view-pages">
         <div class="panel" style="margin-bottom: 14px;">
@@ -1033,30 +1060,6 @@
           </div>
           <div id="page-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
             <!-- Các nút chuyển trang sẽ được sinh động bằng JS -->
-          </div>
-        </div>
-      </section>
-
-      <section class="view" id="view-rendered-videos">
-        <div class="panel" style="margin-bottom: 14px;">
-          <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
-            <h3>Kho Video Đã Render</h3>
-            <span id="rendered-count-badge" class="badge mixer-badge" style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-weight: 600;">0 Video</span>
-          </div>
-          <div class="url-row" style="margin-top: 14px;">
-            <input type="text" id="rendered-search-input" placeholder="Tìm kiếm video theo tên..." class="premium-input" style="flex: 1;">
-            <button type="button" id="refresh-rendered-btn" onclick="renderRenderedVideosGrid($('rendered-search-input')?.value || '')" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">🔄 CẬP NHẬT</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div id="rendered-grid-container" style="max-height: calc(100vh - 360px); overflow-y: auto; padding-right: 4px;">
-            <div id="rendered-videos-grid" class="rendered-videos-grid">
-              <!-- Video cards will be inserted here dynamically -->
-            </div>
-          </div>
-          <div id="rendered-pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
-            <!-- Các nút chuyển trang -->
           </div>
         </div>
       </section>
@@ -1342,7 +1345,7 @@
           </div>
           <div class="form-group" style="margin-bottom: 8px;">
             <label style="margin: 0 0 6px 0;">Kịch bản câu nói mẫu (Không bắt buộc)</label>
-            <textarea name="voiceText" class="premium-textarea" rows="3" placeholder="Nhập kịch bản tương ứng với file âm thanh để bypass Whisper..."></textarea>
+            <textarea name="voiceText" class="premium-textarea" rows="3" placeholder="Nhập kịch bản tương ứng với file âm thanh để bỏ qua nhận diện..."></textarea>
           </div>
           <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button type="submit" id="save-voice-btn" class="premium-render-btn" style="flex: 1; margin: 0;">Lưu giọng</button>
@@ -1472,13 +1475,13 @@
     <div class="fb-modal-content" style="width: 440px;">
       <div class="fb-modal-header" style="background: rgba(24, 119, 242, 0.1); border-bottom-color: rgba(24, 119, 242, 0.2);">
         <h3 style="color: var(--accent); display: flex; align-items: center; gap: 8px;">
-          📥 Tải xuống Model Whisper AI
+          📥 Tải xuống Model AI Subtitle
         </h3>
         <button id="whisper-download-close" class="fb-modal-close" onclick="closeWhisperDownloadModal()">&times;</button>
       </div>
       <div class="fb-modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
         <p style="margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5;">
-          Đang chuẩn bị tải xuống model Whisper <strong id="whisper-download-model-name"></strong> từ HuggingFace lưu vào máy tính của bạn.
+          Đang chuẩn bị tải xuống model phụ đề AI <strong id="whisper-download-model-name"></strong> từ máy chủ lưu vào máy tính của bạn.
         </p>
         
         <div style="background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
@@ -1564,6 +1567,67 @@
             <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeSaveTemplateModal()">Hủy</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global AI Settings Modal -->
+  <div id="global-settings-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 460px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(24, 119, 242, 0.1); border-bottom-color: rgba(24, 119, 242, 0.2);">
+        <h3 style="color: var(--accent); display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
+          ⚙️ Cấu hình API Model AI toàn cục
+        </h3>
+        <button class="fb-modal-close" onclick="closeGlobalSettingsModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        
+        <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
+          <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()" style="margin: 0; height: 38px;">
+            <option value="google-translate" selected>🌐 Google Translate (Mặc định - An toàn &amp; Khuyên dùng)</option>
+            <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
+            <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
+          </select>
+        </div>
+
+        <!-- Gemini Fields -->
+        <div id="global-gemini-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 13px; font-weight: 600; color: var(--text);">Google Gemini API Key</label>
+            <input type="password" id="global-gemini-key" class="premium-input" placeholder="Nhập API Key của Google AI Studio..." style="margin: 0;">
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy Key miễn phí từ Google AI Studio. Được lưu trữ cục bộ bảo mật.</p>
+          </div>
+        </div>
+
+        <!-- OpenRouter Fields -->
+        <div id="global-openrouter-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter API Key</label>
+            <input type="password" id="global-openrouter-key" class="premium-input" placeholder="Nhập API Key của OpenRouter..." style="margin: 0;">
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Tạo key của bạn tại openrouter.ai.</p>
+          </div>
+          
+          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter Model</label>
+            <select id="global-openrouter-model" class="premium-select" style="margin: 0; height: 38px;">
+              <option value="openrouter/owl-alpha" selected>Owl Alpha (Default)</option>
+              <option value="google/gemma-4-31b-it:free">Google: Gemma 4 31B (Free - Khuyên dùng)</option>
+              <option value="qwen/qwen3-coder:free">Qwen: Qwen3 Coder 480B A35B (Free - Tốt cho tiếng Trung)</option>
+              <option value="openai/gpt-oss-120b:free">OpenAI: gpt-oss-120b (Free)</option>
+              <option value="meta-llama/llama-3.3-70b-instruct:free">Meta: Llama 3.3 70B Instruct (Free - Hay nghẽn)</option>
+              <option value="nousresearch/hermes-3-llama-3.1-405b:free">Nous: Hermes 3 405B Instruct (Free)</option>
+              <option value="nvidia/nemotron-3-ultra-550b-a55b:free">NVIDIA: Nemotron 3 Ultra (Free)</option>
+              <option value="cohere/north-mini-code:free">Cohere: North Mini Code (Free)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 14px; width: 100%;">
+          <button type="button" class="premium-render-btn" style="flex: 1; margin: 0; background: var(--accent); color: white;" onclick="saveGlobalSettings()">Lưu cài đặt</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeGlobalSettingsModal()">Hủy</button>
+        </div>
+
       </div>
     </div>
   </div>
