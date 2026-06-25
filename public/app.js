@@ -212,7 +212,9 @@ async function loadAssets() {
   renderVideoGrid(assets.videos);
   renderReactionVideoGrid(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
+  renderQuickVoices();
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
+  renderQuickMusic();
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
   renderAssetList('asset-videos', assets.videos);
   renderAssetList('asset-voices', assets.voices);
@@ -3083,11 +3085,11 @@ function renderBlurBoxesList() {
       <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
         <div class="form-group" style="margin: 0;">
           <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">⏱️ Bắt đầu (s)</label>
-          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="0.1" style="padding: 4px 6px; height: 32px;">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
         </div>
         <div class="form-group" style="margin: 0;">
           <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">⏱️ Kết thúc (s)</label>
-          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="0.1" style="padding: 4px 6px; height: 32px;">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
         </div>
       </div>
       
@@ -3512,7 +3514,12 @@ function renderCurrentConfigSummary() {
 
   // Làm mờ phụ đề gốc
   if (blurBoxes && blurBoxes.length > 0) {
-    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes.length} vùng mờ)</div>`);
+    const details = blurBoxes.map((box, idx) => {
+      const startSec = Number(box.start || 0).toFixed(1);
+      const endSec = box.end === 99999 ? 'Hết video' : `${Number(box.end || 0).toFixed(1)}s`;
+      return `Vùng ${idx + 1}: ${startSec}s - ${endSec} (Độ mờ: ${box.radius || 20}px)`;
+    }).join(' | ');
+    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes.length} vùng mờ)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
   }
 
   // 2. Thuyết minh (Voiceover)
@@ -3628,34 +3635,76 @@ function submitSaveTemplate(event) {
   };
 
   localStorage.setItem('studio_templates', JSON.stringify(templates));
-  toast('🎉 Đã lưu template thành công!', 'success');
+  toast('🎉 Đã lưu cấu hình sẵn thành công!', 'success');
   updateTemplateSelectDropdown();
-  $('studio-template-select').value = templateName;
+  selectCustomTemplate(templateName);
 }
 
-function deleteStudioTemplate() {
-  const select = $('studio-template-select');
-  const templateName = select.value;
-  if (!templateName) {
-    toast('❌ Vui lòng chọn template muốn xóa!', 'error');
-    return;
+// Toggle custom template dropdown menu visibility
+function toggleCustomTemplateDropdown(event) {
+  if (event) event.stopPropagation();
+  const menu = $('custom-template-menu');
+  if (menu) {
+    menu.classList.toggle('hidden');
   }
+}
 
-  if (confirm(`Bạn có chắc chắn muốn xóa template "${templateName}" không?`)) {
+// Select a template from the custom dropdown menu
+function selectCustomTemplate(name) {
+  const select = $('studio-template-select');
+  const label = $('selected-template-label');
+  if (select) {
+    select.value = name;
+    select.dispatchEvent(new Event('change'));
+  } else {
+    loadStudioTemplate(name);
+  }
+  if (label) {
+    label.textContent = name || '-- Chọn cấu hình sẵn --';
+  }
+  const menu = $('custom-template-menu');
+  if (menu) {
+    menu.classList.add('hidden');
+  }
+}
+
+// Delete a template from the custom dropdown list
+function deleteCustomTemplate(event, name) {
+  if (event) event.stopPropagation();
+  if (!name) return;
+
+  if (confirm(`Bạn có chắc chắn muốn xóa cấu hình "${name}" không?`)) {
     let templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
-    delete templates[templateName];
+    delete templates[name];
     localStorage.setItem('studio_templates', JSON.stringify(templates));
-    toast('🎉 Đã xóa template thành công!', 'success');
+    toast('🎉 Đã xóa cấu hình thành công!', 'success');
+    
+    const select = $('studio-template-select');
+    if (select && select.value === name) {
+      select.value = '';
+      const label = $('selected-template-label');
+      if (label) label.textContent = '-- Chọn cấu hình sẵn --';
+    }
+    
     updateTemplateSelectDropdown();
   }
 }
+
+// Global click handler to close template dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  const dropdown = document.querySelector('.premium-custom-dropdown');
+  const menu = $('custom-template-menu');
+  if (dropdown && !dropdown.contains(e.target) && menu) {
+    menu.classList.add('hidden');
+  }
+});
 
 function updateTemplateSelectDropdown() {
   const select = $('studio-template-select');
   if (!select) return;
 
   const currentVal = select.value;
-  select.innerHTML = '<option value="">-- Chọn Template Đã Lưu --</option>';
+  select.innerHTML = '<option value="">-- Chọn cấu hình sẵn --</option>';
 
   const templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
   Object.keys(templates).forEach(name => {
@@ -3667,6 +3716,55 @@ function updateTemplateSelectDropdown() {
 
   if (templates[currentVal]) {
     select.value = currentVal;
+  }
+
+  // Populate custom dropdown list
+  const menu = $('custom-template-menu');
+  if (menu) {
+    let menuHtml = `
+      <div class="custom-dropdown-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; color: var(--muted); font-size: 13px; transition: background 0.2s;" onclick="selectCustomTemplate('')">
+        <span style="flex: 1; text-align: left;">-- Chọn cấu hình sẵn --</span>
+      </div>
+    `;
+    
+    Object.keys(templates).forEach(name => {
+      menuHtml += `
+        <div class="custom-dropdown-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; color: var(--text); font-size: 13px; transition: background 0.2s;">
+          <span onclick="selectCustomTemplate('${name}')" style="flex: 1; text-align: left;">${name}</span>
+          <button type="button" onclick="deleteCustomTemplate(event, '${name}')" class="delete-template-btn" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; font-size: 14px; border-radius: 4px; transition: all 0.2s;">
+            🗑️
+          </button>
+        </div>
+      `;
+    });
+    menu.innerHTML = menuHtml;
+
+    // Add mouseenter/mouseleave dynamic hover states
+    menu.querySelectorAll('.custom-dropdown-item').forEach(item => {
+      item.addEventListener('mouseenter', () => {
+        item.style.background = 'rgba(255, 255, 255, 0.05)';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.background = 'transparent';
+      });
+    });
+
+    menu.querySelectorAll('.delete-template-btn').forEach(btn => {
+      btn.addEventListener('mouseenter', () => {
+        btn.style.color = '#ef4444';
+        btn.style.background = 'rgba(239, 68, 68, 0.1)';
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.color = 'var(--muted)';
+        btn.style.background = 'transparent';
+      });
+    });
+  }
+
+  // Update selection label
+  const label = $('selected-template-label');
+  if (label) {
+    label.textContent = currentVal || '-- Chọn cấu hình sẵn --';
   }
 }
 
@@ -3766,8 +3864,10 @@ function loadStudioTemplate(templateName) {
     if (valEl) valEl.textContent = Math.round(template.musicVolume * 100) + '%';
   }
 
-  toast(`🎉 Đã áp dụng template "${templateName}"!`, 'success');
+  toast(`🎉 Đã áp dụng cấu hình "${templateName}"!`, 'success');
   updateSubtitleOverlayFromInputs();
+  renderQuickVoices();
+  renderQuickMusic();
 }
 
 function updateReactionPreview() {
@@ -3835,11 +3935,19 @@ document.querySelectorAll('.reaction-tab-btn').forEach(btn => {
       setPreviewReactionVideo(null);
     } else if (mode === 'library') {
       $('reaction-upload').value = '';
+      const preview = $('reaction-upload-preview');
+      if (preview) preview.removeAttribute('src');
+      const container = $('reaction-upload-preview-container');
+      if (container) container.classList.add('hidden');
       setPreviewReactionVideo(null);
     } else {
       $('selected-reaction-video-file').value = '';
       document.querySelectorAll('#studio-reaction-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
       $('reaction-upload').value = '';
+      const preview = $('reaction-upload-preview');
+      if (preview) preview.removeAttribute('src');
+      const container = $('reaction-upload-preview-container');
+      if (container) container.classList.add('hidden');
       setPreviewReactionVideo(null);
     }
     
@@ -4213,10 +4321,22 @@ volumeInputs.forEach(name => {
 });
 
 $('reaction-upload').addEventListener('change', function() {
+  const container = $('reaction-upload-preview-container');
+  const video = $('reaction-upload-preview');
+  const nameEl = $('reaction-upload-video-name');
+  const sizeEl = $('reaction-upload-video-size');
+
   if (this.files && this.files[0]) {
-    const objectUrl = URL.createObjectURL(this.files[0]);
+    const file = this.files[0];
+    const objectUrl = URL.createObjectURL(file);
+    if (video) video.src = objectUrl;
+    if (nameEl) nameEl.textContent = file.name;
+    if (sizeEl) sizeEl.textContent = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+    if (container) container.classList.remove('hidden');
     setPreviewReactionVideo(objectUrl);
   } else {
+    if (video) video.removeAttribute('src');
+    if (container) container.classList.add('hidden');
     setPreviewReactionVideo(null);
   }
 });
@@ -4962,34 +5082,32 @@ function togglePlayAudio(btn, url) {
   if (currentAudio && currentAudioUrl === url) {
     if (!currentAudio.paused) {
       currentAudio.pause();
-      btn.innerHTML = '🔊 Nghe';
+      updatePlayButtonsState(url, false);
       return;
     } else {
       currentAudio.play().catch(() => {});
-      btn.innerHTML = '⏸ Dừng';
+      updatePlayButtonsState(url, true);
       return;
     }
   }
 
   if (currentAudio) {
     currentAudio.pause();
-    if (currentPlayBtn) {
-      currentPlayBtn.innerHTML = '🔊 Nghe';
-    }
+    updatePlayButtonsState(currentAudioUrl, false);
   }
 
   currentAudioUrl = url;
   currentPlayBtn = btn;
   currentAudio = new Audio(url);
-  btn.innerHTML = '⏸ Dừng';
+  updatePlayButtonsState(url, true);
   
   currentAudio.play().catch(err => {
     toast('❌ Không thể phát audio: ' + err.message, 'error');
-    btn.innerHTML = '🔊 Nghe';
+    updatePlayButtonsState(url, false);
   });
 
   currentAudio.onended = () => {
-    btn.innerHTML = '🔊 Nghe';
+    updatePlayButtonsState(url, false);
     currentAudio = null;
     currentAudioUrl = null;
     currentPlayBtn = null;
@@ -6578,6 +6696,560 @@ async function checkSystemConnections() {
 window.openConnectionStatusModal = openConnectionStatusModal;
 window.closeConnectionStatusModal = closeConnectionStatusModal;
 window.checkSystemConnections = checkSystemConnections;
+
+/* ==========================================================================
+   QUẢN LÝ CHỌN GIỌNG NÓI ĐÃ LƯU (NEW GRID VOICE SELECTOR)
+   ========================================================================== */
+
+function updatePlayButtonsState(url, isPlaying) {
+  const filename = url.substring(url.lastIndexOf('/') + 1);
+  const decodedFilename = decodeURIComponent(filename);
+  document.querySelectorAll('.voice-item-play-btn, .rendered-btn-play').forEach(btn => {
+    const html = btn.outerHTML;
+    if (html.includes(filename) || html.includes(decodedFilename)) {
+      btn.innerHTML = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+      btn.classList.toggle('playing', isPlaying);
+    }
+  });
+}
+
+function renderSelectedVoiceRow() {
+  const container = $('selected-voice-row');
+  if (!container) return;
+
+  const selectedVoice = $('saved-voice-select').value;
+  
+  if (!selectedVoice) {
+    container.innerHTML = `
+      <div class="selected-voice-row-header">Giọng đang chọn</div>
+      <div class="selected-voice-card-placeholder">Chưa chọn giọng nào</div>
+    `;
+    return;
+  }
+
+  const lastDot = selectedVoice.lastIndexOf('.');
+  const displayName = lastDot !== -1 ? selectedVoice.substring(0, lastDot) : selectedVoice;
+  const voiceUrl = `/voices/${encodeURIComponent(selectedVoice)}`;
+  
+  const isPlaying = currentAudio && currentAudioUrl === voiceUrl && !currentAudio.paused;
+  const btnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+  const btnClass = isPlaying ? 'voice-item-play-btn playing' : 'voice-item-play-btn';
+
+  container.innerHTML = `
+    <div class="selected-voice-row-header">Giọng đang chọn</div>
+    <div class="voice-item-card active" style="margin-top: 4px; cursor: default;" data-filename="${selectedVoice}">
+      <div class="voice-item-info">
+        <span class="voice-item-name" title="${displayName}">${displayName}</span>
+      </div>
+      <div class="voice-item-actions">
+        <button type="button" class="${btnClass}" onclick="playVoicePreview(event, '${selectedVoice.replace(/'/g, "\\'")}')">
+          ${btnText}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderQuickVoices() {
+  renderSelectedVoiceRow();
+
+  const quickList = $('quick-voices-list');
+  if (!quickList) return;
+
+  const voices = assets.voices || [];
+  const selectedVoice = $('saved-voice-select').value;
+
+  quickList.innerHTML = '';
+  
+  if (voices.length === 0) {
+    quickList.innerHTML = '<div style="color: var(--muted); font-size: 13px; padding: 8px;">Chưa có giọng mẫu nào được lưu.</div>';
+    return;
+  }
+
+  // Lấy tối đa 3 giọng
+  const top3 = voices.slice(0, 3);
+  top3.forEach(voice => {
+    const card = document.createElement('div');
+    const isSelected = voice.filename === selectedVoice;
+    card.className = `voice-item-card${isSelected ? ' active' : ''}`;
+    card.dataset.filename = voice.filename;
+    
+    const lastDot = voice.filename.lastIndexOf('.');
+    const displayName = lastDot !== -1 ? voice.filename.substring(0, lastDot) : voice.filename;
+    const voiceUrl = `/voices/${encodeURIComponent(voice.filename)}`;
+    
+    const isPlaying = currentAudio && currentAudioUrl === voiceUrl && !currentAudio.paused;
+    const btnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+    const btnClass = isPlaying ? 'voice-item-play-btn playing' : 'voice-item-play-btn';
+
+    card.innerHTML = `
+      <div class="voice-item-info">
+        <span class="voice-item-name" title="${displayName}">${displayName}</span>
+      </div>
+      <div class="voice-item-actions">
+        <button type="button" class="${btnClass}" onclick="playVoicePreview(event, '${voice.filename.replace(/'/g, "\\'")}')">
+          ${btnText}
+        </button>
+      </div>
+    `;
+    
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.voice-item-play-btn')) return;
+      selectVoiceFile(voice.filename);
+    });
+
+    quickList.appendChild(card);
+  });
+}
+
+function selectVoiceFile(filename) {
+  const select = $('saved-voice-select');
+  if (select) {
+    select.value = filename;
+    select.dispatchEvent(new Event('change'));
+  }
+  
+  // Cập nhật trạng thái active chỉ cho phần giọng nói
+  document.querySelectorAll('#quick-voices-container .voice-item-card, #modal-voices-list .voice-item-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.filename === filename);
+  });
+
+  renderSelectedVoiceRow();
+}
+
+function playVoicePreview(event, filename) {
+  if (event) event.stopPropagation();
+  const btn = event.currentTarget;
+  const voiceUrl = `/voices/${encodeURIComponent(filename)}`;
+  togglePlayAudio(btn, voiceUrl);
+}
+
+function openAllVoicesModal() {
+  const modal = $('all-voices-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    $('modal-voice-search').value = '';
+    renderModalVoices();
+  }
+}
+
+function closeAllVoicesModal() {
+  const modal = $('all-voices-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+function renderModalVoices(filter = '') {
+  const container = $('modal-voices-list');
+  if (!container) return;
+
+  const voices = assets.voices || [];
+  const selectedVoice = $('saved-voice-select').value;
+  const filtered = voices.filter(v => 
+    v.filename.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  container.innerHTML = '';
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="color: var(--muted); font-size: 13px; text-align: center; padding: 12px;">Không tìm thấy giọng mẫu nào.</div>';
+    return;
+  }
+
+  filtered.forEach(voice => {
+    const card = document.createElement('div');
+    const isSelected = voice.filename === selectedVoice;
+    card.className = `voice-item-card${isSelected ? ' active' : ''}`;
+    card.dataset.filename = voice.filename;
+    
+    const lastDot = voice.filename.lastIndexOf('.');
+    const displayName = lastDot !== -1 ? voice.filename.substring(0, lastDot) : voice.filename;
+    const voiceUrl = `/voices/${encodeURIComponent(voice.filename)}`;
+    
+    let sizeStr = '';
+    if (voice.size) {
+      sizeStr = voice.size > 1024 * 1024 
+        ? `${(voice.size / (1024 * 1024)).toFixed(1)} MB` 
+        : `${(voice.size / 1024).toFixed(0)} KB`;
+    }
+
+    const isPlaying = currentAudio && currentAudioUrl === voiceUrl && !currentAudio.paused;
+    const btnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+    const btnClass = isPlaying ? 'voice-item-play-btn playing' : 'voice-item-play-btn';
+
+    card.innerHTML = `
+      <div class="voice-item-info">
+        <span class="voice-item-name" title="${displayName}">${displayName}</span>
+        ${sizeStr ? `<span class="voice-item-meta">${sizeStr}</span>` : ''}
+      </div>
+      <div class="voice-item-actions">
+        <button type="button" class="${btnClass}" onclick="playVoicePreview(event, '${voice.filename.replace(/'/g, "\\'")}')">
+          ${btnText}
+        </button>
+      </div>
+    `;
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.voice-item-play-btn')) return;
+      selectVoiceFile(voice.filename);
+      closeAllVoicesModal();
+    });
+
+    container.appendChild(card);
+  });
+}
+
+function filterModalVoices() {
+  const searchInput = $('modal-voice-search');
+  if (searchInput) {
+    renderModalVoices(searchInput.value);
+  }
+}
+
+// Gán vào window để truy cập từ inline HTML
+window.playVoicePreview = playVoicePreview;
+window.openAllVoicesModal = openAllVoicesModal;
+window.closeAllVoicesModal = closeAllVoicesModal;
+window.filterModalVoices = filterModalVoices;
+window.renderQuickVoices = renderQuickVoices;
+window.selectVoiceFile = selectVoiceFile;
+window.updatePlayButtonsState = updatePlayButtonsState;
+
+function resetStudioConfig() {
+  // Clear selected template label in custom dropdown
+  const select = $('studio-template-select');
+  if (select) select.value = '';
+  const label = $('selected-template-label');
+  if (label) label.textContent = '-- Chọn cấu hình sẵn --';
+
+  // Subtitle styling defaults
+  const sizeInput = document.querySelector('input[name="subtitleSize"]');
+  if (sizeInput) {
+    sizeInput.value = '32';
+    sizeInput.dispatchEvent(new Event('input'));
+  }
+  
+  const fontSelect = document.querySelector('select[name="subtitleFont"]');
+  if (fontSelect) fontSelect.value = 'Arial';
+
+  const colorInput = document.querySelector('input[name="subtitleColor"]');
+  if (colorInput) {
+    colorInput.value = '#FFFFFF';
+    const colorValSpan = $('subtitle-color-val');
+    if (colorValSpan) colorValSpan.textContent = '#FFFFFF';
+  }
+  
+  // Reset selected color swatch
+  document.querySelectorAll('.color-swatch').forEach(sw => {
+    sw.classList.toggle('active', sw.dataset.color === '#FFFFFF');
+  });
+
+  const themeSelect = document.querySelector('select[name="subtitleTheme"]');
+  if (themeSelect) themeSelect.value = 'outline';
+
+  const boldSelect = document.querySelector('select[name="subtitleBold"]');
+  if (boldSelect) boldSelect.value = 'true';
+
+  const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
+  if (maxLinesSelect) maxLinesSelect.value = '0';
+
+  const marginInput = document.querySelector('input[name="subtitleMargin"]');
+  if (marginInput) marginInput.value = '28';
+
+  const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
+  if (marginHInput) marginHInput.value = '20';
+
+  // Subtitle alignment
+  const alignInput = $('subtitle-alignment-input');
+  if (alignInput) alignInput.value = '10';
+  const alignGrid = $('alignment-visual-grid');
+  if (alignGrid) {
+    alignGrid.querySelectorAll('.grid-cell').forEach(c => {
+      c.classList.toggle('active', c.dataset.align === '10');
+    });
+  }
+
+  // Clear blur boxes
+  blurBoxes = [];
+  activeBlurBoxId = null;
+  renderBlurBoxesList();
+
+  // Reset voice mode
+  const voiceModeBtn = document.querySelector('.voice-tab-btn[data-voice-mode="none"]');
+  if (voiceModeBtn) {
+    voiceModeBtn.click();
+  }
+  const savedVoiceSelect = $('saved-voice-select');
+  if (savedVoiceSelect) {
+    savedVoiceSelect.value = '';
+  }
+  renderQuickVoices();
+
+  // Reset Omi settings
+  const omiLanguage = document.querySelector('select[name="omiLanguage"]');
+  if (omiLanguage) omiLanguage.value = 'Vietnamese';
+  
+  const omiDevice = document.querySelector('select[name="omiDevice"]');
+  if (omiDevice) omiDevice.value = 'cpu';
+
+  const stepsSlider = document.querySelector('input[name="omiSteps"]');
+  if (stepsSlider) {
+    stepsSlider.value = '40';
+    const stepsBadge = $('omi-steps-badge');
+    if (stepsBadge) stepsBadge.textContent = '40';
+  }
+
+  const omiSeedPreset = $('omi-seed-preset');
+  if (omiSeedPreset) {
+    omiSeedPreset.value = '';
+    omiSeedPreset.dispatchEvent(new Event('change'));
+  }
+  const omiSeedInput = $('omi-seed-input');
+  if (omiSeedInput) omiSeedInput.value = '';
+
+  // Reset music mode
+  const musicModeBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
+  if (musicModeBtn) {
+    musicModeBtn.click();
+  }
+  const savedMusicSelect = $('saved-music-select');
+  if (savedMusicSelect) {
+    savedMusicSelect.value = '';
+  }
+  renderQuickMusic();
+
+  // Reset volumes
+  const originalSlider = document.querySelector('input[name="originalVolume"]');
+  if (originalSlider) {
+    originalSlider.value = '0.45';
+    originalSlider.dispatchEvent(new Event('input'));
+  }
+
+  const voiceSlider = document.querySelector('input[name="voiceVolume"]');
+  if (voiceSlider) {
+    voiceSlider.value = '1.00';
+    voiceSlider.dispatchEvent(new Event('input'));
+  }
+
+  const musicSlider = document.querySelector('input[name="musicVolume"]');
+  if (musicSlider) {
+    musicSlider.value = '0.18';
+    musicSlider.dispatchEvent(new Event('input'));
+  }
+
+  toast('🔄 Đã đặt lại cấu hình studio về mặc định!', 'info');
+  updateSubtitleOverlayFromInputs();
+}
+
+window.resetStudioConfig = resetStudioConfig;
+
+/* ==========================================================================
+   QUẢN LÝ CHỌN NHẠC NỀN ĐÃ LƯU (NEW GRID MUSIC SELECTOR)
+   ========================================================================== */
+
+function renderSelectedMusicRow() {
+  const container = $('selected-music-row');
+  if (!container) return;
+
+  const selectedMusic = $('saved-music-select').value;
+  
+  if (!selectedMusic) {
+    container.innerHTML = `
+      <div class="selected-voice-row-header">Nhạc nền đang chọn</div>
+      <div class="selected-voice-card-placeholder">Chưa chọn nhạc nền nào</div>
+    `;
+    return;
+  }
+
+  const lastDot = selectedMusic.lastIndexOf('.');
+  const displayName = lastDot !== -1 ? selectedMusic.substring(0, lastDot) : selectedMusic;
+  const musicUrl = `/music/${encodeURIComponent(selectedMusic)}`;
+  
+  const isPlaying = currentAudio && currentAudioUrl === musicUrl && !currentAudio.paused;
+  const btnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+  const btnClass = isPlaying ? 'voice-item-play-btn playing' : 'voice-item-play-btn';
+
+  container.innerHTML = `
+    <div class="selected-voice-row-header">Nhạc nền đang chọn</div>
+    <div class="voice-item-card active" style="margin-top: 4px; cursor: default;" data-filename="${selectedMusic}">
+      <div class="voice-item-info">
+        <span class="voice-item-name" title="${displayName}">${displayName}</span>
+      </div>
+      <div class="voice-item-actions">
+        <button type="button" class="${btnClass}" onclick="playMusicPreview(event, '${selectedMusic.replace(/'/g, "\\'")}')">
+          ${btnText}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderQuickMusic() {
+  renderSelectedMusicRow();
+
+  const quickList = $('quick-music-list');
+  if (!quickList) return;
+
+  const music = assets.music || [];
+  const selectedMusic = $('saved-music-select').value;
+
+  quickList.innerHTML = '';
+  
+  if (music.length === 0) {
+    quickList.innerHTML = '<div style="color: var(--muted); font-size: 13px; padding: 8px;">Chưa có nhạc nền nào được lưu.</div>';
+    return;
+  }
+
+  // Lấy tối đa 3 bản nhạc
+  const top3 = music.slice(0, 3);
+  top3.forEach(item => {
+    const card = document.createElement('div');
+    const isSelected = item.filename === selectedMusic;
+    card.className = `voice-item-card${isSelected ? ' active' : ''}`;
+    card.dataset.filename = item.filename;
+    
+    const lastDot = item.filename.lastIndexOf('.');
+    const displayName = lastDot !== -1 ? item.filename.substring(0, lastDot) : item.filename;
+    const musicUrl = `/music/${encodeURIComponent(item.filename)}`;
+    
+    const isPlaying = currentAudio && currentAudioUrl === musicUrl && !currentAudio.paused;
+    const btnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+    const btnClass = isPlaying ? 'voice-item-play-btn playing' : 'voice-item-play-btn';
+
+    card.innerHTML = `
+      <div class="voice-item-info">
+        <span class="voice-item-name" title="${displayName}">${displayName}</span>
+      </div>
+      <div class="voice-item-actions">
+        <button type="button" class="${btnClass}" onclick="playMusicPreview(event, '${item.filename.replace(/'/g, "\\'")}')">
+          ${btnText}
+        </button>
+      </div>
+    `;
+    
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.voice-item-play-btn')) return;
+      selectMusicFile(item.filename);
+    });
+
+    quickList.appendChild(card);
+  });
+}
+
+function selectMusicFile(filename) {
+  const select = $('saved-music-select');
+  if (select) {
+    select.value = filename;
+    select.dispatchEvent(new Event('change'));
+  }
+  
+  // Cập nhật trạng thái active
+  document.querySelectorAll('#quick-music-container .voice-item-card, #modal-music-list .voice-item-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.filename === filename);
+  });
+
+  renderSelectedMusicRow();
+}
+
+function playMusicPreview(event, filename) {
+  if (event) event.stopPropagation();
+  const btn = event.currentTarget;
+  const musicUrl = `/music/${encodeURIComponent(filename)}`;
+  togglePlayAudio(btn, musicUrl);
+}
+
+function openAllMusicModal() {
+  const modal = $('all-music-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    $('modal-music-search').value = '';
+    renderModalMusic();
+  }
+}
+
+function closeAllMusicModal() {
+  const modal = $('all-music-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+function renderModalMusic(filter = '') {
+  const container = $('modal-music-list');
+  if (!container) return;
+
+  const music = assets.music || [];
+  const selectedMusic = $('saved-music-select').value;
+  const filtered = music.filter(m => 
+    m.filename.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  container.innerHTML = '';
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="color: var(--muted); font-size: 13px; text-align: center; padding: 12px;">Không tìm thấy nhạc nền nào.</div>';
+    return;
+  }
+
+  filtered.forEach(item => {
+    const card = document.createElement('div');
+    const isSelected = item.filename === selectedMusic;
+    card.className = `voice-item-card${isSelected ? ' active' : ''}`;
+    card.dataset.filename = item.filename;
+    
+    const lastDot = item.filename.lastIndexOf('.');
+    const displayName = lastDot !== -1 ? item.filename.substring(0, lastDot) : item.filename;
+    const musicUrl = `/music/${encodeURIComponent(item.filename)}`;
+    
+    let sizeStr = '';
+    if (item.size) {
+      sizeStr = item.size > 1024 * 1024 
+        ? `${(item.size / (1024 * 1024)).toFixed(1)} MB` 
+        : `${(item.size / 1024).toFixed(0)} KB`;
+    }
+
+    const isPlaying = currentAudio && currentAudioUrl === musicUrl && !currentAudio.paused;
+    const btnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+    const btnClass = isPlaying ? 'voice-item-play-btn playing' : 'voice-item-play-btn';
+
+    card.innerHTML = `
+      <div class="voice-item-info">
+        <span class="voice-item-name" title="${displayName}">${displayName}</span>
+        ${sizeStr ? `<span class="voice-item-meta">${sizeStr}</span>` : ''}
+      </div>
+      <div class="voice-item-actions">
+        <button type="button" class="${btnClass}" onclick="playMusicPreview(event, '${item.filename.replace(/'/g, "\\'")}')">
+          ${btnText}
+        </button>
+      </div>
+    `;
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.voice-item-play-btn')) return;
+      selectMusicFile(item.filename);
+      closeAllMusicModal();
+    });
+
+    container.appendChild(card);
+  });
+}
+
+function filterModalMusic() {
+  const searchInput = $('modal-music-search');
+  if (searchInput) {
+    renderModalMusic(searchInput.value);
+  }
+}
+
+// Gán vào window
+window.playMusicPreview = playMusicPreview;
+window.openAllMusicModal = openAllMusicModal;
+window.closeAllMusicModal = closeAllMusicModal;
+window.filterModalMusic = filterModalMusic;
+window.renderQuickMusic = renderQuickMusic;
+window.selectMusicFile = selectMusicFile;
+
 
 
 
