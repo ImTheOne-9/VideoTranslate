@@ -676,7 +676,7 @@ async function renderStudio(event) {
 
   data.set('translateVi', 'true');
   data.set('burnSub', 'true');
-  data.set('blurOriginalSub', 'true');
+  data.set('blurOriginalSub', (blurBoxes && blurBoxes.length > 0) ? 'true' : 'false');
   data.append('blurBoxes', JSON.stringify(blurBoxes));
 
   const aiSettings = getGlobalAiSettings();
@@ -3481,28 +3481,34 @@ function renderCurrentConfigSummary() {
   }
 
   // 1. Phụ đề (Subtitles)
-  const fontSelect = document.querySelector('select[name="subtitleFont"]');
-  const sizeInput = document.querySelector('input[name="subtitleSize"]');
-  const colorInput = document.querySelector('input[name="subtitleColor"]');
-  const themeSelect = document.querySelector('select[name="subtitleTheme"]');
-  const boldSelect = document.querySelector('select[name="subtitleBold"]');
-  const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
-  const marginInput = document.querySelector('input[name="subtitleMargin"]');
-  const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
-  
-  let subtitleParts = [];
-  if (fontSelect) subtitleParts.push(`Phông: ${getSelectedText(fontSelect)}`);
-  if (sizeInput) subtitleParts.push(`Cỡ: ${sizeInput.value}px`);
-  if (colorInput) {
-    subtitleParts.push(`Màu: <span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:${colorInput.value}; vertical-align:middle; border:1px solid rgba(255,255,255,0.2);"></span> ${colorInput.value}`);
-  }
-  if (themeSelect) subtitleParts.push(`Kiểu: ${getSelectedText(themeSelect)}`);
-  if (boldSelect && boldSelect.value === 'yes') subtitleParts.push(`In đậm`);
-  if (maxLinesSelect) subtitleParts.push(`Dòng tối đa: ${maxLinesSelect.value}`);
-  if (marginInput) subtitleParts.push(`Lề dọc: ${marginInput.value}px`);
-  if (marginHInput) subtitleParts.push(`Lề ngang: ${marginHInput.value}px`);
+  const subModeInput = $('subtitle-mode');
+  const subModeVal = subModeInput ? subModeInput.value : 'none';
+  if (subModeVal === 'none') {
+    summary.push(`<div>📝 <b>Phụ đề:</b> Không dùng</div>`);
+  } else {
+    const fontSelect = document.querySelector('select[name="subtitleFont"]');
+    const sizeInput = document.querySelector('input[name="subtitleSize"]');
+    const colorInput = document.querySelector('input[name="subtitleColor"]');
+    const themeSelect = document.querySelector('select[name="subtitleTheme"]');
+    const boldSelect = document.querySelector('select[name="subtitleBold"]');
+    const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
+    const marginInput = document.querySelector('input[name="subtitleMargin"]');
+    const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
+    
+    let subtitleParts = [];
+    if (fontSelect) subtitleParts.push(`Phông: ${getSelectedText(fontSelect)}`);
+    if (sizeInput) subtitleParts.push(`Cỡ: ${sizeInput.value}px`);
+    if (colorInput) {
+      subtitleParts.push(`Màu: <span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:${colorInput.value}; vertical-align:middle; border:1px solid rgba(255,255,255,0.2);"></span> ${colorInput.value}`);
+    }
+    if (themeSelect) subtitleParts.push(`Kiểu: ${getSelectedText(themeSelect)}`);
+    if (boldSelect && boldSelect.value === 'yes') subtitleParts.push(`In đậm`);
+    if (maxLinesSelect) subtitleParts.push(`Dòng tối đa: ${maxLinesSelect.value}`);
+    if (marginInput) subtitleParts.push(`Lề dọc: ${marginInput.value}px`);
+    if (marginHInput) subtitleParts.push(`Lề ngang: ${marginHInput.value}px`);
 
-  summary.push(`<div>📝 <b>Phụ đề:</b> ${subtitleParts.join(' | ') || 'Không thiết lập'}</div>`);
+    summary.push(`<div>📝 <b>Phụ đề:</b> ${subtitleParts.join(' | ') || 'Không thiết lập'}</div>`);
+  }
 
   // Làm mờ phụ đề gốc
   if (blurBoxes && blurBoxes.length > 0) {
@@ -3511,15 +3517,16 @@ function renderCurrentConfigSummary() {
 
   // 2. Thuyết minh (Voiceover)
   const voiceModeInput = $('voice-mode');
+  let voiceModeVal = 'none';
   if (voiceModeInput) {
     let voiceModeText = 'Không chèn';
-    const val = voiceModeInput.value;
-    if (val === 'saved') voiceModeText = 'Giọng thuyết minh đã lưu';
-    else if (val === 'upload') voiceModeText = 'Tải lên file mới';
-    else if (val === 'omi' || val === 'cloner') voiceModeText = 'Thuyết minh tự động (Omni Cloner)';
+    voiceModeVal = voiceModeInput.value;
+    if (voiceModeVal === 'saved') voiceModeText = 'Giọng thuyết minh đã lưu';
+    else if (voiceModeVal === 'upload') voiceModeText = 'Tải lên file mới';
+    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh tự động (Omni Cloner)';
     
     let voiceDetail = '';
-    if (val !== 'none') {
+    if (voiceModeVal !== 'none') {
       const voiceSelect = $('saved-voice-select');
       if (voiceSelect && voiceSelect.value) {
         voiceDetail = ` (${voiceSelect.value})`;
@@ -3530,14 +3537,15 @@ function renderCurrentConfigSummary() {
 
   // 3. Nhạc nền (Background Music)
   const musicModeInput = $('music-mode');
+  let musicModeVal = 'none';
   if (musicModeInput) {
     let musicModeText = 'Không dùng';
-    const val = musicModeInput.value;
-    if (val === 'saved') musicModeText = 'Nhạc nền đã lưu';
-    else if (val === 'upload') musicModeText = 'Tải lên file mới';
+    musicModeVal = musicModeInput.value;
+    if (musicModeVal === 'saved') musicModeText = 'Nhạc nền đã lưu';
+    else if (musicModeVal === 'upload') musicModeText = 'Tải lên file mới';
     
     let musicDetail = '';
-    if (val !== 'none') {
+    if (musicModeVal !== 'none') {
       const musicSelect = $('saved-music-select');
       if (musicSelect && musicSelect.value) {
         musicDetail = ` (${musicSelect.value})`;
@@ -3552,14 +3560,13 @@ function renderCurrentConfigSummary() {
   const volMusic = document.querySelector('input[name="musicVolume"]');
   if (volOrg || volVoice || volMusic) {
     const vols = [];
-    if (volOrg) vols.push(`Gốc: ${volOrg.value}%`);
-    if (volVoice) vols.push(`Giọng đọc: ${volVoice.value}%`);
-    if (volMusic) vols.push(`Nhạc nền: ${volMusic.value}%`);
+    if (volOrg) vols.push(`Gốc: ${Math.round(volOrg.value * 100)}%`);
+    if (volVoice && voiceModeVal !== 'none') vols.push(`Giọng đọc: ${Math.round(volVoice.value * 100)}%`);
+    if (volMusic && musicModeVal !== 'none') vols.push(`Nhạc nền: ${Math.round(volMusic.value * 100)}%`);
     summary.push(`<div>🔊 <b>Âm lượng:</b> ${vols.join(' | ')}</div>`);
   }
 
   // 5. Cấu hình AI Cloner (nếu có thuyết minh cloner)
-  const voiceModeVal = voiceModeInput ? voiceModeInput.value : '';
   if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') {
     const omiLanguage = document.querySelector('select[name="omiLanguage"]');
     const omiDevice = document.querySelector('select[name="omiDevice"]');
@@ -3604,7 +3611,7 @@ function submitSaveTemplate(event) {
     subtitleMaxLines: document.querySelector('select[name="subtitleMaxLines"]').value,
     subtitleMargin: document.querySelector('input[name="subtitleMargin"]').value,
     subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
-    blurOriginalSub: true,
+    blurOriginalSub: (blurBoxes && blurBoxes.length > 0),
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
     savedVoiceFile: $('saved-voice-select').value,
