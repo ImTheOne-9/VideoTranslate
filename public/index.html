@@ -328,9 +328,13 @@
                     <div class="timeline-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                       <div style="display: flex; align-items: center; gap: 8px;">
                         <button type="button" id="timeline-play-btn" style="background: var(--accent); padding: 4px 10px; font-size: 11px; height: 28px; width: auto; margin: 0; color: white;">▶ Phát</button>
+                        <button type="button" class="premium-dropdown-btn" style="background: var(--accent-2); padding: 4px 10px; font-size: 11px; height: 28px; width: auto; margin: 0; color: white; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" onclick="saveStudioTemplate()">💾 Thêm Template</button>
+                        <button type="submit" id="render-btn" class="premium-render-btn" style="width: auto; padding: 4px 12px; font-size: 11px; height: 28px; margin: 0; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; border-radius: 4px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2); display: inline-flex; align-items: center; justify-content: center; gap: 8px;">✨ RENDER VIDEO ✨</button>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 11px; color: var(--soft); font-weight: 500;">Kéo thước đo để tua, kéo khối để chỉnh thời gian</span>
                         <span id="timeline-time-label" style="font-size: 12px; font-weight: 600; color: var(--muted);">00:00 / 00:00</span>
                       </div>
-                      <span style="font-size: 11px; color: var(--soft); font-weight: 500;">Kéo thước đo để tua, kéo khối để chỉnh thời gian</span>
                     </div>
 
                     <div id="timeline-tracks-area" style="position: relative; background: #080c10; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; height: 110px; user-select: none;">
@@ -367,10 +371,6 @@
                       <div style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; position: relative;">
                         <div id="render-progress-bar" style="width: 0%; height: 100%; background: var(--accent-2); transition: width 0.3s ease;"></div>
                       </div>
-                    </div>
-                    <div style="display: flex; gap: 12px;">
-                      <button type="submit" id="render-btn" class="premium-render-btn" style="flex: 1; margin: 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">✨ RENDER VIDEO ✨</button>
-                      <button type="button" id="open-folder-btn" class="premium-render-btn ghost-btn" style="width: auto; margin: 0; padding: 0 16px;" onclick="fetch('/api/open-folder')">📂</button>
                     </div>
                     <span id="render-status" style="line-height: 1.4; display: block; text-align: center; color: var(--muted); font-size: 12px;"></span>
                   </div>
@@ -1546,7 +1546,7 @@
 
   <!-- Save Template Dialog Modal -->
   <div id="save-template-modal" class="fb-modal-overlay hidden">
-    <div class="fb-modal-content" style="max-width: 420px; width: 95%;">
+    <div class="fb-modal-content" style="max-width: 760px; width: 95%;">
       <div class="fb-modal-header" style="background: rgba(24, 119, 242, 0.1); border-bottom-color: rgba(24, 119, 242, 0.2);">
         <h3 style="color: var(--accent); display: flex; align-items: center; gap: 8px;">
           💾 Lưu cấu hình Template
@@ -1555,11 +1555,23 @@
       </div>
       <div class="fb-modal-body" style="padding: 20px;">
         <form id="save-template-form" onsubmit="submitSaveTemplate(event)">
-          <div class="form-group" style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tên cấu hình template gợi nhớ</label>
-            <input type="text" id="save-template-name-input" required class="premium-input" placeholder="Ví dụ: Kênh Review Corgi, Video Short Tiktok...">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;">
+            <!-- Cột trái: Nhập tên -->
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text); text-align: left;">Tên cấu hình template gợi nhớ</label>
+              <input type="text" id="save-template-name-input" required class="premium-input" placeholder="Ví dụ: Kênh Review Corgi, Video Short Tiktok..." style="width: 100%;">
+            </div>
+            
+            <!-- Cột phải: Thông số cấu hình sẽ lưu -->
+            <div id="save-template-summary-container" style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-size: 12px; font-weight: 600; color: var(--muted); display: block; text-align: left;">Thông số cấu hình sẽ lưu:</label>
+              <div id="save-template-summary-list" style="height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--text);">
+                <!-- Render summary dynamically in JS -->
+              </div>
+            </div>
           </div>
-          <div style="display: flex; gap: 10px; margin-top: 24px; width: 100%;">
+          
+          <div style="display: flex; gap: 12px; margin-top: 24px; width: 100%;">
             <button type="submit" class="premium-render-btn" style="flex: 1; margin: 0; background: var(--accent); color: white;">Lưu cấu hình</button>
             <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeSaveTemplateModal()">Hủy</button>
           </div>

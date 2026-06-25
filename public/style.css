@@ -2284,7 +2284,7 @@ select option {
 
 .studio-workspace-layout-new {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 1fr);
   gap: 16px;
   align-items: stretch;
   flex: 1;
