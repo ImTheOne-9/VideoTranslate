@@ -514,7 +514,7 @@
                 <!-- Panel 3: Phụ đề -->
                 <div id="panel-subtitle" class="panel premium-sub-panel hidden" style="margin-top: 14px;">
                   <div class="panel-head">
-                    <h3>Phụ đề (Subtitle)</h3>
+                    <h3>Phụ đề</h3>
                   </div>
                   <div class="form-group">
                     <label>Nguồn phụ đề</label>
@@ -539,25 +539,8 @@
                     </label>
                   </div>
 
-                  <div class="switch-container" style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
-                    <label class="premium-switch">
-                      <input type="checkbox" id="burn-sub" name="burnSub" value="true" checked>
-                      <span class="switch-slider"></span>
-                      <span class="switch-label">Chèn sub vào video</span>
-                    </label>
-                    <label class="premium-switch">
-                      <input type="checkbox" id="translate-vi" name="translateVi" value="true">
-                      <span class="switch-slider"></span>
-                      <span class="switch-label">Dịch phụ đề sang Tiếng Việt</span>
-                    </label>
-                    <label class="premium-switch">
-                      <input type="checkbox" id="blur-original-sub" name="blurOriginalSub" value="true">
-                      <span class="switch-slider"></span>
-                      <span class="switch-label">Làm mờ phụ đề gốc</span>
-                    </label>
-                  </div>
-                  
-                  <div id="blur-settings-container" class="hidden" style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+
+                  <div id="blur-settings-container" style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                       <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng làm mờ</label>
                       <button type="button" class="premium-dropdown-btn" style="padding: 4px 10px; font-size: 11px; height: auto; margin: 0; background: var(--accent); color: white;" onclick="addBlurBox()">➕ Thêm vùng</button>
@@ -584,7 +567,8 @@
                     </div>
                   </div>
 
-                  <div class="sub-settings-grid">
+                  <div id="sub-settings-container" class="hidden">
+                    <div class="sub-settings-grid">
                     <div class="form-group">
                       <label style="display: flex; justify-content: space-between;">
                         <span>Cỡ chữ sub</span>
@@ -679,7 +663,7 @@
 
                   <!-- Mẫu chữ nhanh (40 Presets) -->
                   <div class="form-group" id="subtitle-presets-container" style="background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 10px;">
-                    <label style="font-weight: 700; color: var(--accent); margin-bottom: 12px; font-size: 11px; display: block; text-transform: uppercase; letter-spacing: 0.5px;">⚡ MẪU CHỮ NHANH (COMBINED PRESETS)</label>
+                    <label style="font-weight: 700; color: var(--accent); margin-bottom: 12px; font-size: 11px; display: block; text-transform: uppercase; letter-spacing: 0.5px;">⚡ MẪU CHỮ NHANH</label>
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                       <!-- Presets Grid Row 1 -->
                       <div>
@@ -763,12 +747,13 @@
                       <option value="3">Tối đa 3 dòng (Chi tiết)</option>
                     </select>
                   </div>
+                  </div>
                 </div>
 
                 <!-- Panel 4: Voice / Omi Cloner -->
-                <div id="panel-voice" class="panel premium-ai-panel hidden" style="margin-top: 14px;">
+                <div id="panel-voice" class="panel hidden" style="margin-top: 14px;">
                   <div class="panel-head">
-                    <h3>Voice / Omi Cloner</h3>
+                    <h3>Thuyết minh</h3>
                   </div>
                   <div class="form-group">
                     <label>Chế độ giọng nói</label>
@@ -823,7 +808,7 @@
                       </div>
                     </div>
                   </div>
-                  <p class="note info-note">💡 Omi Cloner yêu cầu file giọng mẫu ngắn trong thư viện để tiến hành sao chép giọng.</p>
+
                 </div>
 
                 <!-- Panel 5: Nhạc & Mixer -->

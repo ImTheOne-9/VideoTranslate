@@ -674,9 +674,9 @@ async function renderStudio(event) {
     }
   }
 
-  data.set('translateVi', ($('translate-vi') && $('translate-vi').checked) ? 'true' : 'false');
-  data.set('burnSub', ($('burn-sub') && $('burn-sub').checked) ? 'true' : 'false');
-  data.set('blurOriginalSub', ($('blur-original-sub') && $('blur-original-sub').checked) ? 'true' : 'false');
+  data.set('translateVi', 'true');
+  data.set('burnSub', 'true');
+  data.set('blurOriginalSub', 'true');
   data.append('blurBoxes', JSON.stringify(blurBoxes));
 
   const aiSettings = getGlobalAiSettings();
@@ -1560,11 +1560,7 @@ function updateConditionalFields() {
     }
   }
 
-  const blurCheck = $('blur-original-sub');
-  const blurSettings = $('blur-settings-container');
-  if (blurCheck && blurSettings) {
-    blurSettings.classList.toggle('hidden', !blurCheck.checked);
-  }
+
   if (typeof updateBlurBoxPreview === 'function') {
     updateBlurBoxPreview();
   }
@@ -2752,8 +2748,7 @@ function updateSubtitleOverlayFromInputs() {
     konvaBlur.visible(false); // Ẩn blur box đơn lẻ cũ
   }
 
-  const blurCheck = $('blur-original-sub');
-  const isBlurEnabled = blurCheck && blurCheck.checked;
+  const isBlurEnabled = true;
   const mainVideoElement = $('studio-video-preview');
   const currentTime = mainVideoElement ? mainVideoElement.currentTime : 0;
 
@@ -2992,6 +2987,9 @@ function addBlurBox() {
   };
   blurBoxes.push(newBox);
   activeBlurBoxId = newBox.id;
+
+
+
   renderBlurBoxesList();
   updateSubtitleOverlayFromInputs();
 }
@@ -3507,9 +3505,8 @@ function renderCurrentConfigSummary() {
   summary.push(`<div>📝 <b>Phụ đề:</b> ${subtitleParts.join(' | ') || 'Không thiết lập'}</div>`);
 
   // Làm mờ phụ đề gốc
-  const blurOriginalSub = $('blur-original-sub');
-  if (blurOriginalSub && blurOriginalSub.checked) {
-    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes ? blurBoxes.length : 0} vùng mờ)</div>`);
+  if (blurBoxes && blurBoxes.length > 0) {
+    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes.length} vùng mờ)</div>`);
   }
 
   // 2. Thuyết minh (Voiceover)
@@ -3607,7 +3604,7 @@ function submitSaveTemplate(event) {
     subtitleMaxLines: document.querySelector('select[name="subtitleMaxLines"]').value,
     subtitleMargin: document.querySelector('input[name="subtitleMargin"]').value,
     subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
-    blurOriginalSub: $('blur-original-sub').checked,
+    blurOriginalSub: true,
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
     savedVoiceFile: $('saved-voice-select').value,
@@ -3696,11 +3693,7 @@ function loadStudioTemplate(templateName) {
   document.querySelector('input[name="subtitleMarginH"]').value = template.subtitleMarginH;
 
   // Restore blur settings
-  const blurCheck = $('blur-original-sub');
-  if (blurCheck) {
-    blurCheck.checked = template.blurOriginalSub;
-    blurCheck.dispatchEvent(new Event('change'));
-  }
+
   
   blurBoxes = template.blurBoxes || [];
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
@@ -3893,7 +3886,7 @@ const bulkDlBtn = $('bulk-download-selected-btn');
 if (bulkDlBtn) {
   bulkDlBtn.addEventListener('click', downloadSelectedBulkVideos);
 }
-['subtitle-mode', 'voice-mode', 'music-mode', 'reaction-mode', 'blur-original-sub'].forEach(id => {
+['subtitle-mode', 'voice-mode', 'music-mode', 'reaction-mode'].forEach(id => {
   const el = $(id);
   if (el) el.addEventListener('change', updateConditionalFields);
 });
@@ -4328,6 +4321,8 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
     if (input) {
       const mode = btn.dataset.subMode;
       input.value = mode;
+      
+
       
       // Automatically center subtitle overlay when any active subtitle mode is selected
       if (mode !== 'none') {
