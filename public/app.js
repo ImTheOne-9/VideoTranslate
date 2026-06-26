@@ -846,12 +846,19 @@ async function renderStudio(event) {
     status.textContent = '';
     toast(error.message, 'error');
     
-    // Cập nhật giao diện lỗi
+    // Cập nhật giao diện lỗi hoặc hủy
+    const isCancelled = error.message.includes('hủy') || error.message.includes('cancel');
+    const statusTitle = isCancelled ? 'Đã hủy render' : 'Render thất bại';
+    const statusIcon = isCancelled ? '⏹️' : '❌';
+    const statusColor = isCancelled ? 'var(--muted)' : '#ef4444';
+    const borderColor = isCancelled ? 'var(--border)' : 'rgba(239, 68, 68, 0.3)';
+    const bgColor = isCancelled ? 'rgba(255, 255, 255, 0.01)' : 'rgba(239, 68, 68, 0.05)';
+    
     const errorHtml = `
-      <div class="render-loading-state" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);">
-        <div style="font-size: 40px; margin-bottom: 15px;">❌</div>
-        <h3 style="color: #ef4444;">Render thất bại</h3>
-        <p style="color: #fca5a5;">${error.message}</p>
+      <div class="render-loading-state" style="border-color: ${borderColor}; background: ${bgColor};">
+        <div style="font-size: 40px; margin-bottom: 15px;">${statusIcon}</div>
+        <h3 style="color: ${statusColor};">${statusTitle}</h3>
+        <p style="color: var(--muted);">${error.message}</p>
       </div>
     `;
     if ($('render-result')) $('render-result').innerHTML = errorHtml;
@@ -962,18 +969,27 @@ async function checkActiveRenderProgress() {
             if (status) status.textContent = '';
             
             let errMsg = 'Render lỗi';
+            let isCancelled = false;
             if (data.status === 'idle') {
               errMsg = 'Đã hủy tiến trình render.';
+              isCancelled = true;
             } else if (data.error) {
               errMsg = data.error;
+              isCancelled = errMsg.includes('hủy') || errMsg.includes('cancel');
             }
             toast(errMsg, 'error');
             
+            const statusTitle = isCancelled ? 'Đã hủy render' : 'Render thất bại';
+            const statusIcon = isCancelled ? '⏹️' : '❌';
+            const statusColor = isCancelled ? 'var(--muted)' : '#ef4444';
+            const borderColor = isCancelled ? 'var(--border)' : 'rgba(239, 68, 68, 0.3)';
+            const bgColor = isCancelled ? 'rgba(255, 255, 255, 0.01)' : 'rgba(239, 68, 68, 0.05)';
+            
             const errorHtml = `
-              <div class="render-loading-state" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);">
-                <div style="font-size: 40px; margin-bottom: 15px;">❌</div>
-                <h3 style="color: #ef4444;">Render thất bại</h3>
-                <p style="color: #fca5a5;">${errMsg}</p>
+              <div class="render-loading-state" style="border-color: ${borderColor}; background: ${bgColor};">
+                <div style="font-size: 40px; margin-bottom: 15px;">${statusIcon}</div>
+                <h3 style="color: ${statusColor};">${statusTitle}</h3>
+                <p style="color: var(--muted);">${errMsg}</p>
               </div>
             `;
             if ($('render-result')) $('render-result').innerHTML = errorHtml;

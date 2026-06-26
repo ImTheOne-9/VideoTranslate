@@ -2071,8 +2071,15 @@ app.post('/api/render-studio', studioUpload.fields([
   if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
     console.log('[Studio Render] Đang có tiến trình render chạy. Tiến hành hủy tiến trình cũ trước khi chạy mới...');
     killActiveRenderProcesses();
+    if (global.activeRenderRes) {
+      try {
+        global.activeRenderRes.status(400).json({ error: 'Render bị hủy vì có yêu cầu render mới.' });
+      } catch (e) {}
+      global.activeRenderRes = null;
+    }
   }
 
+  global.activeRenderRes = res;
   activeRenderId = renderId;
   isStudioRendering = true;
 
@@ -2918,6 +2925,9 @@ app.post('/api/render-studio', studioUpload.fields([
       updateStudioProgress(100, 'Hoàn tất render!');
       studioProgress.status = 'success';
       isStudioRendering = false;
+      if (global.activeRenderRes === res) {
+        global.activeRenderRes = null;
+      }
 
       res.json({
         success: true,
@@ -2927,6 +2937,12 @@ app.post('/api/render-studio', studioUpload.fields([
       });
     } else {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
+      if (global.activeRenderRes === res) {
+        try {
+          res.status(400).json({ error: 'Render đã bị hủy.' });
+        } catch (e) {}
+        global.activeRenderRes = null;
+      }
     }
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message);
@@ -2934,9 +2950,18 @@ app.post('/api/render-studio', studioUpload.fields([
       isStudioRendering = false;
       studioProgress.status = 'error';
       studioProgress.error = error.message;
+      if (global.activeRenderRes === res) {
+        global.activeRenderRes = null;
+      }
       res.status(500).json({ error: error.message || 'Không thể render video. Kiểm tra video, sub, voice hoặc nhạc nền.' });
     } else {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã bị hủy hoặc thay thế. Bỏ qua phản hồi lỗi.`);
+      if (global.activeRenderRes === res) {
+        try {
+          res.status(400).json({ error: 'Render đã bị hủy.' });
+        } catch (e) {}
+        global.activeRenderRes = null;
+      }
     }
   }
 });
@@ -2953,6 +2978,15 @@ app.post('/api/cancel-render', (req, res) => {
       step: 'Đã hủy tiến trình render theo yêu cầu.',
       error: null
     };
+    
+    // Gửi phản hồi lỗi lập tức cho request render-studio cũ đang bị kẹt
+    if (global.activeRenderRes) {
+      try {
+        global.activeRenderRes.status(400).json({ error: 'Render đã bị hủy bởi người dùng.' });
+      } catch (e) {}
+      global.activeRenderRes = null;
+    }
+
     return res.json({ success: true, message: 'Đã hủy render thành công.' });
   }
   res.json({ success: true, message: 'Không có tiến trình render nào đang chạy.' });

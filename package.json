@@ -49,11 +49,6 @@
         "filter": [
           "ffmpeg.exe",
           "yt-dlp.exe",
-          "msvcp140.dll",
-          "vcomp140.dll",
-          "vcruntime140.dll",
-          "vcruntime140_1.dll",
-          "whisper_onnx.exe",
           "nllb_translate.exe",
           "omnivoice/omnivoice-cli.exe",
           "omnivoice/*.dll"
