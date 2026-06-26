@@ -30,6 +30,7 @@ function getExtPath(...parts) {
   const base = isPackaged ? process.resourcesPath : __dirname;
   return path.join(base, ...parts);
 }
+const TOOLS_DIR = getExtPath('tools');
 
 // Thiết lập thư mục lưu trữ dữ liệu (downloads, uploads)
 let DOWNLOADS_DIR, UPLOADS_DIR;
@@ -1116,7 +1117,7 @@ app.post('/api/download-local', async (req, res) => {
   });
 
   try {
-    let { url, format_id, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+    let { url, format_id, customFilename, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -1126,7 +1127,17 @@ app.post('/api/download-local', async (req, res) => {
     
     const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
-    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    
+    let safeTitle;
+    if (customFilename) {
+      safeTitle = removeVietnameseTones(customFilename).replace(/[<>:"/\\|?*]/g, '_').trim();
+      if (safeTitle.toLowerCase().endsWith('.mp4')) {
+        safeTitle = safeTitle.substring(0, safeTitle.length - 4);
+      }
+      safeTitle = safeTitle.substring(0, 100);
+    } else {
+      safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    }
     
     const isVietsub = format_id === 'vietsub';
 
@@ -1846,6 +1857,80 @@ app.post('/api/save-music', studioUpload.single('music'), (req, res) => {
     console.error('Save music error:', error.message);
     res.status(500).json({ error: 'Không thể lưu nhạc nền' });
   }
+});
+
+app.post('/api/save-video', studioUpload.single('video'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Thiếu file video' });
+    const savedPath = moveUploadedFile(req.file, DOWNLOADS_DIR, req.body.videoName || req.file.originalname);
+    res.json({
+      success: true,
+      message: 'Đã lưu video thành công',
+      video: path.basename(savedPath)
+    });
+  } catch (error) {
+    console.error('Save video error:', error.message);
+    res.status(500).json({ error: 'Không thể lưu video' });
+  }
+});
+
+// ==========================================================
+// HỆ THỐNG TẢI ĐỘNG CÁC THƯ VIỆN AI NẶNG (CUDA, WHISPER)
+// ==========================================================
+const { checkDependencyStatus, downloadAndExtract } = require('./lib/dependency-downloader');
+let activeDependencyDownload = null;
+
+app.get('/api/check-dependencies-status', (req, res) => {
+  try {
+    const status = checkDependencyStatus(TOOLS_DIR);
+    res.json(status);
+  } catch (error) {
+    console.error('Check dependency status error:', error.message);
+    res.status(500).json({ error: 'Không thể kiểm tra trạng thái thư viện' });
+  }
+});
+
+app.post('/api/download-dependency', async (req, res) => {
+  const { type } = req.body; // 'cuda' hoặc 'whisper'
+  if (!['cuda', 'whisper'].includes(type)) {
+    return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
+  }
+
+  if (activeDependencyDownload) {
+    return res.status(400).json({ error: 'Đang có tiến trình tải xuống chạy ngầm khác' });
+  }
+
+  activeDependencyDownload = { type, percent: 0, status: 'downloading' };
+  res.json({ message: 'Bắt đầu tải xuống ngầm' });
+
+  try {
+    console.log(`[Dependency Downloader] Bắt đầu tải ${type} vào ${TOOLS_DIR}...`);
+    await downloadAndExtract(type, TOOLS_DIR, (downloaded, total) => {
+      if (activeDependencyDownload) {
+        activeDependencyDownload.percent = Math.floor((downloaded / (total || 1)) * 100);
+      }
+    });
+    if (activeDependencyDownload) {
+      activeDependencyDownload.status = 'success';
+      activeDependencyDownload.percent = 100;
+    }
+    console.log(`[Dependency Downloader] Tải và giải nén ${type} thành công.`);
+  } catch (err) {
+    console.error(`[Dependency Downloader] Lỗi khi tải ${type}:`, err.message);
+    if (activeDependencyDownload) {
+      activeDependencyDownload.status = 'error';
+      activeDependencyDownload.error = err.message;
+    }
+  } finally {
+    // Reset tiến trình sau 8 giây
+    setTimeout(() => {
+      activeDependencyDownload = null;
+    }, 8000);
+  }
+});
+
+app.get('/api/download-dependency-progress', (req, res) => {
+  res.json(activeDependencyDownload || { status: 'idle' });
 });
 
 // ==========================================================

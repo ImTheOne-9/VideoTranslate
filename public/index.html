@@ -14,11 +14,15 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar">
+      <!-- Floating Sidebar Toggle Button -->
+      <button type="button" class="sidebar-toggle-btn" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Thu nhỏ / Mở rộng menu">
+        <span id="sidebar-toggle-icon">◀</span>
+      </button>
+
       <div class="brand">
         <div class="brand-mark">VS</div>
-        <div>
+        <div class="brand-text">
           <h1>Video Studio</h1>
-          <p>Downloader + Vietsub + Voice + Music</p>
         </div>
       </div>
 
@@ -89,6 +93,11 @@
               <div>
                 <h4 id="video-title"></h4>
                 <p id="video-meta"></p>
+                <div style="display: flex; align-items: center; gap: 8px; margin: 6px 0 10px 0;">
+                  <span style="font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;">Đặt tên file:</span>
+                  <input type="text" id="video-filename-input" class="premium-input" style="flex: 1; height: 32px; font-size: 13px; padding: 4px 10px; margin: 0; background: rgba(255,255,255,0.02); border-color: var(--border); border-radius: 4px; color: var(--text);" placeholder="Đặt tên tùy chỉnh cho video...">
+                  <span style="font-size: 13px; color: var(--muted); font-weight: 600;">.mp4</span>
+                </div>
                 <div id="quality-grid" class="quality-grid"></div>
               </div>
             </div>
@@ -567,22 +576,6 @@
                     </div>
                   </div>
                   
-                  <div id="whisper-model-wrapper" class="form-group hidden" style="margin-top: 10px; margin-bottom: 15px;">
-                    <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                      <span>Độ chính xác (Model AI)</span>
-                      <span id="whisper-model-status" style="font-size: 11px; font-weight: bold; color: var(--accent);">Đang kiểm tra...</span>
-                    </label>
-                    <div style="display: flex; gap: 8px;">
-                      <select id="whisper-model-select" name="whisperModel" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
-                        <option value="base" selected>🎙️ Bản tiêu chuẩn (Base - 140MB - Khuyên dùng)</option>
-                        <option value="tiny">⚡ Bản siêu nhẹ (Tiny - 75MB - Nhận diện nhanh)</option>
-                        <option value="small">📢 Bản nâng cao (Small - 460MB - Khá tốt)</option>
-                        <option value="medium">🎯 Bản chuyên nghiệp (Medium - 1.5GB - Rất chính xác)</option>
-                        <option value="large-v3">🏆 Bản cao cấp nhất (Large-V3 - 3.0GB - Tốt nhất)</option>
-                      </select>
-                      <button type="button" id="whisper-model-download-btn" class="premium-render-btn" style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;" onclick="openWhisperDownloadModal()">📥 Tải</button>
-                    </div>
-                  </div>
 
                   <div id="sub-settings-container" class="hidden">
                     <div class="sub-settings-grid">
@@ -876,6 +869,14 @@
                     <label for="music-upload" class="premium-upload-zone">
                       <span>🎵</span> Tải lên file nhạc nền (.mp3, .wav, .m4a)
                     </label>
+                    <div id="upload-music-preview-container" class="upload-music-preview hidden">
+                      <label style="font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; margin-bottom: 6px; display: block;">Xem trước nhạc nền đã chọn</label>
+                      <audio id="upload-music-preview" controls></audio>
+                      <div class="video-preview-info">
+                        <span id="upload-music-name"></span>
+                        <span id="upload-music-size"></span>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- Audio Mixer Board Section -->
@@ -1617,44 +1618,75 @@
       </div>
       <div class="fb-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
         
-        <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
-          <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
-          <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()" style="margin: 0; height: 38px;">
-            <option value="google-translate" selected>🌐 Google Translate (Mặc định - An toàn &amp; Khuyên dùng)</option>
-            <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
-            <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
-          </select>
+        <!-- Tabs -->
+        <div class="studio-source-tabs" style="margin-bottom: 4px; display: flex; gap: 4px;">
+          <button type="button" class="settings-tab-btn active" onclick="switchSettingsTab('translate')" data-settings-tab="translate">🌐 Dịch thuật AI</button>
+          <button type="button" class="settings-tab-btn" onclick="switchSettingsTab('whisper')" data-settings-tab="whisper">🎙️ Phụ đề AI (Whisper)</button>
         </div>
 
-        <!-- Gemini Fields -->
-        <div id="global-gemini-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+        <!-- Tab 1: Translate Content -->
+        <div id="settings-tab-translate" class="settings-tab-content" style="display: flex; flex-direction: column; gap: 16px;">
           <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 13px; font-weight: 600; color: var(--text);">Google Gemini API Key</label>
-            <input type="password" id="global-gemini-key" class="premium-input" placeholder="Nhập API Key của Google AI Studio..." style="margin: 0;">
-            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy Key miễn phí từ Google AI Studio. Được lưu trữ cục bộ bảo mật.</p>
-          </div>
-        </div>
-
-        <!-- OpenRouter Fields -->
-        <div id="global-openrouter-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
-          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter API Key</label>
-            <input type="password" id="global-openrouter-key" class="premium-input" placeholder="Nhập API Key của OpenRouter..." style="margin: 0;">
-            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Tạo key của bạn tại openrouter.ai.</p>
-          </div>
-          
-          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter Model</label>
-            <select id="global-openrouter-model" class="premium-select" style="margin: 0; height: 38px;">
-              <option value="openrouter/owl-alpha" selected>Owl Alpha (Default)</option>
-              <option value="google/gemma-4-31b-it:free">Google: Gemma 4 31B (Free - Khuyên dùng)</option>
-              <option value="qwen/qwen3-coder:free">Qwen: Qwen3 Coder 480B A35B (Free - Tốt cho tiếng Trung)</option>
-              <option value="openai/gpt-oss-120b:free">OpenAI: gpt-oss-120b (Free)</option>
-              <option value="meta-llama/llama-3.3-70b-instruct:free">Meta: Llama 3.3 70B Instruct (Free - Hay nghẽn)</option>
-              <option value="nousresearch/hermes-3-llama-3.1-405b:free">Nous: Hermes 3 405B Instruct (Free)</option>
-              <option value="nvidia/nemotron-3-ultra-550b-a55b:free">NVIDIA: Nemotron 3 Ultra (Free)</option>
-              <option value="cohere/north-mini-code:free">Cohere: North Mini Code (Free)</option>
+            <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
+            <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()" style="margin: 0; height: 38px;">
+              <option value="google-translate" selected>🌐 Google Translate (Mặc định - An toàn &amp; Khuyên dùng)</option>
+              <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
+              <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
             </select>
+          </div>
+
+          <!-- Gemini Fields -->
+          <div id="global-gemini-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">Google Gemini API Key</label>
+              <input type="password" id="global-gemini-key" class="premium-input" placeholder="Nhập API Key của Google AI Studio..." style="margin: 0;">
+              <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy Key miễn phí từ Google AI Studio. Được lưu trữ cục bộ bảo mật.</p>
+            </div>
+          </div>
+
+          <!-- OpenRouter Fields -->
+          <div id="global-openrouter-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter API Key</label>
+              <input type="password" id="global-openrouter-key" class="premium-input" placeholder="Nhập API Key của OpenRouter..." style="margin: 0;">
+              <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Tạo key của bạn tại openrouter.ai.</p>
+            </div>
+            
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter Model</label>
+              <select id="global-openrouter-model" class="premium-select" style="margin: 0; height: 38px;">
+                <option value="openrouter/owl-alpha" selected>Owl Alpha (Default)</option>
+                <option value="google/gemma-4-31b-it:free">Google: Gemma 4 31B (Free - Khuyên dùng)</option>
+                <option value="qwen/qwen3-coder:free">Qwen: Qwen3 Coder 480B A35B (Free - Tốt cho tiếng Trung)</option>
+                <option value="openai/gpt-oss-120b:free">OpenAI: gpt-oss-120b (Free)</option>
+                <option value="meta-llama/llama-3.3-70b-instruct:free">Meta: Llama 3.3 70B Instruct (Free - Hay nghẽn)</option>
+                <option value="nousresearch/hermes-3-llama-3.1-405b:free">Nous: Hermes 3 405B Instruct (Free)</option>
+                <option value="nvidia/nemotron-3-ultra-550b-a55b:free">NVIDIA: Nemotron 3 Ultra (Free)</option>
+                <option value="cohere/north-mini-code:free">Cohere: North Mini Code (Free)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Whisper Content -->
+        <div id="settings-tab-whisper" class="settings-tab-content hidden" style="display: flex; flex-direction: column; gap: 16px;">
+          <!-- Whisper Model Configuration -->
+          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 13px; font-weight: 600; color: var(--text); display: flex; justify-content: space-between; align-items: center;">
+              <span>Model nhận diện giọng nói (Whisper AI)</span>
+              <span id="whisper-model-status" style="font-size: 11px; font-weight: bold; color: var(--accent);">Đang kiểm tra...</span>
+            </label>
+            <div style="display: flex; gap: 8px;">
+              <select id="whisper-model-select" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
+                <option value="base" selected>🎙️ Bản tiêu chuẩn (Base - 140MB - Khuyên dùng)</option>
+                <option value="tiny">⚡ Bản siêu nhẹ (Tiny - 75MB - Nhận diện nhanh)</option>
+                <option value="small">📢 Bản nâng cao (Small - 460MB - Khá tốt)</option>
+                <option value="medium">🎯 Bản chuyên nghiệp (Medium - 1.5GB - Rất chính xác)</option>
+                <option value="large-v3">🏆 Bản cao cấp nhất (Large-V3 - 3.0GB - Tốt nhất)</option>
+              </select>
+              <button type="button" id="whisper-model-download-btn" class="premium-render-btn" style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;" onclick="openWhisperDownloadModal()">📥 Tải</button>
+            </div>
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Dùng để tự động nhận diện và trích xuất phụ đề từ âm thanh video.</p>
           </div>
         </div>
 
@@ -1772,6 +1804,44 @@
         </div>
         <div id="modal-music-list" class="voice-list-items" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
           <!-- Danh sách tất cả nhạc nền sẽ được render động -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Tải xuống thư viện phụ thuộc (CUDA/Whisper) -->
+  <div id="dependency-download-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 480px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(59, 130, 246, 0.1); border-bottom-color: rgba(59, 130, 246, 0.2);">
+        <h3 id="dep-modal-title" style="color: #3b82f6; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
+          📥 Tải xuống tài nguyên hệ thống
+        </h3>
+        <button class="fb-modal-close" id="dep-modal-close" style="display: none;" onclick="closeDependencyModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <div id="dep-icon" style="font-size: 40px;">📥</div>
+          <div id="dep-name" style="font-size: 15px; font-weight: 700; color: var(--text);">Thư viện CUDA 12</div>
+          <p id="dep-desc" style="font-size: 13px; color: var(--muted); margin: 0; line-height: 1.5;">Hệ thống cần tải thêm thư viện này để kích hoạt tăng tốc phần cứng GPU (CUDA). Dung lượng tải khoảng ~400MB.</p>
+        </div>
+        
+        <!-- Progress Bar -->
+        <div style="background: rgba(255,255,255,0.05); height: 8px; border-radius: 4px; overflow: hidden; width: 100%; position: relative; margin-top: 8px;">
+          <div id="dep-progress-bar" style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s ease-out; border-radius: 4px;"></div>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--muted);">
+          <span id="dep-progress-text">Đang tải: 0%</span>
+          <span id="dep-size-text">Vui lòng không đóng phần mềm</span>
+        </div>
+
+        <div id="dep-error-message" class="hidden" style="color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 10px 12px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; text-align: left;">
+          Lỗi: Không thể kết nối.
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 14px; width: 100%; justify-content: center;">
+          <button type="button" id="dep-start-btn" class="premium-render-btn" style="flex: 1; margin: 0; background: #3b82f6; color: white;" onclick="startDependencyDownload()">Tải Ngay</button>
+          <button type="button" id="dep-cancel-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeDependencyModal()">Bỏ qua</button>
         </div>
       </div>
     </div>

@@ -647,7 +647,8 @@ label {
 .preview-tab-btn,
 .voice-tab-btn,
 .music-tab-btn,
-.sub-tab-btn {
+.sub-tab-btn,
+.settings-tab-btn {
   flex: 1;
   background: transparent;
   color: var(--muted);
@@ -667,7 +668,8 @@ label {
 .preview-tab-btn:hover,
 .voice-tab-btn:hover,
 .music-tab-btn:hover,
-.sub-tab-btn:hover {
+.sub-tab-btn:hover,
+.settings-tab-btn:hover {
   color: var(--text);
   background: #111823;
 }
@@ -677,7 +679,8 @@ label {
 .preview-tab-btn.active,
 .voice-tab-btn.active,
 .music-tab-btn.active,
-.sub-tab-btn.active {
+.sub-tab-btn.active,
+.settings-tab-btn.active {
   background: var(--border);
   color: var(--text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
@@ -924,6 +927,22 @@ label {
   color: var(--muted);
   font-weight: 500;
   padding: 0 4px;
+}
+
+/* Local Upload Music Preview Styling */
+.upload-music-preview {
+  margin-top: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upload-music-preview audio {
+  width: 100%;
 }
 
 /* Draggable Subtitle Positioner Styling */
@@ -2634,6 +2653,79 @@ select option {
   color: var(--muted);
   font-style: italic;
   padding: 4px 0;
+}
+
+/* Sidebar Toggle Button */
+.sidebar-toggle-btn {
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  padding: 0;
+  font-size: 10px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-toggle-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--soft);
+  transform: translateY(-50%) scale(1.1);
+}
+
+/* Collapsed Sidebar overrides */
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 80px minmax(0, 1fr);
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.app-shell.sidebar-collapsed .brand {
+  padding-bottom: 12px;
+  justify-content: center;
+  width: 100%;
+}
+
+.app-shell.sidebar-collapsed .brand-text {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .nav {
+  width: 100%;
+  justify-items: center;
+}
+
+.app-shell.sidebar-collapsed .nav-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%; /* Rounded circle when collapsed */
+}
+
+.app-shell.sidebar-collapsed .nav-btn strong {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .nav-btn span {
+  margin: 0;
 }
 
 
