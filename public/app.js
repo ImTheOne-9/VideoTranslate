@@ -242,6 +242,9 @@ async function loadAssets() {
   if ($('voice-list-tbody')) renderVoicesList($('voice-search-input')?.value || '');
   if ($('music-list-tbody')) renderMusicList($('music-search-input')?.value || '');
   if ($('rendered-videos-grid')) renderRenderedVideosGrid($('rendered-search-input')?.value || '');
+  
+  // Kiểm tra xem có tiến trình render đang chạy ngầm hay không để khôi phục giao diện
+  checkActiveRenderProgress();
 }
 
 function extractTitleFromPastedText(rawText) {
@@ -733,6 +736,7 @@ async function renderStudio(event) {
       
       <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">Đang chuẩn bị...</p>
       <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
+      <button id="cancel-render-btn" class="nav-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;" onclick="cancelRenderVideo()">Hủy Render</button>
     </div>
   `;
   const renderResultSidebar = $('render-result');
@@ -859,6 +863,132 @@ async function renderStudio(event) {
     setBusy(btn, false);
   }
 }
+
+async function cancelRenderVideo() {
+  const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
+  if (!confirmCancel) return;
+  
+  const cancelBtn = $('cancel-render-btn');
+  if (cancelBtn) {
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = 'Đang hủy...';
+  }
+  
+  try {
+    const res = await fetch('/api/cancel-render', { method: 'POST' });
+    const result = await res.json();
+    if (res.ok && result.success) {
+      toast('Đã hủy tiến trình render thành công.', 'success');
+    } else {
+      toast(result.message || 'Lỗi khi hủy render', 'error');
+    }
+  } catch (err) {
+    console.error('Lỗi khi hủy render:', err);
+    toast('Lỗi kết nối khi hủy render.', 'error');
+  }
+}
+window.cancelRenderVideo = cancelRenderVideo;
+
+async function checkActiveRenderProgress() {
+  try {
+    const pRes = await fetch('/api/render-progress');
+    if (!pRes.ok) return;
+    const pData = await pRes.json();
+    if (pData && pData.status === 'rendering') {
+      const btn = $('render-btn');
+      const status = $('render-status');
+      
+      // Đặt nút render ở trạng thái bận
+      setBusy(btn, true, 'Đang render...');
+      if (status) {
+        status.textContent = 'Đang xử lý. Video dài hoặc nhận diện giọng nói AI sẽ mất thời gian.';
+      }
+      
+      // Hiển thị giao diện Loading
+      const loadingHtml = `
+        <div class="render-loading-state">
+          <div class="loading-spinner" style="border-top-color: var(--accent-2);"></div>
+          <h3>Đang Render Video... <span id="render-progress-percent">${pData.percent}%</span></h3>
+          
+          <div class="render-progress-container" style="width: 100%; max-width: 400px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 20px; height: 10px; margin: 16px auto; overflow: hidden; position: relative;">
+            <div id="render-progress-bar" style="width: ${pData.percent}%; height: 100%; background: linear-gradient(90deg, var(--accent-2), #a855f7); border-radius: 20px; transition: width 0.3s ease-out;"></div>
+          </div>
+          
+          <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">${pData.step || 'Đang chuẩn bị...'}</p>
+          <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
+          <button id="cancel-render-btn" class="nav-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;" onclick="cancelRenderVideo()">Hủy Render</button>
+        </div>
+      `;
+      
+      const renderResultSidebar = $('render-result');
+      if (renderResultSidebar) {
+        renderResultSidebar.classList.remove('empty');
+        renderResultSidebar.innerHTML = loadingHtml;
+      }
+      const studioResult = $('studio-render-result');
+      if (studioResult) {
+        studioResult.innerHTML = loadingHtml;
+      }
+      
+      // Chuyển sang tab Xem trước
+      switchToResultTab();
+      
+      // Khởi chạy vòng lặp polling
+      let progressInterval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/render-progress');
+          if (!res.ok) return;
+          const data = await res.json();
+          
+          if (data && data.status === 'rendering') {
+            document.querySelectorAll('#render-progress-bar').forEach(bar => {
+              bar.style.width = `${data.percent}%`;
+            });
+            document.querySelectorAll('#render-progress-percent').forEach(pct => {
+              pct.textContent = `${data.percent}%`;
+            });
+            document.querySelectorAll('#render-progress-text').forEach(txt => {
+              txt.textContent = data.step || 'Đang xử lý...';
+            });
+          } else if (data && data.status === 'success') {
+            clearInterval(progressInterval);
+            setBusy(btn, false);
+            if (status) status.textContent = '';
+            toast('Render video thành công', 'success');
+            await loadAssets();
+          } else if (data && (data.status === 'error' || data.status === 'idle')) {
+            clearInterval(progressInterval);
+            setBusy(btn, false);
+            if (status) status.textContent = '';
+            
+            let errMsg = 'Render lỗi';
+            if (data.status === 'idle') {
+              errMsg = 'Đã hủy tiến trình render.';
+            } else if (data.error) {
+              errMsg = data.error;
+            }
+            toast(errMsg, 'error');
+            
+            const errorHtml = `
+              <div class="render-loading-state" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);">
+                <div style="font-size: 40px; margin-bottom: 15px;">❌</div>
+                <h3 style="color: #ef4444;">Render thất bại</h3>
+                <p style="color: #fca5a5;">${errMsg}</p>
+              </div>
+            `;
+            if ($('render-result')) $('render-result').innerHTML = errorHtml;
+            if ($('studio-render-result')) $('studio-render-result').innerHTML = errorHtml;
+          }
+        } catch (err) {
+          console.error('Lỗi khi lấy tiến trình render:', err);
+        }
+      }, 1000);
+    }
+  } catch (err) {
+    console.error('Lỗi khi kiểm tra tiến trình render lúc khởi động:', err);
+  }
+}
+window.checkActiveRenderProgress = checkActiveRenderProgress;
 
 async function fetchPlaylistInfo() {
   const rawInput = $('bulk-url-input').value.trim();

@@ -77,13 +77,21 @@ if (fs.existsSync(DEFAULT_VOICES_SRC)) {
 
 // Quản lý và dọn dẹp các tiến trình con tập trung
 const activeProcesses = new Set();
+const activeRenderProcesses = new Set();
+let activeRenderId = null;
+let isStudioRendering = false;
 
 function registerChildProcess(proc) {
   if (!proc) return;
   activeProcesses.add(proc);
   
+  if (isStudioRendering) {
+    activeRenderProcesses.add(proc);
+  }
+  
   const cleanUp = () => {
     activeProcesses.delete(proc);
+    activeRenderProcesses.delete(proc);
   };
   
   proc.on('close', cleanUp);
@@ -92,15 +100,40 @@ function registerChildProcess(proc) {
 }
 global.registerChildProcess = registerChildProcess;
 
+function killProcessTree(proc) {
+  if (!proc || !proc.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      const { exec } = require('child_process');
+      exec(`taskkill /F /T /PID ${proc.pid}`, (err) => {
+        if (err) {
+          // Fallback nếu taskkill gặp lỗi
+          try { proc.kill('SIGKILL'); } catch (e) {}
+        }
+      });
+    } else {
+      proc.kill('SIGKILL');
+    }
+  } catch (e) {
+    console.error(`Không thể kill tiến trình PID ${proc.pid}:`, e.message);
+  }
+}
+
+function killActiveRenderProcesses() {
+  console.log(`[Studio Render] Hủy toàn bộ tiến trình render cũ (${activeRenderProcesses.size})...`);
+  for (const proc of activeRenderProcesses) {
+    console.log(`[Studio Render] Đang kill tiến trình render cũ PID: ${proc.pid}`);
+    killProcessTree(proc);
+  }
+  activeRenderProcesses.clear();
+}
+
+
 function killAllActiveProcesses() {
   console.log(`Bắt đầu tắt toàn bộ tiến trình con đang hoạt động (${activeProcesses.size})...`);
   for (const proc of activeProcesses) {
-    try {
-      proc.kill('SIGKILL');
-      console.log(`Đã kill tiến trình PID: ${proc.pid}`);
-    } catch (e) {
-      console.error(`Không thể kill tiến trình PID ${proc.pid || 'unknown'}:`, e.message);
-    }
+    console.log(`Đang kill tiến trình PID: ${proc.pid}`);
+    killProcessTree(proc);
   }
   activeProcesses.clear();
 }
@@ -166,10 +199,12 @@ const studioUpload = multer({ dest: TMP_UPLOADS_DIR });
 const FFMPEG_PATH = getExtPath('tools', 'ffmpeg.exe');
 const YTDLP_PATH = getExtPath('tools', 'yt-dlp.exe');
 const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || getExtPath('tools', 'omnivoice', 'omnivoice-cli.exe');
+const NLLB_TRANSLATE_PATH = getExtPath('tools', 'nllb_translate.exe');
 
 const isPackagedServer = __dirname.includes('app.asar');
 const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'VideoStudio') : __dirname;
 const MODELS_DIR = path.join(appDataRoot, 'models');
+const NLLB_MODEL_DIR = path.join(MODELS_DIR, 'nllb');
 const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(MODELS_DIR, 'omnivoice-q8_0.gguf');
 
 // Tự động tìm kiếm và thêm đường dẫn CUDA và tools vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
@@ -2030,6 +2065,17 @@ app.post('/api/render-studio', studioUpload.fields([
 ]), async (req, res) => {
   const tempFiles = [];
   const voiceChunks = [];
+  const timestamp = Date.now();
+  const renderId = timestamp;
+
+  if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
+    console.log('[Studio Render] Đang có tiến trình render chạy. Tiến hành hủy tiến trình cũ trước khi chạy mới...');
+    killActiveRenderProcesses();
+  }
+
+  activeRenderId = renderId;
+  isStudioRendering = true;
+
   try {
     studioProgress = {
       status: 'rendering',
@@ -2105,7 +2151,7 @@ app.post('/api/render-studio', studioUpload.fields([
         geminiApiKey: body.geminiApiKey,
         openRouterApiKey: body.openRouterApiKey,
         openRouterModel: body.openRouterModel
-      }, Number(body.subtitleMaxLines || 0), studioMaxChars);
+      }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => activeRenderId !== renderId);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
       updateStudioProgress(35, 'Đang định dạng cấu trúc phụ đề...');
@@ -2812,19 +2858,21 @@ app.post('/api/render-studio', studioUpload.fields([
     let hasAudioFilter = false;
     if (audioInputs.length > 0) {
       hasAudioFilter = true;
-      const originalVolume = Math.max(0, Number(body.originalVolume || 0.45));
+      const numInputs = audioInputs.length + 1; // Tổng số luồng âm thanh đưa vào trộn (âm gốc + thuyết minh + nhạc...)
+      const originalVolume = Math.max(0, Number(body.originalVolume || 0.45)) * numInputs; // Nhân bù vì amix chia đều
       const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];
       const mixLabels = ['[a0]'];
       audioInputs.forEach((input, idx) => {
         const label = `a${idx + 1}`;
+        const targetVolume = input.volume * numInputs; // Nhân bù vì amix chia đều
         if (input.type === 'chunk') {
           if (input.startMs > 0) {
-            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${input.volume}[${label}]`);
+            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${targetVolume}[${label}]`);
           } else {
-            audioFilters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+            audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
           }
         } else {
-          audioFilters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+          audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
         }
         mixLabels.push(`[${label}]`);
       });
@@ -2866,21 +2914,48 @@ app.post('/api/render-studio', studioUpload.fields([
       }
     }
 
-    updateStudioProgress(100, 'Hoàn tất render!');
-    studioProgress.status = 'success';
+    if (activeRenderId === renderId) {
+      updateStudioProgress(100, 'Hoàn tất render!');
+      studioProgress.status = 'success';
+      isStudioRendering = false;
 
-    res.json({
-      success: true,
-      message: 'Đã render video',
-      file: outName,
-      url: `/renders/${encodeURIComponent(outName)}`
-    });
+      res.json({
+        success: true,
+        message: 'Đã render video',
+        file: outName,
+        url: `/renders/${encodeURIComponent(outName)}`
+      });
+    } else {
+      console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
+    }
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message);
-    studioProgress.status = 'error';
-    studioProgress.error = error.message;
-    res.status(500).json({ error: 'Không thể render video. Kiểm tra video, sub, voice hoặc nhạc nền.' });
+    if (activeRenderId === renderId) {
+      isStudioRendering = false;
+      studioProgress.status = 'error';
+      studioProgress.error = error.message;
+      res.status(500).json({ error: error.message || 'Không thể render video. Kiểm tra video, sub, voice hoặc nhạc nền.' });
+    } else {
+      console.log(`[Studio Render] Phiên render cũ (${renderId}) đã bị hủy hoặc thay thế. Bỏ qua phản hồi lỗi.`);
+    }
   }
+});
+
+app.post('/api/cancel-render', (req, res) => {
+  if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
+    console.log('[Studio Render] Nhận yêu cầu hủy tiến trình render hiện tại...');
+    killActiveRenderProcesses();
+    isStudioRendering = false;
+    activeRenderId = null;
+    studioProgress = {
+      status: 'idle',
+      percent: 0,
+      step: 'Đã hủy tiến trình render theo yêu cầu.',
+      error: null
+    };
+    return res.json({ success: true, message: 'Đã hủy render thành công.' });
+  }
+  res.json({ success: true, message: 'Không có tiến trình render nào đang chạy.' });
 });
 
 // ==========================================
@@ -2979,8 +3054,10 @@ function startServer(preferredPort = 3456) {
         resolve({ server, port });
       });
       
-      // Tăng timeouts cho server tránh ngắt kết nối khi tải video dung lượng lớn
-      server.timeout = 600000; // 10 phút
+      // Vô hiệu hóa timeouts cho server để tránh ngắt kết nối khi render video dài hoặc lồng tiếng nhiều câu thoại
+      server.timeout = 0; 
+      server.headersTimeout = 0;
+      server.requestTimeout = 0;
       // Giữ keepAliveTimeout mặc định nhỏ (5 giây) để tránh rò rỉ socket/port (ERR_NO_BUFFER_SPACE)
       server.keepAliveTimeout = 5000;
 
