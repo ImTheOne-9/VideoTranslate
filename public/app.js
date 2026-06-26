@@ -66,11 +66,16 @@ window.addEventListener('unhandledrejection', function (event) {
 function setBusy(button, busy, text) {
   if (!button) return;
   if (busy) {
-    button.dataset.oldText = button.textContent;
+    if (!button.dataset.oldText) {
+      button.dataset.oldText = button.textContent;
+    }
     button.textContent = text || 'Đang xử lý...';
     button.disabled = true;
   } else {
-    button.textContent = button.dataset.oldText || button.textContent;
+    if (button.dataset.oldText) {
+      button.textContent = button.dataset.oldText;
+      delete button.dataset.oldText;
+    }
     button.disabled = false;
   }
 }
@@ -721,155 +726,459 @@ async function renderStudio(event) {
   data.set('openRouterModel', aiSettings.openRouterModel);
 
   setBusy(btn, true, 'Đang render...');
-  status.textContent = 'Đang xử lý. Video dài hoặc nhận diện giọng nói AI sẽ mất thời gian.';
+  if (status) status.textContent = 'Đang xếp hàng kết xuất...';
   
-  // Hiển thị hiệu ứng Loading trực quan trên Tab kết quả
-  const loadingHtml = `
-    <div class="render-loading-state">
-      <div class="loading-spinner" style="border-top-color: var(--accent-2);"></div>
-      <h3>Đang Render Video... <span id="render-progress-percent">0%</span></h3>
-      
-      <!-- Premium Progress Bar Container -->
-      <div class="render-progress-container" style="width: 100%; max-width: 400px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 20px; height: 10px; margin: 16px auto; overflow: hidden; position: relative;">
-        <div id="render-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-2), #a855f7); border-radius: 20px; transition: width 0.3s ease-out;"></div>
-      </div>
-      
-      <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">Đang chuẩn bị...</p>
-      <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
-      <button id="cancel-render-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s;" onclick="cancelRenderVideo()" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">Hủy Render</button>
-    </div>
-  `;
-  const renderResultSidebar = $('render-result');
-  if (renderResultSidebar) {
-    renderResultSidebar.classList.remove('empty');
-    renderResultSidebar.innerHTML = loadingHtml;
+  // Tăng trước số lượng trên badge (phản hồi UX tức thì)
+  const badge = $('queue-badge');
+  if (badge) {
+    const currentVal = parseInt(badge.textContent || '0', 10);
+    badge.textContent = currentVal + 1;
+    badge.style.display = 'inline-block';
   }
-  const studioResult = $('studio-render-result');
-  if (studioResult) {
-    studioResult.innerHTML = loadingHtml;
-  }
+  
   // Chuyển sang tab Xem trước ngay lập tức
   switchToResultTab();
-
-  let progressInterval = setInterval(async () => {
-    try {
-      const pRes = await fetch('/api/render-progress');
-      if (!pRes.ok) return;
-      const pData = await pRes.json();
-      if (pData && pData.status === 'rendering') {
-        document.querySelectorAll('#render-progress-bar').forEach(progressBar => {
-          progressBar.style.width = `${pData.percent}%`;
-        });
-        document.querySelectorAll('#render-progress-percent').forEach(progressPercent => {
-          progressPercent.textContent = `${pData.percent}%`;
-        });
-        document.querySelectorAll('#render-progress-text').forEach(progressText => {
-          progressText.textContent = pData.step || 'Đang xử lý...';
-        });
-      }
-    } catch (err) {
-      console.error('Lỗi khi lấy tiến trình render:', err);
-    }
-  }, 1000);
 
   try {
     const res = await fetch('/api/render-studio', { method: 'POST', body: data });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Render lỗi');
-    status.textContent = ''; // Bỏ chữ đang xử lý/hoàn tất trên nút
-    const resultHtml = `
-      <div class="video-preview-wrapper result-video-wrapper" style="margin: 0 auto 10px auto;">
-        <video controls src="${result.url}"></video>
-      </div>
-      <button type="button" class="premium-render-btn" style="background: #1877F2; color: white;" onclick="openFbModal('${result.url}')">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
-          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-        </svg>
-        Đăng lên Fanpage
-      </button>
-    `;
-    const renderResultSidebar_updated = $('render-result');
-    if (renderResultSidebar_updated) {
-      renderResultSidebar_updated.classList.remove('empty');
-      renderResultSidebar_updated.innerHTML = resultHtml;
+    
+    if (result.taskId) {
+      currentDisplayedTaskId = result.taskId;
     }
     
-    const studioResult_updated = $('studio-render-result');
-    if (studioResult_updated) {
-      studioResult_updated.innerHTML = resultHtml;
-      
-      const resultWrapper = studioResult_updated.querySelector('.result-video-wrapper');
-      if (resultWrapper) {
-        const aspectVal = $('preview-aspect-select')?.value || '9-16';
-        resultWrapper.classList.add(aspectVal === '9-16' ? 'aspect-9-16' : 'aspect-16-9');
-      }
-      
-      // Clone safezone overlay to result wrapper
-      const resultVideo = resultWrapper ? resultWrapper.querySelector('video') : null;
-      const previewOverlay = $('preview-safezone-overlay');
-      if (resultWrapper && resultVideo && previewOverlay) {
-        const resultOverlay = previewOverlay.cloneNode(true);
-        resultOverlay.id = 'result-safezone-overlay';
-        resultWrapper.appendChild(resultOverlay);
-        
-        // Apply initial active platform styling
-        const select = $('safezone-platform-select');
-        if (select) {
-          resultOverlay.className = `preview-safezone-overlay result-safezone-overlay ${select.value}`;
-          if (select.value !== 'none') {
-            resultVideo.removeAttribute('controls');
-          } else {
-            resultVideo.setAttribute('controls', 'true');
-          }
-        }
-        
-        // Bind seeking/playback controls to result video
-        if (typeof bindSafezoneControls === 'function') {
-          bindSafezoneControls(resultVideo, resultOverlay);
-        }
-      }
-    }
-
-    // Copy safezone overlay to all result overlays and sync current platform selection
-    const srcOverlay = $('preview-safezone-overlay');
-    const platformSelect = $('safezone-platform-select');
-    if (srcOverlay && platformSelect) {
-      document.querySelectorAll('.result-safezone-overlay').forEach(destOverlay => {
-        destOverlay.innerHTML = srcOverlay.innerHTML;
-        destOverlay.className = `preview-safezone-overlay result-safezone-overlay ${platformSelect.value}`;
-      });
-    }
-    toast('Render video thành công', 'success');
-    switchToResultTab();
-    await loadAssets();
+    if (status) status.textContent = ''; // Bỏ chữ đang xử lý/hoàn tất trên nút
+    setBusy(btn, false);
+    toast('Đã thêm video vào hàng đợi thành công!', 'success');
+    
+    // Bắt đầu vòng lặp polling hàng đợi
+    startQueuePolling();
+    
   } catch (error) {
-    status.textContent = '';
+    if (status) status.textContent = '';
+    setBusy(btn, false);
     toast(error.message, 'error');
+  }
+}
+
+// ==========================================================================
+// HỆ THỐNG HÀNG ĐỢI RENDER TUẦN TỰ (FRONTEND QUEUE MANAGER)
+// ==========================================================================
+let queuePollInterval = null;
+let currentDisplayedTaskId = null;
+
+function startQueuePolling() {
+  if (queuePollInterval) return;
+  updateQueueStatus();
+  queuePollInterval = setInterval(updateQueueStatus, 1500);
+}
+
+function stopQueuePolling() {
+  if (queuePollInterval) {
+    clearInterval(queuePollInterval);
+    queuePollInterval = null;
+  }
+}
+
+async function updateQueueStatus() {
+  try {
+    const res = await fetch('/api/render-queue-status');
+    if (!res.ok) return;
+    const data = await res.json();
     
-    // Cập nhật giao diện lỗi hoặc hủy
-    const isCancelled = error.message.includes('hủy') || error.message.includes('cancel');
+    // 1. Vẽ giao diện hàng đợi trong modal
+    renderQueueModalUI(data.queue, data.currentActiveId);
+    
+    // 2. Vẽ giao diện xem trước full ở màn hình chính
+    updateMainResultUI(data.queue, data.currentActiveId);
+    
+    // Kiểm tra xem còn tác vụ nào đang chạy hoặc chờ không để tiếp tục polling
+    const hasActiveOrPending = data.queue.some(t => t.status === 'rendering' || t.status === 'pending');
+    const statusText = $('render-status');
+    
+    // Cập nhật số lượng trên badge (chỉ đếm các task đang chạy hoặc đang chờ)
+    const activeOrPendingCount = data.queue.filter(t => t.status === 'rendering' || t.status === 'pending').length;
+    const badgeElement = $('queue-badge');
+    if (badgeElement) {
+      if (activeOrPendingCount > 0) {
+        badgeElement.textContent = activeOrPendingCount;
+        badgeElement.style.display = 'inline-block';
+      } else {
+        badgeElement.style.display = 'none';
+      }
+    }
+    
+    if (!hasActiveOrPending) {
+      stopQueuePolling();
+      if (statusText) statusText.textContent = '';
+    } else {
+      if (statusText) statusText.textContent = 'Có video đang được kết xuất dưới nền...';
+    }
+  } catch (err) {
+    console.error('Lỗi cập nhật hàng đợi:', err);
+  }
+}
+
+function updateMainResultUI(queue, currentActiveId) {
+  const container = $('studio-render-result');
+  const sidebar = $('render-result');
+  if (!container && !sidebar) return;
+
+  if (queue.length === 0) {
+    const emptyHtml = `
+      <div class="empty-result-msg" style="color: var(--muted); font-size: 13px; text-align: center; padding: 40px 0;">
+        Chưa có video render nào. Hãy nhấn "Render video" ở tab Xem trước.
+      </div>
+    `;
+    if (container) {
+      container.innerHTML = emptyHtml;
+      delete container.dataset.displayedTaskId;
+      delete container.dataset.displayedTaskStatus;
+    }
+    if (sidebar) {
+      sidebar.classList.add('empty');
+      sidebar.innerHTML = emptyHtml;
+      delete sidebar.dataset.displayedTaskId;
+      delete sidebar.dataset.displayedTaskStatus;
+    }
+    return;
+  }
+
+  let targetTask = null;
+
+  // 1. Nếu người dùng đã chọn một task cụ thể để hiển thị, hãy ưu tiên hiển thị task đó
+  if (currentDisplayedTaskId) {
+    targetTask = queue.find(t => t.id === currentDisplayedTaskId);
+  }
+
+  // 2. Nếu chưa chọn hoặc task đã chọn không tồn tại trong queue, tự động chọn task đang render
+  if (!targetTask) {
+    const activeTask = queue.find(t => t.status === 'rendering' || t.id === currentActiveId);
+    if (activeTask) {
+      targetTask = activeTask;
+      currentDisplayedTaskId = activeTask.id;
+    }
+  }
+
+  // 3. Nếu không có task nào đang chạy, mặc định hiển thị tác vụ được thêm gần đây nhất
+  if (!targetTask && queue.length > 0) {
+    const sorted = [...queue].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    targetTask = sorted[0];
+    if (targetTask) {
+      currentDisplayedTaskId = targetTask.id;
+    }
+  }
+
+  if (!targetTask) return;
+
+  let html = '';
+
+  if (targetTask.status === 'rendering') {
+    // 1. Giao diện Đang render full-size
+    html = `
+      <div class="render-loading-state">
+        <div class="loading-spinner" style="border-top-color: var(--accent-2);"></div>
+        <h3>Đang Render Video... <span id="render-progress-percent">${targetTask.percent}%</span></h3>
+        
+        <div class="render-progress-container" style="width: 100%; max-width: 400px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 20px; height: 10px; margin: 16px auto; overflow: hidden; position: relative;">
+          <div id="render-progress-bar" style="width: ${targetTask.percent}%; height: 100%; background: linear-gradient(90deg, var(--accent-2), #a855f7); border-radius: 20px; transition: width 0.3s ease-out;"></div>
+        </div>
+        
+        <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">${targetTask.step || 'Đang chuẩn bị...'}</p>
+        <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
+        <button id="cancel-render-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s;" onclick="cancelQueueTask('${targetTask.id}', event)" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">Hủy Render</button>
+      </div>
+    `;
+  } else if (targetTask.status === 'pending') {
+    // 2. Giao diện Đang chờ xếp hàng
+    html = `
+      <div class="render-loading-state" style="border-color: var(--border); background: rgba(255, 255, 255, 0.01);">
+        <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
+        <h3 style="color: var(--accent-2);">Đang chờ xếp hàng...</h3>
+        <p style="color: var(--muted); max-width: 400px; margin: 0 auto; line-height: 1.5; font-size: 13px;">Video "${targetTask.videoName}" đang nằm trong hàng đợi render. Tiến trình sẽ tự động bắt đầu khi các tác vụ trước đó hoàn thành.</p>
+        <button style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px;" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy Chờ</button>
+      </div>
+    `;
+  } else if (targetTask.status === 'success' && targetTask.result) {
+    // 3. Giao diện Render thành công (Video Player full-size như cũ)
+    html = `
+      <div class="video-preview-wrapper result-video-wrapper" style="margin: 0 auto 10px auto;">
+        <video controls src="${targetTask.result.url}"></video>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: center; width: 100%; max-width: 400px; margin: 0 auto;">
+        <button type="button" class="premium-render-btn" style="background: #1877F2; color: white; flex: 1;" onclick="openFbModal('${targetTask.result.url}')">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
+            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+          </svg>
+          Đăng lên Fanpage
+        </button>
+      </div>
+    `;
+  } else {
+    // 4. Giao diện Lỗi render
+    const isCancelled = targetTask.step?.includes('hủy') || targetTask.error?.includes('hủy') || targetTask.error?.includes('cancel');
     const statusTitle = isCancelled ? 'Đã hủy render' : 'Render thất bại';
     const statusIcon = isCancelled ? '⏹️' : '❌';
     const statusColor = isCancelled ? 'var(--muted)' : '#ef4444';
     const borderColor = isCancelled ? 'var(--border)' : 'rgba(239, 68, 68, 0.3)';
     const bgColor = isCancelled ? 'rgba(255, 255, 255, 0.01)' : 'rgba(239, 68, 68, 0.05)';
-    
-    const errorHtml = `
-      <div class="render-loading-state" style="border-color: ${borderColor}; background: ${bgColor};">
+    const errMsg = targetTask.error || targetTask.step || 'Lỗi không xác định';
+
+    html = `
+      <div class="render-loading-state" style="border-color: ${borderColor}; background: ${bgColor}; max-width: 500px; margin: 20px auto; padding: 30px; border-radius: 12px; border: 1px solid;">
         <div style="font-size: 40px; margin-bottom: 15px;">${statusIcon}</div>
-        <h3 style="color: ${statusColor};">${statusTitle}</h3>
-        <p style="color: var(--muted);">${error.message}</p>
+        <h3 style="color: ${statusColor}; margin-bottom: 10px;">${statusTitle}</h3>
+        <p style="color: var(--muted); font-size: 13px; margin-bottom: 15px; line-height: 1.5;">${errMsg}</p>
+        <p style="font-size: 12px; color: var(--muted);">Tên video: ${targetTask.videoName}</p>
       </div>
     `;
-    if ($('render-result')) $('render-result').innerHTML = errorHtml;
-    if ($('studio-render-result')) $('studio-render-result').innerHTML = errorHtml;
-  } finally {
-    if (progressInterval) {
-      clearInterval(progressInterval);
+  }
+
+  if (container) {
+    const prevId = container.dataset.displayedTaskId;
+    const prevStatus = container.dataset.displayedTaskStatus;
+    
+    // 1. Nếu vẫn là tác vụ đó và đã hiển thị thành công, không vẽ lại DOM để tránh ngắt quãng/load lại video player
+    if (prevId === targetTask.id && prevStatus === 'success' && targetTask.status === 'success') {
+      // Giữ nguyên trình phát video đang chạy
+    } 
+    // 2. Nếu vẫn là tác vụ đó và đang render, chỉ cập nhật tiến trình cục bộ để tránh làm reset vòng xoay loading
+    else if (prevId === targetTask.id && prevStatus === 'rendering' && targetTask.status === 'rendering') {
+      const percentEl = container.querySelector('#render-progress-percent');
+      const barEl = container.querySelector('#render-progress-bar');
+      const textEl = container.querySelector('#render-progress-text');
+      
+      if (percentEl) percentEl.textContent = `${targetTask.percent}%`;
+      if (barEl) barEl.style.width = `${targetTask.percent}%`;
+      if (textEl) textEl.textContent = targetTask.step || 'Đang chuẩn bị...';
+    } 
+    // 3. Thay đổi tác vụ hoặc trạng thái thay đổi, vẽ lại toàn bộ DOM
+    else {
+      container.innerHTML = html;
+      container.dataset.displayedTaskId = targetTask.id;
+      container.dataset.displayedTaskStatus = targetTask.status;
+      
+      if (targetTask.status === 'success') {
+        const resultWrapper = container.querySelector('.result-video-wrapper');
+        if (resultWrapper) {
+          const aspectVal = $('preview-aspect-select')?.value || '9-16';
+          resultWrapper.classList.add(aspectVal === '9-16' ? 'aspect-9-16' : 'aspect-16-9');
+        }
+      }
     }
-    setBusy(btn, false);
+  }
+
+  if (sidebar) {
+    const prevId = sidebar.dataset.displayedTaskId;
+    const prevStatus = sidebar.dataset.displayedTaskStatus;
+    
+    if (prevId === targetTask.id && prevStatus === 'success' && targetTask.status === 'success') {
+      // Giữ nguyên
+    } else if (prevId === targetTask.id && prevStatus === 'rendering' && targetTask.status === 'rendering') {
+      const percentEl = sidebar.querySelector('#render-progress-percent');
+      const barEl = sidebar.querySelector('#render-progress-bar');
+      const textEl = sidebar.querySelector('#render-progress-text');
+      
+      if (percentEl) percentEl.textContent = `${targetTask.percent}%`;
+      if (barEl) barEl.style.width = `${targetTask.percent}%`;
+      if (textEl) textEl.textContent = targetTask.step || 'Đang chuẩn bị...';
+    } else {
+      sidebar.classList.remove('empty');
+      sidebar.innerHTML = html;
+      sidebar.dataset.displayedTaskId = targetTask.id;
+      sidebar.dataset.displayedTaskStatus = targetTask.status;
+    }
   }
 }
+
+function renderQueueModalUI(queue, currentActiveId) {
+  const container = $('queue-modal-body');
+  if (!container) return;
+
+  if (queue.length === 0) {
+    container.innerHTML = `
+      <div class="empty-result-msg" style="color: var(--muted); font-size: 13px; text-align: center; padding: 40px 0;">
+        Hàng đợi trống. Chưa có video render nào.
+      </div>
+    `;
+    return;
+  }
+
+  const sortedQueue = [...queue].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  let html = `<div style="display: flex; flex-direction: column; gap: 10px;">`;
+
+  sortedQueue.forEach((task) => {
+    const isRunning = task.status === 'rendering';
+    const isPending = task.status === 'pending';
+    const isSuccess = task.status === 'success';
+    const isFailed = task.status === 'failed' || task.status === 'error';
+
+    let statusBadge = '';
+    let progressBarPercent = 0;
+    let progressBarColor = 'rgba(255, 255, 255, 0.1)';
+
+    if (isRunning) {
+      statusBadge = `<span style="color: #2563eb; background: rgba(37, 99, 235, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Đang chạy (${task.percent}%)</span>`;
+      progressBarPercent = task.percent || 0;
+      progressBarColor = 'linear-gradient(90deg, var(--accent-2, #8b5cf6), #a855f7)';
+    } else if (isPending) {
+      statusBadge = `<span style="color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Chờ render</span>`;
+      progressBarPercent = 0;
+      progressBarColor = 'rgba(255, 255, 255, 0.05)';
+    } else if (isSuccess) {
+      statusBadge = `<span style="color: #16a34a; background: rgba(22, 163, 74, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Hoàn tất ✅</span>`;
+      progressBarPercent = 100;
+      progressBarColor = '#16a34a';
+    } else if (isFailed) {
+      statusBadge = `<span style="color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;" title="${task.error || ''}">Thất bại ❌</span>`;
+      progressBarPercent = task.percent || 0;
+      progressBarColor = '#ef4444';
+    }
+
+    let actionHtml = '';
+    if (isPending) {
+      actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy chờ</button>`;
+    } else if (isRunning) {
+      actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy render</button>`;
+    } else {
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="background: var(--accent); color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="selectAndShowTask('${task.id}')">Xem Chi Tiết</button>
+      `;
+    }
+
+    const timeStr = new Date(task.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+    html += `
+      <div style="background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+          <div class="queue-item-info-clickable" style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; cursor: pointer; transition: opacity 0.2s;" onclick="selectAndShowTask('${task.id}')" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">
+            <span style="font-size: 11px; color: var(--muted); font-weight: 500;">[${timeStr}]</span>
+            <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;" title="${task.videoName}">${task.videoName}</strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+            ${statusBadge}
+            ${actionHtml}
+          </div>
+        </div>
+        <!-- Progress Bar -->
+        <div style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 4px; border-radius: 2px; overflow: hidden; position: relative;">
+          <div style="width: ${progressBarPercent}%; height: 100%; background: ${progressBarColor}; transition: width 0.3s ease-out;"></div>
+        </div>
+      </div>
+    `;
+  });
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+function selectAndShowTask(taskId) {
+  currentDisplayedTaskId = taskId;
+  switchView('studio');
+  switchToResultTab();
+  updateQueueStatus();
+  closeQueueModal();
+}
+
+async function clearQueueTasks(event) {
+  const confirmClear = confirm('Bạn có chắc chắn muốn xóa sạch toàn bộ hàng đợi render không? (Các tiến trình đang chạy cũng sẽ bị dừng)');
+  if (!confirmClear) return;
+  
+  const clearBtn = document.getElementById('clear-queue-btn');
+  const originalText = clearBtn ? clearBtn.textContent : 'Xóa tất cả';
+  if (clearBtn) {
+    clearBtn.disabled = true;
+    clearBtn.textContent = 'Đang xóa...';
+  }
+  
+  try {
+    const res = await fetch('/api/clear-queue', { method: 'POST' });
+    const result = await res.json();
+    if (res.ok && result.success) {
+      toast('Đã xóa sạch hàng đợi thành công.', 'success');
+      updateQueueStatus();
+    } else {
+      toast(result.error || 'Lỗi khi xóa hàng đợi', 'error');
+      if (clearBtn) {
+        clearBtn.disabled = false;
+        clearBtn.textContent = originalText;
+      }
+    }
+  } catch (err) {
+    console.error('Lỗi khi xóa hàng đợi:', err);
+    toast('Lỗi kết nối khi xóa hàng đợi.', 'error');
+    if (clearBtn) {
+      clearBtn.disabled = false;
+      clearBtn.textContent = originalText;
+    }
+  }
+}
+window.clearQueueTasks = clearQueueTasks;
+window.selectAndShowTask = selectAndShowTask;
+
+function openQueueModal() {
+  const modal = $('render-queue-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    updateQueueStatus();
+  }
+}
+window.openQueueModal = openQueueModal;
+
+function closeQueueModal() {
+  const modal = $('render-queue-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+window.closeQueueModal = closeQueueModal;
+
+async function cancelQueueTask(taskId, event) {
+  const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tác vụ kết xuất này không?');
+  if (!confirmCancel) return;
+  
+  let targetBtn = null;
+  if (event && event.target) {
+    targetBtn = event.target;
+  } else {
+    targetBtn = $('cancel-render-btn');
+  }
+  
+  const originalText = targetBtn ? targetBtn.textContent : 'Hủy';
+  if (targetBtn) {
+    targetBtn.disabled = true;
+    targetBtn.textContent = 'Đang hủy...';
+  }
+  
+  try {
+    const res = await fetch('/api/cancel-queue-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId })
+    });
+    const result = await res.json();
+    if (res.ok && result.success) {
+      toast(result.message || 'Đã hủy tác vụ thành công.', 'success');
+      updateQueueStatus();
+    } else {
+      toast(result.error || 'Lỗi khi hủy tác vụ', 'error');
+      if (targetBtn) {
+        targetBtn.disabled = false;
+        targetBtn.textContent = originalText;
+      }
+    }
+  } catch (err) {
+    console.error('Lỗi khi hủy tác vụ:', err);
+    toast('Lỗi kết nối khi hủy tác vụ.', 'error');
+    if (targetBtn) {
+      targetBtn.disabled = false;
+      targetBtn.textContent = originalText;
+    }
+  }
+}
+window.cancelQueueTask = cancelQueueTask;
 
 async function cancelRenderVideo() {
   const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
@@ -886,6 +1195,7 @@ async function cancelRenderVideo() {
     const result = await res.json();
     if (res.ok && result.success) {
       toast('Đã hủy tiến trình render thành công.', 'success');
+      updateQueueStatus();
     } else {
       toast(result.message || 'Lỗi khi hủy render', 'error');
     }
@@ -898,107 +1208,12 @@ window.cancelRenderVideo = cancelRenderVideo;
 
 async function checkActiveRenderProgress() {
   try {
-    const pRes = await fetch('/api/render-progress');
+    const pRes = await fetch('/api/render-queue-status');
     if (!pRes.ok) return;
-    const pData = await pRes.json();
-    if (pData && pData.status === 'rendering') {
-      const btn = $('render-btn');
-      const status = $('render-status');
-      
-      // Đặt nút render ở trạng thái bận
-      setBusy(btn, true, 'Đang render...');
-      if (status) {
-        status.textContent = 'Đang xử lý. Video dài hoặc nhận diện giọng nói AI sẽ mất thời gian.';
-      }
-      
-      // Hiển thị giao diện Loading
-      const loadingHtml = `
-        <div class="render-loading-state">
-          <div class="loading-spinner" style="border-top-color: var(--accent-2);"></div>
-          <h3>Đang Render Video... <span id="render-progress-percent">${pData.percent}%</span></h3>
-          
-          <div class="render-progress-container" style="width: 100%; max-width: 400px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 20px; height: 10px; margin: 16px auto; overflow: hidden; position: relative;">
-            <div id="render-progress-bar" style="width: ${pData.percent}%; height: 100%; background: linear-gradient(90deg, var(--accent-2), #a855f7); border-radius: 20px; transition: width 0.3s ease-out;"></div>
-          </div>
-          
-          <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">${pData.step || 'Đang chuẩn bị...'}</p>
-          <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
-          <button id="cancel-render-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s;" onclick="cancelRenderVideo()" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">Hủy Render</button>
-        </div>
-      `;
-      
-      const renderResultSidebar = $('render-result');
-      if (renderResultSidebar) {
-        renderResultSidebar.classList.remove('empty');
-        renderResultSidebar.innerHTML = loadingHtml;
-      }
-      const studioResult = $('studio-render-result');
-      if (studioResult) {
-        studioResult.innerHTML = loadingHtml;
-      }
-      
-      // Chuyển sang tab Xem trước
-      switchToResultTab();
-      
-      // Khởi chạy vòng lặp polling
-      let progressInterval = setInterval(async () => {
-        try {
-          const res = await fetch('/api/render-progress');
-          if (!res.ok) return;
-          const data = await res.json();
-          
-          if (data && data.status === 'rendering') {
-            document.querySelectorAll('#render-progress-bar').forEach(bar => {
-              bar.style.width = `${data.percent}%`;
-            });
-            document.querySelectorAll('#render-progress-percent').forEach(pct => {
-              pct.textContent = `${data.percent}%`;
-            });
-            document.querySelectorAll('#render-progress-text').forEach(txt => {
-              txt.textContent = data.step || 'Đang xử lý...';
-            });
-          } else if (data && data.status === 'success') {
-            clearInterval(progressInterval);
-            setBusy(btn, false);
-            if (status) status.textContent = '';
-            toast('Render video thành công', 'success');
-            await loadAssets();
-          } else if (data && (data.status === 'error' || data.status === 'idle')) {
-            clearInterval(progressInterval);
-            setBusy(btn, false);
-            if (status) status.textContent = '';
-            
-            let errMsg = 'Render lỗi';
-            let isCancelled = false;
-            if (data.status === 'idle') {
-              errMsg = 'Đã hủy tiến trình render.';
-              isCancelled = true;
-            } else if (data.error) {
-              errMsg = data.error;
-              isCancelled = errMsg.includes('hủy') || errMsg.includes('cancel');
-            }
-            toast(errMsg, 'error');
-            
-            const statusTitle = isCancelled ? 'Đã hủy render' : 'Render thất bại';
-            const statusIcon = isCancelled ? '⏹️' : '❌';
-            const statusColor = isCancelled ? 'var(--muted)' : '#ef4444';
-            const borderColor = isCancelled ? 'var(--border)' : 'rgba(239, 68, 68, 0.3)';
-            const bgColor = isCancelled ? 'rgba(255, 255, 255, 0.01)' : 'rgba(239, 68, 68, 0.05)';
-            
-            const errorHtml = `
-              <div class="render-loading-state" style="border-color: ${borderColor}; background: ${bgColor};">
-                <div style="font-size: 40px; margin-bottom: 15px;">${statusIcon}</div>
-                <h3 style="color: ${statusColor};">${statusTitle}</h3>
-                <p style="color: var(--muted);">${errMsg}</p>
-              </div>
-            `;
-            if ($('render-result')) $('render-result').innerHTML = errorHtml;
-            if ($('studio-render-result')) $('studio-render-result').innerHTML = errorHtml;
-          }
-        } catch (err) {
-          console.error('Lỗi khi lấy tiến trình render:', err);
-        }
-      }, 1000);
+    const data = await pRes.json();
+    const hasActiveOrPending = data.queue.some(t => t.status === 'rendering' || t.status === 'pending');
+    if (hasActiveOrPending || data.queue.length > 0) {
+      startQueuePolling();
     }
   } catch (err) {
     console.error('Lỗi khi kiểm tra tiến trình render lúc khởi động:', err);

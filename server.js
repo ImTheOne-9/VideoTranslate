@@ -1971,6 +1971,12 @@ app.get('/api/download-dependency-progress', (req, res) => {
 // ==========================================================
 // HỆ THỐNG THEO DÕI TIẾN TRÌNH RENDER STUDIO
 // ==========================================================
+// ==========================================================
+// HỆ THỐNG HÀNG ĐỢI RENDER TUẦN TỰ (PREMIUM RENDER QUEUE)
+// ==========================================================
+const renderQueue = [];
+let currentActiveTask = null;
+
 let studioProgress = {
   status: 'idle',
   percent: 0,
@@ -1982,6 +1988,10 @@ function updateStudioProgress(percent, step) {
   studioProgress.percent = percent;
   if (step) studioProgress.step = step;
   console.log(`[Studio Progress] ${percent}% - ${studioProgress.step}`);
+  if (currentActiveTask) {
+    currentActiveTask.percent = percent;
+    if (step) currentActiveTask.step = step;
+  }
 }
 
 global.updateStudioProgress = updateStudioProgress;
@@ -2063,25 +2073,100 @@ app.post('/api/render-studio', studioUpload.fields([
   { name: 'musicUpload', maxCount: 1 },
   { name: 'reactionUpload', maxCount: 1 }
 ]), async (req, res) => {
+  const timestamp = Date.now();
+  const taskId = `task_${timestamp}`;
+
+  try {
+    const body = req.body;
+    const files = req.files || {};
+
+    // 1. Tạo thư mục chuyên biệt cho task để lưu tệp tin lâu dài tránh bị Multer dọn dẹp
+    const taskDir = path.join(UPLOADS_DIR, `task_${timestamp}`);
+    fs.mkdirSync(taskDir, { recursive: true });
+
+    // Di chuyển các tệp tải lên vào thư mục taskDir và cập nhật đường dẫn tệp tin
+    const movedFiles = {};
+    for (const [fieldname, fileArr] of Object.entries(files)) {
+      if (fileArr && fileArr[0]) {
+        const file = fileArr[0];
+        const newPath = path.join(taskDir, file.filename + path.extname(file.originalname));
+        fs.renameSync(file.path, newPath);
+        movedFiles[fieldname] = [{
+          ...file,
+          path: newPath
+        }];
+      }
+    }
+
+    // 2. Tạo đối tượng Task mới đưa vào hàng chờ
+    const task = {
+      id: taskId,
+      status: 'pending',
+      percent: 0,
+      step: 'Đang xếp hàng...',
+      error: null,
+      createdAt: new Date(),
+      body: body,
+      files: movedFiles,
+      taskDir: taskDir,
+      result: null
+    };
+
+    renderQueue.push(task);
+    console.log(`[Queue] Đã xếp hàng tác vụ ${taskId}. Tổng hàng đợi: ${renderQueue.length}`);
+
+    // Kích hoạt worker chạy tác vụ tiếp theo dưới nền
+    processNextRenderTask();
+
+    // Phản hồi bất đồng bộ về client ngay lập tức
+    return res.json({
+      success: true,
+      message: 'Đã thêm video vào hàng đợi thành công.',
+      taskId: taskId
+    });
+
+  } catch (error) {
+    console.error('[Queue Error] Lỗi xếp hàng tác vụ:', error.message);
+    return res.status(500).json({ error: 'Không thể thêm video vào hàng đợi: ' + error.message });
+  }
+});
+
+// Hàm chạy tiến trình render dưới nền cho một tác vụ cụ thể
+async function executeRenderTask(task) {
   const tempFiles = [];
   const voiceChunks = [];
   const timestamp = Date.now();
-  const renderId = timestamp;
+  const renderId = task.id; // Sử dụng ID task làm renderId
 
-  if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
-    console.log('[Studio Render] Đang có tiến trình render chạy. Tiến hành hủy tiến trình cũ trước khi chạy mới...');
-    killActiveRenderProcesses();
-    if (global.activeRenderRes) {
-      try {
-        global.activeRenderRes.status(400).json({ error: 'Render bị hủy vì có yêu cầu render mới.' });
-      } catch (e) {}
-      global.activeRenderRes = null;
-    }
-  }
-
-  global.activeRenderRes = res;
+  global.activeRenderRes = null;
   activeRenderId = renderId;
   isStudioRendering = true;
+
+  // Tạo mock response object để giữ nguyên toàn bộ mã xử lý cũ mà không bị lỗi
+  const res = {
+    statusCode: 200,
+    status: function(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json: function(data) {
+      if (this.statusCode >= 400 || data.error) {
+        throw new Error(data.error || 'Lỗi không xác định khi kết xuất');
+      }
+      task.status = 'success';
+      task.percent = 100;
+      task.step = 'Hoàn tất render!';
+      task.result = data;
+      studioProgress = {
+        status: 'success',
+        percent: 100,
+        step: 'Hoàn tất render!',
+        error: null,
+        result: data
+      };
+      return this;
+    }
+  };
 
   try {
     studioProgress = {
@@ -2090,8 +2175,12 @@ app.post('/api/render-studio', studioUpload.fields([
       step: 'Khởi tạo thư mục làm việc...',
       error: null
     };
-    const body = req.body;
-    const files = req.files || {};
+    task.status = 'rendering';
+    task.percent = 2;
+    task.step = 'Khởi tạo thư mục làm việc...';
+
+    const body = task.body;
+    const files = task.files || {};
     const timestamp = Date.now();
     const workDir = path.join(UPLOADS_DIR, `render_${timestamp}`);
     fs.mkdirSync(workDir, { recursive: true });
@@ -2923,11 +3012,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
     if (activeRenderId === renderId) {
       updateStudioProgress(100, 'Hoàn tất render!');
-      studioProgress.status = 'success';
       isStudioRendering = false;
-      if (global.activeRenderRes === res) {
-        global.activeRenderRes = null;
-      }
 
       res.json({
         success: true,
@@ -2937,33 +3022,157 @@ app.post('/api/render-studio', studioUpload.fields([
       });
     } else {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
-      if (global.activeRenderRes === res) {
-        try {
-          res.status(400).json({ error: 'Render đã bị hủy.' });
-        } catch (e) {}
-        global.activeRenderRes = null;
-      }
     }
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message);
-    if (activeRenderId === renderId) {
-      isStudioRendering = false;
-      studioProgress.status = 'error';
-      studioProgress.error = error.message;
-      if (global.activeRenderRes === res) {
-        global.activeRenderRes = null;
-      }
-      res.status(500).json({ error: error.message || 'Không thể render video. Kiểm tra video, sub, voice hoặc nhạc nền.' });
-    } else {
-      console.log(`[Studio Render] Phiên render cũ (${renderId}) đã bị hủy hoặc thay thế. Bỏ qua phản hồi lỗi.`);
-      if (global.activeRenderRes === res) {
-        try {
-          res.status(400).json({ error: 'Render đã bị hủy.' });
-        } catch (e) {}
-        global.activeRenderRes = null;
-      }
+    isStudioRendering = false;
+    
+    // Nếu tác vụ đã bị hủy bởi người dùng, không ghi đè trạng thái lỗi
+    if (task.status === 'failed' || task.step?.includes('hủy') || task.error?.includes('hủy') || task.error?.includes('cancel')) {
+      console.log(`[Queue] Tác vụ ${task.id} đã bị hủy trước đó, giữ nguyên trạng thái.`);
+      return;
     }
+
+    task.status = 'error';
+    task.error = error.message;
+    task.step = 'Lỗi kết xuất';
+    
+    studioProgress = {
+      status: 'error',
+      percent: task.percent,
+      step: 'Lỗi kết xuất: ' + error.message,
+      error: error.message
+    };
   }
+}
+
+// Bộ lập lịch điều khiển hàng đợi kết xuất tuần tự
+async function processNextRenderTask() {
+  if (currentActiveTask) {
+    console.log('[Queue] Đang chạy một tác vụ kết xuất khác...');
+    return;
+  }
+
+  // Tìm tác vụ đầu tiên đang chờ
+  const nextTask = renderQueue.find(t => t.status === 'pending');
+  if (!nextTask) {
+    console.log('[Queue] Hàng đợi trống. Không có tác vụ nào chờ xử lý.');
+    return;
+  }
+
+  currentActiveTask = nextTask;
+  console.log(`[Queue] Bắt đầu thực thi tác vụ kết xuất: ${nextTask.id}`);
+
+  try {
+    await executeRenderTask(nextTask);
+  } catch (err) {
+    console.error(`[Queue] Lỗi nghiêm trọng khi thực thi tác vụ ${nextTask.id}:`, err.message);
+    nextTask.status = 'error';
+    nextTask.error = err.message;
+    nextTask.step = 'Lỗi hệ thống';
+  } finally {
+    currentActiveTask = null;
+    // Chờ 1.5 giây rồi chuyển sang xử lý tác vụ tiếp theo
+    setTimeout(() => {
+      processNextRenderTask();
+    }, 1500);
+  }
+}
+
+// API endpoint mới: Lấy trạng thái toàn bộ hàng đợi render
+app.get('/api/render-queue-status', (req, res) => {
+  res.json({
+    queue: renderQueue.map(t => ({
+      id: t.id,
+      status: t.status,
+      percent: t.percent,
+      step: t.step,
+      error: t.error,
+      createdAt: t.createdAt,
+      videoName: t.body.mainVideoFile || (t.files.videoUpload?.[0] ? t.files.videoUpload[0].originalname : 'Video Tải Lên'),
+      result: t.result
+    })),
+    currentActiveId: currentActiveTask ? currentActiveTask.id : null
+  });
+});
+
+// API endpoint mới: Hủy hoặc xóa tác vụ khỏi hàng đợi
+app.post('/api/cancel-queue-task', (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({ error: 'Thiếu mã tác vụ taskId' });
+  }
+
+  const taskIndex = renderQueue.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) {
+    return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+  }
+
+  const task = renderQueue[taskIndex];
+
+  if (task.status === 'pending') {
+    // Nếu đang chờ, gỡ luôn khỏi hàng đợi
+    renderQueue.splice(taskIndex, 1);
+    console.log(`[Queue] Đã gỡ tác vụ đang chờ khỏi hàng đợi: ${taskId}`);
+    return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi hàng đợi thành công.' });
+  }
+
+  if (task.status === 'rendering') {
+    // Nếu đang chạy, kích hoạt hủy tiến trình con và gỡ khỏi hàng đợi
+    console.log(`[Queue] Nhận yêu cầu hủy và gỡ tác vụ đang chạy trực tiếp: ${taskId}`);
+    killActiveRenderProcesses();
+    isStudioRendering = false;
+    activeRenderId = null;
+    studioProgress = {
+      status: 'idle',
+      percent: 0,
+      step: 'Đã hủy kết xuất',
+      error: null
+    };
+    task.status = 'failed';
+    task.step = 'Đã bị người dùng hủy';
+    
+    // Gỡ khỏi mảng hàng đợi
+    renderQueue.splice(taskIndex, 1);
+    currentActiveTask = null;
+
+    // Chạy tác vụ tiếp theo sau khi dọn dẹp
+    setTimeout(() => {
+      processNextRenderTask();
+    }, 1500);
+
+    return res.json({ success: true, message: 'Đã hủy tiến trình và gỡ tác vụ khỏi hàng đợi thành công.' });
+  }
+
+  // Đối với các trạng thái khác (hoàn tất, lỗi), cho phép xóa luôn khỏi danh sách để dọn dẹp hàng đợi
+  renderQueue.splice(taskIndex, 1);
+  return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi danh sách.' });
+});
+
+// API endpoint mới: Xóa sạch toàn bộ hàng đợi
+app.post('/api/clear-queue', (req, res) => {
+  console.log('[Queue] Nhận yêu cầu xóa sạch toàn bộ hàng đợi...');
+  
+  // Hủy tiến trình đang chạy nếu có
+  if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
+    killActiveRenderProcesses();
+  }
+  
+  // Reset trạng thái điều phối
+  isStudioRendering = false;
+  activeRenderId = null;
+  studioProgress = {
+    status: 'idle',
+    percent: 0,
+    step: 'Hàng đợi trống',
+    error: null
+  };
+  currentActiveTask = null;
+  
+  // Xóa toàn bộ các phần tử trong hàng đợi
+  renderQueue.length = 0;
+  
+  return res.json({ success: true, message: 'Đã xóa sạch hàng đợi thành công.' });
 });
 
 app.post('/api/cancel-render', (req, res) => {
@@ -2975,21 +3184,28 @@ app.post('/api/cancel-render', (req, res) => {
     studioProgress = {
       status: 'idle',
       percent: 0,
-      step: 'Đã hủy tiến trình render theo yêu cầu.',
+      step: 'Đã hủy kết xuất',
       error: null
     };
-    
-    // Gửi phản hồi lỗi lập tức cho request render-studio cũ đang bị kẹt
+
+    if (currentActiveTask) {
+      currentActiveTask.status = 'failed';
+      currentActiveTask.step = 'Đã bị hủy';
+      currentActiveTask = null;
+      // Chạy tác vụ tiếp theo sau khi dọn dẹp
+      setTimeout(() => {
+        processNextRenderTask();
+      }, 1500);
+    }
+
     if (global.activeRenderRes) {
       try {
-        global.activeRenderRes.status(400).json({ error: 'Render đã bị hủy bởi người dùng.' });
+        global.activeRenderRes.status(400).json({ error: 'Render đã bị hủy.' });
       } catch (e) {}
       global.activeRenderRes = null;
     }
-
-    return res.json({ success: true, message: 'Đã hủy render thành công.' });
   }
-  res.json({ success: true, message: 'Không có tiến trình render nào đang chạy.' });
+  res.json({ success: true, message: 'Đã hủy render thành công.' });
 });
 
 // ==========================================

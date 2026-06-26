@@ -52,6 +52,7 @@
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="ghost-btn" id="refresh-assets-btn">🔌 Kết nối</button>
+          <button type="button" class="ghost-btn" onclick="openQueueModal()" style="position: relative;">📋 Hàng đợi<span id="queue-badge" style="position: absolute; top: -6px; right: -6px; background: #ef4444; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; font-weight: 700; line-height: 1; display: none; border: 1px solid var(--border);">0</span></button>
           <button type="button" class="ghost-btn" id="open-settings-btn" onclick="openGlobalSettingsModal()">⚙️ Cài đặt AI</button>
         </div>
       </header>
@@ -1844,6 +1845,24 @@
           <button type="button" id="dep-start-btn" class="premium-render-btn" style="flex: 1; margin: 0; background: #3b82f6; color: white;" onclick="startDependencyDownload()">Tải Ngay</button>
           <button type="button" id="dep-cancel-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeDependencyModal()">Bỏ qua</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Hàng đợi Render -->
+  <div id="render-queue-modal" class="fb-modal-overlay hidden" style="z-index: 10002;">
+    <div class="fb-modal-content" style="width: 600px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(139, 92, 246, 0.1); border-bottom-color: rgba(139, 92, 246, 0.2); display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <h3 style="color: var(--accent-2, #8b5cf6); display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
+            📋 Hàng đợi Render Video
+          </h3>
+          <button type="button" id="clear-queue-btn" class="premium-render-btn" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px; border-radius: 4px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center;" onclick="clearQueueTasks(event)">Xóa tất cả</button>
+        </div>
+        <button class="fb-modal-close" onclick="closeQueueModal()" style="margin: 0;">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 12px; max-height: 500px; overflow-y: auto;" id="queue-modal-body">
+        <!-- Danh sách hàng đợi render -->
       </div>
     </div>
   </div>
