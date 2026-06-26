@@ -736,7 +736,7 @@ async function renderStudio(event) {
       
       <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">Đang chuẩn bị...</p>
       <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
-      <button id="cancel-render-btn" class="nav-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;" onclick="cancelRenderVideo()">Hủy Render</button>
+      <button id="cancel-render-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s;" onclick="cancelRenderVideo()" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">Hủy Render</button>
     </div>
   `;
   const renderResultSidebar = $('render-result');
@@ -923,7 +923,7 @@ async function checkActiveRenderProgress() {
           
           <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">${pData.step || 'Đang chuẩn bị...'}</p>
           <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
-          <button id="cancel-render-btn" class="nav-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;" onclick="cancelRenderVideo()">Hủy Render</button>
+          <button id="cancel-render-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s;" onclick="cancelRenderVideo()" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">Hủy Render</button>
         </div>
       `;
       
