@@ -47,6 +47,26 @@ let activeBlurBoxId = null;
 
 const $ = (id) => document.getElementById(id);
 
+const sliderToVolume = (x) => {
+  x = Number(x);
+  if (isNaN(x) || x < 0) return 0;
+  if (x <= 1) {
+    return x * x;
+  } else {
+    return x;
+  }
+};
+
+const volumeToSlider = (v) => {
+  v = Number(v);
+  if (isNaN(v) || v < 0) return 0;
+  if (v <= 1) {
+    return Math.sqrt(v);
+  } else {
+    return v;
+  }
+};
+
 function toast(message, type = 'info') {
   const el = $('toast');
   el.textContent = message;
@@ -284,7 +304,7 @@ function extractAuthorFromPastedText(rawText) {
 }
 
 function isValidVideoUrl(url) {
-  return /(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|v\.douyin\.com\/|iesdouyin\.com\/)/.test(url);
+  return /(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|v\.douyin\.com\/|iesdouyin\.com\/|instagram\.com\/|instagr\.am\/)/.test(url);
 }
 
 function formatDuration(seconds) {
@@ -349,7 +369,8 @@ async function fetchVideoInfo() {
     currentUrl = url;
     renderVideoInfo(data);
   } catch (error) {
-    if (finalExtractedTitle) {
+    const isXhs = url.includes('xiaohongshu.com') || url.includes('xhslink.com');
+    if (finalExtractedTitle && isXhs) {
       currentUrl = url;
       renderVideoInfo({
         title: finalExtractedTitle,
@@ -609,12 +630,12 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
 
     const savedFilename = data.filename || `${customFilename}${isVietsub ? '_Vietsub' : ''}.mp4`;
     toast(`🎉 Tải thành công và lưu vào thư mục downloads: ${savedFilename}`, 'success');
-    addDownloadHistory(videoTitle, thumbnail, 'success', savedFilename, isVietsub ? 'Vietsub' : formatId);
+    addDownloadHistory(videoTitle, thumbnail, 'success', savedFilename, isVietsub ? 'Vietsub' : originalText);
     await loadAssets();
   } catch (error) {
     console.error('Client startDownload error:', error);
     toast(`❌ Lỗi: ${error.message}`, 'error');
-    addDownloadHistory(videoTitle, thumbnail, 'failed', '', isVietsub ? 'Vietsub' : formatId);
+    addDownloadHistory(videoTitle, thumbnail, 'failed', '', isVietsub ? 'Vietsub' : originalText);
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
@@ -724,6 +745,14 @@ async function renderStudio(event) {
   data.set('geminiApiKey', aiSettings.geminiApiKey);
   data.set('openRouterApiKey', aiSettings.openRouterApiKey);
   data.set('openRouterModel', aiSettings.openRouterModel);
+
+  // Map volumes logarithmically for FFmpeg
+  const originalSlider = document.querySelector('input[name="originalVolume"]');
+  const voiceSlider = document.querySelector('input[name="voiceVolume"]');
+  const musicSlider = document.querySelector('input[name="musicVolume"]');
+  if (originalSlider) data.set('originalVolume', sliderToVolume(originalSlider.value));
+  if (voiceSlider) data.set('voiceVolume', sliderToVolume(voiceSlider.value));
+  if (musicSlider) data.set('musicVolume', sliderToVolume(musicSlider.value));
 
   setBusy(btn, true, 'Đang render...');
   if (status) status.textContent = 'Đang xếp hàng kết xuất...';
@@ -3979,9 +4008,9 @@ function renderCurrentConfigSummary() {
   const volMusic = document.querySelector('input[name="musicVolume"]');
   if (volOrg || volVoice || volMusic) {
     const vols = [];
-    if (volOrg) vols.push(`Gốc: ${Math.round(volOrg.value * 100)}%`);
-    if (volVoice && voiceModeVal !== 'none') vols.push(`Giọng đọc: ${Math.round(volVoice.value * 100)}%`);
-    if (volMusic && musicModeVal !== 'none') vols.push(`Nhạc nền: ${Math.round(volMusic.value * 100)}%`);
+    if (volOrg) vols.push(`Gốc: ${Math.round(sliderToVolume(volOrg.value) * 100)}%`);
+    if (volVoice && voiceModeVal !== 'none') vols.push(`Giọng đọc: ${Math.round(sliderToVolume(volVoice.value) * 100)}%`);
+    if (volMusic && musicModeVal !== 'none') vols.push(`Nhạc nền: ${Math.round(sliderToVolume(volMusic.value) * 100)}%`);
     summary.push(`<div>🔊 <b>Âm lượng:</b> ${vols.join(' | ')}</div>`);
   }
 
@@ -4041,9 +4070,9 @@ function submitSaveTemplate(event) {
     omiCustomSeed: $('omi-seed-input').value,
     musicMode: $('music-mode').value,
     savedMusicFile: $('saved-music-select').value,
-    originalVolume: document.querySelector('input[name="originalVolume"]').value,
-    voiceVolume: document.querySelector('input[name="voiceVolume"]').value,
-    musicVolume: document.querySelector('input[name="musicVolume"]').value,
+    originalVolume: sliderToVolume(document.querySelector('input[name="originalVolume"]').value),
+    voiceVolume: sliderToVolume(document.querySelector('input[name="voiceVolume"]').value),
+    musicVolume: sliderToVolume(document.querySelector('input[name="musicVolume"]').value),
   };
 
   localStorage.setItem('studio_templates', JSON.stringify(templates));
@@ -4257,21 +4286,21 @@ function loadStudioTemplate(templateName) {
   // Restore volumes
   const originalSlider = document.querySelector('input[name="originalVolume"]');
   if (originalSlider) {
-    originalSlider.value = template.originalVolume;
+    originalSlider.value = volumeToSlider(template.originalVolume);
     const valEl = $('original-volume-val');
     if (valEl) valEl.textContent = Math.round(template.originalVolume * 100) + '%';
   }
 
   const voiceSlider = document.querySelector('input[name="voiceVolume"]');
   if (voiceSlider) {
-    voiceSlider.value = template.voiceVolume;
+    voiceSlider.value = volumeToSlider(template.voiceVolume);
     const valEl = $('voice-volume-val');
     if (valEl) valEl.textContent = Math.round(template.voiceVolume * 100) + '%';
   }
 
   const musicSlider = document.querySelector('input[name="musicVolume"]');
   if (musicSlider) {
-    musicSlider.value = template.musicVolume;
+    musicSlider.value = volumeToSlider(template.musicVolume);
     const valEl = $('music-volume-val');
     if (valEl) valEl.textContent = Math.round(template.musicVolume * 100) + '%';
   }
@@ -4793,7 +4822,7 @@ volumeInputs.forEach(name => {
     const valSpan = $(spanId);
     const updateLabel = () => {
       if (valSpan) {
-        valSpan.textContent = Math.round(Number(el.value) * 100) + '%';
+        valSpan.textContent = Math.round(sliderToVolume(el.value) * 100) + '%';
       }
     };
     el.addEventListener('input', updateLabel);
@@ -6636,6 +6665,8 @@ function getFriendlyNameFromUrl(url) {
     domain = 'Douyin';
   } else if (/xiaohongshu\.com|xhslink\.com/i.test(url)) {
     domain = 'Xiaohongshu';
+  } else if (/instagram\.com|instagr\.am/i.test(url)) {
+    domain = 'Instagram';
   }
 
   try {
@@ -7104,6 +7135,128 @@ window.toggleGlobalAiProviderFields = toggleGlobalAiProviderFields;
 window.saveGlobalSettings = saveGlobalSettings;
 window.switchSettingsTab = switchSettingsTab;
 
+/* ==========================================================================
+   COOKIE SETTINGS MODAL & HELPERS
+   ========================================================================== */
+
+async function openCookieSettingsModal() {
+  const modal = $('cookie-settings-modal');
+  if (!modal) return;
+
+  modal.classList.remove('hidden');
+  await loadCookieStatus();
+}
+
+function closeCookieSettingsModal() {
+  const modal = $('cookie-settings-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+async function loadCookieStatus() {
+  try {
+    const res = await fetch('/api/cookie/status');
+    const data = await res.json();
+
+    const dot = $('cookie-status-dot');
+    const text = $('cookie-status-text');
+    const clearBtn = $('clear-cookie-btn');
+    const textInput = $('cookie-text-input');
+
+    if (data.exists) {
+      if (dot) {
+        dot.style.background = '#10b981'; // Green
+      }
+      if (text) {
+        const timeStr = new Date(data.lastModified).toLocaleString('vi-VN');
+        text.innerHTML = `Đã cấu hình Cookie (Cập nhật: <span style="color: var(--muted);">${timeStr}</span>)`;
+      }
+      if (clearBtn) {
+        clearBtn.style.display = 'inline-block';
+      }
+    } else {
+      if (dot) {
+        dot.style.background = '#ef4444'; // Red
+      }
+      if (text) {
+        text.textContent = 'Chưa cấu hình Cookie';
+      }
+      if (clearBtn) {
+        clearBtn.style.display = 'none';
+      }
+      if (textInput) {
+        textInput.value = '';
+      }
+    }
+  } catch (error) {
+    console.error('Lỗi tải trạng thái cookie:', error);
+  }
+}
+
+async function saveCookieSettings() {
+  const textInput = $('cookie-text-input');
+  if (!textInput) return;
+
+  const cookieText = textInput.value.trim();
+  if (!cookieText) {
+    toast('⚠️ Vui lòng dán nội dung cookie hoặc chọn file .txt', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/cookie/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cookieText })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Lỗi lưu cookie');
+
+    toast('🎉 Lưu Cookie thành công!', 'success');
+    await loadCookieStatus();
+  } catch (error) {
+    toast(`❌ Lỗi: ${error.message}`, 'error');
+  }
+}
+
+async function clearCookieSettings() {
+  if (!confirm('Bạn có chắc chắn muốn xóa cấu hình Cookie hiện tại?')) return;
+
+  try {
+    const res = await fetch('/api/cookie/clear', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Lỗi xóa cookie');
+
+    toast('🗑️ Đã xóa cấu hình Cookie', 'success');
+    await loadCookieStatus();
+  } catch (error) {
+    toast(`❌ Lỗi: ${error.message}`, 'error');
+  }
+}
+
+function handleCookieFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const textInput = $('cookie-text-input');
+    if (textInput) {
+      textInput.value = e.target.result;
+      toast('📂 Đã tải nội dung file cookie lên ô nhập!', 'success');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Export to window
+window.openCookieSettingsModal = openCookieSettingsModal;
+window.closeCookieSettingsModal = closeCookieSettingsModal;
+window.saveCookieSettings = saveCookieSettings;
+window.clearCookieSettings = clearCookieSettings;
+window.handleCookieFileUpload = handleCookieFileUpload;
+
 function openConnectionStatusModal() {
   const modal = $('connection-status-modal');
   if (modal) {
@@ -7564,7 +7717,7 @@ function resetStudioConfig() {
   // Reset volumes
   const originalSlider = document.querySelector('input[name="originalVolume"]');
   if (originalSlider) {
-    originalSlider.value = '0.45';
+    originalSlider.value = '0.67';
     originalSlider.dispatchEvent(new Event('input'));
   }
 
@@ -7576,7 +7729,7 @@ function resetStudioConfig() {
 
   const musicSlider = document.querySelector('input[name="musicVolume"]');
   if (musicSlider) {
-    musicSlider.value = '0.18';
+    musicSlider.value = '0.42';
     musicSlider.dispatchEvent(new Event('input'));
   }
 

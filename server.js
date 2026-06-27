@@ -203,6 +203,7 @@ const NLLB_TRANSLATE_PATH = getExtPath('tools', 'nllb_translate.exe');
 
 const isPackagedServer = __dirname.includes('app.asar');
 const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'VideoStudio') : __dirname;
+const COOKIES_PATH = path.join(appDataRoot, 'cookies.txt');
 const MODELS_DIR = path.join(appDataRoot, 'models');
 const NLLB_MODEL_DIR = path.join(MODELS_DIR, 'nllb');
 const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(MODELS_DIR, 'omnivoice-q8_0.gguf');
@@ -253,9 +254,19 @@ function runYtDlp(args, options = {}, retryCount = 0) {
     retryCount = options;
     options = {};
   }
+
+  // Clone args to avoid mutating the original array
+  const actualArgs = [...args];
+  // Auto-inject cookies if cookies.txt exists
+  if (fs.existsSync(COOKIES_PATH)) {
+    if (!actualArgs.includes('--cookies')) {
+      actualArgs.unshift('--cookies', COOKIES_PATH);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const { signal, ...execOptions } = options;
-    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024, signal, ...execOptions }, (error, stdout, stderr) => {
+    execFile(YTDLP_PATH, actualArgs, { maxBuffer: 10 * 1024 * 1024, signal, ...execOptions }, (error, stdout, stderr) => {
       if (error) {
         if (error.name === 'AbortError' || signal?.aborted) {
           reject(new Error('Tải xuống bị hủy'));
@@ -393,7 +404,7 @@ function cleanVideoTitle(title) {
 // Validate Video URL
 function isValidVideoUrl(url) {
   const cleanUrl = extractUrl(url);
-  return /^https?:\/\/(www\.|vt\.|vm\.|v\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|iesdouyin\.com\/)/.test(cleanUrl);
+  return /^https?:\/\/(www\.|vt\.|vm\.|v\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|iesdouyin\.com\/|instagram\.com\/|instagr\.am\/)/.test(cleanUrl);
 }
 
 function safeFileName(name) {
@@ -710,10 +721,17 @@ app.post('/api/info', async (req, res) => {
 
     const info = JSON.parse(output);
 
-    // Extract formats - any video with height
+    // Extract formats - any video with height, sorted to get the highest quality/size first
     const formats = (info.formats || [])
       .filter(f => {
         return f.vcodec && f.vcodec !== 'none' && f.height;
+      })
+      .sort((a, b) => {
+        if (a.height !== b.height) return b.height - a.height;
+        const aSize = a.filesize || a.filesize_approx || a.tbr || 0;
+        const bSize = b.filesize || b.filesize_approx || b.tbr || 0;
+        if (aSize !== bSize) return bSize - aSize;
+        return (b.fps || 30) - (a.fps || 30);
       })
       .map(f => ({
         format_id: f.format_id,
@@ -730,7 +748,7 @@ app.post('/api/info', async (req, res) => {
         container: 'mp4',
         format_note: f.format_note || '',
       }))
-      // Remove duplicates by quality
+      // Remove duplicates by quality (keeping the first one, which is now the best size/bitrate format)
       .reduce((acc, f) => {
         const key = `${f.quality}-${f.fps}`;
         if (!acc.map.has(key)) {
@@ -738,19 +756,24 @@ app.post('/api/info', async (req, res) => {
           acc.list.push(f);
         }
         return acc;
-      }, { map: new Map(), list: [] }).list
-      // Sort: height desc
-      .sort((a, b) => {
-        if (a.height !== b.height) return b.height - a.height;
-        return b.fps - a.fps;
-      });
+      }, { map: new Map(), list: [] }).list;
 
     // Get best thumbnail
     const thumbnail = info.thumbnail || (info.thumbnails && info.thumbnails.length > 0 ? info.thumbnails[info.thumbnails.length - 1].url : '');
+    let proxiedThumbnail = thumbnail;
+    if (thumbnail && (thumbnail.startsWith('http://') || thumbnail.startsWith('https://'))) {
+      proxiedThumbnail = `/api/proxy-image?url=${encodeURIComponent(thumbnail)}`;
+    }
     
     // Get author properly
     let author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
     let title = cleanVideoTitle(info.title);
+    if ((url.includes('instagram.com') || url.includes('instagr.am')) && info.description) {
+      const firstLine = info.description.split('\n')[0].trim();
+      if (firstLine) {
+        title = cleanVideoTitle(firstLine);
+      }
+    }
 
     // Thử cào lấy tiêu đề & tên tác giả nếu là link Xiaohongshu và dữ liệu yt-dlp trả về bị trống/dummy ID
     if (url.includes('xiaohongshu.com') && (title.startsWith('XiaoHongShu video #') || author === 'Xiaohongshu User' || /^[a-f0-9]{24}$/.test(author))) {
@@ -787,7 +810,7 @@ app.post('/api/info', async (req, res) => {
 
     res.json({
       title,
-      thumbnail,
+      thumbnail: proxiedThumbnail,
       duration: info.duration || 0,
       author,
       viewCount: info.view_count || 0,
@@ -802,8 +825,36 @@ app.post('/api/info', async (req, res) => {
       errorMsg = 'Video giới hạn độ tuổi, yêu cầu tài khoản.';
     } else if (error.message.includes('Private video')) {
       errorMsg = 'Video ở chế độ riêng tư hoặc đã bị xóa.';
+    } else if (error.message.includes('Fresh cookies') || error.message.includes('cookies are needed') || error.message.includes('Failed to parse JSON')) {
+      errorMsg = 'Lỗi kết nối Douyin: Yêu cầu cookie mới. Nếu bạn đã lưu cookie mới nhất mà vẫn gặp lỗi này, có thể Douyin đang chặn IP/User-Agent của công cụ hoặc yt-dlp đang bị lỗi trích xuất (hãy thử cập nhật yt-dlp hoặc sử dụng trang web tải ngoài như SnapTik/SSSTik).';
     }
     res.status(500).json({ error: errorMsg });
+  }
+});
+
+// API: Proxy image to bypass hotlinking protection
+app.get('/api/proxy-image', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      return res.status(400).send('Invalid image URL');
+    }
+    const axios = require('axios');
+    const response = await axios({
+      method: 'get',
+      url: url,
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('xiaohongshu') ? 'https://www.xiaohongshu.com/' : 'https://www.google.com/')
+      },
+      timeout: 10000
+    });
+    res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Proxy image error:', error.message);
+    res.status(500).send('Error loading image');
   }
 });
 
@@ -1099,6 +1150,8 @@ app.post('/api/playlist', async (req, res) => {
             videoUrl = `https://www.tiktok.com/@placeholder/video/${item.id}`;
           } else if (url.includes('xiaohongshu.com') || url.includes('xhslink.com')) {
             videoUrl = `https://www.xiaohongshu.com/discovery/item/${item.id}`;
+          } else if (url.includes('instagram.com') || url.includes('instagr.am')) {
+            videoUrl = `https://www.instagram.com/p/${item.id}`;
           } else if (item.id) {
             videoUrl = `https://www.youtube.com/watch?v=${item.id}`;
           } else {
@@ -1106,12 +1159,25 @@ app.post('/api/playlist', async (req, res) => {
           }
         }
 
+        let itemTitle = item.title;
+        if ((url.includes('instagram.com') || url.includes('instagr.am')) && item.description) {
+          const firstLine = item.description.split('\n')[0].trim();
+          if (firstLine) {
+            itemTitle = firstLine;
+          }
+        }
+
+        let thumbUrl = item.thumbnail || (item.thumbnails && item.thumbnails.length > 0 ? item.thumbnails[0].url : '');
+        if (thumbUrl && (thumbUrl.startsWith('http://') || thumbUrl.startsWith('https://'))) {
+          thumbUrl = `/api/proxy-image?url=${encodeURIComponent(thumbUrl)}`;
+        }
+
         return {
           id: item.id,
-          title: item.title,
+          title: itemTitle,
           url: videoUrl,
           duration: item.duration,
-          thumbnail: item.thumbnail || (item.thumbnails && item.thumbnails.length > 0 ? item.thumbnails[0].url : '')
+          thumbnail: thumbUrl
         };
       } catch(e) {
         return null;
@@ -1292,6 +1358,51 @@ app.post('/api/download-local', async (req, res) => {
   } catch (error) {
     console.error('Download local error:', error.message);
     res.status(500).json({ error: 'Lỗi tải video: ' + error.message });
+  }
+});
+
+// API: Check cookie status
+app.get('/api/cookie/status', (req, res) => {
+  try {
+    if (fs.existsSync(COOKIES_PATH)) {
+      const stats = fs.statSync(COOKIES_PATH);
+      return res.json({
+        exists: true,
+        lastModified: stats.mtime
+      });
+    }
+    return res.json({ exists: false });
+  } catch (error) {
+    console.error('Lỗi kiểm tra cookie:', error.message);
+    res.status(500).json({ error: 'Lỗi kiểm tra cookie' });
+  }
+});
+
+// API: Save cookie content
+app.post('/api/cookie/save', (req, res) => {
+  try {
+    const { cookieText } = req.body;
+    if (!cookieText || cookieText.trim() === '') {
+      return res.status(400).json({ error: 'Nội dung cookie trống' });
+    }
+    fs.writeFileSync(COOKIES_PATH, cookieText, 'utf8');
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Lỗi lưu cookie:', error.message);
+    res.status(500).json({ error: 'Lỗi ghi file cookie: ' + error.message });
+  }
+});
+
+// API: Clear/delete cookie file
+app.post('/api/cookie/clear', (req, res) => {
+  try {
+    if (fs.existsSync(COOKIES_PATH)) {
+      fs.unlinkSync(COOKIES_PATH);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Lỗi xóa cookie:', error.message);
+    res.status(500).json({ error: 'Lỗi xóa file cookie: ' + error.message });
   }
 });
 
@@ -2952,15 +3063,14 @@ async function executeRenderTask(task) {
     }
     
     let hasAudioFilter = false;
+    const originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
     if (audioInputs.length > 0) {
       hasAudioFilter = true;
-      const numInputs = audioInputs.length + 1; // Tổng số luồng âm thanh đưa vào trộn (âm gốc + thuyết minh + nhạc...)
-      const originalVolume = Math.max(0, Number(body.originalVolume || 0.45)) * numInputs; // Nhân bù vì amix chia đều
       const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];
       const mixLabels = ['[a0]'];
       audioInputs.forEach((input, idx) => {
         const label = `a${idx + 1}`;
-        const targetVolume = input.volume * numInputs; // Nhân bù vì amix chia đều
+        const targetVolume = input.volume;
         if (input.type === 'chunk') {
           if (input.startMs > 0) {
             audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${targetVolume}[${label}]`);
@@ -2974,6 +3084,9 @@ async function executeRenderTask(task) {
       });
       audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
       filterComplex.push(audioFilters.join(';'));
+    } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
+      hasAudioFilter = true;
+      filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
     }
     
     if (filterComplex.length > 0) {
@@ -2995,6 +3108,7 @@ async function executeRenderTask(task) {
 
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);
     updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
+    console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
     await runFFmpegWithProgress(args, totalDuration);
 
     // Sao chép file phụ đề kết quả vào thư mục renders và subtitles để người dùng chỉnh sửa hoặc lồng tiếng tiếp
