@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const child_process = require('child_process');
 const fs = require('fs');
+const { getAppDataRoot } = require('./lib/path-helper');
 const contentDisposition = require('content-disposition');
 const multer = require('multer');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('./lib/translate-sub');
@@ -33,17 +34,9 @@ function getExtPath(...parts) {
 const TOOLS_DIR = getExtPath('tools');
 
 // Thiết lập thư mục lưu trữ dữ liệu (downloads, uploads)
-let DOWNLOADS_DIR, UPLOADS_DIR;
-if (isPackaged) {
-  // Bản đóng gói: lưu ở %USERPROFILE%/VideoStudio
-  const appDataRoot = path.join(os.homedir(), 'VideoStudio');
-  DOWNLOADS_DIR = path.join(appDataRoot, 'downloads');
-  UPLOADS_DIR = path.join(appDataRoot, 'uploads');
-} else {
-  // Bản phát triển: lưu tại chỗ
-  DOWNLOADS_DIR = path.join(__dirname, 'downloads');
-  UPLOADS_DIR = path.join(__dirname, 'uploads');
-}
+const appDataRoot = getAppDataRoot(__dirname);
+const DOWNLOADS_DIR = path.join(appDataRoot, 'downloads');
+const UPLOADS_DIR = path.join(appDataRoot, 'uploads');
 
 const VOICES_DIR = path.join(UPLOADS_DIR, 'voices');
 const MUSIC_DIR = path.join(UPLOADS_DIR, 'music');
@@ -51,8 +44,11 @@ const SUBTITLES_DIR = path.join(UPLOADS_DIR, 'subtitles');
 const TMP_UPLOADS_DIR = path.join(UPLOADS_DIR, 'tmp');
 const RENDERS_DIR = path.join(DOWNLOADS_DIR, 'renders');
 
+const PROJECTS_DIR = path.join(appDataRoot, 'projects');
+
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (!fs.existsSync(PROJECTS_DIR)) fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 for (const dir of [VOICES_DIR, MUSIC_DIR, SUBTITLES_DIR, TMP_UPLOADS_DIR, RENDERS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
@@ -201,8 +197,6 @@ const YTDLP_PATH = getExtPath('tools', 'yt-dlp.exe');
 const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || getExtPath('tools', 'omnivoice', 'omnivoice-cli.exe');
 const NLLB_TRANSLATE_PATH = getExtPath('tools', 'nllb_translate.exe');
 
-const isPackagedServer = __dirname.includes('app.asar');
-const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'VideoStudio') : __dirname;
 const COOKIES_PATH = path.join(appDataRoot, 'cookies.txt');
 const MODELS_DIR = path.join(appDataRoot, 'models');
 const NLLB_MODEL_DIR = path.join(MODELS_DIR, 'nllb');
@@ -547,7 +541,8 @@ function convertSrtToAss(srtPath, assPath, options) {
     backColor,
     alignment,
     marginV,
-    marginH
+    marginH,
+    theme
   } = options;
 
   const assLines = [];
@@ -567,7 +562,10 @@ function convertSrtToAss(srtPath, assPath, options) {
   for (const item of srtArray) {
     const start = convertSrtTime(item.startTime);
     const end = convertSrtTime(item.endTime);
-    const text = item.text.replace(/\n/g, '\\N');
+    let text = item.text.replace(/\n/g, '\\N');
+    if (theme === 'neon-glow') {
+      text = `{\\blur4}${text}`;
+    }
     assLines.push(`Dialogue: 0,${start},${end},Default,,${marginH},${marginH},${marginV},,${text}`);
   }
 
@@ -832,6 +830,197 @@ app.post('/api/info', async (req, res) => {
   }
 });
 
+// API: Get Gemini models
+app.post('/api/gemini-models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Thiếu API Key' });
+    }
+    const response = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const models = response.data.models || [];
+    const validModels = models
+      .filter(m => 
+        m.supportedGenerationMethods && 
+        m.supportedGenerationMethods.includes('generateContent') &&
+        m.name.includes('gemini')
+      )
+      .map(m => ({
+        name: m.name,
+        displayName: m.displayName || m.name.replace('models/', '')
+      }));
+
+    res.json({ models: validModels });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách model Gemini:', error.message);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Lỗi: ${errorMsg}` });
+  }
+});
+
+// API: Get OpenRouter models
+app.post('/api/openrouter-models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Thiếu API Key' });
+    }
+    const response = await axios.get('https://openrouter.ai/api/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+    const models = response.data.data || [];
+    
+    const formattedModels = models.map(m => {
+      const isFree = m.id.endsWith(':free') || (m.pricing && parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0);
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        isFree: isFree,
+        contextLength: m.context_length
+      };
+    });
+
+    // Sort free models first, then sort by name
+    formattedModels.sort((a, b) => {
+      if (a.isFree && !b.isFree) return -1;
+      if (!a.isFree && b.isFree) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({ models: formattedModels });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách model OpenRouter:', error.message);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Lỗi: ${errorMsg}` });
+  }
+});
+
+// ==========================================================================
+// HỆ THỐNG QUẢN LÝ DỰ ÁN (PROJECT MANAGEMENT SYSTEM API)
+// ==========================================================================
+
+// API: Lấy tất cả dự án
+app.get('/api/projects', (req, res) => {
+  try {
+    if (!fs.existsSync(PROJECTS_DIR)) {
+      return res.json({ projects: [] });
+    }
+    const files = fs.readdirSync(PROJECTS_DIR).filter(f => f.endsWith('.json'));
+    const projects = files.map(file => {
+      try {
+        const content = fs.readFileSync(path.join(PROJECTS_DIR, file), 'utf8');
+        const proj = JSON.parse(content);
+        return {
+          id: proj.id,
+          name: proj.name,
+          updatedAt: proj.updatedAt || new Date().toISOString(),
+          videoTitle: proj.videoTitle || '',
+          sourceVideoPath: proj.sourceVideoPath || '',
+          thumbnail: proj.thumbnail || ''
+        };
+      } catch (err) {
+        console.error(`Lỗi đọc file dự án ${file}:`, err.message);
+        return null;
+      }
+    }).filter(Boolean);
+
+    // Sắp xếp thời gian cập nhật giảm dần
+    projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    res.json({ projects });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Lấy chi tiết một dự án
+app.get('/api/projects/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = path.join(PROJECTS_DIR, `${id}.json`);
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: 'Không tìm thấy dự án' });
+    }
+    const content = fs.readFileSync(file, 'utf8');
+    const proj = JSON.parse(content);
+    res.json(proj);
+  } catch (error) {
+    console.error('Lỗi khi đọc chi tiết dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Lưu / Cập nhật dự án
+app.post('/api/projects', (req, res) => {
+  try {
+    let { id, name, data } = req.body;
+    if (!id) {
+      id = `proj_${Date.now()}`;
+    }
+    if (!name) {
+      name = `Dự án_${new Date().toLocaleString('vi-VN')}`;
+    }
+    const file = path.join(PROJECTS_DIR, `${id}.json`);
+    const projectObj = {
+      id,
+      name,
+      updatedAt: new Date().toISOString(),
+      ...data
+    };
+    fs.writeFileSync(file, JSON.stringify(projectObj, null, 2), 'utf8');
+    res.json({ success: true, project: projectObj });
+  } catch (error) {
+    console.error('Lỗi khi lưu dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Xóa dự án
+app.delete('/api/projects/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = path.join(PROJECTS_DIR, `${id}.json`);
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Lỗi khi xóa dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Nhân bản dự án
+app.post('/api/projects/:id/duplicate', (req, res) => {
+  try {
+    const { id } = req.params;
+    const srcFile = path.join(PROJECTS_DIR, `${id}.json`);
+    if (!fs.existsSync(srcFile)) {
+      return res.status(404).json({ error: 'Không tìm thấy dự án nguồn' });
+    }
+    const content = fs.readFileSync(srcFile, 'utf8');
+    const proj = JSON.parse(content);
+    
+    const newId = `proj_${Date.now()}`;
+    const newName = `${proj.name} (Bản sao)`;
+    const newProj = {
+      ...proj,
+      id: newId,
+      name: newName,
+      updatedAt: new Date().toISOString()
+    };
+    const destFile = path.join(PROJECTS_DIR, `${newId}.json`);
+    fs.writeFileSync(destFile, JSON.stringify(newProj, null, 2), 'utf8');
+    res.json({ success: true, project: newProj });
+  } catch (error) {
+    console.error('Lỗi khi nhân bản dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // API: Proxy image to bypass hotlinking protection
 app.get('/api/proxy-image', async (req, res) => {
   try {
@@ -990,7 +1179,7 @@ app.get('/api/download-vi', async (req, res) => {
   });
 
   try {
-    let { url, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel } = req.query;
+    let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel } = req.query;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -1049,7 +1238,7 @@ app.get('/api/download-vi', async (req, res) => {
       const downloadWidth = 1080;
       const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
       const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
       let hasSubtitles = false;
       try {
@@ -1218,7 +1407,7 @@ app.post('/api/download-local', async (req, res) => {
   });
 
   try {
-    let { url, format_id, customFilename, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+    let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -1287,7 +1476,7 @@ app.post('/api/download-local', async (req, res) => {
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -1748,7 +1937,11 @@ app.post('/api/download-model', async (req, res) => {
 });
 
 app.get('/api/download-model/status', (req, res) => {
-  const checkConfigured = fs.existsSync(OMNIVOICE_CLI_PATH) && fs.existsSync(OMNIVOICE_MODEL_PATH);
+  const cliExists = fs.existsSync(OMNIVOICE_CLI_PATH);
+  const modelExists = fs.existsSync(OMNIVOICE_MODEL_PATH);
+  console.log(`[Model Status] Checking CLI path: "${OMNIVOICE_CLI_PATH}" (Exists: ${cliExists})`);
+  console.log(`[Model Status] Checking Model path: "${OMNIVOICE_MODEL_PATH}" (Exists: ${modelExists})`);
+  const checkConfigured = cliExists && modelExists;
   res.json({
     ...modelDownloadStatus,
     omiConfigured: checkConfigured
@@ -2212,6 +2405,8 @@ app.post('/api/render-studio', studioUpload.fields([
     // 2. Tạo đối tượng Task mới đưa vào hàng chờ
     const task = {
       id: taskId,
+      projectId: body.projectId || null,
+      projectName: body.projectName || 'Dự án chưa đặt tên',
       status: 'pending',
       percent: 0,
       step: 'Đang xếp hàng...',
@@ -2356,6 +2551,7 @@ async function executeRenderTask(task) {
       await translateSubtitles(subtitlePath, translatedPath, {
         aiProvider: body.aiProvider,
         geminiApiKey: body.geminiApiKey,
+        geminiModel: body.geminiModel,
         openRouterApiKey: body.openRouterApiKey,
         openRouterModel: body.openRouterModel
       }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => activeRenderId !== renderId);
@@ -2864,6 +3060,7 @@ async function executeRenderTask(task) {
       let shadow = 1 * scaleFactor;
       let outlineColor = '&H00000000';
       let backColor = '&H80000000';
+      let finalAssColor = assColor;
       
       if (theme === 'box') {
         borderStyle = 3;
@@ -2893,6 +3090,18 @@ async function executeRenderTask(task) {
         shadow = 3 * scaleFactor;
         outlineColor = '&H00000000';
         backColor = '&H90000000';
+      } else if (theme === 'neon-glow') {
+        borderStyle = 1;
+        outline = 2.0 * scaleFactor;
+        shadow = 0;
+        outlineColor = assColor;
+        finalAssColor = '&H00FFFFFF'; // Primary body is white
+      } else if (theme === 'three-d') {
+        borderStyle = 1;
+        outline = 1.0 * scaleFactor;
+        shadow = 3.0 * scaleFactor;
+        outlineColor = '&H00000000';
+        backColor = '&H00000000';
       }
 
       const assPath = path.join(workDir, `render_subtitles_${timestamp}.ass`);
@@ -2902,7 +3111,7 @@ async function executeRenderTask(task) {
           videoHeight,
           fontName,
           fontSize,
-          assColor,
+          assColor: finalAssColor,
           isBold,
           borderStyle,
           outline,
@@ -2911,7 +3120,8 @@ async function executeRenderTask(task) {
           backColor,
           alignment,
           marginV,
-          marginH
+          marginH,
+          theme
         });
         renderSubtitlePath = assPath;
       } catch (err) {
@@ -3198,6 +3408,8 @@ app.get('/api/render-queue-status', (req, res) => {
   res.json({
     queue: renderQueue.map(t => ({
       id: t.id,
+      projectId: t.projectId,
+      projectName: t.projectName,
       status: t.status,
       percent: t.percent,
       step: t.step,
@@ -3407,6 +3619,22 @@ function findAvailablePort(startPort) {
     });
   });
 }
+// API: Get auto-update status
+app.get('/api/update-status', (req, res) => {
+  res.json(global.updateStatus || { status: 'idle', percent: 0, error: null });
+});
+
+// API: Quit and install update
+app.post('/api/quit-and-install', (req, res) => {
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.quitAndInstall();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Lỗi khi thực hiện quitAndInstall:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 function startServer(preferredPort = 3456) {
   return new Promise(async (resolve, reject) => {

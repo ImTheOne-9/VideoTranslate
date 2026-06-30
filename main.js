@@ -1,8 +1,10 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+app.commandLine.appendSwitch('disable-http2');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { ensureModelsExist } = require('./lib/model-downloader');
+const { getAppDataRoot } = require('./lib/path-helper');
 const { checkLicenseStartup } = require('./lib/license-manager');
 
 // Cấu hình thư mục log
@@ -61,6 +63,9 @@ if (!gotTheLock) {
   app.quit();
   process.exit(0);
 }
+
+// Khởi tạo trạng thái cập nhật mặc định
+global.updateStatus = { status: 'idle', percent: 0, error: null };
 
 let mainWindow = null;
 let serverInstance = null;
@@ -191,8 +196,7 @@ app.whenReady().then(async () => {
     loadingWin.loadFile(path.join(__dirname, 'public', 'loading.html'));
     
     // 2. Định tuyến thư mục chứa model
-    const isPackaged = __dirname.includes('app.asar');
-    const appDataRoot = isPackaged ? path.join(os.homedir(), 'VideoStudio') : __dirname;
+    const appDataRoot = getAppDataRoot(__dirname);
     const MODELS_DIR = path.join(appDataRoot, 'models');
 
     // 3. Tiến hành tải ngầm nếu model chưa tồn tại
@@ -230,6 +234,55 @@ app.whenReady().then(async () => {
     if (loadingWin && !loadingWin.isDestroyed()) {
       loadingWin.close();
       loadingWin = null;
+    }
+
+    // 7. Tự động kiểm tra cập nhật (chỉ chạy khi ứng dụng đã đóng gói)
+    if (app.isPackaged) {
+      try {
+        const { autoUpdater } = require('electron-updater');
+        autoUpdater.logger = console;
+
+        // Vô hiệu hóa tính năng tự động tải ngầm mặc định để kiểm soát và hiển thị tiến trình
+        autoUpdater.autoDownload = false;
+
+        autoUpdater.on('checking-for-update', () => {
+          global.updateStatus = { status: 'checking', percent: 0, error: null };
+        });
+
+        autoUpdater.on('update-available', (info) => {
+          global.updateStatus = { status: 'available', percent: 0, error: null };
+          // Bắt đầu tải bản cập nhật sau khi phát hiện có bản mới
+          autoUpdater.downloadUpdate().catch(err => {
+            console.error('Lỗi khi tải bản cập nhật:', err.message);
+          });
+        });
+
+        autoUpdater.on('update-not-available', (info) => {
+          global.updateStatus = { status: 'idle', percent: 0, error: null };
+        });
+
+        autoUpdater.on('error', (err) => {
+          global.updateStatus = { status: 'error', percent: 0, error: err.message || 'Lỗi không xác định' };
+        });
+
+        autoUpdater.on('download-progress', (progressObj) => {
+          global.updateStatus = { 
+            status: 'downloading', 
+            percent: Math.round(progressObj.percent), 
+            error: null 
+          };
+        });
+
+        autoUpdater.on('update-downloaded', (info) => {
+          global.updateStatus = { status: 'downloaded', percent: 100, error: null };
+        });
+
+        autoUpdater.checkForUpdates().catch(err => {
+          console.error('Lỗi khi kiểm tra bản cập nhật:', err.message);
+        });
+      } catch (updateErr) {
+        console.error('Không thể kiểm tra bản cập nhật:', updateErr.message);
+      }
     }
   } catch (err) {
     console.error('Lỗi nghiêm trọng khi khởi động Express server:', err.message);
