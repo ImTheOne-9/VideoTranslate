@@ -42,10 +42,6 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
 
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'admin.html'));
-});
-
 // Khóa riêng tư Ed25519 để ký bản quyền (Trùng khớp với Public Key nhúng ở Client)
 const PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEINCSkH2ERf0+fEmOBZAFIHPJlihYwsLNf2g4o+QZxmdw
