@@ -36,18 +36,14 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/licens
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'my_super_secret_admin_token_2026';
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Serve static public files
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/admin-static', express.static(path.join(__dirname, 'public')));
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Serve static frontend files
+app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
 
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'admin.html'));
 });
 
 // Khóa riêng tư Ed25519 để ký bản quyền (Trùng khớp với Public Key nhúng ở Client)
@@ -62,6 +58,7 @@ const userSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   phoneNumber: { type: String, required: true },
   role: { type: String, default: 'user' },
+  avatar: { type: String, default: null }, // Base64 avatar image string
   isVerified: { type: Boolean, default: false },
   verificationToken: { type: String, default: null },
   verificationExpires: { type: Date, default: null },
@@ -269,6 +266,73 @@ const DB = {
   },
 
   users: {
+    async find(query = {}) {
+      if (useMongo) {
+        return await UserModel.find(query).sort({ createdAt: -1 });
+      } else {
+        const db = readJSON();
+        let results = db.users;
+        if (query.role) {
+          results = results.filter(u => u.role === query.role);
+        }
+        return results.map(user => ({
+          email: user.email,
+          password: user.password,
+          fullName: user.fullName,
+          phoneNumber: user.phoneNumber,
+          role: user.role || 'user',
+          avatar: user.avatar || null,
+          isVerified: user.isVerified !== undefined ? user.isVerified : false,
+          verificationToken: user.verificationToken || null,
+          verificationExpires: user.verificationExpires || null,
+          resetPasswordToken: user.resetPasswordToken || null,
+          resetPasswordExpires: user.resetPasswordExpires || null,
+          passwordChangedAt: user.passwordChangedAt || null,
+          createdAt: user.createdAt,
+          save: async function() {
+            const dbData = readJSON();
+            const idx = dbData.users.findIndex(u => u.email.toLowerCase() === this.email.toLowerCase());
+            if (idx !== -1) {
+              dbData.users[idx] = {
+                email: this.email,
+                password: this.password,
+                fullName: this.fullName,
+                phoneNumber: this.phoneNumber,
+                role: this.role,
+                avatar: this.avatar || null,
+                isVerified: this.isVerified,
+                verificationToken: this.verificationToken,
+                verificationExpires: this.verificationExpires,
+                resetPasswordToken: this.resetPasswordToken,
+                resetPasswordExpires: this.resetPasswordExpires,
+                passwordChangedAt: this.passwordChangedAt,
+                createdAt: this.createdAt
+              };
+              await writeJSON(dbData);
+            }
+            return this;
+          }
+        })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      }
+    },
+
+    async deleteOne(query) {
+      if (useMongo) {
+        return await UserModel.deleteOne(query);
+      } else {
+        const db = readJSON();
+        if (query.email) {
+          const idx = db.users.findIndex(u => u.email.toLowerCase() === query.email.toLowerCase());
+          if (idx !== -1) {
+            db.users.splice(idx, 1);
+            await writeJSON(db);
+            return { deletedCount: 1 };
+          }
+        }
+        return { deletedCount: 0 };
+      }
+    },
+
     async findOne(query) {
       if (useMongo) {
         return await UserModel.findOne(query);
@@ -290,6 +354,7 @@ const DB = {
           fullName: user.fullName,
           phoneNumber: user.phoneNumber,
           role: user.role || 'user',
+          avatar: user.avatar || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
           verificationToken: user.verificationToken || null,
           verificationExpires: user.verificationExpires || null,
@@ -307,6 +372,7 @@ const DB = {
                 fullName: this.fullName,
                 phoneNumber: this.phoneNumber,
                 role: this.role,
+                avatar: this.avatar || null,
                 isVerified: this.isVerified,
                 verificationToken: this.verificationToken,
                 verificationExpires: this.verificationExpires,
@@ -332,6 +398,7 @@ const DB = {
           fullName: data.fullName,
           phoneNumber: data.phoneNumber,
           role: data.role || 'user',
+          avatar: data.avatar || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
           verificationToken: data.verificationToken || null,
           verificationExpires: data.verificationExpires || null
@@ -345,6 +412,7 @@ const DB = {
           fullName: data.fullName,
           phoneNumber: data.phoneNumber,
           role: data.role || 'user',
+          avatar: data.avatar || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
           verificationToken: data.verificationToken || null,
           verificationExpires: data.verificationExpires || null,
@@ -847,10 +915,13 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     res.json({
       success: true,
       user: {
+        id: user._id || user.email,
         email: user.email,
         fullName: user.fullName,
         phoneNumber: user.phoneNumber,
-        role: user.role
+        role: user.role,
+        avatar: user.avatar || null,
+        createdAt: user.createdAt || new Date().toISOString()
       }
     });
   } catch (err) {
@@ -995,6 +1066,72 @@ app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
     res.json({ success: true, message: 'Đặt lại mật khẩu thành công! Bạn có thể sử dụng mật khẩu mới để đăng nhập.' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi đặt lại mật khẩu: ' + err.message });
+  }
+});
+
+// API Lấy thông tin user hiện tại (xác thực phiên)
+app.get('/api/auth/me', userAuth, async (req, res) => {
+  try {
+    const user = await DB.users.findOne({ email: req.user.email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy thông tin tài khoản!' });
+    }
+    res.json({
+      success: true,
+      user: {
+        id: user._id || user.email,
+        email: user.email,
+        fullName: user.fullName,
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        avatar: user.avatar || null,
+        createdAt: user.createdAt || new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi hệ thống: ' + err.message });
+  }
+});
+
+// API Cập nhật thông tin cá nhân & Đổi avatar
+app.post('/api/user/update-profile', userAuth, async (req, res) => {
+  const { fullName, phoneNumber, avatar } = req.body;
+  if (!fullName) {
+    return res.status(400).json({ error: 'Họ tên không được để trống!' });
+  }
+  
+  try {
+    const user = await DB.users.findOne({ email: req.user.email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy thông tin tài khoản!' });
+    }
+    
+    // Cập nhật thông tin
+    user.fullName = fullName.trim();
+    if (phoneNumber !== undefined) {
+      user.phoneNumber = phoneNumber.trim();
+    }
+    if (avatar !== undefined) {
+      user.avatar = avatar; // Chuỗi Base64
+    }
+    
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Cập nhật thông tin cá nhân thành công!',
+      user: {
+        id: user._id || user.email,
+        email: user.email,
+        fullName: user.fullName,
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        avatar: user.avatar || null,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi hệ thống khi cập nhật hồ sơ: ' + err.message });
   }
 });
 
@@ -1314,6 +1451,64 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
   }
 });
 
+// API lấy toàn bộ danh sách Users (Admin)
+app.get('/api/admin/users', adminAuth, async (req, res) => {
+  try {
+    const users = await DB.users.find();
+    const safeUsers = users.map(u => ({
+      id: u._id || u.email,
+      email: u.email,
+      fullName: u.fullName,
+      phoneNumber: u.phoneNumber,
+      role: u.role,
+      avatar: u.avatar || null,
+      isVerified: u.isVerified || false,
+      createdAt: u.createdAt || null
+    }));
+    res.json({ success: true, users: safeUsers });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy danh sách người dùng: ' + err.message });
+  }
+});
+
+// API cập nhật vai trò người dùng (Admin)
+app.post('/api/admin/update-user-role', adminAuth, async (req, res) => {
+  const { email, role } = req.body;
+  if (!email || !['user', 'admin'].includes(role)) {
+    return res.status(400).json({ error: 'Email và vai trò (user/admin) không hợp lệ!' });
+  }
+  
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng này!' });
+    }
+    
+    user.role = role;
+    await user.save();
+    
+    res.json({ success: true, message: `Đã cập nhật vai trò người dùng sang: ${role}`, role });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi cập nhật vai trò: ' + err.message });
+  }
+});
+
+// API xóa tài khoản người dùng (Admin)
+app.delete('/api/admin/users/:email', adminAuth, async (req, res) => {
+  const { email } = req.params;
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng này!' });
+    }
+    
+    await DB.users.deleteOne({ email });
+    res.json({ success: true, message: `Đã xóa tài khoản người dùng: ${email}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi xóa người dùng: ' + err.message });
+  }
+});
+
 // B. API tạo mới Key bản quyền
 app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
   const { days, customerName } = req.body;
@@ -1393,6 +1588,11 @@ app.post('/api/admin/toggle-status', adminAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi cập nhật trạng thái: ' + err.message });
   }
+});
+
+// SPA Fallback Route
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
 });
 
 app.listen(PORT, () => {
