@@ -3,6 +3,7 @@ node_modules/
 
 # Python embedded environment
 python_engine/
+temp_env/
 
 # Binaries, models, third-party tools and dependencies
 tools/

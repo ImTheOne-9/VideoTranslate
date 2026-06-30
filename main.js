@@ -12,6 +12,15 @@ if (!fs.existsSync(logDir)) {
 }
 const logFile = path.join(logDir, 'videostudio.log');
 
+// Tạo mới/Xóa sạch file log cũ khi bắt đầu phiên chạy mới
+try {
+  fs.writeFileSync(logFile, '', 'utf8');
+} catch (e) {
+  // Bỏ qua lỗi
+}
+
+let logWindow = null;
+
 // Hàm ghi log có định dạng
 function logToFile(message, level = 'INFO') {
   const time = new Date().toISOString();
@@ -20,6 +29,10 @@ function logToFile(message, level = 'INFO') {
     fs.appendFileSync(logFile, formatted, 'utf8');
   } catch (e) {
     // Bỏ qua lỗi ghi file
+  }
+
+  if (logWindow && !logWindow.isDestroyed()) {
+    logWindow.webContents.send('new-log-line', formatted);
   }
 }
 
@@ -51,6 +64,34 @@ if (!gotTheLock) {
 
 let mainWindow = null;
 let serverInstance = null;
+
+function createLogWindow() {
+  if (logWindow && !logWindow.isDestroyed()) {
+    logWindow.focus();
+    return;
+  }
+
+  logWindow = new BrowserWindow({
+    width: 900,
+    height: 500,
+    title: 'Video Studio Tools - Logs Console',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  logWindow.setMenu(null);
+  logWindow.loadFile(path.join(__dirname, 'public', 'log-viewer.html'));
+
+  logWindow.on('closed', () => {
+    logWindow = null;
+  });
+}
+
+ipcMain.on('request-log-path', (event) => {
+  event.reply('log-path-response', logFile);
+});
 
 // Require server.js để lấy hàm startServer và dọn dẹp tiến trình con
 const { startServer, killAllActiveProcesses } = require('./server.js');
@@ -112,12 +153,29 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    if (logWindow && !logWindow.isDestroyed()) {
+      logWindow.close();
+    }
   });
+
+  // Tự động mở cửa sổ Log Console song song
+  createLogWindow();
 }
 
 // Khởi chạy server và ứng dụng khi Electron sẵn sàng
 app.whenReady().then(async () => {
   try {
+    // Tự động dọn dẹp bộ nhớ đệm (cache) khi khởi động để tránh lỗi Invalid cache size của Chromium
+    try {
+      const { session } = require('electron');
+      if (session && session.defaultSession) {
+        await session.defaultSession.clearCache();
+        console.log('[Init] Đã tự động dọn dẹp cache của Electron.');
+      }
+    } catch (cacheErr) {
+      console.error('Không thể dọn dẹp cache:', cacheErr.message);
+    }
+
     // 1. Hiển thị màn hình Loading tải dữ liệu AI
     let loadingWin = new BrowserWindow({
       width: 450,

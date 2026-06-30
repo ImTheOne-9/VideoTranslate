@@ -30,6 +30,7 @@ function getExtPath(...parts) {
   const base = isPackaged ? process.resourcesPath : __dirname;
   return path.join(base, ...parts);
 }
+const TOOLS_DIR = getExtPath('tools');
 
 // Thiết lập thư mục lưu trữ dữ liệu (downloads, uploads)
 let DOWNLOADS_DIR, UPLOADS_DIR;
@@ -76,13 +77,21 @@ if (fs.existsSync(DEFAULT_VOICES_SRC)) {
 
 // Quản lý và dọn dẹp các tiến trình con tập trung
 const activeProcesses = new Set();
+const activeRenderProcesses = new Set();
+let activeRenderId = null;
+let isStudioRendering = false;
 
 function registerChildProcess(proc) {
   if (!proc) return;
   activeProcesses.add(proc);
   
+  if (isStudioRendering) {
+    activeRenderProcesses.add(proc);
+  }
+  
   const cleanUp = () => {
     activeProcesses.delete(proc);
+    activeRenderProcesses.delete(proc);
   };
   
   proc.on('close', cleanUp);
@@ -91,22 +100,69 @@ function registerChildProcess(proc) {
 }
 global.registerChildProcess = registerChildProcess;
 
+function killProcessTree(proc) {
+  if (!proc || !proc.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      const { exec } = require('child_process');
+      exec(`taskkill /F /T /PID ${proc.pid}`, (err) => {
+        if (err) {
+          // Fallback nếu taskkill gặp lỗi
+          try { proc.kill('SIGKILL'); } catch (e) {}
+        }
+      });
+    } else {
+      proc.kill('SIGKILL');
+    }
+  } catch (e) {
+    console.error(`Không thể kill tiến trình PID ${proc.pid}:`, e.message);
+  }
+}
+
+function killActiveRenderProcesses() {
+  console.log(`[Studio Render] Hủy toàn bộ tiến trình render cũ (${activeRenderProcesses.size})...`);
+  for (const proc of activeRenderProcesses) {
+    console.log(`[Studio Render] Đang kill tiến trình render cũ PID: ${proc.pid}`);
+    killProcessTree(proc);
+  }
+  activeRenderProcesses.clear();
+}
+
+
 function killAllActiveProcesses() {
   console.log(`Bắt đầu tắt toàn bộ tiến trình con đang hoạt động (${activeProcesses.size})...`);
   for (const proc of activeProcesses) {
-    try {
-      proc.kill('SIGKILL');
-      console.log(`Đã kill tiến trình PID: ${proc.pid}`);
-    } catch (e) {
-      console.error(`Không thể kill tiến trình PID ${proc.pid || 'unknown'}:`, e.message);
-    }
+    console.log(`Đang kill tiến trình PID: ${proc.pid}`);
+    killProcessTree(proc);
   }
   activeProcesses.clear();
 }
 
-// Wrapper bọc spawn và execFile để tự động đăng ký dọn dẹp
+const customTempDir = isPackaged 
+  ? path.join(os.homedir(), 'VideoStudio', 'temp_env')
+  : path.join(__dirname, 'temp_env');
+
+if (!fs.existsSync(customTempDir)) {
+  try {
+    fs.mkdirSync(customTempDir, { recursive: true });
+  } catch (e) {
+    console.error('Failed to create customTempDir:', e.message);
+  }
+}
+
+// Wrapper bọc spawn và execFile để tự động đăng ký dọn dẹp và chuyển hướng thư mục tạm (TEMP/TMP)
 function spawn(command, args, options) {
-  const proc = child_process.spawn(command, args, options);
+  let actualOptions = options || {};
+  actualOptions = { ...actualOptions };
+  const env = {
+    ...process.env,
+    ...actualOptions.env,
+    TEMP: customTempDir,
+    TMP: customTempDir
+  };
+  actualOptions.env = env;
+
+  const proc = child_process.spawn(command, args, actualOptions);
   registerChildProcess(proc);
   return proc;
 }
@@ -118,6 +174,15 @@ function execFile(file, args, options, callback) {
     actualCallback = options;
     actualOptions = {};
   }
+  actualOptions = { ...actualOptions };
+  const env = {
+    ...process.env,
+    ...actualOptions.env,
+    TEMP: customTempDir,
+    TMP: customTempDir
+  };
+  actualOptions.env = env;
+
   const proc = child_process.execFile(file, args, actualOptions, actualCallback);
   registerChildProcess(proc);
   return proc;
@@ -134,10 +199,13 @@ const studioUpload = multer({ dest: TMP_UPLOADS_DIR });
 const FFMPEG_PATH = getExtPath('tools', 'ffmpeg.exe');
 const YTDLP_PATH = getExtPath('tools', 'yt-dlp.exe');
 const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || getExtPath('tools', 'omnivoice', 'omnivoice-cli.exe');
+const NLLB_TRANSLATE_PATH = getExtPath('tools', 'nllb_translate.exe');
 
 const isPackagedServer = __dirname.includes('app.asar');
 const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'VideoStudio') : __dirname;
+const COOKIES_PATH = path.join(appDataRoot, 'cookies.txt');
 const MODELS_DIR = path.join(appDataRoot, 'models');
+const NLLB_MODEL_DIR = path.join(MODELS_DIR, 'nllb');
 const OMNIVOICE_MODEL_PATH = process.env.OMNIVOICE_MODEL_PATH || path.join(MODELS_DIR, 'omnivoice-q8_0.gguf');
 
 // Tự động tìm kiếm và thêm đường dẫn CUDA và tools vào PATH trên Windows để tránh lỗi thiếu DLL khi chạy OmniVoice
@@ -186,9 +254,19 @@ function runYtDlp(args, options = {}, retryCount = 0) {
     retryCount = options;
     options = {};
   }
+
+  // Clone args to avoid mutating the original array
+  const actualArgs = [...args];
+  // Auto-inject cookies if cookies.txt exists
+  if (fs.existsSync(COOKIES_PATH)) {
+    if (!actualArgs.includes('--cookies')) {
+      actualArgs.unshift('--cookies', COOKIES_PATH);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const { signal, ...execOptions } = options;
-    execFile(YTDLP_PATH, args, { maxBuffer: 10 * 1024 * 1024, signal, ...execOptions }, (error, stdout, stderr) => {
+    execFile(YTDLP_PATH, actualArgs, { maxBuffer: 10 * 1024 * 1024, signal, ...execOptions }, (error, stdout, stderr) => {
       if (error) {
         if (error.name === 'AbortError' || signal?.aborted) {
           reject(new Error('Tải xuống bị hủy'));
@@ -326,7 +404,7 @@ function cleanVideoTitle(title) {
 // Validate Video URL
 function isValidVideoUrl(url) {
   const cleanUrl = extractUrl(url);
-  return /^https?:\/\/(www\.|vt\.|vm\.|v\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|iesdouyin\.com\/)/.test(cleanUrl);
+  return /^https?:\/\/(www\.|vt\.|vm\.|v\.)?(youtube\.com\/(shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|iesdouyin\.com\/|instagram\.com\/|instagr\.am\/)/.test(cleanUrl);
 }
 
 function safeFileName(name) {
@@ -643,10 +721,17 @@ app.post('/api/info', async (req, res) => {
 
     const info = JSON.parse(output);
 
-    // Extract formats - any video with height
+    // Extract formats - any video with height, sorted to get the highest quality/size first
     const formats = (info.formats || [])
       .filter(f => {
         return f.vcodec && f.vcodec !== 'none' && f.height;
+      })
+      .sort((a, b) => {
+        if (a.height !== b.height) return b.height - a.height;
+        const aSize = a.filesize || a.filesize_approx || a.tbr || 0;
+        const bSize = b.filesize || b.filesize_approx || b.tbr || 0;
+        if (aSize !== bSize) return bSize - aSize;
+        return (b.fps || 30) - (a.fps || 30);
       })
       .map(f => ({
         format_id: f.format_id,
@@ -663,7 +748,7 @@ app.post('/api/info', async (req, res) => {
         container: 'mp4',
         format_note: f.format_note || '',
       }))
-      // Remove duplicates by quality
+      // Remove duplicates by quality (keeping the first one, which is now the best size/bitrate format)
       .reduce((acc, f) => {
         const key = `${f.quality}-${f.fps}`;
         if (!acc.map.has(key)) {
@@ -671,19 +756,24 @@ app.post('/api/info', async (req, res) => {
           acc.list.push(f);
         }
         return acc;
-      }, { map: new Map(), list: [] }).list
-      // Sort: height desc
-      .sort((a, b) => {
-        if (a.height !== b.height) return b.height - a.height;
-        return b.fps - a.fps;
-      });
+      }, { map: new Map(), list: [] }).list;
 
     // Get best thumbnail
     const thumbnail = info.thumbnail || (info.thumbnails && info.thumbnails.length > 0 ? info.thumbnails[info.thumbnails.length - 1].url : '');
+    let proxiedThumbnail = thumbnail;
+    if (thumbnail && (thumbnail.startsWith('http://') || thumbnail.startsWith('https://'))) {
+      proxiedThumbnail = `/api/proxy-image?url=${encodeURIComponent(thumbnail)}`;
+    }
     
     // Get author properly
     let author = info.uploader || info.channel || info.uploader_id || (info.extractor === 'XiaoHongShu' ? 'Xiaohongshu User' : 'Unknown');
     let title = cleanVideoTitle(info.title);
+    if ((url.includes('instagram.com') || url.includes('instagr.am')) && info.description) {
+      const firstLine = info.description.split('\n')[0].trim();
+      if (firstLine) {
+        title = cleanVideoTitle(firstLine);
+      }
+    }
 
     // Thử cào lấy tiêu đề & tên tác giả nếu là link Xiaohongshu và dữ liệu yt-dlp trả về bị trống/dummy ID
     if (url.includes('xiaohongshu.com') && (title.startsWith('XiaoHongShu video #') || author === 'Xiaohongshu User' || /^[a-f0-9]{24}$/.test(author))) {
@@ -720,7 +810,7 @@ app.post('/api/info', async (req, res) => {
 
     res.json({
       title,
-      thumbnail,
+      thumbnail: proxiedThumbnail,
       duration: info.duration || 0,
       author,
       viewCount: info.view_count || 0,
@@ -735,8 +825,36 @@ app.post('/api/info', async (req, res) => {
       errorMsg = 'Video giới hạn độ tuổi, yêu cầu tài khoản.';
     } else if (error.message.includes('Private video')) {
       errorMsg = 'Video ở chế độ riêng tư hoặc đã bị xóa.';
+    } else if (error.message.includes('Fresh cookies') || error.message.includes('cookies are needed') || error.message.includes('Failed to parse JSON')) {
+      errorMsg = 'Lỗi kết nối Douyin: Yêu cầu cookie mới. Nếu bạn đã lưu cookie mới nhất mà vẫn gặp lỗi này, có thể Douyin đang chặn IP/User-Agent của công cụ hoặc yt-dlp đang bị lỗi trích xuất (hãy thử cập nhật yt-dlp hoặc sử dụng trang web tải ngoài như SnapTik/SSSTik).';
     }
     res.status(500).json({ error: errorMsg });
+  }
+});
+
+// API: Proxy image to bypass hotlinking protection
+app.get('/api/proxy-image', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      return res.status(400).send('Invalid image URL');
+    }
+    const axios = require('axios');
+    const response = await axios({
+      method: 'get',
+      url: url,
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('xiaohongshu') ? 'https://www.xiaohongshu.com/' : 'https://www.google.com/')
+      },
+      timeout: 10000
+    });
+    res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Proxy image error:', error.message);
+    res.status(500).send('Error loading image');
   }
 });
 
@@ -1032,6 +1150,8 @@ app.post('/api/playlist', async (req, res) => {
             videoUrl = `https://www.tiktok.com/@placeholder/video/${item.id}`;
           } else if (url.includes('xiaohongshu.com') || url.includes('xhslink.com')) {
             videoUrl = `https://www.xiaohongshu.com/discovery/item/${item.id}`;
+          } else if (url.includes('instagram.com') || url.includes('instagr.am')) {
+            videoUrl = `https://www.instagram.com/p/${item.id}`;
           } else if (item.id) {
             videoUrl = `https://www.youtube.com/watch?v=${item.id}`;
           } else {
@@ -1039,12 +1159,25 @@ app.post('/api/playlist', async (req, res) => {
           }
         }
 
+        let itemTitle = item.title;
+        if ((url.includes('instagram.com') || url.includes('instagr.am')) && item.description) {
+          const firstLine = item.description.split('\n')[0].trim();
+          if (firstLine) {
+            itemTitle = firstLine;
+          }
+        }
+
+        let thumbUrl = item.thumbnail || (item.thumbnails && item.thumbnails.length > 0 ? item.thumbnails[0].url : '');
+        if (thumbUrl && (thumbUrl.startsWith('http://') || thumbUrl.startsWith('https://'))) {
+          thumbUrl = `/api/proxy-image?url=${encodeURIComponent(thumbUrl)}`;
+        }
+
         return {
           id: item.id,
-          title: item.title,
+          title: itemTitle,
           url: videoUrl,
           duration: item.duration,
-          thumbnail: item.thumbnail || (item.thumbnails && item.thumbnails.length > 0 ? item.thumbnails[0].url : '')
+          thumbnail: thumbUrl
         };
       } catch(e) {
         return null;
@@ -1085,7 +1218,7 @@ app.post('/api/download-local', async (req, res) => {
   });
 
   try {
-    let { url, format_id, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+    let { url, format_id, customFilename, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -1095,7 +1228,17 @@ app.post('/api/download-local', async (req, res) => {
     
     const infoOutput = await runYtDlp(ytInfoArgs, { signal });
     const info = JSON.parse(infoOutput);
-    const safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    
+    let safeTitle;
+    if (customFilename) {
+      safeTitle = removeVietnameseTones(customFilename).replace(/[<>:"/\\|?*]/g, '_').trim();
+      if (safeTitle.toLowerCase().endsWith('.mp4')) {
+        safeTitle = safeTitle.substring(0, safeTitle.length - 4);
+      }
+      safeTitle = safeTitle.substring(0, 100);
+    } else {
+      safeTitle = removeVietnameseTones(cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+    }
     
     const isVietsub = format_id === 'vietsub';
 
@@ -1215,6 +1358,51 @@ app.post('/api/download-local', async (req, res) => {
   } catch (error) {
     console.error('Download local error:', error.message);
     res.status(500).json({ error: 'Lỗi tải video: ' + error.message });
+  }
+});
+
+// API: Check cookie status
+app.get('/api/cookie/status', (req, res) => {
+  try {
+    if (fs.existsSync(COOKIES_PATH)) {
+      const stats = fs.statSync(COOKIES_PATH);
+      return res.json({
+        exists: true,
+        lastModified: stats.mtime
+      });
+    }
+    return res.json({ exists: false });
+  } catch (error) {
+    console.error('Lỗi kiểm tra cookie:', error.message);
+    res.status(500).json({ error: 'Lỗi kiểm tra cookie' });
+  }
+});
+
+// API: Save cookie content
+app.post('/api/cookie/save', (req, res) => {
+  try {
+    const { cookieText } = req.body;
+    if (!cookieText || cookieText.trim() === '') {
+      return res.status(400).json({ error: 'Nội dung cookie trống' });
+    }
+    fs.writeFileSync(COOKIES_PATH, cookieText, 'utf8');
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Lỗi lưu cookie:', error.message);
+    res.status(500).json({ error: 'Lỗi ghi file cookie: ' + error.message });
+  }
+});
+
+// API: Clear/delete cookie file
+app.post('/api/cookie/clear', (req, res) => {
+  try {
+    if (fs.existsSync(COOKIES_PATH)) {
+      fs.unlinkSync(COOKIES_PATH);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Lỗi xóa cookie:', error.message);
+    res.status(500).json({ error: 'Lỗi xóa file cookie: ' + error.message });
   }
 });
 
@@ -1505,6 +1693,33 @@ app.get('/api/studio-assets', (req, res) => {
   });
 });
 
+app.get('/api/check-dependencies', (req, res) => {
+  const ffmpegOk = fs.existsSync(FFMPEG_PATH);
+  const ytdlpOk = fs.existsSync(YTDLP_PATH);
+  const whisperCliOk = fs.existsSync(getExtPath('tools', 'whisper_onnx.exe'));
+
+  const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
+  const downloadedWhisperModels = whisperModels.filter(model => 
+    fs.existsSync(path.join(MODELS_DIR, 'whisper', model, 'model.bin'))
+  );
+  const whisperModelOk = downloadedWhisperModels.length > 0;
+
+  const omnivoiceCliOk = fs.existsSync(OMNIVOICE_CLI_PATH);
+  const omnivoiceModelOk = fs.existsSync(OMNIVOICE_MODEL_PATH);
+
+  res.json({
+    ffmpeg: ffmpegOk,
+    ytdlp: ytdlpOk,
+    whisper: whisperCliOk && whisperModelOk,
+    whisperCli: whisperCliOk,
+    whisperModel: whisperModelOk,
+    downloadedWhisperModels: downloadedWhisperModels,
+    omnivoice: omnivoiceCliOk && omnivoiceModelOk,
+    omnivoiceCli: omnivoiceCliOk,
+    omnivoiceModel: omnivoiceModelOk
+  });
+});
+
 let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
 
 app.post('/api/download-model', async (req, res) => {
@@ -1790,6 +2005,178 @@ app.post('/api/save-music', studioUpload.single('music'), (req, res) => {
   }
 });
 
+app.post('/api/save-video', studioUpload.single('video'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Thiếu file video' });
+    const savedPath = moveUploadedFile(req.file, DOWNLOADS_DIR, req.body.videoName || req.file.originalname);
+    res.json({
+      success: true,
+      message: 'Đã lưu video thành công',
+      video: path.basename(savedPath)
+    });
+  } catch (error) {
+    console.error('Save video error:', error.message);
+    res.status(500).json({ error: 'Không thể lưu video' });
+  }
+});
+
+// ==========================================================
+// HỆ THỐNG TẢI ĐỘNG CÁC THƯ VIỆN AI NẶNG (CUDA, WHISPER)
+// ==========================================================
+const { checkDependencyStatus, downloadAndExtract } = require('./lib/dependency-downloader');
+let activeDependencyDownload = null;
+
+app.get('/api/check-dependencies-status', (req, res) => {
+  try {
+    const status = checkDependencyStatus(TOOLS_DIR);
+    res.json(status);
+  } catch (error) {
+    console.error('Check dependency status error:', error.message);
+    res.status(500).json({ error: 'Không thể kiểm tra trạng thái thư viện' });
+  }
+});
+
+app.post('/api/download-dependency', async (req, res) => {
+  const { type } = req.body; // 'cuda' hoặc 'whisper'
+  if (!['cuda', 'whisper'].includes(type)) {
+    return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
+  }
+
+  if (activeDependencyDownload) {
+    return res.status(400).json({ error: 'Đang có tiến trình tải xuống chạy ngầm khác' });
+  }
+
+  activeDependencyDownload = { type, percent: 0, status: 'downloading' };
+  res.json({ message: 'Bắt đầu tải xuống ngầm' });
+
+  try {
+    console.log(`[Dependency Downloader] Bắt đầu tải ${type} vào ${TOOLS_DIR}...`);
+    await downloadAndExtract(type, TOOLS_DIR, (downloaded, total) => {
+      if (activeDependencyDownload) {
+        activeDependencyDownload.percent = Math.floor((downloaded / (total || 1)) * 100);
+      }
+    });
+    if (activeDependencyDownload) {
+      activeDependencyDownload.status = 'success';
+      activeDependencyDownload.percent = 100;
+    }
+    console.log(`[Dependency Downloader] Tải và giải nén ${type} thành công.`);
+  } catch (err) {
+    console.error(`[Dependency Downloader] Lỗi khi tải ${type}:`, err.message);
+    if (activeDependencyDownload) {
+      activeDependencyDownload.status = 'error';
+      activeDependencyDownload.error = err.message;
+    }
+  } finally {
+    // Reset tiến trình sau 8 giây
+    setTimeout(() => {
+      activeDependencyDownload = null;
+    }, 8000);
+  }
+});
+
+app.get('/api/download-dependency-progress', (req, res) => {
+  res.json(activeDependencyDownload || { status: 'idle' });
+});
+
+// ==========================================================
+// HỆ THỐNG THEO DÕI TIẾN TRÌNH RENDER STUDIO
+// ==========================================================
+// ==========================================================
+// HỆ THỐNG HÀNG ĐỢI RENDER TUẦN TỰ (PREMIUM RENDER QUEUE)
+// ==========================================================
+const renderQueue = [];
+let currentActiveTask = null;
+
+let studioProgress = {
+  status: 'idle',
+  percent: 0,
+  step: '',
+  error: null
+};
+
+function updateStudioProgress(percent, step) {
+  studioProgress.percent = percent;
+  if (step) studioProgress.step = step;
+  console.log(`[Studio Progress] ${percent}% - ${studioProgress.step}`);
+  if (currentActiveTask) {
+    currentActiveTask.percent = percent;
+    if (step) currentActiveTask.step = step;
+  }
+}
+
+global.updateStudioProgress = updateStudioProgress;
+
+app.get('/api/render-progress', (req, res) => {
+  res.json(studioProgress);
+});
+
+function getVideoDurationInSeconds(videoPath) {
+  return new Promise((resolve) => {
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      return resolve(0);
+    }
+    child_process.execFile(FFMPEG_PATH, ['-i', videoPath], (err, stdout, stderr) => {
+      const output = stderr || '';
+      const match = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+      if (match) {
+        const hours = parseInt(match[1], 10);
+        const minutes = parseInt(match[2], 10);
+        const seconds = parseInt(match[3], 10);
+        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+        resolve(totalSeconds);
+      } else {
+        resolve(0);
+      }
+    });
+  });
+}
+
+function runFFmpegWithProgress(args, totalDuration) {
+  return new Promise((resolve, reject) => {
+    console.log(`[FFmpeg Progress] Running FFmpeg with total duration ${totalDuration}s`);
+    const proc = child_process.spawn(FFMPEG_PATH, args);
+    registerChildProcess(proc);
+    
+    let stderrOutput = '';
+    
+    proc.stderr.on('data', (data) => {
+      const chunk = data.toString('utf8');
+      stderrOutput += chunk;
+      
+      if (totalDuration > 0) {
+        const match = chunk.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+        if (match) {
+          const hours = parseInt(match[1], 10);
+          const minutes = parseInt(match[2], 10);
+          const seconds = parseInt(match[3], 10);
+          const currentTime = hours * 3600 + minutes * 60 + seconds;
+          
+          const ffmpegProgress = Math.min(99, Math.floor((currentTime / totalDuration) * 100));
+          // Ánh xạ tiến trình FFmpeg từ 83% đến 97% trong tổng tiến trình render
+          const overallPercent = 83 + Math.floor((ffmpegProgress / 100) * 14);
+          updateStudioProgress(overallPercent, `Đang kết xuất (render) video: ${ffmpegProgress}%`);
+        }
+      }
+    });
+    
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        const err = new Error(`FFmpeg error (code ${code})`);
+        err.stderr = stderrOutput;
+        reject(err);
+      }
+    });
+    
+    proc.on('error', (err) => {
+      err.stderr = stderrOutput;
+      reject(err);
+    });
+  });
+}
+
 app.post('/api/render-studio', studioUpload.fields([
   { name: 'videoUpload', maxCount: 1 },
   { name: 'subtitleUpload', maxCount: 1 },
@@ -1797,28 +2184,133 @@ app.post('/api/render-studio', studioUpload.fields([
   { name: 'musicUpload', maxCount: 1 },
   { name: 'reactionUpload', maxCount: 1 }
 ]), async (req, res) => {
-  const tempFiles = [];
-  const voiceChunks = [];
+  const timestamp = Date.now();
+  const taskId = `task_${timestamp}`;
+
   try {
     const body = req.body;
     const files = req.files || {};
+
+    // 1. Tạo thư mục chuyên biệt cho task để lưu tệp tin lâu dài tránh bị Multer dọn dẹp
+    const taskDir = path.join(UPLOADS_DIR, `task_${timestamp}`);
+    fs.mkdirSync(taskDir, { recursive: true });
+
+    // Di chuyển các tệp tải lên vào thư mục taskDir và cập nhật đường dẫn tệp tin
+    const movedFiles = {};
+    for (const [fieldname, fileArr] of Object.entries(files)) {
+      if (fileArr && fileArr[0]) {
+        const file = fileArr[0];
+        const newPath = path.join(taskDir, file.filename + path.extname(file.originalname));
+        fs.renameSync(file.path, newPath);
+        movedFiles[fieldname] = [{
+          ...file,
+          path: newPath
+        }];
+      }
+    }
+
+    // 2. Tạo đối tượng Task mới đưa vào hàng chờ
+    const task = {
+      id: taskId,
+      status: 'pending',
+      percent: 0,
+      step: 'Đang xếp hàng...',
+      error: null,
+      createdAt: new Date(),
+      body: body,
+      files: movedFiles,
+      taskDir: taskDir,
+      result: null
+    };
+
+    renderQueue.push(task);
+    console.log(`[Queue] Đã xếp hàng tác vụ ${taskId}. Tổng hàng đợi: ${renderQueue.length}`);
+
+    // Kích hoạt worker chạy tác vụ tiếp theo dưới nền
+    processNextRenderTask();
+
+    // Phản hồi bất đồng bộ về client ngay lập tức
+    return res.json({
+      success: true,
+      message: 'Đã thêm video vào hàng đợi thành công.',
+      taskId: taskId
+    });
+
+  } catch (error) {
+    console.error('[Queue Error] Lỗi xếp hàng tác vụ:', error.message);
+    return res.status(500).json({ error: 'Không thể thêm video vào hàng đợi: ' + error.message });
+  }
+});
+
+// Hàm chạy tiến trình render dưới nền cho một tác vụ cụ thể
+async function executeRenderTask(task) {
+  const tempFiles = [];
+  const voiceChunks = [];
+  const timestamp = Date.now();
+  const renderId = task.id; // Sử dụng ID task làm renderId
+
+  global.activeRenderRes = null;
+  activeRenderId = renderId;
+  isStudioRendering = true;
+
+  // Tạo mock response object để giữ nguyên toàn bộ mã xử lý cũ mà không bị lỗi
+  const res = {
+    statusCode: 200,
+    status: function(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json: function(data) {
+      if (this.statusCode >= 400 || data.error) {
+        throw new Error(data.error || 'Lỗi không xác định khi kết xuất');
+      }
+      task.status = 'success';
+      task.percent = 100;
+      task.step = 'Hoàn tất render!';
+      task.result = data;
+      studioProgress = {
+        status: 'success',
+        percent: 100,
+        step: 'Hoàn tất render!',
+        error: null,
+        result: data
+      };
+      return this;
+    }
+  };
+
+  try {
+    studioProgress = {
+      status: 'rendering',
+      percent: 2,
+      step: 'Khởi tạo thư mục làm việc...',
+      error: null
+    };
+    task.status = 'rendering';
+    task.percent = 2;
+    task.step = 'Khởi tạo thư mục làm việc...';
+
+    const body = task.body;
+    const files = task.files || {};
     const timestamp = Date.now();
     const workDir = path.join(UPLOADS_DIR, `render_${timestamp}`);
     fs.mkdirSync(workDir, { recursive: true });
 
     let sourceVideo = null;
     if (files.videoUpload?.[0]) {
-      sourceVideo = moveUploadedFile(files.videoUpload[0], workDir, 'source.mp4');
-      tempFiles.push(sourceVideo);
+      const originalName = files.videoUpload[0].originalname;
+      sourceVideo = moveUploadedFile(files.videoUpload[0], DOWNLOADS_DIR, originalName);
     } else if (body.mainVideoFile) {
       sourceVideo = resolveAssetPath('video', body.mainVideoFile);
     }
     if (!sourceVideo) return res.status(400).json({ error: 'Thiếu video nguồn' });
 
+    updateStudioProgress(5, 'Đang phân tích thông tin video nguồn...');
     const dimensions = await getVideoDimensions(sourceVideo);
     const videoWidth = dimensions.width;
     const videoHeight = dimensions.height;
-    console.log(`[Studio Render] Kích thước video nguồn: ${videoWidth}x${videoHeight}`);
+    const totalDuration = await getVideoDurationInSeconds(sourceVideo);
+    console.log(`[Studio Render] Kích thước video nguồn: ${videoWidth}x${videoHeight}, Thời lượng: ${totalDuration}s`);
 
     let reactionVideoPath = null;
     const reactionMode = body.reactionMode || 'none';
@@ -1832,10 +2324,13 @@ app.post('/api/render-studio', studioUpload.fields([
     let subtitlePath = null;
     const subtitleMode = body.subtitleMode || 'none';
     if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
+      updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
       subtitlePath = moveUploadedFile(files.subtitleUpload[0], SUBTITLES_DIR, files.subtitleUpload[0].originalname);
     } else if (subtitleMode === 'saved') {
+      updateStudioProgress(10, 'Đang nạp file phụ đề đã chọn...');
       subtitlePath = resolveAssetPath('subtitle', body.savedSubtitleFile);
     } else if (subtitleMode === 'generate') {
+      updateStudioProgress(12, 'Đang chuẩn bị tạo phụ đề tự động bằng AI (Whisper)...');
       const { extractAudioAndTranscribe } = require('./lib/whisper-helper');
       subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, FFMPEG_PATH, body.whisperModel || 'base');
     }
@@ -1856,15 +2351,17 @@ app.post('/api/render-studio', studioUpload.fields([
     const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * 0.5)));
 
     if (subtitlePath && body.translateVi === 'true') {
+      updateStudioProgress(35, 'Đang dịch phụ đề sang tiếng Việt bằng AI...');
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
       await translateSubtitles(subtitlePath, translatedPath, {
         aiProvider: body.aiProvider,
         geminiApiKey: body.geminiApiKey,
         openRouterApiKey: body.openRouterApiKey,
         openRouterModel: body.openRouterModel
-      }, Number(body.subtitleMaxLines || 0), studioMaxChars);
+      }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => activeRenderId !== renderId);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
+      updateStudioProgress(35, 'Đang định dạng cấu trúc phụ đề...');
       // Định dạng phụ đề về 1-2 dòng ngay cả khi không dịch để khớp với lồng tiếng
       try {
         formatSubtitleFile(subtitlePath, Number(body.subtitleMaxLines || 0), studioMaxChars);
@@ -1876,11 +2373,14 @@ app.post('/api/render-studio', studioUpload.fields([
     let voicePath = null;
     const voiceMode = body.voiceMode || 'none';
     if (voiceMode === 'upload' && files.voiceUpload?.[0]) {
+      updateStudioProgress(38, 'Đang chuẩn bị file lồng tiếng tải lên...');
       voicePath = moveUploadedFile(files.voiceUpload[0], workDir, files.voiceUpload[0].originalname);
       tempFiles.push(voicePath);
     } else if (voiceMode === 'saved') {
+      updateStudioProgress(38, 'Đang nạp giọng lồng tiếng đã chọn...');
       voicePath = resolveAssetPath('voice', body.savedVoiceFile);
     } else if (voiceMode === 'omi') {
+      updateStudioProgress(40, 'Đang khởi động bộ nhân bản giọng nói AI (OmniVoice)...');
       const refAudioPath = resolveAssetPath('voice', body.savedVoiceFile);
       let refText = (body.refText || '').trim();
       let omiScript = (body.omiScript || '').trim();
@@ -1910,6 +2410,7 @@ app.post('/api/render-studio', studioUpload.fields([
         // Tự động trích xuất Ref-text từ giọng mẫu bằng Whisper nếu người dùng để trống
         if (!refText) {
           try {
+            updateStudioProgress(42, 'Đang trích xuất câu thoại từ giọng mẫu (AI Whisper)...');
             const { transcribeVoice } = require('./lib/whisper-helper');
             console.log('Đang tự động nhận diện câu thoại trong giọng mẫu...');
             refText = await transcribeVoice(refAudioPath, workDir, FFMPEG_PATH, body.whisperModel || 'base');
@@ -1931,6 +2432,7 @@ app.post('/api/render-studio', studioUpload.fields([
         finalRefAudioPath = refAudioPath;
         const refWavPath = path.join(workDir, `ref_voice_${timestamp}.wav`);
         try {
+          updateStudioProgress(45, 'Đang chuẩn bị giọng mẫu (FFmpeg)...');
           console.log('Đang chuyển đổi giọng mẫu sang định dạng WAV chuẩn 16kHz cho OmniVoice...');
           await new Promise((resolve, reject) => {
             execFile(FFMPEG_PATH, [
@@ -2007,6 +2509,9 @@ app.post('/api/render-studio', studioUpload.fields([
           // Gộp văn bản trong nhóm thành một chuỗi duy nhất để đọc liền mạch
           const lineText = group.map(item => item.text.replace(/\n/g, ' ').trim()).join(' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
           if (!lineText) continue;
+
+          const progressPercent = 48 + Math.floor((idx / groups.length) * 30);
+          updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
 
           const chunkPath = path.join(workDir, `chunk_${idx}_${timestamp}.wav`);
           
@@ -2110,6 +2615,7 @@ app.post('/api/render-studio', studioUpload.fields([
 
         // Gộp các chunk thành một file duy nhất
         try {
+          updateStudioProgress(78, 'Đang gộp các đoạn giọng nói...');
           console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
           let maxEndMs = 0;
           const chunkDataList = [];
@@ -2252,11 +2758,13 @@ app.post('/api/render-studio', studioUpload.fields([
         fs.writeFileSync(path.join(RENDERS_DIR, scriptOutName), omiScript, 'utf8');
         console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(RENDERS_DIR, scriptOutName)}`);
 
+        updateStudioProgress(55, 'AI Cloner: Đang đọc toàn bộ kịch bản...');
         await runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
         tempFiles.push(voicePath);
       }
     }
 
+    updateStudioProgress(80, 'Đang chuẩn bị các track nhạc nền và lồng tiếng...');
     let musicPath = null;
     const musicMode = body.musicMode || 'none';
     if (musicMode === 'upload' && files.musicUpload?.[0]) {
@@ -2555,26 +3063,30 @@ app.post('/api/render-studio', studioUpload.fields([
     }
     
     let hasAudioFilter = false;
+    const originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
     if (audioInputs.length > 0) {
       hasAudioFilter = true;
-      const originalVolume = Math.max(0, Number(body.originalVolume || 0.45));
       const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];
       const mixLabels = ['[a0]'];
       audioInputs.forEach((input, idx) => {
         const label = `a${idx + 1}`;
+        const targetVolume = input.volume;
         if (input.type === 'chunk') {
           if (input.startMs > 0) {
-            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${input.volume}[${label}]`);
+            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${targetVolume}[${label}]`);
           } else {
-            audioFilters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+            audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
           }
         } else {
-          audioFilters.push(`[${input.index}:a]volume=${input.volume}[${label}]`);
+          audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
         }
         mixLabels.push(`[${label}]`);
       });
       audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
       filterComplex.push(audioFilters.join(';'));
+    } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
+      hasAudioFilter = true;
+      filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
     }
     
     if (filterComplex.length > 0) {
@@ -2595,11 +3107,14 @@ app.post('/api/render-studio', studioUpload.fields([
     }
 
     args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);
-    await runExecFile(FFMPEG_PATH, args);
+    updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
+    console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
+    await runFFmpegWithProgress(args, totalDuration);
 
     // Sao chép file phụ đề kết quả vào thư mục renders và subtitles để người dùng chỉnh sửa hoặc lồng tiếng tiếp
     if (subtitlePath && fs.existsSync(subtitlePath)) {
       try {
+        updateStudioProgress(98, 'Đang xuất các file phụ đề bổ sung...');
         const outSrtName = `studio_${timestamp}.srt`;
         fs.copyFileSync(subtitlePath, path.join(RENDERS_DIR, outSrtName));
         fs.copyFileSync(subtitlePath, path.join(SUBTITLES_DIR, outSrtName));
@@ -2609,16 +3124,202 @@ app.post('/api/render-studio', studioUpload.fields([
       }
     }
 
-    res.json({
-      success: true,
-      message: 'Đã render video',
-      file: outName,
-      url: `/renders/${encodeURIComponent(outName)}`
-    });
+    if (activeRenderId === renderId) {
+      updateStudioProgress(100, 'Hoàn tất render!');
+      isStudioRendering = false;
+
+      res.json({
+        success: true,
+        message: 'Đã render video',
+        file: outName,
+        url: `/renders/${encodeURIComponent(outName)}`
+      });
+    } else {
+      console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
+    }
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message);
-    res.status(500).json({ error: 'Không thể render video. Kiểm tra video, sub, voice hoặc nhạc nền.' });
+    isStudioRendering = false;
+    
+    // Nếu tác vụ đã bị hủy bởi người dùng, không ghi đè trạng thái lỗi
+    if (task.status === 'failed' || task.step?.includes('hủy') || task.error?.includes('hủy') || task.error?.includes('cancel')) {
+      console.log(`[Queue] Tác vụ ${task.id} đã bị hủy trước đó, giữ nguyên trạng thái.`);
+      return;
+    }
+
+    task.status = 'error';
+    task.error = error.message;
+    task.step = 'Lỗi kết xuất';
+    
+    studioProgress = {
+      status: 'error',
+      percent: task.percent,
+      step: 'Lỗi kết xuất: ' + error.message,
+      error: error.message
+    };
   }
+}
+
+// Bộ lập lịch điều khiển hàng đợi kết xuất tuần tự
+async function processNextRenderTask() {
+  if (currentActiveTask) {
+    console.log('[Queue] Đang chạy một tác vụ kết xuất khác...');
+    return;
+  }
+
+  // Tìm tác vụ đầu tiên đang chờ
+  const nextTask = renderQueue.find(t => t.status === 'pending');
+  if (!nextTask) {
+    console.log('[Queue] Hàng đợi trống. Không có tác vụ nào chờ xử lý.');
+    return;
+  }
+
+  currentActiveTask = nextTask;
+  console.log(`[Queue] Bắt đầu thực thi tác vụ kết xuất: ${nextTask.id}`);
+
+  try {
+    await executeRenderTask(nextTask);
+  } catch (err) {
+    console.error(`[Queue] Lỗi nghiêm trọng khi thực thi tác vụ ${nextTask.id}:`, err.message);
+    nextTask.status = 'error';
+    nextTask.error = err.message;
+    nextTask.step = 'Lỗi hệ thống';
+  } finally {
+    currentActiveTask = null;
+    // Chờ 1.5 giây rồi chuyển sang xử lý tác vụ tiếp theo
+    setTimeout(() => {
+      processNextRenderTask();
+    }, 1500);
+  }
+}
+
+// API endpoint mới: Lấy trạng thái toàn bộ hàng đợi render
+app.get('/api/render-queue-status', (req, res) => {
+  res.json({
+    queue: renderQueue.map(t => ({
+      id: t.id,
+      status: t.status,
+      percent: t.percent,
+      step: t.step,
+      error: t.error,
+      createdAt: t.createdAt,
+      videoName: t.body.mainVideoFile || (t.files.videoUpload?.[0] ? t.files.videoUpload[0].originalname : 'Video Tải Lên'),
+      result: t.result
+    })),
+    currentActiveId: currentActiveTask ? currentActiveTask.id : null
+  });
+});
+
+// API endpoint mới: Hủy hoặc xóa tác vụ khỏi hàng đợi
+app.post('/api/cancel-queue-task', (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({ error: 'Thiếu mã tác vụ taskId' });
+  }
+
+  const taskIndex = renderQueue.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) {
+    return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+  }
+
+  const task = renderQueue[taskIndex];
+
+  if (task.status === 'pending') {
+    // Nếu đang chờ, gỡ luôn khỏi hàng đợi
+    renderQueue.splice(taskIndex, 1);
+    console.log(`[Queue] Đã gỡ tác vụ đang chờ khỏi hàng đợi: ${taskId}`);
+    return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi hàng đợi thành công.' });
+  }
+
+  if (task.status === 'rendering') {
+    // Nếu đang chạy, kích hoạt hủy tiến trình con và gỡ khỏi hàng đợi
+    console.log(`[Queue] Nhận yêu cầu hủy và gỡ tác vụ đang chạy trực tiếp: ${taskId}`);
+    killActiveRenderProcesses();
+    isStudioRendering = false;
+    activeRenderId = null;
+    studioProgress = {
+      status: 'idle',
+      percent: 0,
+      step: 'Đã hủy kết xuất',
+      error: null
+    };
+    task.status = 'failed';
+    task.step = 'Đã bị người dùng hủy';
+    
+    // Gỡ khỏi mảng hàng đợi
+    renderQueue.splice(taskIndex, 1);
+    currentActiveTask = null;
+
+    // Chạy tác vụ tiếp theo sau khi dọn dẹp
+    setTimeout(() => {
+      processNextRenderTask();
+    }, 1500);
+
+    return res.json({ success: true, message: 'Đã hủy tiến trình và gỡ tác vụ khỏi hàng đợi thành công.' });
+  }
+
+  // Đối với các trạng thái khác (hoàn tất, lỗi), cho phép xóa luôn khỏi danh sách để dọn dẹp hàng đợi
+  renderQueue.splice(taskIndex, 1);
+  return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi danh sách.' });
+});
+
+// API endpoint mới: Xóa sạch toàn bộ hàng đợi
+app.post('/api/clear-queue', (req, res) => {
+  console.log('[Queue] Nhận yêu cầu xóa sạch toàn bộ hàng đợi...');
+  
+  // Hủy tiến trình đang chạy nếu có
+  if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
+    killActiveRenderProcesses();
+  }
+  
+  // Reset trạng thái điều phối
+  isStudioRendering = false;
+  activeRenderId = null;
+  studioProgress = {
+    status: 'idle',
+    percent: 0,
+    step: 'Hàng đợi trống',
+    error: null
+  };
+  currentActiveTask = null;
+  
+  // Xóa toàn bộ các phần tử trong hàng đợi
+  renderQueue.length = 0;
+  
+  return res.json({ success: true, message: 'Đã xóa sạch hàng đợi thành công.' });
+});
+
+app.post('/api/cancel-render', (req, res) => {
+  if (isStudioRendering || (studioProgress && studioProgress.status === 'rendering')) {
+    console.log('[Studio Render] Nhận yêu cầu hủy tiến trình render hiện tại...');
+    killActiveRenderProcesses();
+    isStudioRendering = false;
+    activeRenderId = null;
+    studioProgress = {
+      status: 'idle',
+      percent: 0,
+      step: 'Đã hủy kết xuất',
+      error: null
+    };
+
+    if (currentActiveTask) {
+      currentActiveTask.status = 'failed';
+      currentActiveTask.step = 'Đã bị hủy';
+      currentActiveTask = null;
+      // Chạy tác vụ tiếp theo sau khi dọn dẹp
+      setTimeout(() => {
+        processNextRenderTask();
+      }, 1500);
+    }
+
+    if (global.activeRenderRes) {
+      try {
+        global.activeRenderRes.status(400).json({ error: 'Render đã bị hủy.' });
+      } catch (e) {}
+      global.activeRenderRes = null;
+    }
+  }
+  res.json({ success: true, message: 'Đã hủy render thành công.' });
 });
 
 // ==========================================
@@ -2717,8 +3418,10 @@ function startServer(preferredPort = 3456) {
         resolve({ server, port });
       });
       
-      // Tăng timeouts cho server tránh ngắt kết nối khi tải video dung lượng lớn
-      server.timeout = 600000; // 10 phút
+      // Vô hiệu hóa timeouts cho server để tránh ngắt kết nối khi render video dài hoặc lồng tiếng nhiều câu thoại
+      server.timeout = 0; 
+      server.headersTimeout = 0;
+      server.requestTimeout = 0;
       // Giữ keepAliveTimeout mặc định nhỏ (5 giây) để tránh rò rỉ socket/port (ERR_NO_BUFFER_SPACE)
       server.keepAliveTimeout = 5000;
 

@@ -13,6 +13,7 @@
   "dependencies": {
     "@distube/ytdl-core": "^4.16.1",
     "@vitalets/google-translate-api": "^9.2.1",
+    "adm-zip": "^0.5.17",
     "axios": "^1.18.0",
     "content-disposition": "^0.5.4",
     "express": "^4.21.0",
@@ -48,8 +49,7 @@
         "filter": [
           "ffmpeg.exe",
           "yt-dlp.exe",
-          "whisper_onnx.exe",
-          "*.dll",
+          "nllb_translate.exe",
           "omnivoice/omnivoice-cli.exe",
           "omnivoice/*.dll"
         ]
