@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { ensureModelsExist } = require('./lib/model-downloader');
+const { getAppDataRoot } = require('./lib/path-helper');
 const { checkLicenseStartup } = require('./lib/license-manager');
 
 // Cấu hình thư mục log
@@ -191,8 +192,7 @@ app.whenReady().then(async () => {
     loadingWin.loadFile(path.join(__dirname, 'public', 'loading.html'));
     
     // 2. Định tuyến thư mục chứa model
-    const isPackaged = __dirname.includes('app.asar');
-    const appDataRoot = isPackaged ? path.join(os.homedir(), 'VideoStudio') : __dirname;
+    const appDataRoot = getAppDataRoot(__dirname);
     const MODELS_DIR = path.join(appDataRoot, 'models');
 
     // 3. Tiến hành tải ngầm nếu model chưa tồn tại
@@ -230,6 +230,17 @@ app.whenReady().then(async () => {
     if (loadingWin && !loadingWin.isDestroyed()) {
       loadingWin.close();
       loadingWin = null;
+    }
+
+    // 7. Tự động kiểm tra cập nhật (chỉ chạy khi ứng dụng đã đóng gói)
+    if (app.isPackaged) {
+      try {
+        const { autoUpdater } = require('electron-updater');
+        autoUpdater.logger = console;
+        autoUpdater.checkForUpdatesAndNotify();
+      } catch (updateErr) {
+        console.error('Không thể kiểm tra bản cập nhật:', updateErr.message);
+      }
     }
   } catch (err) {
     console.error('Lỗi nghiêm trọng khi khởi động Express server:', err.message);

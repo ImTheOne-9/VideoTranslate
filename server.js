@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const child_process = require('child_process');
 const fs = require('fs');
+const { getAppDataRoot } = require('./lib/path-helper');
 const contentDisposition = require('content-disposition');
 const multer = require('multer');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('./lib/translate-sub');
@@ -33,17 +34,9 @@ function getExtPath(...parts) {
 const TOOLS_DIR = getExtPath('tools');
 
 // Thiết lập thư mục lưu trữ dữ liệu (downloads, uploads)
-let DOWNLOADS_DIR, UPLOADS_DIR;
-if (isPackaged) {
-  // Bản đóng gói: lưu ở %USERPROFILE%/VideoStudio
-  const appDataRoot = path.join(os.homedir(), 'VideoStudio');
-  DOWNLOADS_DIR = path.join(appDataRoot, 'downloads');
-  UPLOADS_DIR = path.join(appDataRoot, 'uploads');
-} else {
-  // Bản phát triển: lưu tại chỗ
-  DOWNLOADS_DIR = path.join(__dirname, 'downloads');
-  UPLOADS_DIR = path.join(__dirname, 'uploads');
-}
+const appDataRoot = getAppDataRoot(__dirname);
+const DOWNLOADS_DIR = path.join(appDataRoot, 'downloads');
+const UPLOADS_DIR = path.join(appDataRoot, 'uploads');
 
 const VOICES_DIR = path.join(UPLOADS_DIR, 'voices');
 const MUSIC_DIR = path.join(UPLOADS_DIR, 'music');
@@ -201,8 +194,6 @@ const YTDLP_PATH = getExtPath('tools', 'yt-dlp.exe');
 const OMNIVOICE_CLI_PATH = process.env.OMNIVOICE_CLI_PATH || getExtPath('tools', 'omnivoice', 'omnivoice-cli.exe');
 const NLLB_TRANSLATE_PATH = getExtPath('tools', 'nllb_translate.exe');
 
-const isPackagedServer = __dirname.includes('app.asar');
-const appDataRoot = isPackagedServer ? path.join(require('os').homedir(), 'VideoStudio') : __dirname;
 const COOKIES_PATH = path.join(appDataRoot, 'cookies.txt');
 const MODELS_DIR = path.join(appDataRoot, 'models');
 const NLLB_MODEL_DIR = path.join(MODELS_DIR, 'nllb');
