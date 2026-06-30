@@ -1923,6 +1923,25 @@
     </div>
   </div>
 
+  <!-- Modal Cập nhật ứng dụng -->
+  <div id="app-update-modal" class="fb-modal-overlay hidden" style="z-index: 10005;">
+    <div class="fb-modal-content" style="width: 450px; max-width: 90%; text-align: center; padding: 25px;">
+      <div id="update-status-icon" style="font-size: 48px; margin-bottom: 15px;">🔄</div>
+      <h3 id="update-title" style="margin: 0 0 10px 0; font-size: 18px; color: var(--accent-2, #8b5cf6);">Có bản cập nhật mới!</h3>
+      <p id="update-desc" style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">Đang kiểm tra thông tin phiên bản mới...</p>
+      
+      <!-- Thanh tiến trình tải xuống -->
+      <div id="update-progress-container" class="hidden" style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 20px;">
+        <div id="update-progress-bar" style="width: 0%; background: linear-gradient(90deg, #8b5cf6, #3b82f6); height: 100%; transition: width 0.3s ease;"></div>
+      </div>
+      
+      <div style="display: flex; gap: 10px; justify-content: center; width: 100%;">
+        <button type="button" id="update-action-btn" class="premium-render-btn hidden" style="margin: 0; background: #3b82f6; color: white; flex: 1;" onclick="applyAppUpdate()">Cập nhật ngay</button>
+        <button type="button" id="update-close-btn" class="premium-render-btn ghost-btn" style="margin: 0; flex: 1;" onclick="closeUpdateModal()">Bỏ qua</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
   <script src="app.js"></script>
 </body>

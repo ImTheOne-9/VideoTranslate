@@ -63,6 +63,9 @@ if (!gotTheLock) {
   process.exit(0);
 }
 
+// Khởi tạo trạng thái cập nhật mặc định
+global.updateStatus = { status: 'idle', percent: 0, error: null };
+
 let mainWindow = null;
 let serverInstance = null;
 
@@ -237,7 +240,41 @@ app.whenReady().then(async () => {
       try {
         const { autoUpdater } = require('electron-updater');
         autoUpdater.logger = console;
-        autoUpdater.checkForUpdatesAndNotify();
+
+        // Vô hiệu hóa tính năng tự động tải ngầm mặc định để kiểm soát và hiển thị tiến trình
+        autoUpdater.autoDownload = false;
+
+        autoUpdater.on('checking-for-update', () => {
+          global.updateStatus = { status: 'checking', percent: 0, error: null };
+        });
+
+        autoUpdater.on('update-available', (info) => {
+          global.updateStatus = { status: 'available', percent: 0, error: null };
+          // Bắt đầu tải bản cập nhật sau khi phát hiện có bản mới
+          autoUpdater.downloadUpdate();
+        });
+
+        autoUpdater.on('update-not-available', (info) => {
+          global.updateStatus = { status: 'idle', percent: 0, error: null };
+        });
+
+        autoUpdater.on('error', (err) => {
+          global.updateStatus = { status: 'error', percent: 0, error: err.message || 'Lỗi không xác định' };
+        });
+
+        autoUpdater.on('download-progress', (progressObj) => {
+          global.updateStatus = { 
+            status: 'downloading', 
+            percent: Math.round(progressObj.percent), 
+            error: null 
+          };
+        });
+
+        autoUpdater.on('update-downloaded', (info) => {
+          global.updateStatus = { status: 'downloaded', percent: 100, error: null };
+        });
+
+        autoUpdater.checkForUpdates();
       } catch (updateErr) {
         console.error('Không thể kiểm tra bản cập nhật:', updateErr.message);
       }

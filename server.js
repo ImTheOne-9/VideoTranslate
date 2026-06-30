@@ -3398,6 +3398,22 @@ function findAvailablePort(startPort) {
     });
   });
 }
+// API: Get auto-update status
+app.get('/api/update-status', (req, res) => {
+  res.json(global.updateStatus || { status: 'idle', percent: 0, error: null });
+});
+
+// API: Quit and install update
+app.post('/api/quit-and-install', (req, res) => {
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.quitAndInstall();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Lỗi khi thực hiện quitAndInstall:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 function startServer(preferredPort = 3456) {
   return new Promise(async (resolve, reject) => {

@@ -2315,7 +2315,11 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const MarginH_act = Math.round(Math.min(marginL_act, marginR_act));
   
   document.querySelector('input[name="subtitleMargin"]').value = Math.max(0, MarginV_act);
-  document.querySelector('input[name="subtitleMarginH"]').value = Math.max(0, MarginH_act);
+  const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
+  if (marginHInput) {
+    marginHInput.value = Math.max(0, MarginH_act);
+    marginHInput.dataset.lastStageWidth = W_act;
+  }
 }
 
 function wrapTextToTwoLines(text, maxCharsPerLine = 22) {
@@ -2816,7 +2820,10 @@ function updateSubtitleOverlayFromInputs() {
       newMarginH = Math.max(10, Math.min(newMarginH, Math.floor(stageW / 2) - 50));
       
       const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
-      if (marginHInput) marginHInput.value = newMarginH;
+      if (marginHInput) {
+        marginHInput.value = newMarginH;
+        marginHInput.dataset.lastStageWidth = stageW;
+      }
 
       konvaSubtitle.scaleX(1);
       konvaSubtitle.scaleY(1);
@@ -2989,7 +2996,21 @@ function updateSubtitleOverlayFromInputs() {
   }
   
   const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 32);
-  const marginHInput = Number(document.querySelector('input[name="subtitleMarginH"]').value || 20);
+  
+  const marginHEl = document.querySelector('input[name="subtitleMarginH"]');
+  let marginHInput = 20;
+  if (marginHEl) {
+    const lastStageWidth = Number(marginHEl.dataset.lastStageWidth);
+    let val = Number(marginHEl.value || 20);
+    if (lastStageWidth && lastStageWidth !== W_act) {
+      val = Math.round((val / lastStageWidth) * W_act);
+      val = Math.max(10, Math.min(val, Math.floor(W_act / 2) - 50));
+      marginHEl.value = val;
+    }
+    marginHEl.dataset.lastStageWidth = W_act;
+    marginHInput = val;
+  }
+
   const maxLines = Number(document.querySelector('[name="subtitleMaxLines"]').value || 0);
   const boxWidth = W_act - 2 * marginHInput;
   const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
@@ -4051,6 +4072,9 @@ function submitSaveTemplate(event) {
   let templates = JSON.parse(localStorage.getItem('studio_templates') || '{}');
 
   templates[templateName] = {
+    subtitleMode: $('subtitle-mode') ? $('subtitle-mode').value : 'none',
+    savedSubtitleFile: $('saved-subtitle-select') ? $('saved-subtitle-select').value : '',
+    subtitleAlignment: $('subtitle-alignment-input') ? $('subtitle-alignment-input').value : '10',
     subtitleSize: document.querySelector('input[name="subtitleSize"]').value,
     subtitleFont: document.querySelector('select[name="subtitleFont"]').value,
     subtitleColor: document.querySelector('input[name="subtitleColor"]').value,
@@ -4059,6 +4083,7 @@ function submitSaveTemplate(event) {
     subtitleMaxLines: document.querySelector('select[name="subtitleMaxLines"]').value,
     subtitleMargin: document.querySelector('input[name="subtitleMargin"]').value,
     subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
+    subtitleTemplateWidth: konvaStage ? konvaStage.width() : (document.querySelector('select[name="preview-aspect-select"]')?.value === '16-9' ? 1920 : 1080),
     blurOriginalSub: (blurBoxes && blurBoxes.length > 0),
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
@@ -4216,6 +4241,38 @@ function loadStudioTemplate(templateName) {
   const template = templates[templateName];
   if (!template) return;
 
+  // Restore subtitle mode
+  if (template.subtitleMode) {
+    const subModeBtn = document.querySelector(`.sub-tab-btn[data-sub-mode="${template.subtitleMode}"]`);
+    if (subModeBtn) {
+      subModeBtn.click();
+    }
+  }
+
+  // Restore subtitle alignment
+  if (template.subtitleAlignment) {
+    const alignInput = $('subtitle-alignment-input');
+    if (alignInput) {
+      alignInput.value = template.subtitleAlignment;
+      alignInput.dispatchEvent(new Event('change'));
+    }
+    const alignGrid = $('alignment-visual-grid');
+    if (alignGrid) {
+      alignGrid.querySelectorAll('.grid-cell').forEach(c => {
+        c.classList.toggle('active', c.dataset.align === template.subtitleAlignment);
+      });
+    }
+  }
+
+  // Restore saved subtitle file
+  if (template.savedSubtitleFile) {
+    const subSelect = $('saved-subtitle-select');
+    if (subSelect) {
+      subSelect.value = template.savedSubtitleFile;
+      subSelect.dispatchEvent(new Event('change'));
+    }
+  }
+
   // Restore subtitle styles
   const sizeInput = document.querySelector('input[name="subtitleSize"]');
   if (sizeInput) {
@@ -4236,7 +4293,15 @@ function loadStudioTemplate(templateName) {
   document.querySelector('select[name="subtitleBold"]').value = template.subtitleBold;
   document.querySelector('select[name="subtitleMaxLines"]').value = template.subtitleMaxLines;
   document.querySelector('input[name="subtitleMargin"]').value = template.subtitleMargin;
-  document.querySelector('input[name="subtitleMarginH"]').value = template.subtitleMarginH;
+  const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
+  if (marginHInput) {
+    marginHInput.value = template.subtitleMarginH;
+    if (template.subtitleTemplateWidth) {
+      marginHInput.dataset.lastStageWidth = template.subtitleTemplateWidth;
+    } else {
+      marginHInput.dataset.lastStageWidth = (Number(template.subtitleMarginH) > 200) ? '1920' : '1080';
+    }
+  }
 
   // Restore blur settings
 
@@ -7653,7 +7718,10 @@ function resetStudioConfig() {
   if (marginInput) marginInput.value = '28';
 
   const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
-  if (marginHInput) marginHInput.value = '20';
+  if (marginHInput) {
+    marginHInput.value = '20';
+    delete marginHInput.dataset.lastStageWidth;
+  }
 
   // Subtitle alignment
   const alignInput = $('subtitle-alignment-input');
@@ -7663,6 +7731,16 @@ function resetStudioConfig() {
     alignGrid.querySelectorAll('.grid-cell').forEach(c => {
       c.classList.toggle('active', c.dataset.align === '10');
     });
+  }
+
+  // Reset subtitle mode & saved subtitle selection
+  const subModeBtn = document.querySelector('.sub-tab-btn[data-sub-mode="none"]');
+  if (subModeBtn) {
+    subModeBtn.click();
+  }
+  const savedSubSelect = $('saved-subtitle-select');
+  if (savedSubSelect) {
+    savedSubSelect.value = '';
   }
 
   // Clear blur boxes
@@ -8208,6 +8286,121 @@ window.checkLocalDependencies = checkLocalDependencies;
 window.showDependencyModal = showDependencyModal;
 window.closeDependencyModal = closeDependencyModal;
 window.startDependencyDownload = startDependencyDownload;
+
+// ==========================================
+// AUTO-UPDATE FEATURE HANDLER
+// ==========================================
+let updatePollInterval = null;
+
+function startUpdateMonitoring() {
+  const modal = document.getElementById('app-update-modal');
+  const icon = document.getElementById('update-status-icon');
+  const title = document.getElementById('update-title');
+  const desc = document.getElementById('update-desc');
+  const progressContainer = document.getElementById('update-progress-container');
+  const progressBar = document.getElementById('update-progress-bar');
+  const actionBtn = document.getElementById('update-action-btn');
+  const closeBtn = document.getElementById('update-close-btn');
+
+  if (!modal) return;
+
+  updatePollInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/update-status');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (data.status === 'idle') {
+        modal.classList.add('hidden');
+        progressContainer.classList.add('hidden');
+        actionBtn.classList.add('hidden');
+      } else if (data.status === 'checking') {
+        // Chạy ngầm kiểm tra, không mở modal tránh làm phiền
+      } else if (data.status === 'available') {
+        modal.classList.remove('hidden');
+        icon.textContent = '🔄';
+        title.textContent = 'Phát hiện bản cập nhật mới!';
+        desc.textContent = 'Đang chuẩn bị tải xuống tệp cài đặt mới từ máy chủ...';
+        progressContainer.classList.remove('hidden');
+        progressBar.style.width = '0%';
+        actionBtn.classList.add('hidden');
+        closeBtn.classList.add('hidden'); // Khóa nút đóng để đảm bảo tải liền mạch
+      } else if (data.status === 'downloading') {
+        modal.classList.remove('hidden');
+        icon.textContent = '⏳';
+        title.textContent = 'Đang tải bản cập nhật mới';
+        desc.textContent = `Vui lòng chờ, ứng dụng đang được tải về (${data.percent}%)...`;
+        progressContainer.classList.remove('hidden');
+        progressBar.style.width = `${data.percent}%`;
+        actionBtn.classList.add('hidden');
+        closeBtn.classList.add('hidden');
+      } else if (data.status === 'downloaded') {
+        modal.classList.remove('hidden');
+        icon.textContent = '🎉';
+        title.textContent = 'Đã tải xong bản cập nhật!';
+        desc.textContent = 'Phiên bản mới đã sẵn sàng. Vui lòng bấm nút bên dưới để khởi động lại và nâng cấp ứng dụng ngay.';
+        progressContainer.classList.add('hidden');
+        actionBtn.classList.remove('hidden');
+        actionBtn.textContent = 'Khởi động lại & Cập nhật';
+        closeBtn.classList.remove('hidden');
+        closeBtn.textContent = 'Để sau';
+        
+        // Khi tải xong thì ngừng kiểm tra
+        clearInterval(updatePollInterval);
+        updatePollInterval = null;
+      } else if (data.status === 'error') {
+        modal.classList.remove('hidden');
+        icon.textContent = '❌';
+        title.textContent = 'Lỗi cập nhật tự động';
+        desc.textContent = `Không thể tải bản cập nhật: ${data.error || 'Lỗi không xác định'}`;
+        progressContainer.classList.add('hidden');
+        actionBtn.classList.add('hidden');
+        closeBtn.classList.remove('hidden');
+        closeBtn.textContent = 'Đóng';
+        
+        clearInterval(updatePollInterval);
+        updatePollInterval = null;
+      }
+    } catch (err) {
+      console.error('Lỗi khi kiểm tra trạng thái cập nhật:', err);
+    }
+  }, 2000);
+}
+
+async function applyAppUpdate() {
+  const actionBtn = document.getElementById('update-action-btn');
+  if (actionBtn) {
+    actionBtn.textContent = 'Đang khởi động lại...';
+    actionBtn.disabled = true;
+  }
+  try {
+    await fetch('/api/quit-and-install', { method: 'POST' });
+  } catch (err) {
+    console.error('Lỗi khi gửi yêu cầu cập nhật:', err);
+    alert('Không thể tự động khởi động lại để cập nhật. Vui lòng tắt và mở lại app thủ công.');
+  }
+}
+
+function closeUpdateModal() {
+  const modal = document.getElementById('app-update-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+  if (updatePollInterval) {
+    clearInterval(updatePollInterval);
+    updatePollInterval = null;
+  }
+}
+
+// Theo dõi cập nhật sau khi tải trang
+document.addEventListener('DOMContentLoaded', () => {
+  // Trì hoãn 5 giây sau khi khởi động để nhường tài nguyên cho quá trình tải models
+  setTimeout(startUpdateMonitoring, 5000);
+});
+
+// Export functions to global scope
+window.applyAppUpdate = applyAppUpdate;
+window.closeUpdateModal = closeUpdateModal;
 
 
 
