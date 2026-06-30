@@ -4,9 +4,12 @@
   "description": "Central License Server for Video Studio Tools",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "concurrently \"node server.js\" \"npm run dev --prefix frontend\"",
+    "build": "npm run build --prefix frontend"
   },
   "dependencies": {
+    "concurrently": "^8.2.2",
     "express": "^4.21.0",
     "mongoose": "^9.7.1",
     "nodemailer": "^9.0.1"
