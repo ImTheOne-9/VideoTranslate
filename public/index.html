@@ -1645,6 +1645,12 @@
               <input type="password" id="global-gemini-key" class="premium-input" placeholder="Nhập API Key của Google AI Studio..." style="margin: 0;">
               <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy Key miễn phí từ Google AI Studio. Được lưu trữ cục bộ bảo mật.</p>
             </div>
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">Google Gemini Model</label>
+              <select id="global-gemini-model" class="premium-select" style="margin: 0; height: 38px;">
+                <option value="">-- Vui lòng nhập API Key để chọn Model --</option>
+              </select>
+            </div>
           </div>
 
           <!-- OpenRouter Fields -->
@@ -1658,14 +1664,7 @@
             <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter Model</label>
               <select id="global-openrouter-model" class="premium-select" style="margin: 0; height: 38px;">
-                <option value="openrouter/owl-alpha" selected>Owl Alpha (Default)</option>
-                <option value="google/gemma-4-31b-it:free">Google: Gemma 4 31B (Free - Khuyên dùng)</option>
-                <option value="qwen/qwen3-coder:free">Qwen: Qwen3 Coder 480B A35B (Free - Tốt cho tiếng Trung)</option>
-                <option value="openai/gpt-oss-120b:free">OpenAI: gpt-oss-120b (Free)</option>
-                <option value="meta-llama/llama-3.3-70b-instruct:free">Meta: Llama 3.3 70B Instruct (Free - Hay nghẽn)</option>
-                <option value="nousresearch/hermes-3-llama-3.1-405b:free">Nous: Hermes 3 405B Instruct (Free)</option>
-                <option value="nvidia/nemotron-3-ultra-550b-a55b:free">NVIDIA: Nemotron 3 Ultra (Free)</option>
-                <option value="cohere/north-mini-code:free">Cohere: North Mini Code (Free)</option>
+                <option value="">-- Vui lòng nhập API Key để chọn Model --</option>
               </select>
             </div>
           </div>

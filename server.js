@@ -823,6 +823,73 @@ app.post('/api/info', async (req, res) => {
   }
 });
 
+// API: Get Gemini models
+app.post('/api/gemini-models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Thiếu API Key' });
+    }
+    const response = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const models = response.data.models || [];
+    const validModels = models
+      .filter(m => 
+        m.supportedGenerationMethods && 
+        m.supportedGenerationMethods.includes('generateContent') &&
+        m.name.includes('gemini')
+      )
+      .map(m => ({
+        name: m.name,
+        displayName: m.displayName || m.name.replace('models/', '')
+      }));
+
+    res.json({ models: validModels });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách model Gemini:', error.message);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Lỗi: ${errorMsg}` });
+  }
+});
+
+// API: Get OpenRouter models
+app.post('/api/openrouter-models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Thiếu API Key' });
+    }
+    const response = await axios.get('https://openrouter.ai/api/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+    const models = response.data.data || [];
+    
+    const formattedModels = models.map(m => {
+      const isFree = m.id.endsWith(':free') || (m.pricing && parseFloat(m.pricing.prompt) === 0 && parseFloat(m.pricing.completion) === 0);
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        isFree: isFree,
+        contextLength: m.context_length
+      };
+    });
+
+    // Sort free models first, then sort by name
+    formattedModels.sort((a, b) => {
+      if (a.isFree && !b.isFree) return -1;
+      if (!a.isFree && b.isFree) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({ models: formattedModels });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách model OpenRouter:', error.message);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Lỗi: ${errorMsg}` });
+  }
+});
+
 // API: Proxy image to bypass hotlinking protection
 app.get('/api/proxy-image', async (req, res) => {
   try {
@@ -981,7 +1048,7 @@ app.get('/api/download-vi', async (req, res) => {
   });
 
   try {
-    let { url, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel } = req.query;
+    let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel } = req.query;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -1040,7 +1107,7 @@ app.get('/api/download-vi', async (req, res) => {
       const downloadWidth = 1080;
       const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
       const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
       let hasSubtitles = false;
       try {
@@ -1209,7 +1276,7 @@ app.post('/api/download-local', async (req, res) => {
   });
 
   try {
-    let { url, format_id, customFilename, aiProvider, geminiApiKey, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+    let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -1278,7 +1345,7 @@ app.post('/api/download-local', async (req, res) => {
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -2347,6 +2414,7 @@ async function executeRenderTask(task) {
       await translateSubtitles(subtitlePath, translatedPath, {
         aiProvider: body.aiProvider,
         geminiApiKey: body.geminiApiKey,
+        geminiModel: body.geminiModel,
         openRouterApiKey: body.openRouterApiKey,
         openRouterModel: body.openRouterModel
       }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => activeRenderId !== renderId);

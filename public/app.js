@@ -743,6 +743,7 @@ async function renderStudio(event) {
 
   data.set('aiProvider', aiSettings.aiProvider);
   data.set('geminiApiKey', aiSettings.geminiApiKey);
+  data.set('geminiModel', aiSettings.geminiModel || '');
   data.set('openRouterApiKey', aiSettings.openRouterApiKey);
   data.set('openRouterModel', aiSettings.openRouterModel);
 
@@ -5654,12 +5655,16 @@ if (document.readyState === 'loading') {
     initRenderedVideos();
     initVoicesAndMusic();
     loadDownloadHistory();
+    initGeminiModelListeners();
+    initOpenRouterModelListeners();
   });
 } else {
   initFbPages();
   initRenderedVideos();
   initVoicesAndMusic();
   loadDownloadHistory();
+  initGeminiModelListeners();
+  initOpenRouterModelListeners();
 }
 
 /* ==========================================================================
@@ -7092,6 +7097,7 @@ function getGlobalAiSettings() {
   return {
     aiProvider: localStorage.getItem('global_ai_provider') || 'google-translate',
     geminiApiKey: localStorage.getItem('global_gemini_key') || '',
+    geminiModel: localStorage.getItem('global_gemini_model') || '',
     openRouterApiKey: localStorage.getItem('global_openrouter_key') || '',
     openRouterModel: localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha',
     whisperModel: localStorage.getItem('global_whisper_model') || 'base'
@@ -7100,7 +7106,160 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}`;
+}
+
+async function loadGeminiModels(apiKey) {
+  const select = $('global-gemini-model');
+  if (!select) return;
+
+  if (!apiKey || apiKey.trim() === '') {
+    select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
+    return;
+  }
+
+  const savedModel = localStorage.getItem('global_gemini_model') || '';
+
+  // Show loading state
+  select.innerHTML = '<option value="">⏳ Đang tải danh sách model...</option>';
+
+  try {
+    const res = await fetch('/api/gemini-models', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ apiKey: apiKey.trim() })
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || 'Lỗi không xác định');
+    }
+
+    const data = await res.json();
+    const models = data.models || [];
+
+    if (models.length === 0) {
+      select.innerHTML = '<option value="">❌ Không tìm thấy model nào phù hợp</option>';
+      return;
+    }
+
+    let html = '';
+    models.forEach(m => {
+      const isSelected = m.name === savedModel ? 'selected' : '';
+      html += `<option value="${m.name}" ${isSelected}>${m.displayName}</option>`;
+    });
+    select.innerHTML = html;
+
+    // If there is no saved model or the saved model is not in the list, auto-select the first one
+    const currentVal = select.value;
+    if (!currentVal && models.length > 0) {
+      select.value = models[0].name;
+    }
+  } catch (error) {
+    console.error('Lỗi khi tải model Gemini:', error);
+    select.innerHTML = `<option value="">❌ Lỗi: ${error.message}</option>`;
+  }
+}
+
+function initGeminiModelListeners() {
+  const geminiInput = $('global-gemini-key');
+  if (geminiInput) {
+    // Tải khi có thay đổi (blur hoặc enter)
+    geminiInput.addEventListener('change', () => {
+      loadGeminiModels(geminiInput.value);
+    });
+
+    // Thêm debounce tải trên mỗi lần gõ phím nếu độ dài đạt tới độ dài thông thường của api key
+    let timer = null;
+    geminiInput.addEventListener('input', () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const val = geminiInput.value.trim();
+        if (val.length >= 35) {
+          loadGeminiModels(val);
+        }
+      }, 1000);
+    });
+  }
+}
+
+async function loadOpenRouterModels(apiKey) {
+  const select = $('global-openrouter-model');
+  if (!select) return;
+
+  if (!apiKey || apiKey.trim() === '') {
+    select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
+    return;
+  }
+
+  const savedModel = localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha';
+
+  // Show loading state
+  select.innerHTML = '<option value="">⏳ Đang tải danh sách model...</option>';
+
+  try {
+    const res = await fetch('/api/openrouter-models', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ apiKey: apiKey.trim() })
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || 'Lỗi không xác định');
+    }
+
+    const data = await res.json();
+    const models = data.models || [];
+
+    if (models.length === 0) {
+      select.innerHTML = '<option value="">❌ Không tìm thấy model nào phù hợp</option>';
+      return;
+    }
+
+    let html = '';
+    models.forEach(m => {
+      const isSelected = m.id === savedModel ? 'selected' : '';
+      const label = m.isFree ? `🎁 [Miễn phí] ${m.name}` : m.name;
+      html += `<option value="${m.id}" ${isSelected}>${label}</option>`;
+    });
+    select.innerHTML = html;
+
+    // If there is no saved model or the saved model is not in the list, auto-select the first one
+    const currentVal = select.value;
+    if (!currentVal && models.length > 0) {
+      select.value = models[0].id;
+    }
+  } catch (error) {
+    console.error('Lỗi khi tải model OpenRouter:', error);
+    select.innerHTML = `<option value="">❌ Lỗi: ${error.message}</option>`;
+  }
+}
+
+function initOpenRouterModelListeners() {
+  const openRouterInput = $('global-openrouter-key');
+  if (openRouterInput) {
+    // Tải khi có thay đổi (blur hoặc enter)
+    openRouterInput.addEventListener('change', () => {
+      loadOpenRouterModels(openRouterInput.value);
+    });
+
+    // Thêm debounce tải trên mỗi lần gõ phím nếu độ dài đạt tới độ dài thông thường của api key
+    let timer = null;
+    openRouterInput.addEventListener('input', () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const val = openRouterInput.value.trim();
+        if (val.length >= 35) {
+          loadOpenRouterModels(val);
+        }
+      }, 1000);
+    });
+  }
 }
 
 function openGlobalSettingsModal() {
@@ -7116,9 +7275,24 @@ function openGlobalSettingsModal() {
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
-  if (geminiInput) geminiInput.value = settings.geminiApiKey;
-  if (openRouterInput) openRouterInput.value = settings.openRouterApiKey;
-  if (openRouterModelSelect) openRouterModelSelect.value = settings.openRouterModel;
+  if (geminiInput) {
+    geminiInput.value = settings.geminiApiKey;
+    if (settings.geminiApiKey) {
+      loadGeminiModels(settings.geminiApiKey);
+    } else {
+      const select = $('global-gemini-model');
+      if (select) select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
+    }
+  }
+  if (openRouterInput) {
+    openRouterInput.value = settings.openRouterApiKey;
+    if (settings.openRouterApiKey) {
+      loadOpenRouterModels(settings.openRouterApiKey);
+    } else {
+      const select = $('global-openrouter-model');
+      if (select) select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
+    }
+  }
   if (whisperModelSelect) {
     whisperModelSelect.value = settings.whisperModel;
     checkWhisperModelStatus();
@@ -7164,12 +7338,14 @@ function toggleGlobalAiProviderFields() {
 function saveGlobalSettings() {
   const providerSelect = $('global-ai-provider');
   const geminiInput = $('global-gemini-key');
+  const geminiModelSelect = $('global-gemini-model');
   const openRouterInput = $('global-openrouter-key');
   const openRouterModelSelect = $('global-openrouter-model');
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) localStorage.setItem('global_ai_provider', providerSelect.value);
   if (geminiInput) localStorage.setItem('global_gemini_key', geminiInput.value);
+  if (geminiModelSelect) localStorage.setItem('global_gemini_model', geminiModelSelect.value);
   if (openRouterInput) localStorage.setItem('global_openrouter_key', openRouterInput.value);
   if (openRouterModelSelect) localStorage.setItem('global_openrouter_model', openRouterModelSelect.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_model', whisperModelSelect.value);
@@ -7199,6 +7375,10 @@ window.closeGlobalSettingsModal = closeGlobalSettingsModal;
 window.toggleGlobalAiProviderFields = toggleGlobalAiProviderFields;
 window.saveGlobalSettings = saveGlobalSettings;
 window.switchSettingsTab = switchSettingsTab;
+window.loadGeminiModels = loadGeminiModels;
+window.initGeminiModelListeners = initGeminiModelListeners;
+window.loadOpenRouterModels = loadOpenRouterModels;
+window.initOpenRouterModelListeners = initOpenRouterModelListeners;
 
 /* ==========================================================================
    COOKIE SETTINGS MODAL & HELPERS
