@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+app.commandLine.appendSwitch('disable-http2');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -251,7 +252,9 @@ app.whenReady().then(async () => {
         autoUpdater.on('update-available', (info) => {
           global.updateStatus = { status: 'available', percent: 0, error: null };
           // Bắt đầu tải bản cập nhật sau khi phát hiện có bản mới
-          autoUpdater.downloadUpdate();
+          autoUpdater.downloadUpdate().catch(err => {
+            console.error('Lỗi khi tải bản cập nhật:', err.message);
+          });
         });
 
         autoUpdater.on('update-not-available', (info) => {
@@ -274,7 +277,9 @@ app.whenReady().then(async () => {
           global.updateStatus = { status: 'downloaded', percent: 100, error: null };
         });
 
-        autoUpdater.checkForUpdates();
+        autoUpdater.checkForUpdates().catch(err => {
+          console.error('Lỗi khi kiểm tra bản cập nhật:', err.message);
+        });
       } catch (updateErr) {
         console.error('Không thể kiểm tra bản cập nhật:', updateErr.message);
       }

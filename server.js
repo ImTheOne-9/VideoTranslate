@@ -44,8 +44,11 @@ const SUBTITLES_DIR = path.join(UPLOADS_DIR, 'subtitles');
 const TMP_UPLOADS_DIR = path.join(UPLOADS_DIR, 'tmp');
 const RENDERS_DIR = path.join(DOWNLOADS_DIR, 'renders');
 
+const PROJECTS_DIR = path.join(appDataRoot, 'projects');
+
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (!fs.existsSync(PROJECTS_DIR)) fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 for (const dir of [VOICES_DIR, MUSIC_DIR, SUBTITLES_DIR, TMP_UPLOADS_DIR, RENDERS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
@@ -538,7 +541,8 @@ function convertSrtToAss(srtPath, assPath, options) {
     backColor,
     alignment,
     marginV,
-    marginH
+    marginH,
+    theme
   } = options;
 
   const assLines = [];
@@ -558,7 +562,10 @@ function convertSrtToAss(srtPath, assPath, options) {
   for (const item of srtArray) {
     const start = convertSrtTime(item.startTime);
     const end = convertSrtTime(item.endTime);
-    const text = item.text.replace(/\n/g, '\\N');
+    let text = item.text.replace(/\n/g, '\\N');
+    if (theme === 'neon-glow') {
+      text = `{\\blur4}${text}`;
+    }
     assLines.push(`Dialogue: 0,${start},${end},Default,,${marginH},${marginH},${marginV},,${text}`);
   }
 
@@ -887,6 +894,130 @@ app.post('/api/openrouter-models', async (req, res) => {
     console.error('Lỗi khi lấy danh sách model OpenRouter:', error.message);
     const errorMsg = error.response?.data?.error?.message || error.message;
     res.status(500).json({ error: `Lỗi: ${errorMsg}` });
+  }
+});
+
+// ==========================================================================
+// HỆ THỐNG QUẢN LÝ DỰ ÁN (PROJECT MANAGEMENT SYSTEM API)
+// ==========================================================================
+
+// API: Lấy tất cả dự án
+app.get('/api/projects', (req, res) => {
+  try {
+    if (!fs.existsSync(PROJECTS_DIR)) {
+      return res.json({ projects: [] });
+    }
+    const files = fs.readdirSync(PROJECTS_DIR).filter(f => f.endsWith('.json'));
+    const projects = files.map(file => {
+      try {
+        const content = fs.readFileSync(path.join(PROJECTS_DIR, file), 'utf8');
+        const proj = JSON.parse(content);
+        return {
+          id: proj.id,
+          name: proj.name,
+          updatedAt: proj.updatedAt || new Date().toISOString(),
+          videoTitle: proj.videoTitle || '',
+          sourceVideoPath: proj.sourceVideoPath || '',
+          thumbnail: proj.thumbnail || ''
+        };
+      } catch (err) {
+        console.error(`Lỗi đọc file dự án ${file}:`, err.message);
+        return null;
+      }
+    }).filter(Boolean);
+
+    // Sắp xếp thời gian cập nhật giảm dần
+    projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    res.json({ projects });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Lấy chi tiết một dự án
+app.get('/api/projects/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = path.join(PROJECTS_DIR, `${id}.json`);
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: 'Không tìm thấy dự án' });
+    }
+    const content = fs.readFileSync(file, 'utf8');
+    const proj = JSON.parse(content);
+    res.json(proj);
+  } catch (error) {
+    console.error('Lỗi khi đọc chi tiết dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Lưu / Cập nhật dự án
+app.post('/api/projects', (req, res) => {
+  try {
+    let { id, name, data } = req.body;
+    if (!id) {
+      id = `proj_${Date.now()}`;
+    }
+    if (!name) {
+      name = `Dự án_${new Date().toLocaleString('vi-VN')}`;
+    }
+    const file = path.join(PROJECTS_DIR, `${id}.json`);
+    const projectObj = {
+      id,
+      name,
+      updatedAt: new Date().toISOString(),
+      ...data
+    };
+    fs.writeFileSync(file, JSON.stringify(projectObj, null, 2), 'utf8');
+    res.json({ success: true, project: projectObj });
+  } catch (error) {
+    console.error('Lỗi khi lưu dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Xóa dự án
+app.delete('/api/projects/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = path.join(PROJECTS_DIR, `${id}.json`);
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Lỗi khi xóa dự án:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Nhân bản dự án
+app.post('/api/projects/:id/duplicate', (req, res) => {
+  try {
+    const { id } = req.params;
+    const srcFile = path.join(PROJECTS_DIR, `${id}.json`);
+    if (!fs.existsSync(srcFile)) {
+      return res.status(404).json({ error: 'Không tìm thấy dự án nguồn' });
+    }
+    const content = fs.readFileSync(srcFile, 'utf8');
+    const proj = JSON.parse(content);
+    
+    const newId = `proj_${Date.now()}`;
+    const newName = `${proj.name} (Bản sao)`;
+    const newProj = {
+      ...proj,
+      id: newId,
+      name: newName,
+      updatedAt: new Date().toISOString()
+    };
+    const destFile = path.join(PROJECTS_DIR, `${newId}.json`);
+    fs.writeFileSync(destFile, JSON.stringify(newProj, null, 2), 'utf8');
+    res.json({ success: true, project: newProj });
+  } catch (error) {
+    console.error('Lỗi khi nhân bản dự án:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -1806,7 +1937,11 @@ app.post('/api/download-model', async (req, res) => {
 });
 
 app.get('/api/download-model/status', (req, res) => {
-  const checkConfigured = fs.existsSync(OMNIVOICE_CLI_PATH) && fs.existsSync(OMNIVOICE_MODEL_PATH);
+  const cliExists = fs.existsSync(OMNIVOICE_CLI_PATH);
+  const modelExists = fs.existsSync(OMNIVOICE_MODEL_PATH);
+  console.log(`[Model Status] Checking CLI path: "${OMNIVOICE_CLI_PATH}" (Exists: ${cliExists})`);
+  console.log(`[Model Status] Checking Model path: "${OMNIVOICE_MODEL_PATH}" (Exists: ${modelExists})`);
+  const checkConfigured = cliExists && modelExists;
   res.json({
     ...modelDownloadStatus,
     omiConfigured: checkConfigured
@@ -2270,6 +2405,8 @@ app.post('/api/render-studio', studioUpload.fields([
     // 2. Tạo đối tượng Task mới đưa vào hàng chờ
     const task = {
       id: taskId,
+      projectId: body.projectId || null,
+      projectName: body.projectName || 'Dự án chưa đặt tên',
       status: 'pending',
       percent: 0,
       step: 'Đang xếp hàng...',
@@ -2923,6 +3060,7 @@ async function executeRenderTask(task) {
       let shadow = 1 * scaleFactor;
       let outlineColor = '&H00000000';
       let backColor = '&H80000000';
+      let finalAssColor = assColor;
       
       if (theme === 'box') {
         borderStyle = 3;
@@ -2952,6 +3090,18 @@ async function executeRenderTask(task) {
         shadow = 3 * scaleFactor;
         outlineColor = '&H00000000';
         backColor = '&H90000000';
+      } else if (theme === 'neon-glow') {
+        borderStyle = 1;
+        outline = 2.0 * scaleFactor;
+        shadow = 0;
+        outlineColor = assColor;
+        finalAssColor = '&H00FFFFFF'; // Primary body is white
+      } else if (theme === 'three-d') {
+        borderStyle = 1;
+        outline = 1.0 * scaleFactor;
+        shadow = 3.0 * scaleFactor;
+        outlineColor = '&H00000000';
+        backColor = '&H00000000';
       }
 
       const assPath = path.join(workDir, `render_subtitles_${timestamp}.ass`);
@@ -2961,7 +3111,7 @@ async function executeRenderTask(task) {
           videoHeight,
           fontName,
           fontSize,
-          assColor,
+          assColor: finalAssColor,
           isBold,
           borderStyle,
           outline,
@@ -2970,7 +3120,8 @@ async function executeRenderTask(task) {
           backColor,
           alignment,
           marginV,
-          marginH
+          marginH,
+          theme
         });
         renderSubtitlePath = assPath;
       } catch (err) {
@@ -3257,6 +3408,8 @@ app.get('/api/render-queue-status', (req, res) => {
   res.json({
     queue: renderQueue.map(t => ({
       id: t.id,
+      projectId: t.projectId,
+      projectName: t.projectName,
       status: t.status,
       percent: t.percent,
       step: t.step,

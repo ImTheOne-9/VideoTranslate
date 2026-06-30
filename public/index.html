@@ -46,9 +46,20 @@
 
     <main class="workspace">
       <header class="topbar">
-        <div>
+        <div id="topbar-standard-info">
           <h2 id="view-title">Tải video</h2>
           <p id="view-desc">Dán link YouTube, TikTok, Douyin, Facebook, Instagram hoặc Xiaohongshu để tải về thư mục downloads.</p>
+        </div>
+        <div id="topbar-project-info" style="display: none; align-items: center; justify-content: space-between; flex: 1; margin-right: 16px;">
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Dự án hiện tại</span>
+            <input type="text" id="project-name-input" class="premium-input" style="height: 28px; font-weight: 700; font-size: 16px; background: transparent; border: none; border-bottom: 1.5px dashed var(--border); border-radius: 0; padding: 0; color: var(--text); width: 280px; margin: 0;" placeholder="Nhập tên dự án..." value="Dự án chưa đặt tên">
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="ghost-btn" id="back-project-btn-top" onclick="backToStudioHome()" style="padding: 0 12px; height: 32px; font-size: 12px; font-weight: 600;">⬅ Quay lại</button>
+            <button type="button" class="ghost-btn" id="new-project-btn-top" onclick="createNewProject()" style="padding: 0 12px; height: 32px; font-size: 12px; font-weight: 600;">🆕 Mới</button>
+            <button type="button" class="ghost-btn" id="save-project-btn-top" onclick="saveProjectExplicitly()" style="padding: 0 12px; height: 32px; font-size: 12px; font-weight: 600; color: var(--accent);">💾 Lưu</button>
+          </div>
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="ghost-btn" id="refresh-assets-btn">🔌 Kết nối</button>
@@ -80,7 +91,7 @@
               </div>
             </div>
             <div id="saved-links-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
-              <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Link đã lưu</div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Link đã lưu</div>
               <div id="saved-links-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
                 <!-- Sẽ render bằng JS -->
               </div>
@@ -122,7 +133,7 @@
               </div>
             </div>
             <div id="saved-channels-container" style="margin-top: 14px; display: none; padding-top: 10px; border-top: 1px dashed var(--border);">
-              <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⭐ Kênh / Playlist đã lưu</div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Kênh / Playlist đã lưu</div>
               <div id="saved-channels-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
                 <!-- Sẽ render bằng JS -->
               </div>
@@ -162,7 +173,53 @@
       </section>
 
       <section class="view" id="view-studio">
-                <form id="studio-form">
+        <!-- 1. Màn hình chọn dự án (Studio Home View) -->
+        <div id="studio-home-view">
+          <div class="panel" style="margin-bottom: 14px;">
+            <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div>
+                <h3>Danh sách Dự án Studio</h3>
+                <p style="font-size: 12px; color: var(--muted); margin-top: 4px;">Chọn dự án gần đây hoặc tạo dự án mới để bắt đầu chỉnh sửa.</p>
+              </div>
+              <button type="button" onclick="createNewProjectAndNavigate()" style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">➕ TẠO DỰ ÁN MỚI</button>
+            </div>
+            <div class="url-row" style="margin-top: 14px;">
+              <input type="text" id="project-search-input" placeholder="Tìm kiếm dự án theo tên..." class="premium-input" oninput="renderProjectsList()">
+            </div>
+          </div>
+
+          <!-- Dự án gần đây -->
+          <div id="recent-projects-section" style="margin-bottom: 20px;">
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">📁 Dự án gần đây</h4>
+            <div id="recent-projects-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+              <!-- Sẽ render bằng JS -->
+            </div>
+          </div>
+
+          <!-- Tất cả dự án -->
+          <div class="panel">
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">📋 Tất cả dự án</h4>
+            <div id="project-list-container" style="max-height: calc(100vh - 350px); overflow-y: auto;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <th style="padding: 12px 8px; font-weight: 700;">Tên Dự án</th>
+                    <th style="padding: 12px 8px; font-weight: 700;">Video nguồn</th>
+                    <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Cập nhật cuối</th>
+                    <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 340px;">Hành động</th>
+                  </tr>
+                </thead>
+                <tbody id="project-list-tbody">
+                  <!-- Sẽ render bằng JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Màn hình biên tập (Studio Editor View) -->
+        <div id="studio-editor-view" class="hidden">
+          <form id="studio-form">
           <div class="studio-workspace-layout-new">
             <!-- Cột Trái: Xem trước & Trực quan hóa (Preview & Results) -->
             <div class="studio-preview-column-new">
@@ -595,9 +652,13 @@
                       <label>Font chữ</label>
                       <select name="subtitleFont" class="premium-select">
                         <option value="Arial" selected>Arial Bold</option>
+                        <option value="Impact">Impact (Shorts Style - Mặc định Win)</option>
+                        <option value="Tahoma">Tahoma Bold (Mặc định Win)</option>
+                        <option value="Montserrat">Montserrat (CapCut Style - Cần cài)</option>
+                        <option value="Bebas Neue">Bebas Neue (CapCut Style - Cần cài)</option>
+                        <option value="Poppins">Poppins (Hiện đại - Cần cài)</option>
+                        <option value="Nunito">Nunito (Mềm mại - Cần cài)</option>
                         <option value="Trebuchet MS">Trebuchet MS</option>
-                        <option value="Impact">Impact (Shorts Style)</option>
-                        <option value="Tahoma">Tahoma Bold</option>
                         <option value="Georgia">Georgia Bold</option>
                         <option value="Verdana">Verdana</option>
                         <option value="Courier New">Courier New (Typewriter)</option>
@@ -661,6 +722,8 @@
                           <option value="box-deep">Hộp nền đen sâu</option>
                           <option value="shadow">Đổ bóng chữ</option>
                           <option value="outline-shadow">Viền đen + Đổ bóng</option>
+                          <option value="neon-glow">Neon tỏa sáng (Glow)</option>
+                          <option value="three-d">Chữ 3D đổ bóng dày</option>
                         </select>
                       </div>
                       <div class="form-group">
@@ -745,6 +808,20 @@
                           <button type="button" class="preset-card" data-preset="thin-red" style="font-family: Arial; font-weight: bold; color: #FF0000; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng đỏ">Aa</button>
                           <button type="button" class="preset-card" data-preset="thin-orange" style="font-family: Arial; font-weight: bold; color: #FF9800; -webkit-text-stroke: 0.4px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng cam">Aa</button>
                           <button type="button" class="preset-card" data-preset="thin-black" style="font-family: Arial; font-weight: bold; color: #000000; -webkit-text-stroke: 0.4px #FFFFFF; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Viền mỏng đen">Aa</button>
+                        </div>
+                      </div>
+                      <!-- Presets Grid Row 6 -->
+                      <div>
+                        <div style="font-size: 10px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">✨ Neon & 3D (CapCut Style - Cần cài font)</div>
+                        <div class="subtitle-presets-grid" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;">
+                          <button type="button" class="preset-card" data-preset="neon-green" style="font-family: Impact, Arial Black; font-weight: bold; color: #FFFFFF; text-shadow: 0 0 4px #00FF00, 0 0 8px #00FF00; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Neon Xanh Lá">Aa</button>
+                          <button type="button" class="preset-card" data-preset="neon-pink" style="font-family: Impact, Arial Black; font-weight: bold; color: #FFFFFF; text-shadow: 0 0 4px #FF4081, 0 0 8px #FF4081; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Neon Hồng">Aa</button>
+                          <button type="button" class="preset-card" data-preset="neon-cyan" style="font-family: Impact, Arial Black; font-weight: bold; color: #FFFFFF; text-shadow: 0 0 4px #00E5FF, 0 0 8px #00E5FF; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Neon Xanh Neon">Aa</button>
+                          <button type="button" class="preset-card" data-preset="neon-yellow" style="font-family: Impact, Arial Black; font-weight: bold; color: #FFFFFF; text-shadow: 0 0 4px #FFEB3B, 0 0 8px #FFEB3B; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="Neon Vàng">Aa</button>
+                          <button type="button" class="preset-card" data-preset="3d-yellow" style="font-family: Impact, Arial Black; font-weight: bold; color: #FFEB3B; -webkit-text-stroke: 0.4px #000; text-shadow: 1.5px 1.5px 0px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="3D Vàng">Aa</button>
+                          <button type="button" class="preset-card" data-preset="3d-blue" style="font-family: Impact, Arial Black; font-weight: bold; color: #00E5FF; -webkit-text-stroke: 0.4px #000; text-shadow: 1.5px 1.5px 0px #0000FF; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="3D Xanh Dương">Aa</button>
+                          <button type="button" class="preset-card" data-preset="3d-red" style="font-family: Impact, Arial Black; font-weight: bold; color: #FF3B30; -webkit-text-stroke: 0.4px #000; text-shadow: 1.5px 1.5px 0px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="3D Đỏ">Aa</button>
+                          <button type="button" class="preset-card" data-preset="3d-orange" style="font-family: Impact, Arial Black; font-weight: bold; color: #FF9800; -webkit-text-stroke: 0.4px #000; text-shadow: 1.5px 1.5px 0px #000000; background: #080c10; padding: 4px 0; border-radius: 4px; font-size: 11px;" title="3D Cam">Aa</button>
                         </div>
                       </div>
                     </div>
@@ -937,8 +1014,8 @@
             </div>
           </div>
         </form>
-
-      </section>
+      </div>
+    </section>
 
       <section class="view" id="view-library">
         <!-- Sub tabs navigation -->
@@ -1089,6 +1166,7 @@
           </div>
         </div>
       </section>
+
     </main>
 
   </div>

@@ -102,12 +102,34 @@ function setBusy(button, busy, text) {
 
 function switchView(name) {
   stopAllAudio();
+
+  const editorView = $('studio-editor-view');
+  if (editorView && !editorView.classList.contains('hidden') && currentProjectId && name !== 'studio') {
+    const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+    if (hasVideo) {
+      saveProjectExplicitly();
+    }
+  }
+
   document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
+  
+  // Mặc định luôn hiển thị tiêu đề tiêu chuẩn trong topbar
+  const standardInfo = $('topbar-standard-info');
+  const projectInfo = $('topbar-project-info');
+  if (standardInfo) standardInfo.style.display = 'block';
+  if (projectInfo) projectInfo.style.display = 'none';
+
   $('view-title').textContent = views[name].title;
   $('view-desc').textContent = views[name].desc;
   if (name === 'library') {
     switchLibraryTab(currentLibraryTab);
+  } else if (name === 'studio') {
+    const homeView = $('studio-home-view');
+    const editorView = $('studio-editor-view');
+    if (homeView) homeView.classList.remove('hidden');
+    if (editorView) editorView.classList.add('hidden');
+    renderProjectsList();
   }
 }
 
@@ -629,12 +651,12 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
     if (!res.ok) throw new Error(data.error || 'Lỗi tải video');
 
     const savedFilename = data.filename || `${customFilename}${isVietsub ? '_Vietsub' : ''}.mp4`;
-    toast(`🎉 Tải thành công và lưu vào thư mục downloads: ${savedFilename}`, 'success');
+    toast(`Tải thành công và lưu vào thư mục downloads: ${savedFilename}`, 'success');
     addDownloadHistory(videoTitle, thumbnail, 'success', savedFilename, isVietsub ? 'Vietsub' : originalText);
     await loadAssets();
   } catch (error) {
     console.error('Client startDownload error:', error);
-    toast(`❌ Lỗi: ${error.message}`, 'error');
+    toast(`Lỗi: ${error.message}`, 'error');
     addDownloadHistory(videoTitle, thumbnail, 'failed', '', isVietsub ? 'Vietsub' : originalText);
   } finally {
     btn.disabled = false;
@@ -740,6 +762,8 @@ async function renderStudio(event) {
   data.set('burnSub', 'true');
   data.set('blurOriginalSub', (blurBoxes && blurBoxes.length > 0) ? 'true' : 'false');
   data.append('blurBoxes', JSON.stringify(blurBoxes));
+  data.set('projectId', currentProjectId || '');
+  data.set('projectName', currentProjectName || '');
 
   data.set('aiProvider', aiSettings.aiProvider);
   data.set('geminiApiKey', aiSettings.geminiApiKey);
@@ -855,10 +879,12 @@ function updateMainResultUI(queue, currentActiveId) {
   const sidebar = $('render-result');
   if (!container && !sidebar) return;
 
-  if (queue.length === 0) {
+  const projectQueue = queue.filter(t => !t.projectId || t.projectId === currentProjectId);
+
+  if (projectQueue.length === 0) {
     const emptyHtml = `
       <div class="empty-result-msg" style="color: var(--muted); font-size: 13px; text-align: center; padding: 40px 0;">
-        Chưa có video render nào. Hãy nhấn "Render video" ở tab Xem trước.
+        Chưa có video render nào cho dự án này. Hãy nhấn "Render video" ở tab Xem trước.
       </div>
     `;
     if (container) {
@@ -879,12 +905,12 @@ function updateMainResultUI(queue, currentActiveId) {
 
   // 1. Nếu người dùng đã chọn một task cụ thể để hiển thị, hãy ưu tiên hiển thị task đó
   if (currentDisplayedTaskId) {
-    targetTask = queue.find(t => t.id === currentDisplayedTaskId);
+    targetTask = projectQueue.find(t => t.id === currentDisplayedTaskId);
   }
 
   // 2. Nếu chưa chọn hoặc task đã chọn không tồn tại trong queue, tự động chọn task đang render
   if (!targetTask) {
-    const activeTask = queue.find(t => t.status === 'rendering' || t.id === currentActiveId);
+    const activeTask = projectQueue.find(t => t.status === 'rendering' || t.id === currentActiveId);
     if (activeTask) {
       targetTask = activeTask;
       currentDisplayedTaskId = activeTask.id;
@@ -892,8 +918,8 @@ function updateMainResultUI(queue, currentActiveId) {
   }
 
   // 3. Nếu không có task nào đang chạy, mặc định hiển thị tác vụ được thêm gần đây nhất
-  if (!targetTask && queue.length > 0) {
-    const sorted = [...queue].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  if (!targetTask && projectQueue.length > 0) {
+    const sorted = [...projectQueue].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     targetTask = sorted[0];
     if (targetTask) {
       currentDisplayedTaskId = targetTask.id;
@@ -1085,7 +1111,10 @@ function renderQueueModalUI(queue, currentActiveId) {
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
           <div class="queue-item-info-clickable" style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; cursor: pointer; transition: opacity 0.2s;" onclick="selectAndShowTask('${task.id}')" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">
             <span style="font-size: 11px; color: var(--muted); font-weight: 500;">[${timeStr}]</span>
-            <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;" title="${task.videoName}">${task.videoName}</strong>
+            <div style="display: flex; flex-direction: column; min-width: 0;">
+              <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 280px;" title="${task.videoName}">${task.videoName}</strong>
+              <span style="font-size: 10px; color: var(--muted); font-weight: 500;">📁 Dự án: <span style="color: var(--accent-2); font-weight: 600;">${task.projectName || 'Chưa rõ'}</span></span>
+            </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
             ${statusBadge}
@@ -1104,9 +1133,23 @@ function renderQueueModalUI(queue, currentActiveId) {
   container.innerHTML = html;
 }
 
-function selectAndShowTask(taskId) {
+async function selectAndShowTask(taskId) {
+  try {
+    const res = await fetch('/api/render-queue-status');
+    if (res.ok) {
+      const data = await res.json();
+      const task = data.queue.find(t => t.id === taskId);
+      if (task && task.projectId && task.projectId !== currentProjectId) {
+        await loadProject(task.projectId);
+      }
+    }
+  } catch (e) {
+    console.error('Lỗi khi chuyển đổi dự án từ hàng đợi:', e);
+  }
+
   currentDisplayedTaskId = taskId;
   switchView('studio');
+  openStudioEditor();
   switchToResultTab();
   updateQueueStatus();
   closeQueueModal();
@@ -2253,9 +2296,12 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const W_act = video.videoWidth || 1080;
   const H_act = video.videoHeight || 1920;
   
-  // 1. Determine quadrants based on canvas coordinates
-  const centerPercent = (left + dragWidth / 2) / W_act;
-  const topPercent = top / H_act;
+  const stageW = konvaStage ? konvaStage.width() : W_act;
+  const stageH = konvaStage ? konvaStage.height() : H_act;
+  
+  // 1. Determine quadrants based on stage coordinates
+  const centerPercent = (left + dragWidth / 2) / stageW;
+  const topPercent = top / stageH;
   
   let verticalSec = 'bottom';
   if (topPercent < 0.35) {
@@ -2294,6 +2340,7 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const alignmentInput = document.querySelector('[name="subtitleAlignment"]');
   if (alignmentInput) {
     alignmentInput.value = alignment;
+    alignmentInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
   const alignGrid = $('alignment-visual-grid');
   if (alignGrid) {
@@ -2302,24 +2349,30 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
     });
   }
   
-  // 3. Compute vertical margin based on quadrant (Top vs Bottom) in canvas coordinates
+  // 3. Compute vertical margin based on quadrant (Top vs Bottom) in stage coordinates, then scale to video coordinates
   let MarginV_act = 0;
   if (verticalSec === 'top') {
-    MarginV_act = Math.round(top);
+    MarginV_act = Math.round((top / stageH) * H_act);
   } else {
-    MarginV_act = Math.round(H_act - (top + dragHeight));
+    MarginV_act = Math.round(((stageH - (top + dragHeight)) / stageH) * H_act);
   }
   
-  // Compute horizontal margin in canvas coordinates
+  // Compute horizontal margin in stage coordinates, then scale to video coordinates
   const marginL_act = left;
-  const marginR_act = W_act - (left + dragWidth);
-  const MarginH_act = Math.round(Math.min(marginL_act, marginR_act));
+  const marginR_act = stageW - (left + dragWidth);
+  const MarginH_act = Math.round((Math.min(marginL_act, marginR_act) / stageW) * W_act);
   
-  document.querySelector('input[name="subtitleMargin"]').value = Math.max(0, MarginV_act);
+  const marginInput = document.querySelector('input[name="subtitleMargin"]');
+  if (marginInput) {
+    marginInput.value = Math.max(0, MarginV_act);
+    marginInput.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  
   const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
   if (marginHInput) {
     marginHInput.value = Math.max(0, MarginH_act);
     marginHInput.dataset.lastStageWidth = W_act;
+    marginHInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 }
 
@@ -2503,7 +2556,6 @@ function updateSubtitleOverlayFromInputs() {
 
   // Khởi tạo Stage và Layer nếu chưa có
   if (!konvaStage) {
-
     konvaStage = new Konva.Stage({
       container: 'konva-stage-container',
       width: W_act,
@@ -2896,19 +2948,31 @@ function updateSubtitleOverlayFromInputs() {
       rxTextNode.width(w);
       rxTextNode.height(h);
 
-      $('reaction-x').value = Math.round(x);
-      $('reaction-y').value = Math.round(y);
+      const rxXInput = $('reaction-x');
+      if (rxXInput) {
+        rxXInput.value = Math.round(x);
+        rxXInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const rxYInput = $('reaction-y');
+      if (rxYInput) {
+        rxYInput.value = Math.round(y);
+        rxYInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       
       const widthInput = document.querySelector('input[name="reactionWidth"]');
       if (widthInput) {
         widthInput.value = Math.round(w);
         const valSpan = $('reaction-width-val');
         if (valSpan) valSpan.textContent = widthInput.value + 'px';
+        widthInput.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
       $('preview-reaction-pip').dataset.customGeometry = 'true';
       const posSelect = document.querySelector('select[name="reactionPosition"]');
-      if (posSelect) posSelect.value = 'custom';
+      if (posSelect) {
+        posSelect.value = 'custom';
+        posSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       
       konvaLayer.draw();
     });
@@ -2999,18 +3063,7 @@ function updateSubtitleOverlayFromInputs() {
   const fontSizeInput = Number(document.querySelector('input[name="subtitleSize"]').value || 32);
   
   const marginHEl = document.querySelector('input[name="subtitleMarginH"]');
-  let marginHInput = 20;
-  if (marginHEl) {
-    const lastStageWidth = Number(marginHEl.dataset.lastStageWidth);
-    let val = Number(marginHEl.value || 20);
-    if (lastStageWidth && lastStageWidth !== W_act) {
-      val = Math.round((val / lastStageWidth) * W_act);
-      val = Math.max(10, Math.min(val, Math.floor(W_act / 2) - 50));
-      marginHEl.value = val;
-    }
-    marginHEl.dataset.lastStageWidth = W_act;
-    marginHInput = val;
-  }
+  let marginHInput = Number(marginHEl ? marginHEl.value : 20) || 20;
 
   const maxLines = Number(document.querySelector('[name="subtitleMaxLines"]').value || 0);
   const boxWidth = W_act - 2 * marginHInput;
@@ -3087,6 +3140,24 @@ function updateSubtitleOverlayFromInputs() {
     subTextNode.shadowOffset({ x: shadowSize, y: shadowSize });
     subTextNode.shadowOpacity(0.8);
     subTextNode.shadowEnabled(true);
+  } else if (themeInput === 'neon-glow') {
+    subTextNode.fill('#FFFFFF');
+    subTextNode.stroke(colorInput);
+    subTextNode.strokeWidth(1.5 * scaleFactor);
+    subTextNode.shadowColor(colorInput);
+    subTextNode.shadowBlur(10 * scaleFactor);
+    subTextNode.shadowOffset({ x: 0, y: 0 });
+    subTextNode.shadowOpacity(1.0);
+    subTextNode.shadowEnabled(true);
+  } else if (themeInput === 'three-d') {
+    subTextNode.stroke('black');
+    subTextNode.strokeWidth(1.0 * scaleFactor);
+    const shadowSize = 3 * scaleFactor;
+    subTextNode.shadowColor('black');
+    subTextNode.shadowBlur(0);
+    subTextNode.shadowOffset({ x: shadowSize, y: shadowSize });
+    subTextNode.shadowOpacity(1.0);
+    subTextNode.shadowEnabled(true);
   } else { // 'outline'
     subTextNode.stroke('black');
     subTextNode.strokeWidth(2.5 * scaleFactor);
@@ -3101,29 +3172,36 @@ function updateSubtitleOverlayFromInputs() {
   const alignment = Number(document.querySelector('[name="subtitleAlignment"]').value || 2);
   const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
 
+  const stageW = konvaStage ? konvaStage.width() : W_act;
+  const stageH = konvaStage ? konvaStage.height() : H_act;
+
+  const marginVStage = (marginVInput / H_act) * stageH;
+  const marginHStage = (marginHInput / W_act) * stageW;
+
   const dragWidth = subTextNode.width();
   const dragHeight = subTextNode.height();
 
-  let subX = marginHInput;
+  let subX = marginHStage;
   let subY = 0;
 
   if ([5, 6, 7].includes(alignment)) {
-    subY = marginVInput;
+    subY = marginVStage;
   } else if ([9, 10, 11].includes(alignment)) {
-    subY = (H_act - dragHeight) / 2;
+    subY = (stageH - dragHeight) / 2;
   } else {
-    subY = H_act - dragHeight - marginVInput;
+    subY = stageH - dragHeight - marginVStage;
   }
 
   if ([1, 5, 9].includes(alignment)) {
-    subX = marginHInput;
+    subX = marginHStage;
   } else if ([3, 7, 11].includes(alignment)) {
-    subX = W_act - dragWidth - marginHInput;
+    subX = stageW - dragWidth - marginHStage;
   } else {
-    subX = (W_act - dragWidth) / 2;
+    subX = (stageW - dragWidth) / 2;
   }
 
   konvaSubtitle.position({ x: subX, y: subY });
+  console.log(`[Subtitle Position Debug] alignment=${alignment}, marginVInput=${marginVInput}, marginHInput=${marginHInput}, stageW=${stageW}, stageH=${stageH}, W_act=${W_act}, H_act=${H_act}, subX=${subX}, subY=${subY}`);
   
   const subMode = $('subtitle-mode').value;
   konvaSubtitle.visible(subMode !== 'none');
@@ -3303,6 +3381,9 @@ function updateSubtitleOverlayFromInputs() {
 
         // Bắt sự kiện kéo thả/co giãn
         shape.on('dragmove transform', () => {
+          const currentBox = blurBoxes.find(b => b.id === box.id);
+          if (!currentBox) return;
+
           let scaleX = shape.scaleX();
           let scaleY = shape.scaleY();
 
@@ -3349,22 +3430,22 @@ function updateSubtitleOverlayFromInputs() {
           shape.height(h);
 
           // Cập nhật giá trị vào object
-          box.x = Math.max(0, Math.min(100, Math.round((x / stageW) * 100)));
-          box.y = Math.max(0, Math.min(100, Math.round((y / stageH) * 100)));
-          box.width = Math.max(1, Math.min(100, Math.round((w / stageW) * 100)));
-          box.height = Math.max(1, Math.min(100, Math.round((h / stageH) * 100)));
+          currentBox.x = Math.max(0, Math.min(100, Math.round((x / stageW) * 100)));
+          currentBox.y = Math.max(0, Math.min(100, Math.round((y / stageH) * 100)));
+          currentBox.width = Math.max(1, Math.min(100, Math.round((w / stageW) * 100)));
+          currentBox.height = Math.max(1, Math.min(100, Math.round((h / stageH) * 100)));
 
           // Đồng bộ trực tiếp giá trị lên giao diện (không render lại danh sách để tránh mất focus)
-          const itemEl = document.querySelector(`.blur-box-item[data-id="${box.id}"]`);
+          const itemEl = document.querySelector(`.blur-box-item[data-id="${currentBox.id}"]`);
           if (itemEl) {
             const xInput = itemEl.querySelector('input[data-field="x"]');
             const yInput = itemEl.querySelector('input[data-field="y"]');
             const wInput = itemEl.querySelector('input[data-field="width"]');
             const hInput = itemEl.querySelector('input[data-field="height"]');
-            if (xInput) xInput.value = box.x;
-            if (yInput) yInput.value = box.y;
-            if (wInput) wInput.value = box.width;
-            if (hInput) hInput.value = box.height;
+            if (xInput) xInput.value = currentBox.x;
+            if (yInput) yInput.value = currentBox.y;
+            if (wInput) wInput.value = currentBox.width;
+            if (hInput) hInput.value = currentBox.height;
           }
 
           konvaLayer.draw();
@@ -4102,7 +4183,7 @@ function submitSaveTemplate(event) {
   };
 
   localStorage.setItem('studio_templates', JSON.stringify(templates));
-  toast('🎉 Đã lưu cấu hình sẵn thành công!', 'success');
+  toast('Đã lưu cấu hình sẵn thành công!', 'success');
   updateTemplateSelectDropdown();
   selectCustomTemplate(templateName);
 }
@@ -4748,8 +4829,12 @@ const subtitleInputs = [
 subtitleInputs.forEach(name => {
   const el = document.querySelector(`[name="${name}"]`);
   if (el) {
-    el.addEventListener('input', updateSubtitleOverlayFromInputs);
-    el.addEventListener('change', updateSubtitleOverlayFromInputs);
+    el.addEventListener('input', (e) => {
+      if (e && e.isTrusted) updateSubtitleOverlayFromInputs();
+    });
+    el.addEventListener('change', (e) => {
+      if (e && e.isTrusted) updateSubtitleOverlayFromInputs();
+    });
   }
 });
 
@@ -4833,7 +4918,7 @@ if (presetContainer) {
     'shadow-orange': { color: '#FF9800', theme: 'shadow', font: 'Tahoma', bold: 'true', size: 24 },
     'shadow-black': { color: '#000000', theme: 'shadow', font: 'Tahoma', bold: 'true', size: 24 },
 
-    // Row 4: Viền Mỏng (Arial Bold, Outline)
+    // Row 5: Viền Mỏng (Arial Bold, Outline)
     'thin-white': { color: '#FFFFFF', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
     'thin-yellow': { color: '#FFEB3B', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
     'thin-cyan': { color: '#00E5FF', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
@@ -4841,7 +4926,17 @@ if (presetContainer) {
     'thin-pink': { color: '#FF4081', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
     'thin-red': { color: '#FF0000', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
     'thin-orange': { color: '#FF9800', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
-    'thin-black': { color: '#000000', theme: 'outline', font: 'Arial', bold: 'true', size: 24 }
+    'thin-black': { color: '#000000', theme: 'outline', font: 'Arial', bold: 'true', size: 24 },
+
+    // Row 6: Neon & 3D (CapCut Style)
+    'neon-green': { color: '#00FF00', theme: 'neon-glow', font: 'Impact', bold: 'true', size: 32 },
+    'neon-pink': { color: '#FF4081', theme: 'neon-glow', font: 'Impact', bold: 'true', size: 32 },
+    'neon-cyan': { color: '#00E5FF', theme: 'neon-glow', font: 'Impact', bold: 'true', size: 32 },
+    'neon-yellow': { color: '#FFEB3B', theme: 'neon-glow', font: 'Impact', bold: 'true', size: 32 },
+    '3d-yellow': { color: '#FFEB3B', theme: 'three-d', font: 'Impact', bold: 'true', size: 32 },
+    '3d-blue': { color: '#00E5FF', theme: 'three-d', font: 'Impact', bold: 'true', size: 32 },
+    '3d-red': { color: '#FF3B30', theme: 'three-d', font: 'Impact', bold: 'true', size: 32 },
+    '3d-orange': { color: '#FF9800', theme: 'three-d', font: 'Impact', bold: 'true', size: 32 }
   };
   
   presetContainer.querySelectorAll('.preset-card').forEach(card => {
@@ -5026,9 +5121,9 @@ initDraggableBlurBox();
 
 // Setup voice mode tabs
 document.querySelectorAll('.voice-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', (e) => {
     const mode = btn.dataset.voiceMode;
-    if (mode === 'omi' && !assets.omiConfigured) {
+    if (mode === 'omi' && !assets.omiConfigured && e && e.isTrusted) {
       toast('⚠️ Thiếu file Model AI để chạy Omi Cloner. Vui lòng tải xuống!', 'warn');
       openModelDownloadModal();
       return;
@@ -5045,7 +5140,7 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
 
 // Setup sub mode tabs
 document.querySelectorAll('.sub-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', (e) => {
     document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const input = $('subtitle-mode');
@@ -5056,7 +5151,7 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
 
       
       // Automatically center subtitle overlay when any active subtitle mode is selected
-      if (mode !== 'none') {
+      if (e && e.isTrusted && mode !== 'none') {
         const alignInput = $('subtitle-alignment-input');
         if (alignInput) {
           alignInput.value = '10';
@@ -5657,6 +5752,7 @@ if (document.readyState === 'loading') {
     loadDownloadHistory();
     initGeminiModelListeners();
     initOpenRouterModelListeners();
+    initActiveProject();
   });
 } else {
   initFbPages();
@@ -5665,6 +5761,7 @@ if (document.readyState === 'loading') {
   loadDownloadHistory();
   initGeminiModelListeners();
   initOpenRouterModelListeners();
+  initActiveProject();
 }
 
 /* ==========================================================================
@@ -6803,7 +6900,7 @@ function saveCurrentLink() {
   currentSavedLinkPage = 1;
   saveSavedLinks();
   renderSavedLinks();
-  toast('⭐ Đã lưu link thành công', 'success');
+  toast('Đã lưu link thành công', 'success');
 
   // Tự động quét lấy tiêu đề thực tế ngầm từ YouTube nếu đang lưu bằng tên tạm
   const tempName = getFriendlyNameFromUrl(url);
@@ -6949,7 +7046,7 @@ function saveCurrentChannel() {
   saveSavedChannels();
   currentSavedChannelPage = 1;
   renderSavedChannels();
-  toast('⭐ Đã lưu kênh thành công', 'success');
+  toast('Đã lưu kênh thành công', 'success');
 }
 
 function deleteSavedChannel(id) {
@@ -7350,7 +7447,7 @@ function saveGlobalSettings() {
   if (openRouterModelSelect) localStorage.setItem('global_openrouter_model', openRouterModelSelect.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_model', whisperModelSelect.value);
 
-  toast('🎉 Đã lưu cài đặt AI toàn cục thành công!', 'success');
+  toast('Đã lưu cài đặt AI toàn cục thành công!', 'success');
   closeGlobalSettingsModal();
 }
 
@@ -7458,10 +7555,10 @@ async function saveCookieSettings() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Lỗi lưu cookie');
 
-    toast('🎉 Lưu Cookie thành công!', 'success');
+    toast('Lưu Cookie thành công!', 'success');
     await loadCookieStatus();
   } catch (error) {
-    toast(`❌ Lỗi: ${error.message}`, 'error');
+    toast(`Lỗi: ${error.message}`, 'error');
   }
 }
 
@@ -8578,9 +8675,623 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(startUpdateMonitoring, 5000);
 });
 
+// ==========================================================================
+// HỆ THỐNG QUẢN LÝ DỰ ÁN STUDIO (PROJECT MANAGEMENT ACTIONS & STATE)
+// ==========================================================================
+let currentProjectId = null;
+let currentProjectName = 'Dự án chưa đặt tên';
+
+function serializeStudioForm() {
+  const form = $('studio-form');
+  if (!form) return {};
+  const formData = new FormData(form);
+  const obj = {};
+  for (const [key, value] of formData.entries()) {
+    if (value instanceof File) {
+      obj[key + '_fileName'] = value.name;
+    } else {
+      obj[key] = value;
+    }
+  }
+  
+  // Lưu trạng thái các tabs đang kích hoạt
+  obj._sourceMode = document.querySelector('.source-tab-btn.active')?.dataset.sourceMode || 'library';
+  obj._reactionMode = document.querySelector('.reaction-tab-btn.active')?.dataset.reactionTabMode || 'none';
+  obj._subMode = document.querySelector('.sub-tab-btn.active')?.dataset.subMode || 'none';
+  obj._voiceMode = document.querySelector('.voice-tab-btn.active')?.dataset.voiceMode || 'none';
+  obj._musicMode = document.querySelector('.music-tab-btn.active')?.dataset.musicMode || 'none';
+  
+  // Lưu danh sách vùng làm mờ
+  obj.blurBoxes = blurBoxes;
+  
+  return obj;
+}
+
+function deserializeStudioForm(obj) {
+  const form = $('studio-form');
+  if (!form) return;
+  
+  // Khôi phục các input cơ bản
+  for (const [key, val] of Object.entries(obj)) {
+    if (key.startsWith('_')) continue;
+    if (key.endsWith('_fileName')) continue;
+    
+    const input = form.elements[key];
+    if (input) {
+      if (input.type === 'checkbox') {
+        input.checked = (val === 'true' || val === true);
+      } else if (input.type === 'radio') {
+        if (input.forEach) {
+          input.forEach(radio => {
+            radio.checked = (radio.value === val);
+          });
+        } else {
+          input.checked = (input.value === val);
+        }
+      } else {
+        input.value = val;
+      }
+    }
+  }
+
+  // Khôi phục thuộc tính customGeometry cho Reaction PIP
+  const pipEl = $('preview-reaction-pip');
+  if (pipEl) {
+    pipEl.dataset.customGeometry = (obj.reactionPosition === 'custom') ? 'true' : 'false';
+  }
+  
+  // Kích hoạt các tab tương ứng
+  if (obj._sourceMode) {
+    const btn = document.querySelector(`.source-tab-btn[data-source-mode="${obj._sourceMode}"]`);
+    if (btn) btn.click();
+  }
+  if (obj._reactionMode) {
+    const btn = document.querySelector(`.reaction-tab-btn[data-reaction-tab-mode="${obj._reactionMode}"]`);
+    if (btn) btn.click();
+  }
+  if (obj._subMode) {
+    const btn = document.querySelector(`.sub-tab-btn[data-sub-mode="${obj._subMode}"]`);
+    if (btn) btn.click();
+  }
+  if (obj._voiceMode) {
+    const btn = document.querySelector(`.voice-tab-btn[data-voice-mode="${obj._voiceMode}"]`);
+    if (btn) btn.click();
+  }
+  if (obj._musicMode) {
+    const btn = document.querySelector(`.music-tab-btn[data-music-mode="${obj._musicMode}"]`);
+    if (btn) btn.click();
+  }
+  
+  // Tải lại video nguồn đã chọn và nạp preview
+  if (obj.mainVideoFile) {
+    const item = Array.from(document.querySelectorAll('#studio-video-grid .video-card-item'))
+      .find(c => c.querySelector('.video-card-title')?.textContent === obj.mainVideoFile || c.dataset.filename === obj.mainVideoFile);
+    if (item) {
+      item.click();
+    } else {
+      $('selected-video-file').value = obj.mainVideoFile;
+      setPreviewVideo(`/downloads/${encodeURIComponent(obj.mainVideoFile)}`);
+    }
+  }
+  
+  // Chọn lại video reaction
+  if (obj.savedReactionFile) {
+    const item = Array.from(document.querySelectorAll('#studio-reaction-video-grid .video-card-item'))
+      .find(c => c.dataset.filename === obj.savedReactionFile);
+    if (item) {
+      item.click();
+    } else {
+      $('selected-reaction-video-file').value = obj.savedReactionFile;
+    }
+  }
+  
+  // Cập nhật lại các trường phụ đề
+  updateConditionalFields();
+
+  // Khôi phục danh sách vùng làm mờ
+  if (obj.blurBoxes) {
+    try {
+      blurBoxes = typeof obj.blurBoxes === 'string' ? JSON.parse(obj.blurBoxes) : obj.blurBoxes;
+    } catch (e) {
+      console.error('Lỗi khôi phục blurBoxes:', e);
+      blurBoxes = [];
+    }
+  } else {
+    blurBoxes = [];
+  }
+  activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
+  renderBlurBoxesList();
+  updateSubtitleOverlayFromInputs();
+}
+
+function resetStudioForm() {
+  const form = $('studio-form');
+  if (form) form.reset();
+  $('selected-video-file').value = '';
+  $('selected-reaction-video-file').value = '';
+  
+  const sourceBtn = document.querySelector('.source-tab-btn[data-source-mode="library"]');
+  if (sourceBtn) sourceBtn.click();
+  const reactionBtn = document.querySelector('.reaction-tab-btn[data-reaction-tab-mode="none"]');
+  if (reactionBtn) reactionBtn.click();
+  const subBtn = document.querySelector('.sub-tab-btn[data-sub-mode="none"]');
+  if (subBtn) subBtn.click();
+  const voiceBtn = document.querySelector('.voice-tab-btn[data-voice-mode="none"]');
+  if (voiceBtn) voiceBtn.click();
+  const musicBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
+  if (musicBtn) musicBtn.click();
+  
+  const previewVideo = $('studio-video-preview');
+  if (previewVideo) {
+    previewVideo.src = '';
+    previewVideo.load();
+  }
+  $('video-preview-wrapper').classList.add('hidden');
+  $('preview-placeholder').classList.remove('hidden');
+  
+  updateConditionalFields();
+
+  // Xóa vùng làm mờ
+  blurBoxes = [];
+  activeBlurBoxId = null;
+  renderBlurBoxesList();
+  updateSubtitleOverlayFromInputs();
+}
+
+function generateNextProjectName() {
+  let maxNum = 0;
+  if (currentProjectsList && currentProjectsList.length) {
+    currentProjectsList.forEach(p => {
+      const match = p.name.match(/^Dự án (\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    });
+  }
+  return `Dự án ${maxNum + 1}`;
+}
+
+function openStudioEditor() {
+  const homeView = $('studio-home-view');
+  const editorView = $('studio-editor-view');
+  if (homeView) homeView.classList.add('hidden');
+  if (editorView) editorView.classList.remove('hidden');
+
+  const standardInfo = $('topbar-standard-info');
+  const projectInfo = $('topbar-project-info');
+  if (standardInfo) standardInfo.style.display = 'none';
+  if (projectInfo) projectInfo.style.display = 'flex';
+}
+
+async function backToStudioHome() {
+  if (currentProjectId) {
+    const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+    if (hasVideo) {
+      await saveProjectExplicitly();
+    }
+  }
+
+  const homeView = $('studio-home-view');
+  const editorView = $('studio-editor-view');
+  if (homeView) homeView.classList.remove('hidden');
+  if (editorView) editorView.classList.add('hidden');
+
+  const standardInfo = $('topbar-standard-info');
+  const projectInfo = $('topbar-project-info');
+  if (standardInfo) standardInfo.style.display = 'block';
+  if (projectInfo) projectInfo.style.display = 'none';
+
+  renderProjectsList();
+}
+
+async function createNewProject() {
+  try {
+    const res = await fetch('/api/projects');
+    if (res.ok) {
+      const data = await res.json();
+      currentProjectsList = data.projects || [];
+    }
+  } catch (err) {
+    console.error('Không thể đồng bộ danh sách dự án trước khi tạo mới:', err);
+  }
+
+  currentProjectId = `proj_${Date.now()}`;
+  currentProjectName = generateNextProjectName();
+  localStorage.setItem('current_project_id', currentProjectId);
+  localStorage.setItem('current_project_name', currentProjectName);
+
+  const nameInput = $('project-name-input');
+  if (nameInput) nameInput.value = currentProjectName;
+
+  resetStudioForm();
+  toast('🆕 Đã tạo dự án mới! Bắt đầu thiết lập chỉnh sửa.', 'success');
+}
+
+function createNewProjectAndNavigate() {
+  createNewProject().then(() => {
+    switchView('studio');
+    openStudioEditor();
+  });
+}
+
+async function saveProjectExplicitly() {
+  if (!currentProjectId) {
+    currentProjectId = `proj_${Date.now()}`;
+  }
+  const nameInput = $('project-name-input');
+  if (nameInput) {
+    currentProjectName = nameInput.value.trim() || `Dự án_${Date.now()}`;
+  }
+  
+  const formData = serializeStudioForm();
+  let thumbnail = '';
+  const selectedVideoCard = document.querySelector('#studio-video-grid .video-card-item.selected');
+  if (selectedVideoCard) {
+    const img = selectedVideoCard.querySelector('img');
+    if (img) thumbnail = img.src;
+  }
+  
+  const payload = {
+    id: currentProjectId,
+    name: currentProjectName,
+    data: {
+      ...formData,
+      videoTitle: $('selected-video-file')?.value || '',
+      thumbnail: thumbnail
+    }
+  };
+
+  try {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Không thể lưu dự án');
+    
+    localStorage.setItem('current_project_id', currentProjectId);
+    localStorage.setItem('current_project_name', currentProjectName);
+    
+    toast('Đã lưu dự án thành công!', 'success');
+  } catch (error) {
+    console.error('Lỗi khi lưu dự án:', error);
+    toast('Lỗi khi lưu dự án: ' + error.message, 'error');
+  }
+}
+
+function setupStudioFormAutoSave() {
+  const form = $('studio-form');
+  if (!form) return;
+
+  let autoSaveTimeout = null;
+  const triggerAutoSave = () => {
+    if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(async () => {
+      const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+      if (!hasVideo) return;
+
+      if (!currentProjectId) {
+        currentProjectId = `proj_${Date.now()}`;
+        currentProjectName = `Dự án_${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')}`;
+        localStorage.setItem('current_project_id', currentProjectId);
+        localStorage.setItem('current_project_name', currentProjectName);
+        const nameInput = $('project-name-input');
+        if (nameInput) nameInput.value = currentProjectName;
+      }
+
+      const nameInput = $('project-name-input');
+      if (nameInput) {
+        currentProjectName = nameInput.value.trim() || currentProjectName;
+      }
+
+      const formData = serializeStudioForm();
+      let thumbnail = '';
+      const selectedVideoCard = document.querySelector('#studio-video-grid .video-card-item.selected');
+      if (selectedVideoCard) {
+        const img = selectedVideoCard.querySelector('img');
+        if (img) thumbnail = img.src;
+      }
+
+      const payload = {
+        id: currentProjectId,
+        name: currentProjectName,
+        data: {
+          ...formData,
+          videoTitle: $('selected-video-file')?.value || '',
+          thumbnail: thumbnail
+        }
+      };
+
+      try {
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          console.log('[Auto-save] Dự án đã được tự động lưu.');
+        }
+      } catch (err) {
+        console.error('[Auto-save] Lỗi tự động lưu:', err.message);
+      }
+    }, 2000);
+  };
+
+  form.addEventListener('input', triggerAutoSave);
+  form.addEventListener('change', triggerAutoSave);
+  
+  const nameInput = $('project-name-input');
+  if (nameInput) {
+    nameInput.addEventListener('input', triggerAutoSave);
+  }
+}
+
+async function loadProject(id) {
+  try {
+    if (currentProjectId && currentProjectId !== id) {
+      const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+      if (hasVideo) {
+        try {
+          await saveProjectExplicitly();
+        } catch (e) {
+          console.error('Lỗi khi tự động lưu dự án cũ:', e);
+        }
+      }
+    }
+
+    const res = await fetch(`/api/projects/${id}`);
+    if (!res.ok) throw new Error('Không thể đọc dữ liệu dự án');
+    const proj = await res.json();
+    
+    currentProjectId = proj.id;
+    currentProjectName = proj.name;
+    localStorage.setItem('current_project_id', currentProjectId);
+    localStorage.setItem('current_project_name', currentProjectName);
+
+    const nameInput = $('project-name-input');
+    if (nameInput) nameInput.value = currentProjectName;
+
+    resetStudioForm();
+    deserializeStudioForm(proj);
+
+    toast(`📂 Đã nạp dự án "${currentProjectName}" thành công!`, 'success');
+    switchView('studio');
+    openStudioEditor();
+  } catch (error) {
+    console.error('Lỗi khi nạp dự án:', error);
+    toast('Lỗi khi nạp dự án: ' + error.message, 'error');
+  }
+}
+
+async function loadProjectQuietly(id) {
+  try {
+    const res = await fetch(`/api/projects/${id}`);
+    if (res.ok) {
+      const proj = await res.json();
+      deserializeStudioForm(proj);
+      console.log(`[Project] Đã tự động khôi phục dự án "${proj.name}"`);
+    }
+  } catch (e) {
+    console.error('[Project] Không thể tự động khôi phục dự án cũ:', e.message);
+  }
+}
+
+async function renameProject(id, oldName) {
+  const newName = prompt('Nhập tên mới cho dự án:', oldName);
+  if (newName === null) return;
+  const trimmed = newName.trim();
+  if (trimmed === '') {
+    toast('Tên dự án không được để trống.', 'error');
+    return;
+  }
+
+  try {
+    const getRes = await fetch(`/api/projects/${id}`);
+    if (!getRes.ok) throw new Error('Không tìm thấy dự án');
+    const proj = await getRes.json();
+    
+    const saveRes = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name: trimmed, data: proj })
+    });
+    if (!saveRes.ok) throw new Error('Lỗi cập nhật tên');
+
+    if (id === currentProjectId) {
+      currentProjectName = trimmed;
+      localStorage.setItem('current_project_name', trimmed);
+      const nameInput = $('project-name-input');
+      if (nameInput) nameInput.value = trimmed;
+    }
+
+    toast('✏️ Đã đổi tên dự án thành công!', 'success');
+    renderProjectsList();
+  } catch (error) {
+    console.error('Lỗi đổi tên dự án:', error);
+    toast('Lỗi đổi tên dự án: ' + error.message, 'error');
+  }
+}
+
+async function duplicateProject(id) {
+  try {
+    const res = await fetch(`/api/projects/${id}/duplicate`, { method: 'POST' });
+    if (!res.ok) throw new Error('Không thể nhân bản dự án');
+    toast('👯 Đã nhân bản dự án thành công!', 'success');
+    renderProjectsList();
+  } catch (error) {
+    console.error('Lỗi nhân bản dự án:', error);
+    toast('Lỗi nhân bản dự án: ' + error.message, 'error');
+  }
+}
+
+async function deleteProject(id) {
+  if (!confirm('Bạn có chắc chắn muốn xóa dự án này? Thao tác này không thể hoàn tác.')) return;
+  try {
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Không thể xóa dự án');
+    
+    if (id === currentProjectId) {
+      currentProjectId = null;
+      currentProjectName = 'Dự án chưa đặt tên';
+      localStorage.removeItem('current_project_id');
+      localStorage.removeItem('current_project_name');
+      const nameInput = $('project-name-input');
+      if (nameInput) nameInput.value = currentProjectName;
+      resetStudioForm();
+    }
+    
+    toast('🗑️ Đã xóa dự án thành công!', 'success');
+    renderProjectsList();
+  } catch (error) {
+    console.error('Lỗi xóa dự án:', error);
+    toast('Lỗi xóa dự án: ' + error.message, 'error');
+  }
+}
+
+let currentProjectsList = [];
+
+async function renderProjectsList() {
+  try {
+    const res = await fetch('/api/projects');
+    if (!res.ok) throw new Error('Không thể tải danh sách dự án');
+    const data = await res.json();
+    currentProjectsList = data.projects || [];
+    
+    filterAndRenderProjects();
+  } catch (error) {
+    console.error('Lỗi khi nạp danh sách dự án:', error);
+    toast('Lỗi khi nạp danh sách dự án: ' + error.message, 'error');
+  }
+}
+
+function filterAndRenderProjects() {
+  const query = $('project-search-input')?.value.toLowerCase() || '';
+  const filtered = currentProjectsList.filter(p => p.name.toLowerCase().includes(query));
+  
+  const recentGrid = $('recent-projects-grid');
+  if (recentGrid) {
+    recentGrid.innerHTML = '';
+    const recent = filtered.slice(0, 4);
+    if (recent.length === 0) {
+      recentGrid.innerHTML = '<div style="grid-column: 1/-1; color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">Chưa có dự án nào gần đây.</div>';
+    } else {
+      recent.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'video-card-item';
+        card.style.cssText = 'display: flex; flex-direction: column; cursor: pointer; padding: 12px; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2);';
+        card.innerHTML = `
+          <div style="aspect-ratio: 16/9; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+            ${p.thumbnail ? `<img src="${p.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 28px;">🎬</span>`}
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
+            <span style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.videoTitle || 'Chưa chọn video'}</span>
+            <span style="font-size: 10px; color: var(--accent); margin-top: 4px;">🕒 ${new Date(p.updatedAt).toLocaleString('vi-VN')}</span>
+          </div>
+        `;
+        card.addEventListener('click', () => {
+          loadProject(p.id);
+        });
+        recentGrid.appendChild(card);
+      });
+    }
+  }
+
+  const tbody = $('project-list-tbody');
+  if (tbody) {
+    tbody.innerHTML = '';
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 30px; color: var(--muted);">Không tìm thấy dự án nào.</td></tr>`;
+    } else {
+      filtered.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'border-bottom: 1px solid var(--border); font-size: 13px;';
+        tr.innerHTML = `
+          <td style="padding: 12px 8px; font-weight: 600; color: var(--text);">${p.name}</td>
+          <td style="padding: 12px 8px; color: var(--muted);">${p.videoTitle || '---'}</td>
+          <td style="padding: 12px 8px; color: var(--muted);">${new Date(p.updatedAt).toLocaleString('vi-VN')}</td>
+          <td style="padding: 12px 8px; text-align: right;">
+            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; margin-right: 4px; font-weight: 600; color: var(--accent);" onclick="loadProject('${p.id}')">📂 Mở</button>
+            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; margin-right: 4px; font-weight: 600;" onclick="renameProject('${p.id}', '${p.name.replace(/'/g, "\\'")}')">✏️ Đổi tên</button>
+            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; margin-right: 4px; font-weight: 600;" onclick="duplicateProject('${p.id}')">👯 Nhân bản</button>
+            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; font-weight: 600; color: #ef4444;" onclick="deleteProject('${p.id}')">🗑️ Xóa</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+  }
+}
+
+function initActiveProject() {
+  currentProjectId = localStorage.getItem('current_project_id') || null;
+  currentProjectName = localStorage.getItem('current_project_name') || 'Dự án chưa đặt tên';
+  
+  const nameInput = $('project-name-input');
+  if (nameInput) {
+    nameInput.value = currentProjectName;
+  }
+  
+  if (currentProjectId) {
+    loadProjectQuietly(currentProjectId);
+  }
+  
+  setupStudioFormAutoSave();
+}
+
 // Export functions to global scope
 window.applyAppUpdate = applyAppUpdate;
 window.closeUpdateModal = closeUpdateModal;
+window.createNewProject = createNewProject;
+window.createNewProjectAndNavigate = createNewProjectAndNavigate;
+window.saveProjectExplicitly = saveProjectExplicitly;
+window.loadProject = loadProject;
+window.renameProject = renameProject;
+window.duplicateProject = duplicateProject;
+window.deleteProject = deleteProject;
+window.renderProjectsList = renderProjectsList;
+window.initActiveProject = initActiveProject;
+window.backToStudioHome = backToStudioHome;
+window.openStudioEditor = openStudioEditor;
+
+function saveProjectSynchronously() {
+  if (!currentProjectId) return;
+  const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+  if (!hasVideo) return;
+
+  const formData = serializeStudioForm();
+  let thumbnail = '';
+  const selectedVideoCard = document.querySelector('#studio-video-grid .video-card-item.selected');
+  if (selectedVideoCard) {
+    const img = selectedVideoCard.querySelector('img');
+    if (img) thumbnail = img.src;
+  }
+
+  const payload = {
+    id: currentProjectId,
+    name: currentProjectName,
+    data: {
+      ...formData,
+      videoTitle: $('selected-video-file')?.value || '',
+      thumbnail: thumbnail
+    }
+  };
+
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/projects', false); // Synchronous request to block unloading until saved
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.send(JSON.stringify(payload));
+    console.log('[Unload] Dự án đã được tự động lưu đồng bộ trước khi đóng/chuyển.');
+  } catch (e) {
+    console.error('[Unload] Lỗi khi tự động lưu đồng bộ trước khi đóng/chuyển:', e);
+  }
+}
+
+window.addEventListener('beforeunload', () => {
+  saveProjectSynchronously();
+});
 
 
 
