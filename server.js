@@ -897,6 +897,34 @@ app.post('/api/openrouter-models', async (req, res) => {
   }
 });
 
+// API: Get 9Router models
+app.post('/api/ninerouter-models', async (req, res) => {
+  try {
+    const { apiKey, baseUrl } = req.body;
+    const resolvedBaseUrl = baseUrl || 'http://localhost:20128/v1';
+    const headers = {};
+    if (apiKey && apiKey.trim() !== '') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    const response = await axios.get(`${resolvedBaseUrl}/models`, { headers });
+    const models = response.data.data || [];
+    
+    const formattedModels = models.map(m => {
+      return {
+        id: m.id,
+        name: m.id,
+        displayName: m.id
+      };
+    });
+
+    res.json({ models: formattedModels });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách model 9Router:', error.message);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Lỗi kết nối tới 9Router: ${errorMsg}` });
+  }
+});
+
 // ==========================================================================
 // HỆ THỐNG QUẢN LÝ DỰ ÁN (PROJECT MANAGEMENT SYSTEM API)
 // ==========================================================================
@@ -1179,7 +1207,7 @@ app.get('/api/download-vi', async (req, res) => {
   });
 
   try {
-    let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel } = req.query;
+    let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl } = req.query;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
     if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -1238,7 +1266,7 @@ app.get('/api/download-vi', async (req, res) => {
       const downloadWidth = 1080;
       const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
       const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+      await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl }, downloadMaxLines, downloadMaxChars);
 
       let hasSubtitles = false;
       try {
@@ -1407,7 +1435,7 @@ app.post('/api/download-local', async (req, res) => {
   });
 
   try {
-    let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+    let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
     url = extractUrl(url);
     if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -1476,7 +1504,7 @@ app.post('/api/download-local', async (req, res) => {
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -2553,7 +2581,10 @@ async function executeRenderTask(task) {
         geminiApiKey: body.geminiApiKey,
         geminiModel: body.geminiModel,
         openRouterApiKey: body.openRouterApiKey,
-        openRouterModel: body.openRouterModel
+        openRouterModel: body.openRouterModel,
+        ninerouterApiKey: body.ninerouterApiKey,
+        ninerouterModel: body.ninerouterModel,
+        ninerouterBaseUrl: body.ninerouterBaseUrl
       }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => activeRenderId !== renderId);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
