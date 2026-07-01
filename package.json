@@ -43,6 +43,7 @@
     "files": [
       "public/**/*",
       "lib/**/*",
+      "controllers/**/*",
       "server.js",
       "main.js",
       "package.json"

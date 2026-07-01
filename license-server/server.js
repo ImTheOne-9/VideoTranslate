@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 // Load environment variables from .env if it exists
 try {
@@ -29,6 +30,16 @@ try {
   console.log(`[License Server] Email Config: Host=${process.env.EMAIL_HOST || 'none'}, Port=${process.env.EMAIL_PORT || 'none'}, User=${process.env.EMAIL_USER || 'none'}, Pass=${process.env.EMAIL_PASS ? '***' : 'none'}`);
 } catch (e) {
   console.error('[License Server] Lỗi khi load file .env:', e.message);
+}
+
+let resendClient = null;
+if (process.env.RESEND_API_KEY) {
+  try {
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+    console.log(`[License Server] Resend Config: Key=***, From=${process.env.RESEND_FROM || 'none'}`);
+  } catch (err) {
+    console.error('[License Server] Lỗi khi khởi tạo Resend SDK:', err.message);
+  }
 }
 
 const PORT = process.env.PORT || 4000;
@@ -634,6 +645,28 @@ async function sendMailHelper({ toEmail, subject, bodyContent }) {
     </body>
     </html>
   `;
+
+  // Try sending via Resend SDK if configured
+  if (resendClient) {
+    try {
+      const fromEmail = process.env.RESEND_FROM || 'Video Studio Tools <onboarding@resend.dev>';
+      const response = await resendClient.emails.send({
+        from: fromEmail,
+        to: toEmail,
+        subject,
+        html: htmlTemplate
+      });
+
+      if (response.error) {
+        console.error(`[License Server] [Email Error] Resend gửi mail lỗi: ${response.error.message}. Fallback sang SMTP/log...`);
+      } else {
+        console.log(`[License Server] [Email] Gửi thư thành công qua Resend tới: ${toEmail} (ID: ${response.data.id})`);
+        return;
+      }
+    } catch (err) {
+      console.error(`[License Server] [Email Error] Lỗi khi gọi API Resend (${err.message}). Fallback...`);
+    }
+  }
 
   const host = process.env.EMAIL_HOST;
   const port = process.env.EMAIL_PORT;
