@@ -724,7 +724,9 @@ async function renderStudio(event) {
   data.set('geminiModel', aiSettings.geminiModel || '');
   data.set('openRouterApiKey', aiSettings.openRouterApiKey);
   data.set('openRouterModel', aiSettings.openRouterModel);
-
+  data.set('ninerouterApiKey', aiSettings.ninerouterApiKey || '');
+  data.set('ninerouterModel', aiSettings.ninerouterModel || '');
+  data.set('ninerouterBaseUrl', aiSettings.ninerouterBaseUrl || 'http://localhost:20128/v1');
   // Map volumes logarithmically for FFmpeg
   const originalSlider = document.querySelector('input[name="originalVolume"]');
   const voiceSlider = document.querySelector('input[name="voiceVolume"]');
@@ -3970,6 +3972,7 @@ if (document.readyState === 'loading') {
     loadDownloadHistory();
     initGeminiModelListeners();
     initOpenRouterModelListeners();
+    initNineRouterModelListeners();
     initActiveProject();
   });
 } else {
@@ -3979,6 +3982,7 @@ if (document.readyState === 'loading') {
   loadDownloadHistory();
   initGeminiModelListeners();
   initOpenRouterModelListeners();
+  initNineRouterModelListeners();
   initActiveProject();
 }
 
@@ -4393,22 +4397,25 @@ function getGlobalAiSettings() {
     geminiModel: localStorage.getItem('global_gemini_model') || '',
     openRouterApiKey: localStorage.getItem('global_openrouter_key') || '',
     openRouterModel: localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha',
+    ninerouterApiKey: localStorage.getItem('global_ninerouter_key') || '',
+    ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
+    ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
     whisperModel: localStorage.getItem('global_whisper_model') || 'base'
   };
 }
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}`;
 }
 
 async function loadGeminiModels(apiKey) {
   const select = $('global-gemini-model');
-  if (!select) return;
+  if (!select) return false;
 
   if (!apiKey || apiKey.trim() === '') {
     select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
-    return;
+    return false;
   }
 
   const savedModel = localStorage.getItem('global_gemini_model') || '';
@@ -4435,7 +4442,7 @@ async function loadGeminiModels(apiKey) {
 
     if (models.length === 0) {
       select.innerHTML = '<option value="">❌ Không tìm thấy model nào phù hợp</option>';
-      return;
+      return false;
     }
 
     let html = '';
@@ -4450,41 +4457,25 @@ async function loadGeminiModels(apiKey) {
     if (!currentVal && models.length > 0) {
       select.value = models[0].name;
     }
+    return true;
   } catch (error) {
     console.error('Lỗi khi tải model Gemini:', error);
     select.innerHTML = `<option value="">❌ Lỗi: ${error.message}</option>`;
+    throw error;
   }
 }
 
 function initGeminiModelListeners() {
-  const geminiInput = $('global-gemini-key');
-  if (geminiInput) {
-    // Tải khi có thay đổi (blur hoặc enter)
-    geminiInput.addEventListener('change', () => {
-      loadGeminiModels(geminiInput.value);
-    });
-
-    // Thêm debounce tải trên mỗi lần gõ phím nếu độ dài đạt tới độ dài thông thường của api key
-    let timer = null;
-    geminiInput.addEventListener('input', () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        const val = geminiInput.value.trim();
-        if (val.length >= 35) {
-          loadGeminiModels(val);
-        }
-      }, 1000);
-    });
-  }
+   // Đã chuyển sang nút Kiểm tra kết nối thủ công
 }
 
 async function loadOpenRouterModels(apiKey) {
   const select = $('global-openrouter-model');
-  if (!select) return;
+  if (!select) return false;
 
   if (!apiKey || apiKey.trim() === '') {
     select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
-    return;
+    return false;
   }
 
   const savedModel = localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha';
@@ -4511,7 +4502,7 @@ async function loadOpenRouterModels(apiKey) {
 
     if (models.length === 0) {
       select.innerHTML = '<option value="">❌ Không tìm thấy model nào phù hợp</option>';
-      return;
+      return false;
     }
 
     let html = '';
@@ -4527,31 +4518,154 @@ async function loadOpenRouterModels(apiKey) {
     if (!currentVal && models.length > 0) {
       select.value = models[0].id;
     }
+    return true;
   } catch (error) {
     console.error('Lỗi khi tải model OpenRouter:', error);
     select.innerHTML = `<option value="">❌ Lỗi: ${error.message}</option>`;
+    throw error;
   }
 }
 
 function initOpenRouterModelListeners() {
-  const openRouterInput = $('global-openrouter-key');
-  if (openRouterInput) {
-    // Tải khi có thay đổi (blur hoặc enter)
-    openRouterInput.addEventListener('change', () => {
-      loadOpenRouterModels(openRouterInput.value);
-    });
+  // Đã chuyển sang nút Kiểm tra kết nối thủ công
+}
 
-    // Thêm debounce tải trên mỗi lần gõ phím nếu độ dài đạt tới độ dài thông thường của api key
-    let timer = null;
-    openRouterInput.addEventListener('input', () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        const val = openRouterInput.value.trim();
-        if (val.length >= 35) {
-          loadOpenRouterModels(val);
-        }
-      }, 1000);
+async function loadNineRouterModels(apiKey, baseUrl) {
+  const select = $('global-ninerouter-model');
+  if (!select) return false;
+  const resolvedBaseUrl = baseUrl || 'http://localhost:20128/v1';
+  const savedModel = localStorage.getItem('global_ninerouter_model') || '';
+
+  select.innerHTML = '<option value="">⏳ Đang quét các model từ 9Router...</option>';
+
+  try {
+    const res = await fetch('/api/ninerouter-models', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ apiKey: apiKey.trim(), baseUrl: resolvedBaseUrl.trim() })
     });
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || 'Lỗi không xác định');
+    }
+
+    const data = await res.json();
+    const models = data.models || [];
+
+    if (models.length === 0) {
+      select.innerHTML = '<option value="">❌ Không tìm thấy model nào từ 9Router</option>';
+      return false;
+    }
+
+    let html = '';
+    models.forEach(m => {
+      const isSelected = m.id === savedModel ? 'selected' : '';
+      html += `<option value="${m.id}" ${isSelected}>${m.name}</option>`;
+    });
+    select.innerHTML = html;
+
+    const currentVal = select.value;
+    if (!currentVal && models.length > 0) {
+      select.value = models[0].id;
+    }
+    return true;
+  } catch (error) {
+    console.error('Lỗi khi tải model 9Router:', error);
+    select.innerHTML = `<option value="">❌ Lỗi kết nối: ${error.message}</option>`;
+    throw error;
+  }
+}
+
+function initNineRouterModelListeners() {
+  // Đã chuyển sang nút Kiểm tra kết nối thủ công
+}
+
+async function testGeminiConnection() {
+  const keyInput = $('global-gemini-key');
+  const statusSpan = $('gemini-connection-status');
+  if (!keyInput || !statusSpan) return;
+
+  const key = keyInput.value.trim();
+  if (!key) {
+    statusSpan.style.color = '#ef4444';
+    statusSpan.textContent = '❌ Vui lòng nhập API Key trước';
+    return;
+  }
+
+  statusSpan.style.color = '#f59e0b';
+  statusSpan.textContent = '⏳ Đang kết nối...';
+
+  try {
+    const success = await loadGeminiModels(key);
+    if (success) {
+      statusSpan.style.color = '#10b981';
+      statusSpan.textContent = '✅ Kết nối thành công!';
+    } else {
+      statusSpan.style.color = '#ef4444';
+      statusSpan.textContent = '❌ Không có model phù hợp';
+    }
+  } catch (error) {
+    statusSpan.style.color = '#ef4444';
+    statusSpan.textContent = `❌ Thất bại: ${error.message}`;
+  }
+}
+
+async function testOpenRouterConnection() {
+  const keyInput = $('global-openrouter-key');
+  const statusSpan = $('openrouter-connection-status');
+  if (!keyInput || !statusSpan) return;
+
+  const key = keyInput.value.trim();
+  if (!key) {
+    statusSpan.style.color = '#ef4444';
+    statusSpan.textContent = '❌ Vui lòng nhập API Key trước';
+    return;
+  }
+
+  statusSpan.style.color = '#f59e0b';
+  statusSpan.textContent = '⏳ Đang kết nối...';
+
+  try {
+    const success = await loadOpenRouterModels(key);
+    if (success) {
+      statusSpan.style.color = '#10b981';
+      statusSpan.textContent = '✅ Kết nối thành công!';
+    } else {
+      statusSpan.style.color = '#ef4444';
+      statusSpan.textContent = '❌ Không có model phù hợp';
+    }
+  } catch (error) {
+    statusSpan.style.color = '#ef4444';
+    statusSpan.textContent = `❌ Thất bại: ${error.message}`;
+  }
+}
+
+async function testNineRouterConnection() {
+  const keyInput = $('global-ninerouter-key');
+  const urlInput = $('global-ninerouter-base-url');
+  const statusSpan = $('ninerouter-connection-status');
+  if (!urlInput || !statusSpan) return;
+
+  const baseUrl = urlInput.value.trim();
+  const key = keyInput ? keyInput.value.trim() : '';
+
+  statusSpan.style.color = '#f59e0b';
+  statusSpan.textContent = '⏳ Đang kết nối...';
+
+  try {
+    const success = await loadNineRouterModels(key, baseUrl);
+    if (success) {
+      statusSpan.style.color = '#10b981';
+      statusSpan.textContent = '✅ Kết nối thành công!';
+    } else {
+      statusSpan.style.color = '#ef4444';
+      statusSpan.textContent = '❌ Không có model phù hợp';
+    }
+  } catch (error) {
+    statusSpan.style.color = '#ef4444';
+    statusSpan.textContent = `❌ Thất bại: ${error.message}`;
   }
 }
 
@@ -4564,7 +4678,8 @@ function openGlobalSettingsModal() {
   const providerSelect = $('global-ai-provider');
   const geminiInput = $('global-gemini-key');
   const openRouterInput = $('global-openrouter-key');
-  const openRouterModelSelect = $('global-openrouter-model');
+  const ninerouterInput = $('global-ninerouter-key');
+  const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
@@ -4585,6 +4700,15 @@ function openGlobalSettingsModal() {
       const select = $('global-openrouter-model');
       if (select) select.innerHTML = '<option value="">-- Vui lòng nhập API Key để chọn Model --</option>';
     }
+  }
+  if (ninerouterBaseUrlInput) {
+    ninerouterBaseUrlInput.value = settings.ninerouterBaseUrl || 'http://localhost:20128/v1';
+  }
+  if (ninerouterInput) {
+    ninerouterInput.value = settings.ninerouterApiKey;
+  }
+  if (settings.aiProvider === 'ninerouter') {
+    loadNineRouterModels(settings.ninerouterApiKey, settings.ninerouterBaseUrl);
   }
   if (whisperModelSelect) {
     whisperModelSelect.value = settings.whisperModel;
@@ -4610,7 +4734,7 @@ function toggleGlobalAiProviderFields() {
   const val = providerSelect.value;
   const geminiFields = $('global-gemini-fields');
   const openRouterFields = $('global-openrouter-fields');
-
+  const ninerouterFields = $('global-ninerouter-fields');
   if (geminiFields) {
     if (val === 'gemini') {
       geminiFields.classList.remove('hidden');
@@ -4626,6 +4750,16 @@ function toggleGlobalAiProviderFields() {
       openRouterFields.classList.add('hidden');
     }
   }
+  if (ninerouterFields) {
+    if (val === 'ninerouter') {
+      ninerouterFields.classList.remove('hidden');
+      const key = $('global-ninerouter-key') ? $('global-ninerouter-key').value : '';
+      const baseUrl = $('global-ninerouter-base-url') ? $('global-ninerouter-base-url').value : 'http://localhost:20128/v1';
+      loadNineRouterModels(key, baseUrl);
+    } else {
+      ninerouterFields.classList.add('hidden');
+    }
+  }
 }
 
 function saveGlobalSettings() {
@@ -4634,6 +4768,9 @@ function saveGlobalSettings() {
   const geminiModelSelect = $('global-gemini-model');
   const openRouterInput = $('global-openrouter-key');
   const openRouterModelSelect = $('global-openrouter-model');
+  const ninerouterInput = $('global-ninerouter-key');
+  const ninerouterModelSelect = $('global-ninerouter-model');
+  const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) localStorage.setItem('global_ai_provider', providerSelect.value);
@@ -4641,6 +4778,9 @@ function saveGlobalSettings() {
   if (geminiModelSelect) localStorage.setItem('global_gemini_model', geminiModelSelect.value);
   if (openRouterInput) localStorage.setItem('global_openrouter_key', openRouterInput.value);
   if (openRouterModelSelect) localStorage.setItem('global_openrouter_model', openRouterModelSelect.value);
+  if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
+  if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
+  if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_model', whisperModelSelect.value);
 
   toast('Đã lưu cài đặt AI toàn cục thành công!', 'success');
@@ -4672,6 +4812,11 @@ window.loadGeminiModels = loadGeminiModels;
 window.initGeminiModelListeners = initGeminiModelListeners;
 window.loadOpenRouterModels = loadOpenRouterModels;
 window.initOpenRouterModelListeners = initOpenRouterModelListeners;
+window.loadNineRouterModels = loadNineRouterModels;
+window.initNineRouterModelListeners = initNineRouterModelListeners;
+window.testGeminiConnection = testGeminiConnection;
+window.testOpenRouterConnection = testOpenRouterConnection;
+window.testNineRouterConnection = testNineRouterConnection;
 
 /* ==========================================================================
    COOKIE SETTINGS MODAL & HELPERS

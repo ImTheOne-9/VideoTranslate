@@ -293,7 +293,10 @@ async function executeRenderTask(task) {
         geminiApiKey: body.geminiApiKey,
         geminiModel: body.geminiModel,
         openRouterApiKey: body.openRouterApiKey,
-        openRouterModel: body.openRouterModel
+        openRouterModel: body.openRouterModel,
+        ninerouterApiKey: body.ninerouterApiKey,
+        ninerouterModel: body.ninerouterModel,
+        ninerouterBaseUrl: body.ninerouterBaseUrl
       }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {

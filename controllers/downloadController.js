@@ -155,7 +155,7 @@ module.exports = {
     });
 
     try {
-      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel } = req.query;
+      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl } = req.query;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
       if (!shared.isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -209,7 +209,7 @@ module.exports = {
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -368,7 +368,7 @@ module.exports = {
     });
 
     try {
-      let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+      let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -432,7 +432,7 @@ module.exports = {
           const downloadWidth = 1080;
           const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
           const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel }, downloadMaxLines, downloadMaxChars);
+          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl }, downloadMaxLines, downloadMaxChars);
 
           let hasSubtitles = false;
           try {
