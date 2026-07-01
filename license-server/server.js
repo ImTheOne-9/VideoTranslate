@@ -84,6 +84,13 @@ licenseSchema.index({ userEmail: 1, planType: 1 });
 
 const LicenseModel = mongoose.model('License', licenseSchema);
 
+const settingSchema = new mongoose.Schema({
+  key: { type: String, unique: true, required: true },
+  value: { type: mongoose.Schema.Types.Mixed, required: true },
+  updatedAt: { type: Date, default: Date.now }
+});
+const SettingModel = mongoose.model('Setting', settingSchema);
+
 const DB_FILE = path.join(__dirname, 'database.json');
 let useMongo = false;
 
@@ -417,6 +424,39 @@ const DB = {
         db.users.push(newUser);
         await writeJSON(db);
         return newUser;
+      }
+    }
+  },
+
+  settings: {
+    async get(key, defaultValue = null) {
+      if (useMongo) {
+        try {
+          const doc = await SettingModel.findOne({ key });
+          return doc ? doc.value : defaultValue;
+        } catch (e) {
+          console.error('[License Server] Lỗi get setting MongoDB:', e.message);
+          return defaultValue;
+        }
+      } else {
+        const db = readJSON();
+        if (!db.settings) db.settings = {};
+        return db.settings[key] !== undefined ? db.settings[key] : defaultValue;
+      }
+    },
+
+    async set(key, value) {
+      if (useMongo) {
+        await SettingModel.findOneAndUpdate(
+          { key },
+          { key, value, updatedAt: new Date() },
+          { upsert: true, new: true }
+        );
+      } else {
+        const db = readJSON();
+        if (!db.settings) db.settings = {};
+        db.settings[key] = value;
+        await writeJSON(db);
       }
     }
   }
@@ -1387,7 +1427,7 @@ app.post('/api/user/reset-hwid', userAuth, hwidResetLimiter, async (req, res) =>
 });
 
 // Endpoint tải bộ cài installer an toàn
-app.get('/download', (req, res) => {
+app.get('/download', async (req, res) => {
   const { token } = req.query;
   if (!token) {
     return res.status(400).send('Thiếu Download Token xác thực!');
@@ -1407,7 +1447,7 @@ app.get('/download', (req, res) => {
   downloadTokens.delete(token);
 
   // Nếu cấu hình link lưu trữ ngoài (ví dụ link Google Drive trên Render)
-  const installerUrl = process.env.INSTALLER_URL;
+  const installerUrl = await DB.settings.get('installerUrl', process.env.INSTALLER_URL || '');
   if (installerUrl) {
     return res.redirect(installerUrl);
   }
@@ -1437,31 +1477,242 @@ function adminAuth(req, res, next) {
   next();
 }
 
+// API lấy cấu hình hệ thống (Admin)
+app.get('/api/admin/config', adminAuth, async (req, res) => {
+  try {
+    const installerUrl = await DB.settings.get('installerUrl', process.env.INSTALLER_URL || '');
+    res.json({ success: true, installerUrl });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy cấu hình: ' + err.message });
+  }
+});
+
+// API cập nhật cấu hình hệ thống (Admin)
+app.post('/api/admin/config', adminAuth, async (req, res) => {
+  const { installerUrl } = req.body;
+  try {
+    await DB.settings.set('installerUrl', (installerUrl || '').trim());
+    res.json({ success: true, message: 'Cập nhật cấu hình link tải phần mềm thành công!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi cập nhật cấu hình: ' + err.message });
+  }
+});
+
 // A. API lấy toàn bộ danh sách Keys
 app.get('/api/admin/keys', adminAuth, async (req, res) => {
   try {
-    const keys = await DB.licenses.find();
-    res.json({ success: true, keys });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    const status = req.query.status || 'all';
+
+    let keys = [];
+    let totalItems = 0;
+    let activeStats = 0;
+    let suspendedStats = 0;
+    let expiredStats = 0;
+    let totalStats = 0;
+    const now = new Date();
+
+    if (useMongo) {
+      // Calculate Stats
+      totalStats = await LicenseModel.countDocuments();
+      suspendedStats = await LicenseModel.countDocuments({ status: 'suspended' });
+      expiredStats = await LicenseModel.countDocuments({
+        status: { $ne: 'suspended' },
+        expiresAt: { $lt: now }
+      });
+      activeStats = await LicenseModel.countDocuments({
+        status: 'active',
+        expiresAt: { $gte: now },
+        hwid: { $ne: null }
+      });
+
+      // Build Query
+      const query = {};
+      if (status === 'suspended') {
+        query.status = 'suspended';
+      } else if (status === 'active') {
+        query.status = 'active';
+        query.expiresAt = { $gte: now };
+        query.hwid = { $ne: null };
+      } else if (status === 'inactive') {
+        query.status = 'active';
+        query.$or = [{ hwid: null }, { hwid: '' }];
+      } else if (status === 'expired') {
+        query.status = { $ne: 'suspended' };
+        query.expiresAt = { $lt: now };
+      }
+
+      if (search) {
+        const searchRegex = new RegExp(search.trim(), 'i');
+        query.$or = [
+          { key: searchRegex },
+          { customerName: searchRegex },
+          { hwid: searchRegex }
+        ];
+      }
+
+      totalItems = await LicenseModel.countDocuments(query);
+      keys = await LicenseModel.find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+    } else {
+      const db = readJSON();
+      const allLicenses = db.licenses || [];
+      totalStats = allLicenses.length;
+
+      // Calculate Stats
+      allLicenses.forEach((k) => {
+        if (k.status === 'suspended') {
+          suspendedStats++;
+        } else if (new Date(k.expiresAt) < now) {
+          expiredStats++;
+        } else if (k.status === 'active') {
+          activeStats++;
+        }
+      });
+
+      // Build Filtered list
+      let filtered = allLicenses;
+      if (status === 'suspended') {
+        filtered = filtered.filter(k => k.status === 'suspended');
+      } else if (status === 'active') {
+        filtered = filtered.filter(k => k.status === 'active' && new Date(k.expiresAt) >= now && k.hwid);
+      } else if (status === 'inactive') {
+        filtered = filtered.filter(k => k.status === 'active' && !k.hwid);
+      } else if (status === 'expired') {
+        filtered = filtered.filter(k => k.status !== 'suspended' && new Date(k.expiresAt) < now);
+      }
+
+      if (search) {
+        const lowerSearch = search.toLowerCase().trim();
+        filtered = filtered.filter(k => {
+          return (k.key || '').toLowerCase().includes(lowerSearch) ||
+                 (k.customerName || '').toLowerCase().includes(lowerSearch) ||
+                 (k.hwid || '').toLowerCase().includes(lowerSearch);
+        });
+      }
+
+      filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      totalItems = filtered.length;
+      keys = filtered.slice((page - 1) * limit, page * limit);
+    }
+
+    res.json({
+      success: true,
+      keys,
+      pagination: {
+        page,
+        limit,
+        totalItems,
+        totalPages: Math.ceil(totalItems / limit)
+      },
+      stats: {
+        total: totalStats,
+        active: activeStats,
+        suspended: suspendedStats,
+        expired: expiredStats
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi lấy danh sách keys: ' + err.message });
   }
 });
 
-// API lấy toàn bộ danh sách Users (Admin)
+// API lấy danh sách Users có phân trang & tìm kiếm (Admin)
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   try {
-    const users = await DB.users.find();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+
+    let users = [];
+    let totalItems = 0;
+    let totalUsers = 0;
+    let verifiedCount = 0;
+    let adminCount = 0;
+    let memberCount = 0;
+
+    if (useMongo) {
+      // Calculate Stats
+      totalUsers = await UserModel.countDocuments();
+      verifiedCount = await UserModel.countDocuments({ isVerified: true });
+      adminCount = await UserModel.countDocuments({ role: 'admin' });
+      memberCount = totalUsers - adminCount;
+
+      // Build Query
+      const query = {};
+      if (search) {
+        const searchRegex = new RegExp(search.trim(), 'i');
+        query.$or = [
+          { fullName: searchRegex },
+          { email: searchRegex },
+          { phoneNumber: searchRegex }
+        ];
+      }
+
+      totalItems = await UserModel.countDocuments(query);
+      users = await UserModel.find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+    } else {
+      const db = readJSON();
+      const allUsers = db.users || [];
+      totalUsers = allUsers.length;
+
+      // Calculate Stats
+      allUsers.forEach((u) => {
+        if (u.isVerified) verifiedCount++;
+        if (u.role === 'admin') adminCount++;
+        else memberCount++;
+      });
+
+      // Build Filtered list
+      let filtered = allUsers;
+      if (search) {
+        const lowerSearch = search.toLowerCase().trim();
+        filtered = filtered.filter(u => {
+          return (u.fullName || '').toLowerCase().includes(lowerSearch) ||
+                 (u.email || '').toLowerCase().includes(lowerSearch) ||
+                 (u.phoneNumber || '').toLowerCase().includes(lowerSearch);
+        });
+      }
+
+      filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      totalItems = filtered.length;
+      users = filtered.slice((page - 1) * limit, page * limit);
+    }
+
     const safeUsers = users.map(u => ({
       id: u._id || u.email,
       email: u.email,
       fullName: u.fullName,
       phoneNumber: u.phoneNumber,
-      role: u.role,
+      role: u.role || 'user',
       avatar: u.avatar || null,
       isVerified: u.isVerified || false,
       createdAt: u.createdAt || null
     }));
-    res.json({ success: true, users: safeUsers });
+
+    res.json({
+      success: true,
+      users: safeUsers,
+      pagination: {
+        page,
+        limit,
+        totalItems,
+        totalPages: Math.ceil(totalItems / limit)
+      },
+      stats: {
+        total: totalUsers,
+        verified: verifiedCount,
+        admins: adminCount,
+        members: memberCount
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi lấy danh sách người dùng: ' + err.message });
   }
