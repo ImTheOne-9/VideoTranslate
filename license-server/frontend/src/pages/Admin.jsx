@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User } from 'lucide-react';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings } from 'lucide-react';
 
 export default function Admin({ showToast }) {
   const [token, setToken] = useState('');
@@ -17,11 +17,21 @@ export default function Admin({ showToast }) {
   const [searchText, setSearchText] = useState('');
   const [currentFilterTab, setCurrentFilterTab] = useState('all');
 
+  // Keys pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
   // Users database and filtering states
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearchText, setUserSearchText] = useState('');
+
+  // Users pagination states
+  const [userPage, setUserPage] = useState(1);
+  const [totalUserPages, setTotalUserPages] = useState(1);
+  const [totalUserItems, setTotalUserItems] = useState(0);
 
   // Stats overview states
   const [stats, setStats] = useState({ total: 0, active: 0, suspended: 0, expired: 0 });
@@ -32,6 +42,21 @@ export default function Admin({ showToast }) {
   const [licenseDays, setLicenseDays] = useState(30);
   const [generating, setGenerating] = useState(false);
 
+  // Config states
+  const [installerUrl, setInstallerUrl] = useState('');
+  const [loadingConfig, setLoadingConfig] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const getPageNumbers = (curr, total) => {
+    const pages = [];
+    const start = Math.max(1, curr - 2);
+    const end = Math.min(total, curr + 2);
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
   useEffect(() => {
     const storedToken = localStorage.getItem('license_admin_token') || '';
     if (!storedToken) {
@@ -41,25 +66,53 @@ export default function Admin({ showToast }) {
     }
   }, []);
 
+  // Fetch Keys when token, page, search, or status tab changes
   useEffect(() => {
     if (token) {
       loadKeys();
+    }
+  }, [token, currentPage, currentFilterTab]);
+
+  // Reset keys page to 1 when search text changes
+  useEffect(() => {
+    if (token) {
+      if (currentPage === 1) {
+        loadKeys();
+      } else {
+        setCurrentPage(1);
+      }
+    }
+  }, [searchText]);
+
+  // Fetch Users when token or page changes
+  useEffect(() => {
+    if (token) {
       loadUsers();
     }
+  }, [token, userPage]);
+
+  // Reset users page to 1 when search text changes
+  useEffect(() => {
+    if (token) {
+      if (userPage === 1) {
+        loadUsers();
+      } else {
+        setUserPage(1);
+      }
+    }
+  }, [userSearchText]);
+
+  // Fetch config when token is set
+  useEffect(() => {
+    if (token) {
+      loadConfig();
+    }
   }, [token]);
-
-  useEffect(() => {
-    applyFiltersAndStats();
-  }, [rawKeys, searchText, currentFilterTab]);
-
-  useEffect(() => {
-    applyUserFiltersAndStats();
-  }, [users, userSearchText]);
 
   const loadKeys = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/keys', {
+      const res = await fetch(`/api/admin/keys?page=${currentPage}&limit=10&search=${encodeURIComponent(searchText)}&status=${currentFilterTab}`, {
         headers: { 'x-admin-token': token }
       });
 
@@ -72,6 +125,14 @@ export default function Admin({ showToast }) {
       const data = await res.json();
       if (data.success) {
         setRawKeys(data.keys || []);
+        setFilteredKeys(data.keys || []);
+        if (data.stats) {
+          setStats(data.stats);
+        }
+        if (data.pagination) {
+          setTotalPages(data.pagination.totalPages || 1);
+          setTotalItems(data.pagination.totalItems || 0);
+        }
       } else {
         showToast(data.error || 'Lỗi khi tải dữ liệu từ máy chủ', 'error');
       }
@@ -85,7 +146,7 @@ export default function Admin({ showToast }) {
   const loadUsers = async () => {
     setLoadingUsers(true);
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await fetch(`/api/admin/users?page=${userPage}&limit=10&search=${encodeURIComponent(userSearchText)}`, {
         headers: { 'x-admin-token': token }
       });
 
@@ -96,6 +157,14 @@ export default function Admin({ showToast }) {
       const data = await res.json();
       if (data.success) {
         setUsers(data.users || []);
+        setFilteredUsers(data.users || []);
+        if (data.stats) {
+          setUserStats(data.stats);
+        }
+        if (data.pagination) {
+          setTotalUserPages(data.pagination.totalPages || 1);
+          setTotalUserItems(data.pagination.totalItems || 0);
+        }
       } else {
         showToast(data.error || 'Lỗi khi tải danh sách người dùng', 'error');
       }
@@ -103,6 +172,48 @@ export default function Admin({ showToast }) {
       showToast('Lỗi kết nối khi tải danh sách user: ' + err.message, 'error');
     } finally {
       setLoadingUsers(false);
+    }
+  };
+
+  const loadConfig = async () => {
+    setLoadingConfig(true);
+    try {
+      const res = await fetch('/api/admin/config', {
+        headers: { 'x-admin-token': token }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInstallerUrl(data.installerUrl || '');
+      }
+    } catch (err) {
+      showToast('Lỗi khi tải cấu hình link tải: ' + err.message, 'error');
+    } finally {
+      setLoadingConfig(false);
+    }
+  };
+
+  const handleSaveConfig = async (e) => {
+    e.preventDefault();
+    setSavingConfig(true);
+    try {
+      const res = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': token
+        },
+        body: JSON.stringify({ installerUrl })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || 'Lưu cấu hình thành công!');
+      } else {
+        showToast(data.error || 'Lỗi khi lưu cấu hình', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi kết nối: ' + err.message, 'error');
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -123,78 +234,6 @@ export default function Admin({ showToast }) {
     localStorage.setItem('license_admin_token', val);
     setToken(val);
     setIsAuthModalOpen(false);
-  };
-
-  const applyFiltersAndStats = () => {
-    const now = new Date();
-    
-    // 1. Calculate stats based on rawKeys
-    let active = 0;
-    let suspended = 0;
-    let expired = 0;
-
-    rawKeys.forEach((k) => {
-      if (k.status === 'suspended') {
-        suspended++;
-      } else if (new Date(k.expiresAt) < now) {
-        expired++;
-      } else if (k.status === 'active') {
-        active++;
-      }
-    });
-
-    setStats({ total: rawKeys.length, active, suspended, expired });
-
-    // 2. Filter keys based on current tab and search query
-    const search = searchText.toLowerCase().trim();
-    const filtered = rawKeys.filter((k) => {
-      // Tab Status Filter
-      if (currentFilterTab === 'suspended' && k.status !== 'suspended') return false;
-      if (currentFilterTab === 'active' && (k.status !== 'active' || new Date(k.expiresAt) < now || !k.hwid)) return false;
-      if (currentFilterTab === 'inactive' && (k.status !== 'active' || k.hwid)) return false;
-      if (currentFilterTab === 'expired' && (k.status === 'suspended' || new Date(k.expiresAt) >= now)) return false;
-
-      // Text Search Filter
-      if (search) {
-        const keyMatch = k.key.toLowerCase().includes(search);
-        const nameMatch = (k.customerName || '').toLowerCase().includes(search);
-        const hwidMatch = (k.hwid || '').toLowerCase().includes(search);
-        return keyMatch || nameMatch || hwidMatch;
-      }
-
-      return true;
-    });
-
-    setFilteredKeys(filtered);
-  };
-
-  const applyUserFiltersAndStats = () => {
-    // 1. Calculate user stats
-    let verified = 0;
-    let admins = 0;
-    let members = 0;
-
-    users.forEach((u) => {
-      if (u.isVerified) verified++;
-      if (u.role === 'admin') admins++;
-      else members++;
-    });
-
-    setUserStats({ total: users.length, verified, admins, members });
-
-    // 2. Filter users by search query
-    const search = userSearchText.toLowerCase().trim();
-    const filtered = users.filter((u) => {
-      if (search) {
-        const nameMatch = (u.fullName || '').toLowerCase().includes(search);
-        const emailMatch = (u.email || '').toLowerCase().includes(search);
-        const phoneMatch = (u.phoneNumber || '').toLowerCase().includes(search);
-        return nameMatch || emailMatch || phoneMatch;
-      }
-      return true;
-    });
-
-    setFilteredUsers(filtered);
   };
 
   const copyToClipboard = (text) => {
@@ -437,9 +476,18 @@ export default function Admin({ showToast }) {
             <Users className="h-4 w-4" />
             <span>Quản lý Thành viên</span>
           </button>
+          <button 
+            onClick={() => setActiveMainTab('settings')}
+            className={`pb-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+              activeMainTab === 'settings' ? 'border-indigo-500 text-white' : 'border-transparent text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Settings className="h-4 w-4" />
+            <span>Cấu hình Link tải</span>
+          </button>
         </div>
 
-        {activeMainTab === 'keys' ? (
+        {activeMainTab === 'keys' && (
           /* ================= KEY MANAGEMENT VIEW ================= */
           <>
             {/* Metrics Keys Overview */}
@@ -622,9 +670,49 @@ export default function Admin({ showToast }) {
                   )}
                 </tbody>
               </table>
+
+              {/* Pagination controls for Keys */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-zinc-900 bg-zinc-900/10">
+                <div className="text-xs text-zinc-500">
+                  Hiển thị <span className="font-semibold text-zinc-300">{totalItems === 0 ? 0 : (currentPage - 1) * 10 + 1} - {Math.min(currentPage * 10, totalItems)}</span> trong tổng số <span className="font-semibold text-zinc-300">{totalItems}</span> keys bản quyền
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <button 
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(prev => prev - 1)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      Trước
+                    </button>
+                    {getPageNumbers(currentPage, totalPages).map(num => (
+                      <button
+                        key={num}
+                        onClick={() => setCurrentPage(num)}
+                        className={`px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                          currentPage === num 
+                            ? 'bg-indigo-500 border-indigo-500 text-white shadow-md shadow-indigo-500/10' 
+                            : 'bg-zinc-900 border-zinc-850 text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <button 
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(prev => prev + 1)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      Sau
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </>
-        ) : (
+        )}
+
+        {activeMainTab === 'users' && (
           /* ================= USER MANAGEMENT VIEW ================= */
           <>
             {/* Metrics Users Overview */}
@@ -794,8 +882,97 @@ export default function Admin({ showToast }) {
                   )}
                 </tbody>
               </table>
+
+              {/* Pagination controls for Users */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-zinc-900 bg-zinc-900/10">
+                <div className="text-xs text-zinc-500">
+                  Hiển thị <span className="font-semibold text-zinc-300">{totalUserItems === 0 ? 0 : (userPage - 1) * 10 + 1} - {Math.min(userPage * 10, totalUserItems)}</span> trong tổng số <span className="font-semibold text-zinc-300">{totalUserItems}</span> thành viên
+                </div>
+                {totalUserPages > 1 && (
+                  <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <button 
+                      disabled={userPage === 1}
+                      onClick={() => setUserPage(prev => prev - 1)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      Trước
+                    </button>
+                    {getPageNumbers(userPage, totalUserPages).map(num => (
+                      <button
+                        key={num}
+                        onClick={() => setUserPage(num)}
+                        className={`px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                          userPage === num 
+                            ? 'bg-indigo-500 border-indigo-500 text-white shadow-md shadow-indigo-500/10' 
+                            : 'bg-zinc-900 border-zinc-850 text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <button 
+                      disabled={userPage === totalUserPages}
+                      onClick={() => setUserPage(prev => prev + 1)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      Sau
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </>
+        )}
+
+        {activeMainTab === 'settings' && (
+          /* ================= DOWNLOAD LINK SETTINGS VIEW ================= */
+          <div className="max-w-2xl bg-zinc-900/60 border border-zinc-900 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+                <Settings className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Cấu hình Đường dẫn tải xuống</h3>
+                <p className="text-xs text-zinc-500">Quản lý link tải phần mềm Video Studio Tools</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveConfig} className="space-y-5">
+              <div className="space-y-2">
+                <label htmlFor="installerUrl" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  URL bộ cài đặt (.exe / external link)
+                </label>
+                <input
+                  id="installerUrl"
+                  type="text"
+                  value={installerUrl}
+                  onChange={(e) => setInstallerUrl(e.target.value)}
+                  placeholder="Ví dụ: https://drive.google.com/... hoặc để trống"
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-between border-t border-zinc-800/50">
+                <div className="text-xs text-zinc-500">
+                  {loadingConfig ? 'Đang tải cấu hình hiện tại...' : ''}
+                </div>
+                <button
+                  type="submit"
+                  disabled={savingConfig || loadingConfig}
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-sm font-semibold text-white rounded-lg shadow-lg hover:shadow-indigo-500/10 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingConfig ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <span>Lưu cấu hình</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         )}
 
         {/* Footer Info */}
