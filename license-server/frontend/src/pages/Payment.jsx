@@ -39,6 +39,9 @@ export default function Payment({ isDevMode, showToast }) {
       const data = await res.json();
       if (data.success && data.key) {
         setKeyDetails(data);
+        if (data.status === 'suspended') {
+          localStorage.removeItem('pending_payment_key');
+        }
       } else {
         setErrorState({
           title: 'Lỗi máy chủ!',

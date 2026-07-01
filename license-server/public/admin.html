@@ -475,8 +475,10 @@
         
         if (k.status === 'suspended') {
           statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-900/30">Bị Khóa</span>';
+        } else if (k.paymentStatus === 'pending') {
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500 border border-amber-900/30">Chờ Thanh Toán</span>';
         } else if (isExpired) {
-          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-900/30">Hết Hạn</span>';
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-900/30">Hết Hạn</span>';
         } else if (k.hwid) {
           statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-900/30">Kích Hoạt</span>';
         } else {
