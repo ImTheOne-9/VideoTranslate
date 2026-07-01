@@ -2,7 +2,7 @@ function stopAllAudio() {
   if (currentAudio) {
     currentAudio.pause();
     if (currentPlayBtn) {
-      currentPlayBtn.innerHTML = '🔊 Nghe';
+      currentPlayBtn.innerHTML = 'Nghe';
     }
     currentAudio = null;
     currentAudioUrl = null;
@@ -165,22 +165,22 @@ async function renderRenderedVideosGrid(searchFilter = '') {
 
     card.innerHTML = `
       <div class="rendered-card-thumb">
-        <video src="${videoUrl}" muted playsinline preload="metadata"></video>
+        <video src="${videoUrl}?t=${video.modified || Date.now()}" muted playsinline preload="metadata"></video>
         <div class="rendered-card-play-btn" onclick="playRenderedVideo('${video.filename.replace(/'/g, "\\'")}', '${videoUrl.replace(/'/g, "\\'")}')">▶</div>
       </div>
       <div class="rendered-card-info">
         <div class="rendered-card-name" title="${video.filename.replace(/"/g, '&quot;')}">${video.filename}</div>
         <div class="rendered-card-meta">
-          <span>💾 ${sizeStr}</span>
-          <span>📅 ${dateStr}</span>
+          <span>${sizeStr}</span>
+          <span>${dateStr}</span>
         </div>
       </div>
       <div class="rendered-card-actions">
         <button type="button" class="rendered-card-btn rendered-btn-publish" onclick="openFbModal('${videoUrl.replace(/'/g, "\\'")}')">
-          🔵 Đăng FB
+          Đăng FB
         </button>
         <button type="button" class="rendered-card-btn rendered-btn-delete" onclick="confirmDeleteRenderedVideo('${video.filename.replace(/'/g, "\\'")}')">
-          🗑️ Xóa
+          Xóa
         </button>
       </div>
     `;
@@ -386,8 +386,12 @@ function renderVoicesList(searchFilter = '') {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; padding: 24px; color: var(--muted);">
-          🎙️ Không tìm thấy giọng mẫu nào.
+        <td colspan="4" style="text-align: center; padding: 40px 16px; border-bottom: none;">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+            <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchFilter ? 'Không tìm thấy giọng mẫu nào phù hợp' : 'Chưa có giọng mẫu nào'}</div>
+            <div style="font-size: 11px;">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Thêm giọng nói từ Vbee AI hoặc tải file ghi âm lên để lồng tiếng'}</div>
+          </div>
         </td>
       </tr>
     `;
@@ -421,7 +425,7 @@ function renderVoicesList(searchFilter = '') {
     tr.style.borderBottom = '1px solid var(--border)';
     const voiceUrl = `/voices/${encodeURIComponent(voice.filename)}`;
     const isPlaying = currentAudio && currentAudioUrl === voiceUrl && !currentAudio.paused;
-    const playBtnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+    const playBtnText = isPlaying ? 'Dừng' : 'Nghe';
 
     tr.innerHTML = `
       <td style="padding: 12px 8px; font-weight: 500; word-break: break-all;">${voice.filename}</td>
@@ -433,7 +437,7 @@ function renderVoicesList(searchFilter = '') {
             ${playBtnText}
           </button>
           <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; margin: 0;" onclick="confirmDeleteVoice('${voice.filename.replace(/'/g, "\\'")}')">
-            🗑️ Xóa
+            Xóa
           </button>
         </div>
       </td>
@@ -534,8 +538,12 @@ function renderMusicList(searchFilter = '') {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; padding: 24px; color: var(--muted);">
-          🎵 Không tìm thấy nhạc nền nào.
+        <td colspan="4" style="text-align: center; padding: 40px 16px; border-bottom: none;">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchFilter ? 'Không tìm thấy nhạc nền nào phù hợp' : 'Chưa có nhạc nền nào'}</div>
+            <div style="font-size: 11px;">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "THÊM NHẠC MỚI" để tải nhạc nền srt/mp3 từ máy của bạn'}</div>
+          </div>
         </td>
       </tr>
     `;
@@ -569,7 +577,7 @@ function renderMusicList(searchFilter = '') {
     tr.style.borderBottom = '1px solid var(--border)';
     const musicUrl = `/music/${encodeURIComponent(music.filename)}`;
     const isPlaying = currentAudio && currentAudioUrl === musicUrl && !currentAudio.paused;
-    const playBtnText = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+    const playBtnText = isPlaying ? 'Dừng' : 'Nghe';
 
     tr.innerHTML = `
       <td style="padding: 12px 8px; font-weight: 500; word-break: break-all;">${music.filename}</td>
@@ -581,7 +589,7 @@ function renderMusicList(searchFilter = '') {
             ${playBtnText}
           </button>
           <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; margin: 0;" onclick="confirmDeleteMusic('${music.filename.replace(/'/g, "\\'")}')">
-            🗑️ Xóa
+            Xóa
           </button>
         </div>
       </td>

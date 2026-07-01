@@ -539,15 +539,18 @@ function renderDownloadHistory() {
     
     card.innerHTML = `
       <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; ${hoverStyle}" ${clickHandler} title="${titleTooltip}">
-        <div style="position: relative; width: 50px; height: 50px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #000;">
-          <img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">
-          ${isSuccess ? '<div style="position: absolute; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s;" class="history-thumb-overlay"><span style="font-size: 14px;">📂</span></div>' : ''}
+        <div style="position: relative; width: 50px; height: 50px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: var(--panel); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;">
+          ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ''}
+          <div style="display: ${item.thumbnail ? 'none' : 'flex'}; align-items: center; justify-content: center; width: 100%; height: 100%;" class="placeholder-icon-wrap">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5;"><path d="M2 3h20v18H2z"/><path d="M2 7h20"/><path d="m5 3 3 4"/><path d="m10 3 3 4"/><path d="m15 3 3 4"/></svg>
+          </div>
+          ${isSuccess ? '<div style="position: absolute; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s;" class="history-thumb-overlay"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>' : ''}
         </div>
         <div style="flex: 1; min-width: 0;">
           <div class="history-item-title" style="font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.15s;" title="${item.title.replace(/"/g, '&quot;')}">${item.title}</div>
           <div style="font-size: 11px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
-            <span>📅 ${dateStr}</span>
-            <span>🔗 <a href="${item.url}" target="_blank" style="color: var(--accent); text-decoration: none;" onclick="event.stopPropagation();">Link nguồn</a></span>
+            <span>${dateStr}</span>
+            <span><a href="${item.url}" target="_blank" style="color: var(--accent); text-decoration: none;" onclick="event.stopPropagation();">Link nguồn</a></span>
             <span style="background: ${badgeBg}; color: ${badgeColor}; padding: 2px 6px; font-size: 9px; font-weight: 600; border-radius: 4px;">
               ${badgeText}
             </span>
@@ -556,9 +559,9 @@ function renderDownloadHistory() {
       </div>
       <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
         <span style="font-size: 11px; font-weight: 500; color: var(--muted); background: var(--border); padding: 4px 8px; border-radius: 4px;">${item.type}</span>
-        ${isSuccess ? `<button type="button" class="rendered-card-btn" style="padding: 6px 10px; margin: 0; font-size: 11px; height: 30px; display: inline-flex; align-items: center; gap: 4px; background: var(--panel-1); border: 1px solid var(--border); color: var(--text);" onclick="openFileFolder('${item.filename}')" title="Mở thư mục chứa file video này">📂 Mở</button>` : ''}
-        <button type="button" class="rendered-card-btn" style="padding: 6px 10px; margin: 0; font-size: 11px; height: 30px; display: inline-flex; align-items: center; gap: 4px; background: var(--panel-1); border: 1px solid var(--border); color: var(--text);" onclick="redownloadHistoryItem('${item.url}')" title="Nạp lại link để tải lại">🔄 Tải lại</button>
-        <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 6px 10px; margin: 0; font-size: 11px; height: 30px; display: inline-flex; align-items: center;" onclick="deleteHistoryItem('${item.id}')">🗑️</button>
+        ${isSuccess ? `<button type="button" class="ghost-btn" style="padding: 6px 10px; margin: 0; font-size: 11px; height: 30px; display: inline-flex; align-items: center;" onclick="openFileFolder('${item.filename}')" title="Mở thư mục chứa file video này">Mở</button>` : ''}
+        <button type="button" class="ghost-btn" style="padding: 6px 10px; margin: 0; font-size: 11px; height: 30px; display: inline-flex; align-items: center;" onclick="redownloadHistoryItem('${item.url}')" title="Nạp lại link để tải lại">Tải lại</button>
+        <button type="button" class="ghost-btn rendered-btn-delete" style="padding: 6px 10px; margin: 0; font-size: 11px; height: 30px; display: inline-flex; align-items: center; border-color: rgba(239, 68, 68, 0.2);" onclick="deleteHistoryItem('${item.id}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       </div>
     `;
     container.appendChild(card);
@@ -893,18 +896,18 @@ function updateMainResultUI(queue, currentActiveId) {
         </div>
         
         <p id="render-progress-text" style="font-weight: 600; color: var(--accent-2); margin-bottom: 8px;">${targetTask.step || 'Đang chuẩn bị...'}</p>
-        <p style="font-size: 12px; color: var(--muted); max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
-        <button id="cancel-render-btn" style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s;" onclick="cancelQueueTask('${targetTask.id}', event)" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">Hủy Render</button>
+        <p style="font-size: 12px; color: var(--text); opacity: 0.8; max-width: 400px; line-height: 1.5; margin: 0 auto;">Hệ thống đang xử lý và trộn video. Tùy thuộc vào độ dài video và các thiết lập AI (Speech-to-Text, Omi Cloner), quá trình này có thể mất một vài phút. Vui lòng không tắt ứng dụng.</p>
+        <button id="cancel-render-btn" style="margin-top: 20px; background: transparent; border: 1px solid rgba(239, 68, 68, 0.4); color: var(--danger); padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.15s;" onclick="cancelQueueTask('${targetTask.id}', event)" onmouseover="this.style.background='rgba(239, 68, 68, 0.06)'; this.style.borderColor='var(--danger)';" onmouseout="this.style.background='transparent'; this.style.borderColor='rgba(239, 68, 68, 0.4)';">Hủy Render</button>
       </div>
     `;
   } else if (targetTask.status === 'pending') {
     // 2. Giao diện Đang chờ xếp hàng
     html = `
       <div class="render-loading-state" style="border-color: var(--border); background: rgba(255, 255, 255, 0.01);">
-        <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
-        <h3 style="color: var(--accent-2);">Đang chờ xếp hàng...</h3>
-        <p style="color: var(--muted); max-width: 400px; margin: 0 auto; line-height: 1.5; font-size: 13px;">Video "${targetTask.videoName}" đang nằm trong hàng đợi render. Tiến trình sẽ tự động bắt đầu khi các tác vụ trước đó hoàn thành.</p>
-        <button style="margin-top: 15px; background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px;" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy Chờ</button>
+        <div style="font-size: 32px; margin-bottom: 12px;">⏳</div>
+        <h3 style="color: var(--accent-2); margin-bottom: 8px;">Đang chờ xếp hàng...</h3>
+        <p style="color: var(--text); opacity: 0.8; max-width: 400px; margin: 0 auto; line-height: 1.5; font-size: 12.5px;">Video "${targetTask.videoName}" đang nằm trong hàng đợi render. Tiến trình sẽ tự động bắt đầu khi các tác vụ trước đó hoàn thành.</p>
+        <button style="margin-top: 20px; background: transparent; border: 1px solid rgba(239, 68, 68, 0.4); color: var(--danger); padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.15s;" onclick="cancelQueueTask('${targetTask.id}', event)" onmouseover="this.style.background='rgba(239, 68, 68, 0.06)'; this.style.borderColor='var(--danger)';" onmouseout="this.style.background='transparent'; this.style.borderColor='rgba(239, 68, 68, 0.4)';">Hủy Chờ</button>
       </div>
     `;
   } else if (targetTask.status === 'success' && targetTask.result) {
@@ -1027,19 +1030,19 @@ function renderQueueModalUI(queue, currentActiveId) {
     let progressBarColor = 'rgba(255, 255, 255, 0.1)';
 
     if (isRunning) {
-      statusBadge = `<span style="color: #2563eb; background: rgba(37, 99, 235, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Đang chạy (${task.percent}%)</span>`;
+      statusBadge = `<span style="color: #3b82f6; background: rgba(59, 130, 246, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Đang chạy (${task.percent}%)</span>`;
       progressBarPercent = task.percent || 0;
-      progressBarColor = 'linear-gradient(90deg, var(--accent-2, #8b5cf6), #a855f7)';
+      progressBarColor = 'linear-gradient(90deg, var(--heavy-action, #f97316), #ea580c)';
     } else if (isPending) {
       statusBadge = `<span style="color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Chờ render</span>`;
       progressBarPercent = 0;
       progressBarColor = 'rgba(255, 255, 255, 0.05)';
     } else if (isSuccess) {
-      statusBadge = `<span style="color: #16a34a; background: rgba(22, 163, 74, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Hoàn tất ✅</span>`;
+      statusBadge = `<span style="color: #22c55e; background: rgba(34, 197, 94, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Hoàn tất</span>`;
       progressBarPercent = 100;
-      progressBarColor = '#16a34a';
+      progressBarColor = '#22c55e';
     } else if (isFailed) {
-      statusBadge = `<span style="color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;" title="${task.error || ''}">Thất bại ❌</span>`;
+      statusBadge = `<span style="color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;" title="${task.error || ''}">Thất bại</span>`;
       progressBarPercent = task.percent || 0;
       progressBarColor = '#ef4444';
     }
@@ -1064,7 +1067,7 @@ function renderQueueModalUI(queue, currentActiveId) {
             <span style="font-size: 11px; color: var(--muted); font-weight: 500;">[${timeStr}]</span>
             <div style="display: flex; flex-direction: column; min-width: 0;">
               <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 280px;" title="${task.videoName}">${task.videoName}</strong>
-              <span style="font-size: 10px; color: var(--muted); font-weight: 500;">📁 Dự án: <span style="color: var(--accent-2); font-weight: 600;">${task.projectName || 'Chưa rõ'}</span></span>
+              <span style="font-size: 10px; color: var(--muted); font-weight: 500;">Dự án: <span style="color: var(--accent); font-weight: 600;">${task.projectName || 'Chưa rõ'}</span></span>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
@@ -2490,8 +2493,8 @@ function updateTemplateSelectDropdown() {
       menuHtml += `
         <div class="custom-dropdown-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; color: var(--text); font-size: 13px; transition: background 0.2s;">
           <span onclick="selectCustomTemplate('${name}')" style="flex: 1; text-align: left;">${name}</span>
-          <button type="button" onclick="deleteCustomTemplate(event, '${name}')" class="delete-template-btn" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; font-size: 14px; border-radius: 4px; transition: all 0.2s;">
-            🗑️
+          <button type="button" onclick="deleteCustomTemplate(event, '${name}')" class="delete-template-btn" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           </button>
         </div>
       `;
@@ -3638,8 +3641,12 @@ function renderFbPages(filter = '') {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; color: var(--muted); padding: 36px 16px; font-size: 13px; border-bottom: none;">
-          ${searchVal ? 'Không tìm thấy Page nào phù hợp.' : 'Chưa có Page nào được lưu.'}
+        <td colspan="4" style="text-align: center; padding: 40px 16px; border-bottom: none;">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+            <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchVal ? 'Không tìm thấy Page nào phù hợp' : 'Chưa có Fanpage nào được lưu'}</div>
+            <div style="font-size: 11px;">${searchVal ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "THÊM PAGE MỚI" ở trên để kết nối trang Facebook của bạn'}</div>
+          </div>
         </td>
       </tr>
     `;
@@ -3673,8 +3680,8 @@ function renderFbPages(filter = '') {
       <td style="padding: 12px 8px; color: var(--soft); font-size: 13px; font-family: monospace; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${page.token}">${maskedToken}</td>
       <td style="padding: 12px 8px; text-align: right;">
         <div style="display: inline-flex; gap: 6px; flex-shrink: 0;">
-          <button type="button" class="ghost-btn" style="padding: 4px 8px; font-size: 11px; height: auto;" onclick="editFbPage(${originalIdx})">✏️ Sửa</button>
-          <button type="button" class="ghost-btn" style="padding: 4px 8px; font-size: 11px; height: auto; border-color: var(--danger); color: var(--danger);" onclick="deleteFbPage(${originalIdx})">🗑️ Xóa</button>
+          <button type="button" class="ghost-btn" style="padding: 4px 8px; font-size: 11px; height: auto;" onclick="editFbPage(${originalIdx})">Sửa</button>
+          <button type="button" class="ghost-btn" style="padding: 4px 8px; font-size: 11px; height: auto; border-color: rgba(239, 68, 68, 0.2); color: var(--danger);" onclick="deleteFbPage(${originalIdx})">Xóa</button>
         </div>
       </td>
     `;
@@ -4170,7 +4177,9 @@ function renderSavedLinks() {
         <div style="font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</div>
         <div style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">${item.url}</div>
       </div>
-      <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0;" onclick="deleteSavedLink('${item.id}'); event.stopPropagation();">🗑️</button>
+      <button type="button" class="ghost-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0; border-color: rgba(239, 68, 68, 0.2);" onclick="deleteSavedLink('${item.id}'); event.stopPropagation();">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </button>
     `;
     list.appendChild(card);
   });
@@ -4290,7 +4299,9 @@ function renderSavedChannels() {
         <div style="font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</div>
         <div style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">${item.url}</div>
       </div>
-      <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0;" onclick="deleteSavedChannel('${item.id}'); event.stopPropagation();">🗑️</button>
+      <button type="button" class="ghost-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0; border-color: rgba(239, 68, 68, 0.2);" onclick="deleteSavedChannel('${item.id}'); event.stopPropagation();">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </button>
     `;
     list.appendChild(card);
   });
@@ -4755,10 +4766,10 @@ async function clearCookieSettings() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Lỗi xóa cookie');
 
-    toast('🗑️ Đã xóa cấu hình Cookie', 'success');
+    toast('Đã xóa cấu hình Cookie', 'success');
     await loadCookieStatus();
   } catch (error) {
-    toast(`❌ Lỗi: ${error.message}`, 'error');
+    toast(`Lỗi: ${error.message}`, 'error');
   }
 }
 
@@ -4829,8 +4840,8 @@ async function checkSystemConnections() {
     const ffmpegDesc = $('conn-ffmpeg-desc');
     if (data.ffmpeg) {
       ffmpegDot.className = 'dot ok';
-      ffmpegDot.style.background = 'var(--accent)';
-      ffmpegDot.style.boxShadow = '0 0 8px var(--accent)';
+      ffmpegDot.style.background = 'var(--success)';
+      ffmpegDot.style.boxShadow = '0 0 8px var(--success)';
       ffmpegDesc.textContent = 'Đã kết nối';
     } else {
       ffmpegDot.className = 'dot error';
@@ -4844,8 +4855,8 @@ async function checkSystemConnections() {
     const ytdlpDesc = $('conn-ytdlp-desc');
     if (data.ytdlp) {
       ytdlpDot.className = 'dot ok';
-      ytdlpDot.style.background = 'var(--accent)';
-      ytdlpDot.style.boxShadow = '0 0 8px var(--accent)';
+      ytdlpDot.style.background = 'var(--success)';
+      ytdlpDot.style.boxShadow = '0 0 8px var(--success)';
       ytdlpDesc.textContent = 'Đã kết nối';
     } else {
       ytdlpDot.className = 'dot error';
@@ -4860,8 +4871,8 @@ async function checkSystemConnections() {
     const whisperAction = $('conn-whisper-action');
     if (data.whisper) {
       whisperDot.className = 'dot ok';
-      whisperDot.style.background = 'var(--accent)';
-      whisperDot.style.boxShadow = '0 0 8px var(--accent)';
+      whisperDot.style.background = 'var(--success)';
+      whisperDot.style.boxShadow = '0 0 8px var(--success)';
       whisperDesc.textContent = 'Đã sẵn sàng';
     } else {
       if (!data.whisperCli) {
@@ -4870,7 +4881,7 @@ async function checkSystemConnections() {
         whisperDot.style.boxShadow = '0 0 8px var(--danger)';
         whisperDesc.textContent = 'Thiếu công cụ nhận diện giọng nói (Chưa tải)';
         if (whisperAction) {
-          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); showDependencyModal('whisper');">📥 Tải</button>`;
+          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); showDependencyModal('whisper');">Tải</button>`;
         }
       } else {
         whisperDot.className = 'dot warn';
@@ -4878,7 +4889,7 @@ async function checkSystemConnections() {
         whisperDot.style.boxShadow = '0 0 8px var(--warn)';
         whisperDesc.textContent = 'Thiếu tệp dữ liệu AI';
         if (whisperAction) {
-          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">📥 Tải</button>`;
+          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">Tải</button>`;
         }
       }
     }
@@ -4889,8 +4900,8 @@ async function checkSystemConnections() {
     const omnivoiceAction = $('conn-omnivoice-action');
     if (data.omnivoice) {
       omnivoiceDot.className = 'dot ok';
-      omnivoiceDot.style.background = 'var(--accent)';
-      omnivoiceDot.style.boxShadow = '0 0 8px var(--accent)';
+      omnivoiceDot.style.background = 'var(--success)';
+      omnivoiceDot.style.boxShadow = '0 0 8px var(--success)';
       omnivoiceDesc.textContent = 'Đã sẵn sàng';
     } else {
       if (!data.omnivoiceCli) {
@@ -4904,7 +4915,7 @@ async function checkSystemConnections() {
         omnivoiceDot.style.boxShadow = '0 0 8px var(--warn)';
         omnivoiceDesc.textContent = 'Thiếu tệp giọng nói AI';
         if (omnivoiceAction) {
-          omnivoiceAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openModelDownloadModal();">📥 Tải</button>`;
+          omnivoiceAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openModelDownloadModal();">Tải</button>`;
         }
       }
     }
@@ -5137,6 +5148,20 @@ window.filterModalVoices = filterModalVoices;
 window.renderQuickVoices = renderQuickVoices;
 window.selectVoiceFile = selectVoiceFile;
 window.updatePlayButtonsState = updatePlayButtonsState;
+
+function togglePresetPanel(e) {
+  const body = $('preset-panel-body');
+  const arrow = $('preset-panel-arrow');
+  if (!body || !arrow) return;
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    arrow.style.transform = 'rotate(0deg)';
+  } else {
+    body.style.display = 'none';
+    arrow.style.transform = 'rotate(-90deg)';
+  }
+}
+window.togglePresetPanel = togglePresetPanel;
 
 function resetStudioConfig() {
   // Clear selected template label in custom dropdown
@@ -6273,7 +6298,7 @@ async function deleteProject(id) {
       resetStudioForm();
     }
     
-    toast('🗑️ Đã xóa dự án thành công!', 'success');
+    toast('Đã xóa dự án thành công!', 'success');
     renderProjectsList();
   } catch (error) {
     console.error('Lỗi xóa dự án:', error);
@@ -6313,13 +6338,13 @@ function filterAndRenderProjects() {
         card.className = 'video-card-item';
         card.style.cssText = 'display: flex; flex-direction: column; cursor: pointer; padding: 12px; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2);';
         card.innerHTML = `
-          <div style="aspect-ratio: 16/9; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
-            ${p.thumbnail ? `<img src="${p.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 28px;">🎬</span>`}
+          <div style="aspect-ratio: 16/9; background: var(--panel); border-radius: 4px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border: 1px solid var(--border);">
+            ${p.thumbnail ? `<img src="${p.thumbnail}?t=${p.updatedAt || Date.now()}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5;"><path d="M2 3h20v18H2z"/><path d="M2 7h20"/><path d="m5 3 3 4"/><path d="m10 3 3 4"/><path d="m15 3 3 4"/></svg>`}
           </div>
           <div style="display: flex; flex-direction: column; gap: 2px;">
             <span style="font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
             <span style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.videoTitle || 'Chưa chọn video'}</span>
-            <span style="font-size: 10px; color: var(--accent); margin-top: 4px;">🕒 ${new Date(p.updatedAt).toLocaleString('vi-VN')}</span>
+            <span style="font-size: 10px; color: var(--muted); margin-top: 4px;">Cập nhật: ${new Date(p.updatedAt).toLocaleString('vi-VN')}</span>
           </div>
         `;
         card.addEventListener('click', () => {
@@ -6337,6 +6362,7 @@ function filterAndRenderProjects() {
       tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 30px; color: var(--muted);">Không tìm thấy dự án nào.</td></tr>`;
     } else {
       filtered.forEach(p => {
+        const isActive = p.id === currentProjectId;
         const tr = document.createElement('tr');
         tr.style.cssText = 'border-bottom: 1px solid var(--border); font-size: 13px;';
         tr.innerHTML = `
@@ -6344,10 +6370,18 @@ function filterAndRenderProjects() {
           <td style="padding: 12px 8px; color: var(--muted);">${p.videoTitle || '---'}</td>
           <td style="padding: 12px 8px; color: var(--muted);">${new Date(p.updatedAt).toLocaleString('vi-VN')}</td>
           <td style="padding: 12px 8px; text-align: right;">
-            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; margin-right: 4px; font-weight: 600; color: var(--accent);" onclick="loadProject('${p.id}')">📂 Mở</button>
-            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; margin-right: 4px; font-weight: 600;" onclick="renameProject('${p.id}', '${p.name.replace(/'/g, "\\'")}')">✏️ Đổi tên</button>
-            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; margin-right: 4px; font-weight: 600;" onclick="duplicateProject('${p.id}')">👯 Nhân bản</button>
-            <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; font-weight: 600; color: #ef4444;" onclick="deleteProject('${p.id}')">🗑️ Xóa</button>
+            <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%;">
+              ${isActive ? `<span style="background: rgba(34, 197, 94, 0.15); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.2); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap;">Đang mở</span>` : ''}
+              <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; font-weight: 600;" onclick="loadProject('${p.id}')">Mở</button>
+              <div class="project-action-dropdown">
+                <button type="button" class="project-action-btn-trigger">•••</button>
+                <div class="project-action-menu">
+                  <button type="button" class="project-action-item" onclick="renameProject('${p.id}', '${p.name.replace(/'/g, "\\'")}')">Đổi tên</button>
+                  <button type="button" class="project-action-item" onclick="duplicateProject('${p.id}')">Nhân bản</button>
+                  <button type="button" class="project-action-item danger-action" onclick="deleteProject('${p.id}')">Xóa</button>
+                </div>
+              </div>
+            </div>
           </td>
         `;
         tbody.appendChild(tr);

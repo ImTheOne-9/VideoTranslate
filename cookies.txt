@@ -68,4 +68,4 @@ www.douyin.com	FALSE	/	FALSE	1783133563	dy_swidth	1920
 www.douyin.com	FALSE	/	TRUE	1817015261	fpk1	U2FsdGVkX1+kwyhKqm4h2vKajDlbEP2o1bwR8S7UA5kKpW+Ycu3tD6piebhkLxqo5FNcZQbPPO3XcpCz1bRBeA==
 www.douyin.com	FALSE	/	TRUE	1817015261	fpk2	16fee37559dbd42b448204446d02089f
 www.douyin.com	FALSE	/	FALSE	1787639264	s_v_web_id	verify_mqujuayt_eGVYWHu6_GmNx_4Men_AoW4_GZaaJArqWrh7
-www.xiaohongshu.com	FALSE	/	FALSE	1782532253	acw_tc	0a00d0eb17825304546808518e302313ecbc8a8a66c8bcba341766a3a0a86d
+www.xiaohongshu.com	FALSE	/	FALSE	1782881094	acw_tc	0a00d62217828792954868763eb6a4cf9e7ea7af7b537292cd54be8e9cad59

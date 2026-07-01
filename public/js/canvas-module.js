@@ -1305,7 +1305,7 @@ function selectBlurBox(id) {
     item.classList.toggle('active', isActive);
     
     // Update container style inline
-    item.style.background = isActive ? '#141e2a' : '#10161d';
+    item.style.background = isActive ? 'rgba(37, 99, 235, 0.05)' : '#10161d';
     item.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';
     
     // Update title span text and color
@@ -1348,7 +1348,7 @@ function renderBlurBoxesList() {
     const item = document.createElement('div');
     item.className = `blur-box-item ${isActive ? 'active' : ''}`;
     item.dataset.id = box.id;
-    item.style = `margin-top: 10px; padding: 10px; background: ${isActive ? '#141e2a' : '#10161d'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;`;
+    item.style = `margin-top: 10px; padding: 10px; background: ${isActive ? 'rgba(37, 99, 235, 0.05)' : '#10161d'}; border: 1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;`;
     
     // Switch to this box on click (unless clicking inside input or delete button)
     item.addEventListener('click', (e) => {
@@ -1360,7 +1360,7 @@ function renderBlurBoxesList() {
     item.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
         <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
-        <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">🗑️ Xóa</button>
+        <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">Xóa</button>
       </div>
       
       <!-- Hidden coordinates to prevent JS code crash -->
@@ -1374,11 +1374,11 @@ function renderBlurBoxesList() {
       <!-- Time bounds & blur slider settings -->
       <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
         <div class="form-group" style="margin: 0;">
-          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">⏱️ Bắt đầu (s)</label>
+          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Bắt đầu (s)</label>
           <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
         </div>
         <div class="form-group" style="margin: 0;">
-          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">⏱️ Kết thúc (s)</label>
+          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Kết thúc (s)</label>
           <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
         </div>
       </div>
@@ -1386,7 +1386,7 @@ function renderBlurBoxesList() {
       <!-- Blur Radius Slider -->
       <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <label style="font-size: 10px; margin: 0; font-weight: 600;">💧 Độ mờ (Radius)</label>
+          <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
           <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
         </div>
         <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
@@ -1683,10 +1683,16 @@ function initTimelineControls() {
   }
   
   video.addEventListener('play', () => {
-    if (playBtn) playBtn.textContent = '⏸ Tạm dừng';
+    if (playBtn) {
+      playBtn.textContent = 'Tạm dừng';
+      playBtn.classList.add('playing');
+    }
   });
   video.addEventListener('pause', () => {
-    if (playBtn) playBtn.textContent = '▶ Phát';
+    if (playBtn) {
+      playBtn.textContent = 'Phát';
+      playBtn.classList.remove('playing');
+    }
   });
   
   video.addEventListener('timeupdate', () => {

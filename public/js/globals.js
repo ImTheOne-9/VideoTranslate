@@ -1,11 +1,11 @@
 const views = {
   download: {
     title: 'Tải video',
-    desc: 'Dán link video đơn lẻ hoặc link kênh/playlist để tải về thư mục downloads.'
+    desc: 'Dán link video đơn lẻ hoặc link kênh để tải về thư mục downloads.'
   },
   studio: {
     title: 'Studio render',
-    desc: 'Dịch tiếng Việt, chèn sub, thêm voiceover hoặc nhạc nền rồi render ra MP4.'
+    desc: 'Dịch tiếng Việt, chèn sub, thêm giọng nói hoặc nhạc nền rồi render ra MP4.'
   },
   library: {
     title: 'Thư viện',
@@ -19,7 +19,7 @@ const views = {
 
 let currentUrl = '';
 let currentHistoryPage = 1;
-const historyPerPage = 10;
+const historyPerPage = 5;
 let currentSavedLinkPage = 1;
 const savedLinksPerPage = 5;
 let currentBulkPage = 1;
