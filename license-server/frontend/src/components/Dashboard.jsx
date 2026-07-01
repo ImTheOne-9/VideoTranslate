@@ -82,6 +82,31 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
     }
   };
 
+  const handleCancelKey = async (key) => {
+    if (!confirm('Bạn có chắc chắn muốn hủy đơn đăng ký gói bản quyền này không?')) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/user/keys/cancel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('Đã hủy đăng ký gói thành công!');
+        localStorage.removeItem('pending_payment_key');
+        await loadUserKeys();
+      } else {
+        showToast(data.error || 'Lỗi khi hủy gói đăng ký', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi kết nối khi hủy gói: ' + err.message, 'error');
+    }
+  };
+
   const downloadWithToken = async () => {
     try {
       const res = await fetch('/api/user/generate-download-token', { method: 'POST' });
@@ -139,7 +164,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
     }
   };
 
-  const pendingKey = keys.find(k => k.paymentStatus === 'pending');
+  const pendingKey = keys.find(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
   const amount = pendingKey ? (pendingKey.planType === 'monthly' ? 199000 : 1499000) : 0;
   const priceText = pendingKey ? (pendingKey.planType === 'monthly' ? '199.000đ' : '1.499.000đ') : '';
   const keyRef = pendingKey ? pendingKey.key.split('-')[1] : '';
@@ -248,13 +273,21 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
                             <td className="px-4 py-4 text-center">{getStatusBadge(k)}</td>
                             <td className="px-4 py-4 text-right">
                               <div className="inline-block text-left">
-                                {k.paymentStatus === 'pending' ? (
-                                  <a 
-                                    href={`/payment.html?key=${k.key}`} 
-                                    className="px-2.5 py-1.5 text-[10px] font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-all shadow-sm inline-block cursor-pointer"
-                                  >
-                                    Thanh Toán
-                                  </a>
+                                {k.paymentStatus === 'pending' && k.status !== 'suspended' ? (
+                                  <div className="flex items-center gap-1.5 justify-end">
+                                    <a 
+                                      href={`/payment.html?key=${k.key}`} 
+                                      className="px-2.5 py-1.5 text-[10px] font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-all shadow-sm inline-block cursor-pointer"
+                                    >
+                                      Thanh Toán
+                                    </a>
+                                    <button 
+                                      onClick={() => handleCancelKey(k.key)}
+                                      className="px-2.5 py-1.5 text-[10px] font-bold bg-rose-955/40 border border-rose-900/40 hover:bg-rose-900/60 text-rose-400 rounded-md transition-all shadow-sm cursor-pointer"
+                                    >
+                                      Hủy
+                                    </button>
+                                  </div>
                                 ) : (
                                   <>
                                     <button 

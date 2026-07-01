@@ -454,7 +454,7 @@ function renderUserKeys(keys) {
     return;
   }
 
-  const pendingKey = keys.find(k => k.paymentStatus === 'pending');
+  const pendingKey = keys.find(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
   renderPaymentInstruction(pendingKey);
 
   tbody.innerHTML = keys.map(k => {
@@ -500,11 +500,16 @@ function renderUserKeys(keys) {
     let actionBtnMarkup = '';
     let quotaMarkup = '';
     
-    if (k.paymentStatus === 'pending') {
+    if (k.paymentStatus === 'pending' && k.status !== 'suspended') {
       actionBtnMarkup = `
-        <a href="/payment.html?key=${k.key}" class="px-2.5 py-1.5 text-[10px] font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-all shadow-sm inline-block">
-          Thanh Toán
-        </a>
+        <div class="flex items-center gap-1.5 justify-end">
+          <a href="/payment.html?key=${k.key}" class="px-2.5 py-1.5 text-[10px] font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-all shadow-sm inline-block">
+            Thanh Toán
+          </a>
+          <button onclick="handleCancelKey('${k.key}')" class="px-2.5 py-1.5 text-[10px] font-bold bg-rose-955/40 border border-rose-900/40 hover:bg-rose-900/60 text-rose-400 rounded-md transition-all shadow-sm cursor-pointer">
+            Hủy
+          </button>
+        </div>
       `;
     } else {
       actionBtnMarkup = `
@@ -694,6 +699,32 @@ async function handleSimulatePayment(key) {
     }
   } catch (err) {
     showToast('Lỗi API mô phỏng thanh toán: ' + err.message, 'error');
+  }
+}
+
+// User Cancel pending key
+async function handleCancelKey(key) {
+  if (!confirm('Bạn có chắc chắn muốn hủy đơn đăng ký gói bản quyền này không?')) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/user/keys/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('Đã hủy đăng ký gói thành công!');
+      localStorage.removeItem('pending_payment_key');
+      await loadUserKeys();
+    } else {
+      showToast(data.error || 'Lỗi khi hủy gói đăng ký', 'error');
+    }
+  } catch (err) {
+    showToast('Lỗi kết nối khi hủy gói: ' + err.message, 'error');
   }
 }
 

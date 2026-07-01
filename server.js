@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const net = require('net');
+const axios = require('axios');
 
 const shared = require('./lib/shared-state');
 const { verifyLocalLicense } = require('./lib/license-manager');
@@ -168,6 +169,34 @@ app.get('/api/local-videos', voiceController.getLocalVideos);
 app.post('/api/info', systemController.getVideoInfo);
 app.post('/api/gemini-models', systemController.getGeminiModels);
 app.post('/api/openrouter-models', systemController.getOpenRouterModels);
+
+// API: Get 9Router models
+app.post('/api/ninerouter-models', async (req, res) => {
+  try {
+    const { apiKey, baseUrl } = req.body;
+    const resolvedBaseUrl = baseUrl || 'http://localhost:20128/v1';
+    const headers = {};
+    if (apiKey && apiKey.trim() !== '') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    const response = await axios.get(`${resolvedBaseUrl}/models`, { headers });
+    const models = response.data.data || [];
+    
+    const formattedModels = models.map(m => {
+      return {
+        id: m.id,
+        name: m.id,
+        displayName: m.id
+      };
+    });
+
+    res.json({ models: formattedModels });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách model 9Router:', error.message);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Lỗi kết nối tới 9Router: ${errorMsg}` });
+  }
+});
 app.get('/api/cookie/status', systemController.getCookieStatus);
 app.post('/api/cookie/save', systemController.saveCookie);
 app.post('/api/cookie/clear', systemController.clearCookie);

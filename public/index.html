@@ -1739,6 +1739,7 @@
               <option value="google-translate" selected>🌐 Google Translate (Mặc định - An toàn &amp; Khuyên dùng)</option>
               <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
               <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
+              <option value="ninerouter">🤖 9Router Local AI Proxy</option>
               <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ &amp; Không cần mạng)</option>
             </select>
           </div>
@@ -1749,6 +1750,10 @@
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">Google Gemini API Key</label>
               <input type="password" id="global-gemini-key" class="premium-input" placeholder="Nhập API Key của Google AI Studio..." style="margin: 0;">
               <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy Key miễn phí từ Google AI Studio. Được lưu trữ cục bộ bảo mật.</p>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn" style="margin: 0; width: auto; padding: 0 12px; height: 32px; font-size: 12px; border-color: var(--accent); color: var(--accent);" onclick="testGeminiConnection()">⚡ Kiểm tra kết nối</button>
+                <span id="gemini-connection-status" style="font-size: 12px; font-weight: 600;"></span>
+              </div>
             </div>
             <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">Google Gemini Model</label>
@@ -1764,12 +1769,39 @@
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter API Key</label>
               <input type="password" id="global-openrouter-key" class="premium-input" placeholder="Nhập API Key của OpenRouter..." style="margin: 0;">
               <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Tạo key của bạn tại openrouter.ai.</p>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn" style="margin: 0; width: auto; padding: 0 12px; height: 32px; font-size: 12px; border-color: var(--accent); color: var(--accent);" onclick="testOpenRouterConnection()">⚡ Kiểm tra kết nối</button>
+                <span id="openrouter-connection-status" style="font-size: 12px; font-weight: 600;"></span>
+              </div>
             </div>
             
             <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenRouter Model</label>
               <select id="global-openrouter-model" class="premium-select" style="margin: 0; height: 38px;">
                 <option value="">-- Vui lòng nhập API Key để chọn Model --</option>
+              </select>
+            </div>
+          </div>
+          <!-- 9Router Fields -->
+          <div id="global-ninerouter-fields" class="hidden" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">9Router Base URL</label>
+              <input type="text" id="global-ninerouter-base-url" class="premium-input" placeholder="http://localhost:20128/v1" style="margin: 0;">
+              <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">URL API của 9Router. Mặc định là http://localhost:20128/v1</p>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">9Router API Key (Tùy chọn)</label>
+              <input type="password" id="global-ninerouter-key" class="premium-input" placeholder="Nhập API Key nếu 9Router yêu cầu..." style="margin: 0;">
+              <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy API Key từ Dashboard của 9Router.</p>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn" style="margin: 0; width: auto; padding: 0 12px; height: 32px; font-size: 12px; border-color: var(--accent); color: var(--accent);" onclick="testNineRouterConnection()">⚡ Kiểm tra kết nối</button>
+                <span id="ninerouter-connection-status" style="font-size: 12px; font-weight: 600;"></span>
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">9Router Model</label>
+              <select id="global-ninerouter-model" class="premium-select" style="margin: 0; height: 38px;">
+                <option value="">-- Đang quét các model từ 9Router... --</option>
               </select>
             </div>
           </div>

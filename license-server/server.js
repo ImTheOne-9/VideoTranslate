@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 // Load environment variables from .env if it exists
 try {
@@ -29,6 +30,16 @@ try {
   console.log(`[License Server] Email Config: Host=${process.env.EMAIL_HOST || 'none'}, Port=${process.env.EMAIL_PORT || 'none'}, User=${process.env.EMAIL_USER || 'none'}, Pass=${process.env.EMAIL_PASS ? '***' : 'none'}`);
 } catch (e) {
   console.error('[License Server] Lỗi khi load file .env:', e.message);
+}
+
+let resendClient = null;
+if (process.env.RESEND_API_KEY) {
+  try {
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+    console.log(`[License Server] Resend Config: Key=***, From=${process.env.RESEND_FROM || 'none'}`);
+  } catch (err) {
+    console.error('[License Server] Lỗi khi khởi tạo Resend SDK:', err.message);
+  }
 }
 
 const PORT = process.env.PORT || 4000;
@@ -635,6 +646,28 @@ async function sendMailHelper({ toEmail, subject, bodyContent }) {
     </html>
   `;
 
+  // Try sending via Resend SDK if configured
+  if (resendClient) {
+    try {
+      const fromEmail = process.env.RESEND_FROM || 'Video Studio Tools <onboarding@resend.dev>';
+      const response = await resendClient.emails.send({
+        from: fromEmail,
+        to: toEmail,
+        subject,
+        html: htmlTemplate
+      });
+
+      if (response.error) {
+        console.error(`[License Server] [Email Error] Resend gửi mail lỗi: ${response.error.message}. Fallback sang SMTP/log...`);
+      } else {
+        console.log(`[License Server] [Email] Gửi thư thành công qua Resend tới: ${toEmail} (ID: ${response.data.id})`);
+        return;
+      }
+    } catch (err) {
+      console.error(`[License Server] [Email Error] Lỗi khi gọi API Resend (${err.message}). Fallback...`);
+    }
+  }
+
   const host = process.env.EMAIL_HOST;
   const port = process.env.EMAIL_PORT;
   const user = process.env.EMAIL_USER;
@@ -1187,6 +1220,44 @@ app.get('/api/user/keys', userAuth, async (req, res) => {
   }
 });
 
+// API Hủy key bản quyền đang chờ thanh toán
+app.post('/api/user/keys/cancel', userAuth, async (req, res) => {
+  const { key } = req.body;
+  if (!key) {
+    return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
+  }
+
+  try {
+    const license = await DB.licenses.findOne({ key });
+    if (!license) {
+      return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
+    }
+
+    // Kiểm tra quyền sở hữu
+    if (license.userEmail !== req.user.email) {
+      return res.status(403).json({ error: 'Bạn không có quyền hủy key bản quyền này!' });
+    }
+
+    // Chỉ cho phép hủy key chưa thanh toán (pending)
+    if (license.paymentStatus !== 'pending') {
+      return res.status(400).json({ error: 'Chỉ có thể hủy key ở trạng thái chờ thanh toán!' });
+    }
+
+    // Tiến hành xóa key
+    if (useMongo) {
+      await LicenseModel.deleteOne({ key });
+    } else {
+      const db = readJSON();
+      db.licenses = db.licenses.filter(l => l.key !== key);
+      await writeJSON(db);
+    }
+
+    res.json({ success: true, message: 'Đã hủy đơn đăng ký gói thành công!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi hệ thống khi hủy key: ' + err.message });
+  }
+});
+
 // API Đăng ký gói bản quyền
 app.post('/api/plans/subscribe', userAuth, async (req, res) => {
   const { planType } = req.body;
@@ -1205,7 +1276,7 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
     } else {
       // 1.5. Chặn nếu người dùng đang có bất kỳ key nào ở trạng thái pending (Giải pháp 1)
       const keys = await DB.licenses.find({ userEmail: req.user.email });
-      const pendingKey = keys.find(k => k.paymentStatus === 'pending');
+      const pendingKey = keys.find(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
       if (pendingKey) {
         return res.status(400).json({ 
           error: 'Bạn đang có một mã bản quyền chờ thanh toán. Vui lòng thanh toán mã cũ trước!',
@@ -1349,6 +1420,156 @@ app.post('/api/user/simulate-payment', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi duyệt thanh toán: ' + err.message });
+  }
+});
+
+// Webhook tự động nhận thông tin thanh toán từ SePay / Casso để kích hoạt license key
+app.post('/api/payment/webhook', async (req, res) => {
+  console.log('[Payment Webhook] Nhận request thanh toán:', JSON.stringify(req.body));
+
+  // 1. Xác thực request bằng webhook key (nếu được cấu hình trong .env)
+  const webhookKey = process.env.PAYMENT_WEBHOOK_KEY;
+  if (webhookKey) {
+    const incomingKey = req.headers['x-api-key'] || req.headers['secure-token'] || req.headers['authorization'];
+    if (!incomingKey || !incomingKey.includes(webhookKey)) {
+      console.warn('[Payment Webhook] Cảnh báo: Token xác thực không hợp lệ hoặc thiếu!');
+      return res.status(401).json({ error: 'Unauthorized: Invalid or missing webhook key' });
+    }
+  }
+
+  try {
+    let transactions = [];
+
+    // Casso Format: { error: 0, data: [...] }
+    if (req.body.data && Array.isArray(req.body.data)) {
+      transactions = req.body.data.map(item => ({
+        amount: Number(item.amount),
+        content: item.description || '',
+        transactionId: item.tid || item.id
+      }));
+    }
+    // SePay Format: { content: "...", transferAmount: 199000, ... }
+    else if (req.body.content && req.body.transferAmount !== undefined) {
+      transactions = [{
+        amount: Number(req.body.transferAmount),
+        content: req.body.content,
+        transactionId: req.body.code || req.body.id
+      }];
+    }
+    // Generic Format: { content: "...", amount: 199000 }
+    else if (req.body.content && req.body.amount !== undefined) {
+      transactions = [{
+        amount: Number(req.body.amount),
+        content: req.body.content,
+        transactionId: req.body.id
+      }];
+    } else {
+      console.warn('[Payment Webhook] Định dạng dữ liệu không được hỗ trợ:', req.body);
+      return res.status(400).json({ error: 'Unsupported webhook body format' });
+    }
+
+    let processedCount = 0;
+    let activatedKeys = [];
+
+    for (const tx of transactions) {
+      const { amount, content, transactionId } = tx;
+      console.log(`[Payment Webhook] Xử lý giao dịch #${transactionId}: Số tiền=${amount}, Nội dung="${content}"`);
+
+      // Trích xuất mã keyRef từ nội dung chuyển khoản (Ví dụ: "VST A9B8C7D6" -> "A9B8C7D6")
+      const match = content.match(/vst\s+([a-z0-9]+)/i);
+      if (!match) {
+        console.log(`[Payment Webhook] Giao dịch #${transactionId} bỏ qua: Không tìm thấy cú pháp 'VST <mã_key>'`);
+        continue;
+      }
+
+      const keyRef = match[1].toUpperCase();
+      console.log(`[Payment Webhook] Tìm thấy keyRef: "${keyRef}"`);
+
+      // Tìm license key tương ứng dựa trên DB mode (MongoDB hoặc JSON)
+      let license = null;
+      if (useMongo) {
+        // Query regex để tìm key dạng: STUDIO-A9B8C7D6-xxxx-xxxx
+        license = await LicenseModel.findOne({ key: { $regex: `^STUDIO-${keyRef}-`, $options: 'i' } });
+      } else {
+        const db = readJSON();
+        const found = db.licenses.find(l => {
+          const parts = l.key.split('-');
+          return parts.length > 1 && parts[1].toUpperCase() === keyRef;
+        });
+        if (found) {
+          license = await DB.licenses.findOne({ key: found.key });
+        }
+      }
+
+      if (!license) {
+        console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Không tìm thấy License tương ứng với mã "${keyRef}" trong database.`);
+        continue;
+      }
+
+      if (license.paymentStatus === 'active') {
+        console.log(`[Payment Webhook] Giao dịch #${transactionId}: License "${license.key}" đã kích hoạt từ trước.`);
+        processedCount++;
+        continue;
+      }
+
+      // Xác định số tiền yêu cầu tối thiểu của gói bản quyền
+      let requiredAmount = 199000; // Gói tháng
+      if (license.planType === 'yearly') {
+        requiredAmount = 1499000;
+      } else if (license.planType === 'trial') {
+        requiredAmount = 0;
+      }
+
+      if (amount < requiredAmount) {
+        console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Số tiền chuyển khoản (${amount}) nhỏ hơn số tiền yêu cầu (${requiredAmount}) cho gói ${license.planType}.`);
+        continue;
+      }
+
+      // Cập nhật trạng thái bản quyền
+      let days = 30;
+      if (license.planType === 'yearly') days = 365;
+      if (license.planType === 'trial') days = 7;
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + days);
+
+      license.expiresAt = expiresAt;
+      license.paymentStatus = 'active';
+      await license.save();
+
+      console.log(`[Payment Webhook] 🎉 Kích hoạt thành công License Key: ${license.key}. Hạn dùng mới: ${expiresAt.toISOString()}`);
+      activatedKeys.push(license.key);
+      processedCount++;
+
+      // Gửi email báo kích hoạt thành công (nếu key có email liên kết)
+      if (license.userEmail) {
+        try {
+          const user = await DB.users.findOne({ email: license.userEmail });
+          const fullName = user ? user.fullName : 'Khách hàng';
+          await sendLicenseEmail({
+            toEmail: license.userEmail,
+            fullName,
+            key: license.key,
+            planType: license.planType,
+            expiresAt: license.expiresAt,
+            status: 'active'
+          });
+          console.log(`[Payment Webhook] Đã gửi email kích hoạt thành công tới: ${license.userEmail}`);
+        } catch (emailErr) {
+          console.error('[Payment Webhook] Gửi email kích hoạt bị lỗi:', emailErr.message);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Đã xử lý xong ${processedCount}/${transactions.length} giao dịch.`,
+      activatedKeys
+    });
+
+  } catch (err) {
+    console.error('[Payment Webhook] Lỗi hệ thống khi xử lý webhook:', err);
+    res.status(500).json({ error: 'Internal system error processing webhook: ' + err.message });
   }
 });
 

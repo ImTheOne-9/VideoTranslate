@@ -41,7 +41,7 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
         <div className="absolute top-1/3 left-1/4 -translate-y-1/2 w-[350px] h-[350px] bg-purple-500/10 rounded-full blur-[90px] pointer-events-none"></div>
         
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative">
-          <div className="text-center max-w-4xl mx-auto space-y-6">
+          <div className="text-center max-w-5xl mx-auto space-y-6">
             <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300">
               <span className="flex h-2 w-2 rounded-full bg-indigo-500 animate-pulse"></span>
               Phiên bản Studio Tools v1.0.2 đã sẵn sàng

@@ -394,9 +394,15 @@ export default function Admin({ showToast }) {
           Bị Khóa
         </span>
       );
+    } else if (k.paymentStatus === 'pending') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500 border border-amber-900/30">
+          Chờ Thanh Toán
+        </span>
+      );
     } else if (isExpired) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-900/30">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-900/30">
           Hết Hạn
         </span>
       );
