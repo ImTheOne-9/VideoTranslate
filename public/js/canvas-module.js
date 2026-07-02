@@ -1794,3 +1794,56 @@ function initTimelineControls() {
   });
 }
 
+// ==========================================
+// THÊM SỰ KIỆN PHÍM TẮT ĐỂ XÓA OBJECT
+// ==========================================
+document.addEventListener('keydown', (e) => {
+  // Chỉ xử lý phím Delete hoặc Backspace
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+  // Nếu người dùng đang gõ trong input hoặc textarea, hoặc phần tử có thể edit, thì bỏ qua
+  const activeEl = document.activeElement;
+  if (activeEl) {
+    const tagName = activeEl.tagName.toUpperCase();
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || activeEl.isContentEditable) {
+      return;
+    }
+  }
+
+  // Nếu không có đối tượng nào đang được chọn trên Konva, bỏ qua
+  if (!konvaTransformer || !konvaTransformer.nodes() || konvaTransformer.nodes().length === 0) return;
+
+  const selectedNode = konvaTransformer.nodes()[0];
+  const nodeName = selectedNode.name();
+  let changed = false;
+
+  if (nodeName === 'subtitle') {
+    const noneBtn = document.querySelector('.sub-tab-btn[data-sub-mode="none"]');
+    if (noneBtn && !noneBtn.classList.contains('active')) {
+      noneBtn.click();
+      changed = true;
+    }
+  } else if (nodeName === 'reaction') {
+    const noneBtn = document.querySelector('.reaction-tab-btn[data-reaction-tab-mode="none"]');
+    if (noneBtn && !noneBtn.classList.contains('active')) {
+      noneBtn.click();
+      changed = true;
+    }
+  } else if (nodeName === 'blur-box-shape' || nodeName === 'blur') {
+    // ID của blur box được gắn trong thuộc tính name hoặc id (ví dụ: "blur-box-178235...")
+    const blurIdStr = selectedNode.id();
+    if (blurIdStr && blurIdStr.startsWith('blur-box-')) {
+      const id = parseInt(blurIdStr.replace('blur-box-', ''), 10);
+      if (!isNaN(id) && typeof removeBlurBox === 'function') {
+        removeBlurBox(id);
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    // Xóa vùng chọn
+    konvaTransformer.nodes([]);
+    konvaLayer.draw();
+  }
+});
