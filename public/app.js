@@ -51,17 +51,57 @@ function setBusy(button, busy, text) {
   }
 }
 
+let pendingSwitchViewName = null;
+
+function closeSaveProjectConfirmModal() {
+  const modal = $('save-project-confirm-modal');
+  if (modal) modal.classList.add('hidden');
+  pendingSwitchViewName = null;
+}
+
+async function proceedWithSaveAndSwitch() {
+  const modal = $('save-project-confirm-modal');
+  if (modal) modal.classList.add('hidden');
+  
+  if (pendingSwitchViewName) {
+    const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+    if (hasVideo) {
+      await saveProjectExplicitly();
+    }
+    // Perform the actual view switch bypassing the check
+    executeSwitchView(pendingSwitchViewName);
+    pendingSwitchViewName = null;
+  }
+}
+
+// Add event listener for the confirm button
+document.addEventListener('DOMContentLoaded', () => {
+  const confirmBtn = $('confirm-save-project-btn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', proceedWithSaveAndSwitch);
+  }
+});
+
 function switchView(name) {
   stopAllAudio();
 
   const editorView = $('studio-editor-view');
-  if (editorView && !editorView.classList.contains('hidden') && currentProjectId && name !== 'studio') {
+  if (editorView && !editorView.classList.contains('hidden') && currentProjectId) {
     const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
     if (hasVideo) {
-      saveProjectExplicitly();
+      pendingSwitchViewName = name;
+      const modal = $('save-project-confirm-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        return; // Dừng việc chuyển tab, chờ người dùng xác nhận
+      }
     }
   }
 
+  executeSwitchView(name);
+}
+
+function executeSwitchView(name) {
   document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
   
@@ -2146,7 +2186,16 @@ function setPreviewReactionVideo(url) {
     video.play().catch(() => {});
     const placeholder = pipEl.querySelector('.reaction-placeholder-box');
     if (placeholder) placeholder.classList.add('hidden');
-    setTimeout(updateReactionPreview, 100);
+    
+    const onReactionMetadataLoaded = () => {
+      updateReactionPreview();
+    };
+    
+    if (video.readyState >= 1) {
+      onReactionMetadataLoaded();
+    } else {
+      video.onloadedmetadata = onReactionMetadataLoaded;
+    }
   } else {
     video.pause();
     video.src = '';
@@ -6214,24 +6263,7 @@ function openStudioEditor() {
 }
 
 async function backToStudioHome() {
-  if (currentProjectId) {
-    const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
-    if (hasVideo) {
-      await saveProjectExplicitly();
-    }
-  }
-
-  const homeView = $('studio-home-view');
-  const editorView = $('studio-editor-view');
-  if (homeView) homeView.classList.remove('hidden');
-  if (editorView) editorView.classList.add('hidden');
-
-  const standardInfo = $('topbar-standard-info');
-  const projectInfo = $('topbar-project-info');
-  if (standardInfo) standardInfo.style.display = 'block';
-  if (projectInfo) projectInfo.style.display = 'none';
-
-  renderProjectsList();
+  switchView('studio');
 }
 
 async function createNewProject() {

@@ -1363,6 +1363,27 @@
     </div>
   </div>
 
+  <!-- Save Project Confirm Modal (Tab Switch) -->
+  <div id="save-project-confirm-modal" class="fb-modal-overlay hidden" style="z-index: 10005;">
+    <div class="fb-modal-content" style="width: 400px;">
+      <div class="fb-modal-header">
+        <h3 style="color: var(--text); display: flex; align-items: center; gap: 8px;">
+          💾 Lưu dự án
+        </h3>
+        <button class="fb-modal-close" onclick="closeSaveProjectConfirmModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; text-align: center; gap: 16px;">
+        <p style="margin: 0; color: var(--text); font-size: 14px; line-height: 1.5;">
+          Bạn đang ở trong một dự án. Bạn có muốn lưu các thay đổi trước khi chuyển sang trang khác không?
+        </p>
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="confirm-save-project-btn" class="premium-render-btn" style="background: var(--accent); color: white; flex: 1; margin: 0;">Lưu & Chuyển</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeSaveProjectConfirmModal()">Hủy bỏ (Ở lại)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Video Preview Modal -->
   <div id="video-preview-modal" class="fb-modal-overlay hidden">
     <div class="fb-modal-content" style="width: 640px; max-width: 95%;">
