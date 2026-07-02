@@ -23,3 +23,6 @@ models/
 .env
 license-server/.env
 license-server/database.json
+
+# Saved projects
+projects/*.json
