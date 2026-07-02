@@ -15,7 +15,14 @@ try {
     for (const line of envLines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
-      const parts = trimmed.split('=');
+      // Loại bỏ comment ghi chú ở cuối dòng nếu có
+      const hashIndex = trimmed.indexOf('#');
+      let cleanLine = trimmed;
+      if (hashIndex !== -1) {
+        cleanLine = trimmed.substring(0, hashIndex).trim();
+      }
+      if (!cleanLine) continue;
+      const parts = cleanLine.split('=');
       if (parts.length >= 2) {
         const key = parts[0].trim();
         let val = parts.slice(1).join('=').trim();
@@ -42,11 +49,47 @@ if (process.env.RESEND_API_KEY) {
   }
 }
 
+let stripe = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  try {
+    stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    console.log('[License Server] Stripe Configured.');
+  } catch (err) {
+    console.error('[License Server] Lỗi khi khởi tạo Stripe SDK:', err.message);
+  }
+}
+
+let payOS = null;
+if (process.env.PAYOS_CLIENT_ID && process.env.PAYOS_API_KEY && process.env.PAYOS_CHECKSUM_KEY) {
+  try {
+    const PayOS = require('@payos/node');
+    payOS = new PayOS(
+      process.env.PAYOS_CLIENT_ID,
+      process.env.PAYOS_API_KEY,
+      process.env.PAYOS_CHECKSUM_KEY
+    );
+    console.log('[License Server] PayOS Configured.');
+  } catch (err) {
+    console.error('[License Server] Lỗi khi khởi tạo PayOS SDK:', err.message);
+  }
+}
+
 const PORT = process.env.PORT || 4000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/license_server';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'my_super_secret_admin_token_2026';
 
+let stripeWebhookHandler = null;
+
 const app = express();
+
+// Stripe Webhook Endpoint receives raw body before express.json() parses it
+app.post('/api/payment/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (stripeWebhookHandler) {
+    return stripeWebhookHandler(req, res);
+  }
+  res.status(404).json({ error: 'Stripe webhook handler not set' });
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -81,7 +124,7 @@ const licenseSchema = new mongoose.Schema({
   customerName: { type: String, default: 'Khách lẻ' },
   userEmail: { type: String, default: null },
   planType: { type: String, default: 'trial' },
-  paymentStatus: { type: String, enum: ['active', 'pending', 'expired'], default: 'active' },
+  paymentStatus: { type: String, enum: ['active', 'pending', 'expired', 'suspended'], default: 'active' },
   hwid: { type: String, default: null },
   expiresAt: { type: Date, required: true },
   status: { type: String, enum: ['active', 'suspended'], default: 'active' },
@@ -271,6 +314,64 @@ const DB = {
         
         return {
           ...newLicense,
+          save: async function() {
+            const dbData = readJSON();
+            const idx = dbData.licenses.findIndex(l => l.key === this.key);
+            if (idx !== -1) {
+              dbData.licenses[idx] = {
+                key: this.key,
+                customerName: this.customerName,
+                userEmail: this.userEmail,
+                planType: this.planType,
+                paymentStatus: this.paymentStatus,
+                hwid: this.hwid,
+                expiresAt: this.expiresAt,
+                status: this.status,
+                resetCount: this.resetCount,
+                lastResetAt: this.lastResetAt,
+                priceAtPurchase: this.priceAtPurchase,
+                createdAt: this.createdAt
+              };
+              await writeJSON(dbData);
+            }
+            return this;
+          }
+        };
+      }
+    },
+
+    async findOneAndUpdate(query, update, options = {}) {
+      if (useMongo) {
+        return await LicenseModel.findOneAndUpdate(query, update, options);
+      } else {
+        const db = readJSON();
+        const license = db.licenses.find(l => {
+          for (const k in query) {
+            if (k === 'paymentStatus' && query[k] && query[k].$in) {
+              if (!query[k].$in.includes(l[k])) return false;
+            } else if (l[k] !== query[k]) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (!license) return null;
+
+        if (update.$set) {
+          for (const k in update.$set) {
+            license[k] = update.$set[k];
+          }
+        } else {
+          for (const k in update) {
+            license[k] = update[k];
+          }
+        }
+
+        await writeJSON(db);
+
+        return {
+          ...license,
           save: async function() {
             const dbData = readJSON();
             const idx = dbData.licenses.findIndex(l => l.key === this.key);
@@ -1703,6 +1804,143 @@ app.get('/api/plans/status', async (req, res) => {
   }
 });
 
+const inFlightPaymentSessions = new Set();
+
+// API Tạo phiên thanh toán Stripe Checkout
+app.post('/api/payment/stripe/create-session', userAuth, async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
+
+  const sessionLockKey = `${req.user.email}_stripe_${key}`;
+  if (inFlightPaymentSessions.has(sessionLockKey)) {
+    return res.status(429).json({ error: 'Yêu cầu thanh toán đang được xử lý, vui lòng đợi.' });
+  }
+  inFlightPaymentSessions.add(sessionLockKey);
+
+  try {
+    const license = await DB.licenses.findOne({ key });
+    if (!license) return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
+
+    // 1. Xác thực quyền sở hữu (Ownership Check)
+    if (license.userEmail !== req.user.email) {
+      return res.status(403).json({ error: 'Bạn không có quyền thanh toán cho key bản quyền của người khác!' });
+    }
+
+    // 2. Chỉ chấp nhận các License đang pending hoặc expired (Trễ hạn)
+    if (license.paymentStatus !== 'pending' && license.paymentStatus !== 'expired') {
+      return res.status(400).json({ error: 'Giao dịch không hợp lệ hoặc bản quyền đã được kích hoạt!' });
+    }
+
+    const plan = await DB.plans.findOne({ id: license.planType });
+    if (!plan) return res.status(400).json({ error: 'Không tìm thấy thông tin gói dịch vụ!' });
+
+    // Giá snapshot động
+    const amount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : plan.price;
+
+    const domain = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+
+    // Khóa Idempotency động theo 10 phút để tránh spam
+    const idempotencyKey = `${license.key}_${Math.floor(Date.now() / 600000)}`;
+
+    if (!stripe) {
+      return res.status(500).json({ error: 'Cổng thanh toán Stripe chưa được cấu hình trên hệ thống!' });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'vnd', // Stripe VND là zero-decimal (không nhân 100)
+          product_data: {
+            name: `Gia hạn bản quyền Video Studio - ${plan.name}`,
+            description: `Mã key: ${license.key}`,
+          },
+          unit_amount: amount,
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      client_reference_id: license.key,
+      payment_intent_data: {
+        metadata: {
+          license_key: license.key // Bắt buộc để Stripe copy sang Charge Object
+        }
+      },
+      success_url: `${domain}/payment.html?key=${license.key}&status=success`,
+      cancel_url: `${domain}/payment.html?key=${license.key}&status=cancel`,
+    }, {
+      idempotencyKey
+    });
+
+    res.json({ success: true, url: session.url });
+
+  } catch (err) {
+    console.error('[Stripe Create Session Error]:', err.message);
+    res.status(500).json({ error: 'Lỗi khởi tạo phiên thanh toán Stripe: ' + err.message });
+  } finally {
+    inFlightPaymentSessions.delete(sessionLockKey);
+  }
+});
+
+// API Tạo liên kết thanh toán PayOS
+app.post('/api/payment/payos/create-link', userAuth, async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
+
+  const sessionLockKey = `${req.user.email}_payos_${key}`;
+  if (inFlightPaymentSessions.has(sessionLockKey)) {
+    return res.status(429).json({ error: 'Yêu cầu thanh toán đang được xử lý, vui lòng đợi.' });
+  }
+  inFlightPaymentSessions.add(sessionLockKey);
+
+  try {
+    const license = await DB.licenses.findOne({ key });
+    if (!license) return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
+
+    // 1. Xác thực quyền sở hữu (Ownership Check)
+    if (license.userEmail !== req.user.email) {
+      return res.status(403).json({ error: 'Bạn không có quyền thanh toán cho key bản quyền của người khác!' });
+    }
+
+    // 2. Chấp nhận pending hoặc expired
+    if (license.paymentStatus !== 'pending' && license.paymentStatus !== 'expired') {
+      return res.status(400).json({ error: 'Giao dịch không hợp lệ hoặc bản quyền đã được kích hoạt!' });
+    }
+
+    const plan = await DB.plans.findOne({ id: license.planType });
+    if (!plan) return res.status(400).json({ error: 'Không tìm thấy thông tin gói dịch vụ!' });
+
+    const amount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : plan.price;
+    const keyRef = license.key.split('-')[1].toUpperCase();
+
+    const domain = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+
+    if (!payOS) {
+      return res.status(500).json({ error: 'Cổng thanh toán PayOS chưa được cấu hình trên hệ thống!' });
+    }
+
+    // Tránh đụng độ mã đơn hàng tuyệt đối 100%
+    const orderCode = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+
+    const paymentLinkData = {
+      orderCode: orderCode,
+      amount: amount,
+      description: `VST ${keyRef}`,
+      cancelUrl: `${domain}/payment.html?key=${license.key}&status=cancel`,
+      returnUrl: `${domain}/payment.html?key=${license.key}&status=success`,
+    };
+
+    const paymentLink = await payOS.createPaymentLink(paymentLinkData);
+    res.json({ success: true, url: paymentLink.checkoutUrl });
+
+  } catch (err) {
+    console.error('[PayOS Create Link Error]:', err.message);
+    res.status(500).json({ error: 'Lỗi khởi tạo liên kết thanh toán PayOS: ' + err.message });
+  } finally {
+    inFlightPaymentSessions.delete(sessionLockKey);
+  }
+});
+
 // API Mô phỏng duyệt thanh toán (chỉ chạy ở dev/test, không cần auth để dễ kiểm thử)
 app.post('/api/user/simulate-payment', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
@@ -1762,6 +2000,173 @@ app.post('/api/user/simulate-payment', async (req, res) => {
     res.status(500).json({ error: 'Lỗi hệ thống khi duyệt thanh toán: ' + err.message });
   }
 });
+
+// Định nghĩa Stripe Webhook Handler thực tế
+stripeWebhookHandler = async (req, res) => {
+  let event;
+  try {
+    const sig = req.headers['stripe-signature'];
+    if (!stripe) {
+      console.error('[Stripe Webhook] Error: stripe SDK is not initialized.');
+      return res.status(500).json({ error: 'Stripe SDK not configured' });
+    }
+    // XÁC THỰC CHỮ KÝ SỐ STRIPE BẮT BUỘC (RAW BODY)
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error(`[Stripe Webhook] ❌ Lỗi xác thực chữ ký Stripe: ${err.message}`);
+    return res.status(400).json({ error: 'Invalid stripe webhook signature' });
+  }
+
+  // 1. Nhánh KÍCH HOẠT: Thanh toán hoàn tất thành công
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const key = session.client_reference_id;
+    if (!key) return res.status(400).json({ error: 'Missing client_reference_id' });
+
+    const keyRef = key.split('-')[1].toUpperCase();
+
+    if (inFlightWebhooks.has(keyRef)) {
+      return res.json({ success: true, message: 'Processing concurrently...' });
+    }
+    inFlightWebhooks.add(keyRef);
+
+    try {
+      const license = await DB.licenses.findOne({ key });
+      if (!license) {
+        console.warn(`[Stripe Webhook] ⚠️ WARNING: Không tìm thấy License: "${key}".`);
+        return res.status(404).json({ error: 'License not found' });
+      }
+
+      if (license.paymentStatus === 'active') {
+        return res.json({ success: true, message: 'License already active' });
+      }
+
+      // Ngăn chặn tự động phục hồi đối với Key đã bị Admin đình chỉ thủ công hoặc do tranh chấp
+      if (license.status === 'suspended') {
+        console.warn(`[Stripe Webhook] 🛑 Từ chối tự kích hoạt Key đang bị đình chỉ (Suspended): ${key}`);
+        return res.json({ success: true, message: 'Cannot auto-activate suspended license. Admin manual check required.' });
+      }
+
+      const plan = await DB.plans.findOne({ id: license.planType });
+      const days = plan ? plan.durationDays : 30;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + days);
+
+      // Cập nhật Atomic chống Race Condition
+      const updatedLicense = await DB.licenses.findOneAndUpdate(
+        { key, paymentStatus: { $in: ['pending', 'expired'] } },
+        { $set: { paymentStatus: 'active', expiresAt: expiresAt.toISOString() } },
+        { new: true }
+      );
+
+      if (!updatedLicense) {
+        return res.json({ success: true, message: 'License activated concurrently' });
+      }
+
+      console.log(`[Stripe Webhook] 🎉 Kích hoạt thành công License Key: ${updatedLicense.key}.`);
+
+      // Gửi Email kích hoạt (Cô lập lỗi)
+      try {
+        await sendLicenseEmail({
+          toEmail: updatedLicense.userEmail,
+          fullName: updatedLicense.customerName,
+          key: updatedLicense.key,
+          planType: updatedLicense.planType,
+          expiresAt: updatedLicense.expiresAt,
+          status: 'active'
+        });
+      } catch (emailErr) {
+        console.error(`[Stripe Webhook] ⚠️ WARNING: Lỗi gửi email kích hoạt:`, emailErr.message);
+      }
+
+      return res.json({ success: true, message: 'Activated' });
+
+    } catch (err) {
+      console.error('[Stripe Webhook] Lỗi xử lý checkout.session.completed:', err);
+      return res.status(500).json({ error: 'Internal error' });
+    } finally {
+      inFlightWebhooks.delete(keyRef);
+    }
+  }
+
+  // 2. Nhánh ĐÌNH CHỈ 1: Khách hàng yêu cầu hoàn tiền (Refund)
+  if (event.type === 'charge.refunded') {
+    const charge = event.data.object;
+    const isFullRefund = charge.amount_refunded >= charge.amount;
+
+    if (isFullRefund) {
+      const key = charge.metadata.license_key; 
+      if (!key) {
+        console.warn('[Stripe Webhook] WARNING: Không tìm thấy license_key trong metadata của charge.');
+        return res.json({ received: true });
+      }
+
+      const keyRef = key.split('-')[1].toUpperCase();
+      if (inFlightWebhooks.has(keyRef)) {
+        return res.json({ success: true, message: 'Processing concurrently...' });
+      }
+      inFlightWebhooks.add(keyRef);
+
+      try {
+        const license = await DB.licenses.findOneAndUpdate(
+          { key: key },
+          { $set: { status: 'suspended', paymentStatus: 'suspended' } },
+          { new: true }
+        );
+        if (license) {
+          console.log(`[Stripe Webhook] 🛑 Đình chỉ thành công License Key do hoàn tiền: ${key}`);
+        }
+        return res.json({ success: true, message: 'License suspended' });
+      } catch (err) {
+        console.error('[Stripe Webhook] Lỗi khi xử lý đình chỉ key do hoàn tiền:', err.message);
+        return res.status(500).json({ error: 'Internal error processing refund' });
+      } finally {
+        inFlightWebhooks.delete(keyRef);
+      }
+    } else {
+      console.log(`[Stripe Webhook] INFO: Hoàn tiền một phần, bỏ qua không khóa key.`);
+    }
+  }
+
+  // 3. Nhánh ĐÌNH CHỈ 2: Khách hàng tranh chấp thẻ (Chargeback/Dispute)
+  if (event.type === 'charge.dispute.created') {
+    const dispute = event.data.object;
+
+    try {
+      const charge = await stripe.charges.retrieve(dispute.charge);
+      const key = charge.metadata.license_key;
+      if (!key) {
+        console.warn('[Stripe Webhook] WARNING: Không tìm thấy license_key trong charge dispute.');
+        return res.json({ received: true });
+      }
+
+      const keyRef = key.split('-')[1].toUpperCase();
+      if (inFlightWebhooks.has(keyRef)) {
+        return res.json({ success: true, message: 'Processing concurrently...' });
+      }
+      inFlightWebhooks.add(keyRef);
+
+      try {
+        const license = await DB.licenses.findOneAndUpdate(
+          { key: key },
+          { $set: { status: 'suspended', paymentStatus: 'suspended' } },
+          { new: true }
+        );
+        if (license) {
+          console.log(`[Stripe Webhook] 🛑 Đình chỉ thành công Key do Chargeback: ${key}`);
+        }
+        return res.json({ success: true, message: 'License suspended' });
+      } finally {
+        inFlightWebhooks.delete(keyRef);
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Lỗi xử lý Dispute:', err.message);
+      return res.status(500).json({ error: 'Internal error processing dispute' });
+    }
+  }
+
+  return res.json({ received: true });
+};
 
 const inFlightWebhooks = new Set();
 
@@ -1920,6 +2325,100 @@ app.post('/api/payment/webhook', async (req, res) => {
   } catch (err) {
     console.error('[Payment Webhook] Lỗi hệ thống khi xử lý webhook:', err);
     res.status(500).json({ error: 'Internal system error processing webhook: ' + err.message });
+  }
+});
+
+// Webhook tự động nhận thông tin thanh toán từ PayOS
+app.post('/api/payment/payos/webhook', async (req, res) => {
+  try {
+    if (!payOS) {
+      console.error('[PayOS Webhook] Error: payOS SDK is not initialized.');
+      return res.status(500).json({ error: 'PayOS SDK not configured' });
+    }
+
+    // XÁC THỰC CHỮ KÝ VÀ DỮ LIỆU BẢO MẬT PAYOS
+    const webhookData = payOS.verifyPaymentWebhookData(req.body);
+    
+    // Webhook data chứa description/orderCode để tìm ra License
+    const orderDescription = webhookData.description;
+    const keyRefMatch = orderDescription.match(/vst\s+([a-z0-9]+)/i);
+    if (!keyRefMatch) {
+      console.log('[PayOS Webhook] Bỏ qua: Không tìm thấy cú pháp VST keyRef trong description.');
+      return res.json({ success: true, message: 'Webhook ignored: no VST key reference found' });
+    }
+    
+    const keyRef = keyRefMatch[1].toUpperCase();
+
+    if (inFlightWebhooks.has(keyRef)) {
+      return res.json({ success: true, message: 'Processing in parallel' });
+    }
+    inFlightWebhooks.add(keyRef);
+
+    try {
+      // Tìm License đầy đủ sử dụng regex động: ^[^-]+-keyRef-
+      let license = null;
+      if (useMongo) {
+        license = await LicenseModel.findOne({ key: { $regex: `^[^\\-]+-${keyRef}-`, $options: 'i' } });
+      } else {
+        const db = readJSON();
+        const found = db.licenses.find(l => {
+          const parts = l.key.split('-');
+          return parts.length > 1 && parts[1].toUpperCase() === keyRef;
+        });
+        if (found) license = await DB.licenses.findOne({ key: found.key });
+      }
+
+      if (!license) {
+        console.warn(`[PayOS Webhook] ⚠️ WARNING: Không tìm thấy License tương ứng với keyRef "${keyRef}".`);
+        return res.status(404).json({ error: 'License not found' });
+      }
+
+      if (license.paymentStatus === 'active') {
+        return res.json({ success: true, message: 'Already active' });
+      }
+
+      // Ngăn chặn tự động phục hồi đối với Key đã bị Admin đình chỉ thủ công
+      if (license.status === 'suspended') {
+        console.warn(`[PayOS Webhook] 🛑 Từ chối tự kích hoạt Key đang bị đình chỉ (Suspended): ${license.key}`);
+        return res.json({ success: true, message: 'Cannot auto-activate suspended license.' });
+      }
+
+      const plan = await DB.plans.findOne({ id: license.planType });
+      const days = plan ? plan.durationDays : 30;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + days);
+
+      // Cập nhật Atomic chống Race Condition
+      const updatedLicense = await DB.licenses.findOneAndUpdate(
+        { key: license.key, paymentStatus: { $in: ['pending', 'expired'] } },
+        { $set: { paymentStatus: 'active', expiresAt: expiresAt.toISOString() } },
+        { new: true }
+      );
+
+      if (updatedLicense) {
+        console.log(`[PayOS Webhook] 🎉 Kích hoạt thành công License Key: ${updatedLicense.key}.`);
+        try {
+          await sendLicenseEmail({
+            toEmail: updatedLicense.userEmail,
+            fullName: updatedLicense.customerName,
+            key: updatedLicense.key,
+            planType: updatedLicense.planType,
+            expiresAt: updatedLicense.expiresAt,
+            status: 'active'
+          });
+        } catch (emailErr) {
+          console.error(`[PayOS Webhook] Lỗi gửi email:`, emailErr.message);
+        }
+      }
+
+      return res.json({ success: true });
+    } finally {
+      inFlightWebhooks.delete(keyRef);
+    }
+
+  } catch (err) {
+    console.error(`[PayOS Webhook] Lỗi xác thực chữ ký PayOS hoặc lỗi xử lý:`, err.message);
+    return res.status(400).json({ error: 'Invalid PayOS signature or process error' });
   }
 });
 
