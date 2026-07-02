@@ -6103,7 +6103,24 @@ function deserializeStudioForm(obj) {
   }
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
   renderBlurBoxesList();
-  updateSubtitleOverlayFromInputs();
+
+  // Đợi video load metadata xong rồi mới cập nhật overlay phụ đề
+  // để tránh tính toán sai vị trí khi videoWidth/videoHeight chưa sẵn sàng
+  const previewVideo = $('studio-video-preview');
+  if (previewVideo && previewVideo.src && previewVideo.src !== '') {
+    if (previewVideo.readyState >= 1) {
+      // Video đã có metadata, delay nhỏ để đảm bảo input values đã được gán hết
+      setTimeout(() => updateSubtitleOverlayFromInputs(), 150);
+    } else {
+      // Chờ video tải metadata xong rồi mới cập nhật overlay
+      previewVideo.addEventListener('loadedmetadata', () => {
+        // Delay nhỏ để đảm bảo callback gốc từ setPreviewVideo chạy xong trước
+        setTimeout(() => updateSubtitleOverlayFromInputs(), 100);
+      }, { once: true });
+    }
+  } else {
+    updateSubtitleOverlayFromInputs();
+  }
 }
 
 function resetStudioForm() {
