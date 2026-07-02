@@ -15,7 +15,14 @@ try {
     for (const line of envLines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
-      const parts = trimmed.split('=');
+      // Loại bỏ comment ghi chú ở cuối dòng nếu có
+      const hashIndex = trimmed.indexOf('#');
+      let cleanLine = trimmed;
+      if (hashIndex !== -1) {
+        cleanLine = trimmed.substring(0, hashIndex).trim();
+      }
+      if (!cleanLine) continue;
+      const parts = cleanLine.split('=');
       if (parts.length >= 2) {
         const key = parts[0].trim();
         let val = parts.slice(1).join('=').trim();
@@ -42,11 +49,47 @@ if (process.env.RESEND_API_KEY) {
   }
 }
 
+let stripe = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  try {
+    stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    console.log('[License Server] Stripe Configured.');
+  } catch (err) {
+    console.error('[License Server] Lỗi khi khởi tạo Stripe SDK:', err.message);
+  }
+}
+
+let payOS = null;
+if (process.env.PAYOS_CLIENT_ID && process.env.PAYOS_API_KEY && process.env.PAYOS_CHECKSUM_KEY) {
+  try {
+    const { PayOS } = require('@payos/node');
+    payOS = new PayOS({
+      clientId: process.env.PAYOS_CLIENT_ID,
+      apiKey: process.env.PAYOS_API_KEY,
+      checksumKey: process.env.PAYOS_CHECKSUM_KEY
+    });
+    console.log('[License Server] PayOS Configured.');
+  } catch (err) {
+    console.error('[License Server] Lỗi khi khởi tạo PayOS SDK:', err.message);
+  }
+}
+
 const PORT = process.env.PORT || 4000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/license_server';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'my_super_secret_admin_token_2026';
 
+let stripeWebhookHandler = null;
+
 const app = express();
+
+// Stripe Webhook Endpoint receives raw body before express.json() parses it
+app.post('/api/payment/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (stripeWebhookHandler) {
+    return stripeWebhookHandler(req, res);
+  }
+  res.status(404).json({ error: 'Stripe webhook handler not set' });
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -80,13 +123,14 @@ const licenseSchema = new mongoose.Schema({
   key: { type: String, unique: true, required: true },
   customerName: { type: String, default: 'Khách lẻ' },
   userEmail: { type: String, default: null },
-  planType: { type: String, enum: ['trial', 'monthly', 'yearly'], default: 'trial' },
-  paymentStatus: { type: String, enum: ['active', 'pending'], default: 'active' },
+  planType: { type: String, default: 'trial' },
+  paymentStatus: { type: String, enum: ['active', 'pending', 'expired', 'suspended'], default: 'active' },
   hwid: { type: String, default: null },
   expiresAt: { type: Date, required: true },
   status: { type: String, enum: ['active', 'suspended'], default: 'active' },
   resetCount: { type: Number, default: 0 },
   lastResetAt: { type: Date, default: null },
+  priceAtPurchase: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -102,23 +146,37 @@ const settingSchema = new mongoose.Schema({
 });
 const SettingModel = mongoose.model('Setting', settingSchema);
 
+const planSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  durationDays: { type: Number, required: true },
+  description: { type: String, default: '' },
+  features: { type: [String], default: [] },
+  isPopular: { type: Boolean, default: false },
+  status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+  createdAt: { type: Date, default: Date.now }
+});
+const PlanModel = mongoose.model('Plan', planSchema);
+
 const DB_FILE = path.join(__dirname, 'database.json');
 let useMongo = false;
 
 // Fallback JSON-DB Helpers with Write Queue to prevent race conditions
 function readJSON() {
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ licenses: [], users: [] }, null, 2), 'utf8');
+    fs.writeFileSync(DB_FILE, JSON.stringify({ licenses: [], users: [], plans: [] }, null, 2), 'utf8');
   }
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
     const data = JSON.parse(raw);
     if (!data.licenses) data.licenses = [];
     if (!data.users) data.users = [];
+    if (!data.plans) data.plans = [];
     return data;
   } catch (err) {
     console.error('[License Server] Đọc file database.json thất bại, sử dụng cấu trúc rỗng:', err.message);
-    return { licenses: [], users: [] };
+    return { licenses: [], users: [], plans: [] };
   }
 }
 
@@ -203,6 +261,7 @@ const DB = {
           status: license.status,
           resetCount: license.resetCount || 0,
           lastResetAt: license.lastResetAt,
+          priceAtPurchase: license.priceAtPurchase || 0,
           createdAt: license.createdAt,
           save: async function() {
             const dbData = readJSON();
@@ -219,6 +278,7 @@ const DB = {
                 status: this.status,
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
+                priceAtPurchase: this.priceAtPurchase,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -246,6 +306,7 @@ const DB = {
           status: data.status || 'active',
           resetCount: data.resetCount || 0,
           lastResetAt: data.lastResetAt || null,
+          priceAtPurchase: data.priceAtPurchase || 0,
           createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : (data.createdAt || new Date().toISOString())
         };
         db.licenses.push(newLicense);
@@ -268,6 +329,65 @@ const DB = {
                 status: this.status,
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
+                priceAtPurchase: this.priceAtPurchase,
+                createdAt: this.createdAt
+              };
+              await writeJSON(dbData);
+            }
+            return this;
+          }
+        };
+      }
+    },
+
+    async findOneAndUpdate(query, update, options = {}) {
+      if (useMongo) {
+        return await LicenseModel.findOneAndUpdate(query, update, options);
+      } else {
+        const db = readJSON();
+        const license = db.licenses.find(l => {
+          for (const k in query) {
+            if (k === 'paymentStatus' && query[k] && query[k].$in) {
+              if (!query[k].$in.includes(l[k])) return false;
+            } else if (l[k] !== query[k]) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (!license) return null;
+
+        if (update.$set) {
+          for (const k in update.$set) {
+            license[k] = update.$set[k];
+          }
+        } else {
+          for (const k in update) {
+            license[k] = update[k];
+          }
+        }
+
+        await writeJSON(db);
+
+        return {
+          ...license,
+          save: async function() {
+            const dbData = readJSON();
+            const idx = dbData.licenses.findIndex(l => l.key === this.key);
+            if (idx !== -1) {
+              dbData.licenses[idx] = {
+                key: this.key,
+                customerName: this.customerName,
+                userEmail: this.userEmail,
+                planType: this.planType,
+                paymentStatus: this.paymentStatus,
+                hwid: this.hwid,
+                expiresAt: this.expiresAt,
+                status: this.status,
+                resetCount: this.resetCount,
+                lastResetAt: this.lastResetAt,
+                priceAtPurchase: this.priceAtPurchase,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -470,8 +590,273 @@ const DB = {
         await writeJSON(db);
       }
     }
+  },
+
+  plans: {
+    async find(query = {}) {
+      if (useMongo) {
+        return await PlanModel.find(query).sort({ price: 1 });
+      } else {
+        const db = readJSON();
+        let results = db.plans || [];
+        if (query.status) {
+          results = results.filter(p => p.status === query.status);
+        }
+        if (query.id) {
+          results = results.filter(p => p.id === query.id);
+        }
+        return results.sort((a, b) => a.price - b.price);
+      }
+    },
+
+    async findOne(query) {
+      if (useMongo) {
+        return await PlanModel.findOne(query);
+      } else {
+        const db = readJSON();
+        let plan = null;
+        if (query.id) {
+          plan = db.plans.find(p => p.id === query.id);
+        }
+        if (!plan) return null;
+        return {
+          id: plan.id,
+          name: plan.name,
+          price: plan.price,
+          durationDays: plan.durationDays,
+          description: plan.description || '',
+          features: plan.features || [],
+          isPopular: plan.isPopular !== undefined ? plan.isPopular : false,
+          status: plan.status || 'active',
+          createdAt: plan.createdAt,
+          save: async function() {
+            const dbData = readJSON();
+            const idx = dbData.plans.findIndex(p => p.id === this.id);
+            if (idx !== -1) {
+              dbData.plans[idx] = {
+                id: this.id,
+                name: this.name,
+                price: this.price,
+                durationDays: this.durationDays,
+                description: this.description,
+                features: this.features,
+                isPopular: this.isPopular,
+                status: this.status,
+                createdAt: this.createdAt
+              };
+              await writeJSON(dbData);
+            }
+            return this;
+          }
+        };
+      }
+    },
+
+    async create(data) {
+      if (useMongo) {
+        const plan = new PlanModel(data);
+        return await plan.save();
+      } else {
+        const db = readJSON();
+        const newPlan = {
+          id: data.id,
+          name: data.name,
+          price: data.price,
+          durationDays: data.durationDays,
+          description: data.description || '',
+          features: data.features || [],
+          isPopular: data.isPopular !== undefined ? data.isPopular : false,
+          status: data.status || 'active',
+          createdAt: data.createdAt || new Date().toISOString()
+        };
+        db.plans.push(newPlan);
+        await writeJSON(db);
+        return {
+          ...newPlan,
+          save: async function() {
+            const dbData = readJSON();
+            const idx = dbData.plans.findIndex(p => p.id === this.id);
+            if (idx !== -1) {
+              dbData.plans[idx] = {
+                id: this.id,
+                name: this.name,
+                price: this.price,
+                durationDays: this.durationDays,
+                description: this.description,
+                features: this.features,
+                isPopular: this.isPopular,
+                status: this.status,
+                createdAt: this.createdAt
+              };
+              await writeJSON(dbData);
+            }
+            return this;
+          }
+        };
+      }
+    },
+
+    async deleteOne(query) {
+      if (useMongo) {
+        return await PlanModel.deleteOne(query);
+      } else {
+        const db = readJSON();
+        const initialCount = db.plans.length;
+        db.plans = db.plans.filter(p => p.id !== query.id);
+        await writeJSON(db);
+        return { deletedCount: initialCount - db.plans.length };
+      }
+    }
   }
 };
+
+// Function to seed default plans
+async function seedDefaultPlans() {
+  try {
+    const plansCount = await DB.plans.find({});
+    if (plansCount.length === 0) {
+      console.log('[License Server] Đang khởi tạo các gói dịch vụ mặc định vào Database...');
+      const defaultPlans = [
+        {
+          id: 'trial',
+          name: 'Gói Dùng Thử',
+          price: 0,
+          durationDays: 7,
+          description: 'Trải nghiệm đầy đủ tính năng công cụ',
+          features: ['Đầy đủ tính năng 100%', 'Sử dụng trên 1 máy tính', 'Hỗ trợ kỹ thuật ưu tiên'],
+          isPopular: false,
+          status: 'active'
+        },
+        {
+          id: 'monthly',
+          name: 'Gói Tháng',
+          price: 199000,
+          durationDays: 30,
+          description: 'Dành cho Creator sáng tạo thường xuyên',
+          features: ['Đầy đủ tính năng 100%', 'Sử dụng trên 1 máy tính', 'Tự động nhận key qua email', 'Hỗ trợ kỹ thuật 24/7'],
+          isPopular: true,
+          status: 'active'
+        },
+        {
+          id: 'yearly',
+          name: 'Gói Năm',
+          price: 1499000,
+          durationDays: 365,
+          description: 'Tiết kiệm tối đa chi phí dài hạn',
+          features: ['Đầy đủ tính năng 100%', 'Sử dụng trên 1 máy tính', 'Cập nhật các tính năng mới miễn phí', 'Ưu tiên xử lý lỗi & Hỗ trợ VIP'],
+          isPopular: false,
+          status: 'active'
+        }
+      ];
+
+      for (const p of defaultPlans) {
+        await DB.plans.create(p);
+      }
+      console.log('[License Server] Đã khởi tạo xong các gói dịch vụ mặc định.');
+    }
+  } catch (err) {
+    console.error('[License Server] Lỗi khởi tạo gói dịch vụ mặc định:', err.message);
+  }
+}
+
+// Function to migrate legacy licenses (populate priceAtPurchase)
+async function migrateLegacyLicenses() {
+  try {
+    const licenses = await DB.licenses.find({});
+    let migratedCount = 0;
+    for (const l of licenses) {
+      if (l.priceAtPurchase === undefined || l.priceAtPurchase === null || (l.priceAtPurchase === 0 && l.planType !== 'trial')) {
+        let price = 0;
+        if (l.planType === 'monthly') {
+          price = 199000;
+        } else if (l.planType === 'yearly') {
+          price = 1499000;
+        }
+        
+        // Lấy đối tượng wrapper đầy đủ hỗ trợ save()
+        const wrapped = await DB.licenses.findOne({ key: l.key });
+        if (wrapped) {
+          wrapped.priceAtPurchase = price;
+          await wrapped.save();
+          migratedCount++;
+        }
+      }
+    }
+    if (migratedCount > 0) {
+      console.log(`[License Server] [Migration] Đã cập nhật giá trị priceAtPurchase cho ${migratedCount} khóa bản quyền cũ.`);
+    }
+  } catch (err) {
+    console.error('[License Server] Lỗi khi chạy migration giấy phép cũ:', err.message);
+  }
+}
+
+// Tự động chuyển đổi các license ở trạng thái pending quá 24h thành expired
+// Và dọn dẹp (xóa cứng) các license expired quá 30 ngày
+async function cleanupExpiredPendingLicenses() {
+  try {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    let expiredCount = 0;
+    let deletedCount = 0;
+
+    if (useMongo) {
+      // 1. Soft-expire pending keys > 24h
+      const updateRes = await LicenseModel.updateMany(
+        { paymentStatus: 'pending', createdAt: { $lt: oneDayAgo } },
+        { paymentStatus: 'expired' }
+      );
+      expiredCount = updateRes.modifiedCount || 0;
+
+      // 2. Hard-delete expired keys > 30 days
+      const deleteRes = await LicenseModel.deleteMany({
+        paymentStatus: 'expired',
+        createdAt: { $lt: thirtyDaysAgo }
+      });
+      deletedCount = deleteRes.deletedCount || 0;
+    } else {
+      const db = readJSON();
+      let changed = false;
+      
+      db.licenses = db.licenses.filter(l => {
+        const age = Date.now() - new Date(l.createdAt).getTime();
+        if (l.paymentStatus === 'pending' && age >= 24 * 60 * 60 * 1000) {
+          l.paymentStatus = 'expired';
+          expiredCount++;
+          changed = true;
+        }
+        if (l.paymentStatus === 'expired' && age >= 30 * 24 * 60 * 60 * 1000) {
+          deletedCount++;
+          changed = true;
+          return false; // Xóa khỏi mảng
+        }
+        return true;
+      });
+
+      if (changed) {
+        await writeJSON(db);
+      }
+    }
+
+    if (expiredCount > 0) {
+      console.log(`[License Server] [Cleanup] Đã gắn nhãn hết hạn (expired) cho ${expiredCount} khóa bản quyền pending quá 24h.`);
+    }
+    if (deletedCount > 0) {
+      console.log(`[License Server] [Cleanup] Đã dọn dẹp (xóa cứng) ${deletedCount} khóa bản quyền đã expired quá 30 ngày.`);
+    }
+  } catch (err) {
+    console.error('[License Server] Lỗi khi dọn dẹp key pending quá hạn:', err.message);
+  }
+}
+
+// Chạy định kỳ mỗi 1 giờ
+setInterval(cleanupExpiredPendingLicenses, 60 * 60 * 1000);
+
+// Trigger seeding after a short timeout to let MongoDB connect (if using MongoDB)
+setTimeout(async () => {
+  await seedDefaultPlans();
+  await migrateLegacyLicenses();
+  await cleanupExpiredPendingLicenses();
+}, 2000);
 
 // Cryptography Utilities (Zero External dependencies, safe for Windows builds)
 function hashPassword(password) {
@@ -496,8 +881,8 @@ function hashToken(token) {
 }
 
 function generateToken(payload) {
-  const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days expiry
-  const tokenPayload = { ...payload, iat: Date.now(), exp: expiry };
+  const expiry = Math.floor((Date.now() + 7 * 24 * 60 * 60 * 1000) / 1000); // 7 days expiry in seconds
+  const tokenPayload = { ...payload, iat: Math.floor(Date.now() / 1000), exp: expiry };
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify(tokenPayload)).toString('base64url');
   const signature = crypto.createHmac('sha256', ADMIN_TOKEN).update(`${header}.${body}`).digest('base64url');
@@ -512,7 +897,7 @@ function verifyToken(token) {
     const expectedSig = crypto.createHmac('sha256', ADMIN_TOKEN).update(`${header}.${body}`).digest('base64url');
     if (signature !== expectedSig) return null;
     const decodedBody = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    if (decodedBody.exp && decodedBody.exp < Date.now()) {
+    if (decodedBody.exp && decodedBody.exp < Math.floor(Date.now() / 1000)) {
       return null; // Expired
     }
     return decodedBody;
@@ -599,7 +984,8 @@ async function userAuth(req, res, next) {
     }
     
     // Consistent millisecond comparison to prevent compromised sessions after password change
-    if (user.passwordChangedAt && payload.iat < new Date(user.passwordChangedAt).getTime()) {
+    const jwtIssuedAtMs = payload.iat * 1000;
+    if (user.passwordChangedAt && jwtIssuedAtMs < new Date(user.passwordChangedAt).getTime()) {
       return res.status(401).json({ error: 'Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại!' });
     }
 
@@ -714,7 +1100,7 @@ ${bodyContent.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<
 }
 
 // 1. Send Email for License Keys
-async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, status }) {
+async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, status, price }) {
   const escapedName = escapeHtml(fullName);
   const escapedKey = escapeHtml(key);
   const escapedPlan = planType === 'trial' ? 'Dùng thử (7 ngày)' : (planType === 'monthly' ? 'Gói Tháng (30 ngày)' : 'Gói Năm (365 ngày)');
@@ -726,7 +1112,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
   
   let bodyContent = '';
   if (status === 'pending') {
-    const price = planType === 'monthly' ? '199.000đ' : '1.499.000đ';
+    const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '199.000đ' : '1.499.000đ');
     const keyRef = key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
     const memo = `VST ${keyRef}`;
     
@@ -737,7 +1123,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
       <hr style="border: 0; border-top: 1px solid #e5e7eb;" />
       <h4 style="color: #6366f1; margin-top: 15px;">Thông tin chuyển khoản thanh toán:</h4>
       <ul>
-        <li><strong>Số tiền cần chuyển:</strong> <span style="font-weight: bold; color: #e11d48; font-size: 16px;">${price}</span></li>
+        <li><strong>Số tiền cần chuyển:</strong> <span style="font-weight: bold; color: #e11d48; font-size: 16px;">${formattedPrice}</span></li>
         <li><strong>Nội dung chuyển khoản (Bắt buộc đúng):</strong> <span style="font-family: monospace; font-size: 16px; background: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-weight: bold; border: 1px solid #fca5a5;">${memo}</span></li>
       </ul>
       <p style="color: #4b5563; font-size: 13px;">* Hệ thống sử dụng nội dung chuyển khoản trên để đối soát và tự động duyệt kích hoạt key bản quyền của bạn.</p>
@@ -841,6 +1227,14 @@ app.post('/api/server/activate', async (req, res) => {
     }
 
     if (!license.hwid) {
+      // Chặn lạm dụng dùng thử (Trial abuse) theo thiết bị HWID
+      if (license.planType === 'trial') {
+        const existingTrial = await DB.licenses.findOne({ hwid, planType: 'trial' });
+        if (existingTrial) {
+          return res.status(403).json({ error: 'Thiết bị này đã từng kích hoạt sử dụng thử trước đó!' });
+        }
+      }
+
       license.hwid = hwid;
       await license.save();
       console.log(`[License Server] Key ${key} đã kích hoạt cho thiết bị: ${hwid}`);
@@ -1213,7 +1607,26 @@ app.post('/api/auth/logout', (req, res) => {
 // API Lấy danh sách keys của user
 app.get('/api/user/keys', userAuth, async (req, res) => {
   try {
-    const keys = await DB.licenses.find({ userEmail: req.user.email });
+    const licenses = await DB.licenses.find({ userEmail: req.user.email });
+    const plans = await DB.plans.find({});
+    const planMap = plans.reduce((acc, p) => {
+      acc[p.id] = { name: p.name, price: p.price };
+      return acc;
+    }, {});
+
+    const keys = licenses.map(k => {
+      const plainObj = useMongo ? k.toObject() : k;
+      const planInfo = planMap[plainObj.planType] || { name: plainObj.planType, price: 0 };
+      return {
+        ...plainObj,
+        planName: planInfo.name,
+        price: planInfo.price,
+        bankCode: process.env.BANK_CODE || 'MB',
+        bankAccount: process.env.BANK_ACCOUNT || '0385464403',
+        bankAccountName: process.env.BANK_ACCOUNT_NAME || 'DOAN VIET HOANG'
+      };
+    });
+
     res.json({ success: true, keys });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi tải danh sách key: ' + err.message });
@@ -1243,14 +1656,9 @@ app.post('/api/user/keys/cancel', userAuth, async (req, res) => {
       return res.status(400).json({ error: 'Chỉ có thể hủy key ở trạng thái chờ thanh toán!' });
     }
 
-    // Tiến hành xóa key
-    if (useMongo) {
-      await LicenseModel.deleteOne({ key });
-    } else {
-      const db = readJSON();
-      db.licenses = db.licenses.filter(l => l.key !== key);
-      await writeJSON(db);
-    }
+    // Đổi trạng thái sang expired thay vì xóa cứng để tránh mất dấu vết nếu webhook đến trễ
+    license.paymentStatus = 'expired';
+    await license.save();
 
     res.json({ success: true, message: 'Đã hủy đơn đăng ký gói thành công!' });
   } catch (err) {
@@ -1258,28 +1666,45 @@ app.post('/api/user/keys/cancel', userAuth, async (req, res) => {
   }
 });
 
+const inFlightSubscriptions = new Set();
+
 // API Đăng ký gói bản quyền
 app.post('/api/plans/subscribe', userAuth, async (req, res) => {
   const { planType } = req.body;
-  if (!['trial', 'monthly', 'yearly'].includes(planType)) {
-    return res.status(400).json({ error: 'Gói dịch vụ đăng ký không hợp lệ!' });
+  if (!planType) {
+    return res.status(400).json({ error: 'Thiếu thông tin gói dịch vụ đăng ký!' });
   }
 
+  const userEmail = req.user.email.toLowerCase();
+  if (inFlightSubscriptions.has(userEmail)) {
+    return res.status(429).json({ error: 'Yêu cầu đăng ký gói của bạn đang được xử lý. Vui lòng không bấm liên tiếp!' });
+  }
+  inFlightSubscriptions.add(userEmail);
+
   try {
+    const plan = await DB.plans.findOne({ id: planType, status: 'active' });
+    if (!plan) {
+      return res.status(400).json({ error: 'Gói dịch vụ đăng ký không hợp lệ hoặc đã ngừng hoạt động!' });
+    }
+
     // 1. Chặn nếu đăng ký dùng thử > 1 lần
-    if (planType === 'trial') {
+    if (plan.price === 0) {
       const keys = await DB.licenses.find({ userEmail: req.user.email });
-      const hasUsedTrial = keys.some(k => k.planType === 'trial');
+      const hasUsedTrial = keys.some(k => k.planType === plan.id);
       if (hasUsedTrial) {
         return res.status(400).json({ error: 'Mỗi tài khoản chỉ được phép đăng ký sử dụng thử 1 lần duy nhất!' });
       }
     } else {
-      // 1.5. Chặn nếu người dùng đang có bất kỳ key nào ở trạng thái pending (Giải pháp 1)
+      // 1.5. Chặn nếu người dùng đang có bất kỳ key nào ở trạng thái pending còn hạn (trong vòng 24 giờ qua)
       const keys = await DB.licenses.find({ userEmail: req.user.email });
-      const pendingKey = keys.find(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
+      const pendingKey = keys.find(k => {
+        if (k.paymentStatus !== 'pending' || k.status === 'suspended') return false;
+        const age = Date.now() - new Date(k.createdAt).getTime();
+        return age < 24 * 60 * 60 * 1000; // Còn hạn 24h
+      });
       if (pendingKey) {
         return res.status(400).json({ 
-          error: 'Bạn đang có một mã bản quyền chờ thanh toán. Vui lòng thanh toán mã cũ trước!',
+          error: 'Bạn đang có một mã bản quyền chờ thanh toán. Vui lòng thanh toán mã cũ hoặc hủy đơn trước!',
           pendingKey: pendingKey.key
         });
       }
@@ -1288,27 +1713,25 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
     // 2. Tạo License Key mới
     const key = `STUDIO-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     
-    let days = 7;
-    if (planType === 'monthly') days = 30;
-    if (planType === 'yearly') days = 365;
-
+    const days = plan.durationDays;
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + days);
     const expiresStr = expiresAt.toISOString();
 
-    const paymentStatus = planType === 'trial' ? 'active' : 'pending';
+    const paymentStatus = plan.price === 0 ? 'active' : 'pending';
 
     const license = await DB.licenses.create({
       key,
       customerName: req.user.fullName,
       userEmail: req.user.email,
-      planType,
+      planType: plan.id,
       paymentStatus,
       hwid: null,
       expiresAt: expiresStr,
       status: 'active',
       resetCount: 0,
       lastResetAt: null,
+      priceAtPurchase: plan.price,
       createdAt: new Date().toISOString()
     });
 
@@ -1317,9 +1740,10 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
       toEmail: req.user.email,
       fullName: req.user.fullName,
       key,
-      planType,
+      planType: plan.id,
       expiresAt: expiresStr,
-      status: paymentStatus
+      status: paymentStatus,
+      price: plan.price
     });
 
     res.json({
@@ -1331,6 +1755,18 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi đăng ký gói dịch vụ: ' + err.message });
+  } finally {
+    inFlightSubscriptions.delete(userEmail);
+  }
+});
+
+// API Lấy danh sách các gói dịch vụ đang hoạt động (Công khai)
+app.get('/api/plans', async (req, res) => {
+  try {
+    const plans = await DB.plans.find({ status: 'active' });
+    res.json({ success: true, plans });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy danh sách gói dịch vụ: ' + err.message });
   }
 });
 
@@ -1347,17 +1783,161 @@ app.get('/api/plans/status', async (req, res) => {
       return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
     }
 
+    const plan = await DB.plans.findOne({ id: license.planType });
+
     res.json({
       success: true,
       key: license.key,
       planType: license.planType,
+      planName: plan ? plan.name : license.planType,
+      price: license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 0),
       paymentStatus: license.paymentStatus,
       status: license.status,
       expiresAt: license.expiresAt,
-      createdAt: license.createdAt
+      createdAt: license.createdAt,
+      bankCode: process.env.BANK_CODE || 'MB',
+      bankAccount: process.env.BANK_ACCOUNT || '0385464403',
+      bankAccountName: process.env.BANK_ACCOUNT_NAME || 'DOAN VIET HOANG'
     });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi lấy thông tin key: ' + err.message });
+  }
+});
+
+const inFlightPaymentSessions = new Set();
+
+// API Tạo phiên thanh toán Stripe Checkout
+app.post('/api/payment/stripe/create-session', userAuth, async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
+
+  const sessionLockKey = `${req.user.email}_stripe_${key}`;
+  if (inFlightPaymentSessions.has(sessionLockKey)) {
+    return res.status(429).json({ error: 'Yêu cầu thanh toán đang được xử lý, vui lòng đợi.' });
+  }
+  inFlightPaymentSessions.add(sessionLockKey);
+
+  try {
+    const license = await DB.licenses.findOne({ key });
+    if (!license) return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
+
+    // 1. Xác thực quyền sở hữu (Ownership Check)
+    if (license.userEmail !== req.user.email) {
+      return res.status(403).json({ error: 'Bạn không có quyền thanh toán cho key bản quyền của người khác!' });
+    }
+
+    // 2. Chỉ chấp nhận các License đang pending hoặc expired (Trễ hạn)
+    if (license.paymentStatus !== 'pending' && license.paymentStatus !== 'expired') {
+      return res.status(400).json({ error: 'Giao dịch không hợp lệ hoặc bản quyền đã được kích hoạt!' });
+    }
+
+    const plan = await DB.plans.findOne({ id: license.planType });
+    if (!plan) return res.status(400).json({ error: 'Không tìm thấy thông tin gói dịch vụ!' });
+
+    // Giá snapshot động
+    const amount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : plan.price;
+
+    const domain = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+
+    // Khóa Idempotency động theo 10 phút để tránh spam
+    const idempotencyKey = `${license.key}_${Math.floor(Date.now() / 600000)}`;
+
+    if (!stripe) {
+      return res.status(500).json({ error: 'Cổng thanh toán Stripe chưa được cấu hình trên hệ thống!' });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'vnd', // Stripe VND là zero-decimal (không nhân 100)
+          product_data: {
+            name: `Gia hạn bản quyền Video Studio - ${plan.name}`,
+            description: `Mã key: ${license.key}`,
+          },
+          unit_amount: amount,
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      client_reference_id: license.key,
+      payment_intent_data: {
+        metadata: {
+          license_key: license.key // Bắt buộc để Stripe copy sang Charge Object
+        }
+      },
+      success_url: `${domain}/payment.html?key=${license.key}&status=success`,
+      cancel_url: `${domain}/payment.html?key=${license.key}&status=cancel`,
+    }, {
+      idempotencyKey
+    });
+
+    res.json({ success: true, url: session.url });
+
+  } catch (err) {
+    console.error('[Stripe Create Session Error]:', err.message);
+    res.status(500).json({ error: 'Lỗi khởi tạo phiên thanh toán Stripe: ' + err.message });
+  } finally {
+    inFlightPaymentSessions.delete(sessionLockKey);
+  }
+});
+
+// API Tạo liên kết thanh toán PayOS
+app.post('/api/payment/payos/create-link', userAuth, async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
+
+  const sessionLockKey = `${req.user.email}_payos_${key}`;
+  if (inFlightPaymentSessions.has(sessionLockKey)) {
+    return res.status(429).json({ error: 'Yêu cầu thanh toán đang được xử lý, vui lòng đợi.' });
+  }
+  inFlightPaymentSessions.add(sessionLockKey);
+
+  try {
+    const license = await DB.licenses.findOne({ key });
+    if (!license) return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
+
+    // 1. Xác thực quyền sở hữu (Ownership Check)
+    if (license.userEmail !== req.user.email) {
+      return res.status(403).json({ error: 'Bạn không có quyền thanh toán cho key bản quyền của người khác!' });
+    }
+
+    // 2. Chấp nhận pending hoặc expired
+    if (license.paymentStatus !== 'pending' && license.paymentStatus !== 'expired') {
+      return res.status(400).json({ error: 'Giao dịch không hợp lệ hoặc bản quyền đã được kích hoạt!' });
+    }
+
+    const plan = await DB.plans.findOne({ id: license.planType });
+    if (!plan) return res.status(400).json({ error: 'Không tìm thấy thông tin gói dịch vụ!' });
+
+    const amount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : plan.price;
+    const keyRef = license.key.split('-')[1].toUpperCase();
+
+    const domain = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+
+    if (!payOS) {
+      return res.status(500).json({ error: 'Cổng thanh toán PayOS chưa được cấu hình trên hệ thống!' });
+    }
+
+    // Tránh đụng độ mã đơn hàng tuyệt đối 100%
+    const orderCode = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+
+    const paymentLinkData = {
+      orderCode: orderCode,
+      amount: amount,
+      description: `VST ${keyRef}`,
+      cancelUrl: `${domain}/payment.html?key=${license.key}&status=cancel`,
+      returnUrl: `${domain}/payment.html?key=${license.key}&status=success`,
+    };
+
+    const paymentLink = await payOS.paymentRequests.create(paymentLinkData);
+    res.json({ success: true, url: paymentLink.checkoutUrl });
+
+  } catch (err) {
+    console.error('[PayOS Create Link Error]:', err.message);
+    res.status(500).json({ error: 'Lỗi khởi tạo liên kết thanh toán PayOS: ' + err.message });
+  } finally {
+    inFlightPaymentSessions.delete(sessionLockKey);
   }
 });
 
@@ -1382,10 +1962,8 @@ app.post('/api/user/simulate-payment', async (req, res) => {
       return res.status(400).json({ error: 'Key bản quyền này đã ở trạng thái được kích hoạt thanh toán!' });
     }
 
-    // Reset lại hạn sử dụng bắt đầu tính từ lúc thanh toán thành công
-    let days = 30; // Mặc định gói tháng
-    if (license.planType === 'yearly') days = 365;
-    if (license.planType === 'trial') days = 7;
+    const plan = await DB.plans.findOne({ id: license.planType });
+    const days = plan ? plan.durationDays : 30;
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + days);
@@ -1422,6 +2000,175 @@ app.post('/api/user/simulate-payment', async (req, res) => {
     res.status(500).json({ error: 'Lỗi hệ thống khi duyệt thanh toán: ' + err.message });
   }
 });
+
+// Định nghĩa Stripe Webhook Handler thực tế
+stripeWebhookHandler = async (req, res) => {
+  let event;
+  try {
+    const sig = req.headers['stripe-signature'];
+    if (!stripe) {
+      console.error('[Stripe Webhook] Error: stripe SDK is not initialized.');
+      return res.status(500).json({ error: 'Stripe SDK not configured' });
+    }
+    // XÁC THỰC CHỮ KÝ SỐ STRIPE BẮT BUỘC (RAW BODY)
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error(`[Stripe Webhook] ❌ Lỗi xác thực chữ ký Stripe: ${err.message}`);
+    return res.status(400).json({ error: 'Invalid stripe webhook signature' });
+  }
+
+  // 1. Nhánh KÍCH HOẠT: Thanh toán hoàn tất thành công
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const key = session.client_reference_id;
+    if (!key) return res.status(400).json({ error: 'Missing client_reference_id' });
+
+    const keyRef = key.split('-')[1].toUpperCase();
+
+    if (inFlightWebhooks.has(keyRef)) {
+      return res.json({ success: true, message: 'Processing concurrently...' });
+    }
+    inFlightWebhooks.add(keyRef);
+
+    try {
+      const license = await DB.licenses.findOne({ key });
+      if (!license) {
+        console.warn(`[Stripe Webhook] ⚠️ WARNING: Không tìm thấy License: "${key}".`);
+        return res.status(404).json({ error: 'License not found' });
+      }
+
+      if (license.paymentStatus === 'active') {
+        return res.json({ success: true, message: 'License already active' });
+      }
+
+      // Ngăn chặn tự động phục hồi đối với Key đã bị Admin đình chỉ thủ công hoặc do tranh chấp
+      if (license.status === 'suspended') {
+        console.warn(`[Stripe Webhook] 🛑 Từ chối tự kích hoạt Key đang bị đình chỉ (Suspended): ${key}`);
+        return res.json({ success: true, message: 'Cannot auto-activate suspended license. Admin manual check required.' });
+      }
+
+      const plan = await DB.plans.findOne({ id: license.planType });
+      const days = plan ? plan.durationDays : 30;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + days);
+
+      // Cập nhật Atomic chống Race Condition
+      const updatedLicense = await DB.licenses.findOneAndUpdate(
+        { key, paymentStatus: { $in: ['pending', 'expired'] } },
+        { $set: { paymentStatus: 'active', expiresAt: expiresAt.toISOString() } },
+        { new: true }
+      );
+
+      if (!updatedLicense) {
+        return res.json({ success: true, message: 'License activated concurrently' });
+      }
+
+      console.log(`[Stripe Webhook] 🎉 Kích hoạt thành công License Key: ${updatedLicense.key}.`);
+
+      // Gửi Email kích hoạt (Cô lập lỗi)
+      try {
+        await sendLicenseEmail({
+          toEmail: updatedLicense.userEmail,
+          fullName: updatedLicense.customerName,
+          key: updatedLicense.key,
+          planType: updatedLicense.planType,
+          expiresAt: updatedLicense.expiresAt,
+          status: 'active'
+        });
+      } catch (emailErr) {
+        console.error(`[Stripe Webhook] ⚠️ WARNING: Lỗi gửi email kích hoạt:`, emailErr.message);
+      }
+
+      return res.json({ success: true, message: 'Activated' });
+
+    } catch (err) {
+      console.error('[Stripe Webhook] Lỗi xử lý checkout.session.completed:', err);
+      return res.status(500).json({ error: 'Internal error' });
+    } finally {
+      inFlightWebhooks.delete(keyRef);
+    }
+  }
+
+  // 2. Nhánh ĐÌNH CHỈ 1: Khách hàng yêu cầu hoàn tiền (Refund)
+  if (event.type === 'charge.refunded') {
+    const charge = event.data.object;
+    const isFullRefund = charge.amount_refunded >= charge.amount;
+
+    if (isFullRefund) {
+      const key = charge.metadata.license_key; 
+      if (!key) {
+        console.warn('[Stripe Webhook] WARNING: Không tìm thấy license_key trong metadata của charge.');
+        return res.json({ received: true });
+      }
+
+      const keyRef = key.split('-')[1].toUpperCase();
+      if (inFlightWebhooks.has(keyRef)) {
+        return res.json({ success: true, message: 'Processing concurrently...' });
+      }
+      inFlightWebhooks.add(keyRef);
+
+      try {
+        const license = await DB.licenses.findOneAndUpdate(
+          { key: key },
+          { $set: { status: 'suspended', paymentStatus: 'suspended' } },
+          { new: true }
+        );
+        if (license) {
+          console.log(`[Stripe Webhook] 🛑 Đình chỉ thành công License Key do hoàn tiền: ${key}`);
+        }
+        return res.json({ success: true, message: 'License suspended' });
+      } catch (err) {
+        console.error('[Stripe Webhook] Lỗi khi xử lý đình chỉ key do hoàn tiền:', err.message);
+        return res.status(500).json({ error: 'Internal error processing refund' });
+      } finally {
+        inFlightWebhooks.delete(keyRef);
+      }
+    } else {
+      console.log(`[Stripe Webhook] INFO: Hoàn tiền một phần, bỏ qua không khóa key.`);
+    }
+  }
+
+  // 3. Nhánh ĐÌNH CHỈ 2: Khách hàng tranh chấp thẻ (Chargeback/Dispute)
+  if (event.type === 'charge.dispute.created') {
+    const dispute = event.data.object;
+
+    try {
+      const charge = await stripe.charges.retrieve(dispute.charge);
+      const key = charge.metadata.license_key;
+      if (!key) {
+        console.warn('[Stripe Webhook] WARNING: Không tìm thấy license_key trong charge dispute.');
+        return res.json({ received: true });
+      }
+
+      const keyRef = key.split('-')[1].toUpperCase();
+      if (inFlightWebhooks.has(keyRef)) {
+        return res.json({ success: true, message: 'Processing concurrently...' });
+      }
+      inFlightWebhooks.add(keyRef);
+
+      try {
+        const license = await DB.licenses.findOneAndUpdate(
+          { key: key },
+          { $set: { status: 'suspended', paymentStatus: 'suspended' } },
+          { new: true }
+        );
+        if (license) {
+          console.log(`[Stripe Webhook] 🛑 Đình chỉ thành công Key do Chargeback: ${key}`);
+        }
+        return res.json({ success: true, message: 'License suspended' });
+      } finally {
+        inFlightWebhooks.delete(keyRef);
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Lỗi xử lý Dispute:', err.message);
+      return res.status(500).json({ error: 'Internal error processing dispute' });
+    }
+  }
+
+  return res.json({ received: true });
+};
+
+const inFlightWebhooks = new Set();
 
 // Webhook tự động nhận thông tin thanh toán từ SePay / Casso để kích hoạt license key
 app.post('/api/payment/webhook', async (req, res) => {
@@ -1485,79 +2232,87 @@ app.post('/api/payment/webhook', async (req, res) => {
       const keyRef = match[1].toUpperCase();
       console.log(`[Payment Webhook] Tìm thấy keyRef: "${keyRef}"`);
 
-      // Tìm license key tương ứng dựa trên DB mode (MongoDB hoặc JSON)
-      let license = null;
-      if (useMongo) {
-        // Query regex để tìm key dạng: STUDIO-A9B8C7D6-xxxx-xxxx
-        license = await LicenseModel.findOne({ key: { $regex: `^STUDIO-${keyRef}-`, $options: 'i' } });
-      } else {
-        const db = readJSON();
-        const found = db.licenses.find(l => {
-          const parts = l.key.split('-');
-          return parts.length > 1 && parts[1].toUpperCase() === keyRef;
-        });
-        if (found) {
-          license = await DB.licenses.findOne({ key: found.key });
-        }
-      }
-
-      if (!license) {
-        console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Không tìm thấy License tương ứng với mã "${keyRef}" trong database.`);
+      // Khóa Concurrency dựa trên keyRef ngay lập tức (Chống race condition trước khi gọi DB bất đồng bộ)
+      if (inFlightWebhooks.has(keyRef)) {
+        console.warn(`[Payment Webhook] Giao dịch #${transactionId} bị bỏ qua do đang có tiến trình xử lý song song cho keyRef ${keyRef}.`);
         continue;
       }
+      inFlightWebhooks.add(keyRef);
 
-      if (license.paymentStatus === 'active') {
-        console.log(`[Payment Webhook] Giao dịch #${transactionId}: License "${license.key}" đã kích hoạt từ trước.`);
-        processedCount++;
-        continue;
-      }
-
-      // Xác định số tiền yêu cầu tối thiểu của gói bản quyền
-      let requiredAmount = 199000; // Gói tháng
-      if (license.planType === 'yearly') {
-        requiredAmount = 1499000;
-      } else if (license.planType === 'trial') {
-        requiredAmount = 0;
-      }
-
-      if (amount < requiredAmount) {
-        console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Số tiền chuyển khoản (${amount}) nhỏ hơn số tiền yêu cầu (${requiredAmount}) cho gói ${license.planType}.`);
-        continue;
-      }
-
-      // Cập nhật trạng thái bản quyền
-      let days = 30;
-      if (license.planType === 'yearly') days = 365;
-      if (license.planType === 'trial') days = 7;
-
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + days);
-
-      license.expiresAt = expiresAt;
-      license.paymentStatus = 'active';
-      await license.save();
-
-      console.log(`[Payment Webhook] 🎉 Kích hoạt thành công License Key: ${license.key}. Hạn dùng mới: ${expiresAt.toISOString()}`);
-      activatedKeys.push(license.key);
-      processedCount++;
-
-      // Gửi email báo kích hoạt thành công (nếu key có email liên kết)
-      if (license.userEmail) {
-        try {
-          const user = await DB.users.findOne({ email: license.userEmail });
-          const fullName = user ? user.fullName : 'Khách hàng';
-          await sendLicenseEmail({
-            toEmail: license.userEmail,
-            fullName,
-            key: license.key,
-            planType: license.planType,
-            expiresAt: license.expiresAt,
-            status: 'active'
+      try {
+        // Tìm license key tương ứng dựa trên DB mode (MongoDB hoặc JSON)
+        let license = null;
+        if (useMongo) {
+          // Query regex để tìm key dạng: STUDIO-A9B8C7D6-xxxx-xxxx
+          license = await LicenseModel.findOne({ key: { $regex: `^STUDIO-${keyRef}-`, $options: 'i' } });
+        } else {
+          const db = readJSON();
+          const found = db.licenses.find(l => {
+            const parts = l.key.split('-');
+            return parts.length > 1 && parts[1].toUpperCase() === keyRef;
           });
-          console.log(`[Payment Webhook] Đã gửi email kích hoạt thành công tới: ${license.userEmail}`);
-        } catch (emailErr) {
-          console.error('[Payment Webhook] Gửi email kích hoạt bị lỗi:', emailErr.message);
+          if (found) {
+            license = await DB.licenses.findOne({ key: found.key });
+          }
         }
+
+        if (!license) {
+          console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Không tìm thấy License tương ứng với mã "${keyRef}" trong database.`);
+          continue;
+        }
+
+        if (license.paymentStatus === 'active') {
+          console.log(`[Payment Webhook] Giao dịch #${transactionId}: License "${license.key}" đã kích hoạt từ trước.`);
+          processedCount++;
+          continue;
+        }
+
+        // Xác định số tiền yêu cầu và hạn dùng của gói bản quyền từ DB
+        const plan = await DB.plans.findOne({ id: license.planType });
+        const requiredAmount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 199000);
+        const days = plan ? plan.durationDays : 30;
+
+        if (amount < requiredAmount) {
+          console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Số tiền chuyển khoản (${amount}) nhỏ hơn số tiền yêu cầu (${requiredAmount}) cho gói ${license.planType}.`);
+          continue;
+        }
+
+        if (license.paymentStatus === 'expired') {
+          console.warn(`[Payment Webhook] ⚠️ Giao dịch #${transactionId}: Phát hiện thanh toán trễ hạn cho Key đã hết hạn đăng ký (${license.key}). Tiến hành tự động phục hồi kích hoạt.`);
+        }
+
+        // Cập nhật trạng thái bản quyền
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + days);
+
+        license.expiresAt = expiresAt;
+        license.paymentStatus = 'active';
+        await license.save();
+
+        console.log(`[Payment Webhook] 🎉 Kích hoạt thành công License Key: ${license.key}. Hạn dùng mới: ${expiresAt.toISOString()}`);
+        activatedKeys.push(license.key);
+        processedCount++;
+
+        // Gửi email báo kích hoạt thành công (nếu key có email liên kết)
+        if (license.userEmail) {
+          try {
+            const user = await DB.users.findOne({ email: license.userEmail });
+            const fullName = user ? user.fullName : 'Khách hàng';
+            await sendLicenseEmail({
+              toEmail: license.userEmail,
+              fullName,
+              key: license.key,
+              planType: license.planType,
+              expiresAt: license.expiresAt,
+              status: 'active'
+            });
+            console.log(`[Payment Webhook] Đã gửi email kích hoạt thành công tới: ${license.userEmail}`);
+          } catch (emailErr) {
+            console.error('[Payment Webhook] Gửi email kích hoạt bị lỗi:', emailErr.message);
+          }
+        }
+      } finally {
+        inFlightWebhooks.delete(keyRef);
       }
     }
 
@@ -1570,6 +2325,100 @@ app.post('/api/payment/webhook', async (req, res) => {
   } catch (err) {
     console.error('[Payment Webhook] Lỗi hệ thống khi xử lý webhook:', err);
     res.status(500).json({ error: 'Internal system error processing webhook: ' + err.message });
+  }
+});
+
+// Webhook tự động nhận thông tin thanh toán từ PayOS
+app.post('/api/payment/payos/webhook', async (req, res) => {
+  try {
+    if (!payOS) {
+      console.error('[PayOS Webhook] Error: payOS SDK is not initialized.');
+      return res.status(500).json({ error: 'PayOS SDK not configured' });
+    }
+
+    // XÁC THỰC CHỮ KÝ VÀ DỮ LIỆU BẢO MẬT PAYOS
+    const webhookData = await payOS.webhooks.verify(req.body);
+    
+    // Webhook data chứa description/orderCode để tìm ra License
+    const orderDescription = webhookData.description;
+    const keyRefMatch = orderDescription.match(/vst\s+([a-z0-9]+)/i);
+    if (!keyRefMatch) {
+      console.log('[PayOS Webhook] Bỏ qua: Không tìm thấy cú pháp VST keyRef trong description.');
+      return res.json({ success: true, message: 'Webhook ignored: no VST key reference found' });
+    }
+    
+    const keyRef = keyRefMatch[1].toUpperCase();
+
+    if (inFlightWebhooks.has(keyRef)) {
+      return res.json({ success: true, message: 'Processing in parallel' });
+    }
+    inFlightWebhooks.add(keyRef);
+
+    try {
+      // Tìm License đầy đủ sử dụng regex động: ^[^-]+-keyRef-
+      let license = null;
+      if (useMongo) {
+        license = await LicenseModel.findOne({ key: { $regex: `^[^\\-]+-${keyRef}-`, $options: 'i' } });
+      } else {
+        const db = readJSON();
+        const found = db.licenses.find(l => {
+          const parts = l.key.split('-');
+          return parts.length > 1 && parts[1].toUpperCase() === keyRef;
+        });
+        if (found) license = await DB.licenses.findOne({ key: found.key });
+      }
+
+      if (!license) {
+        console.warn(`[PayOS Webhook] ⚠️ WARNING: Không tìm thấy License tương ứng với keyRef "${keyRef}".`);
+        return res.status(404).json({ error: 'License not found' });
+      }
+
+      if (license.paymentStatus === 'active') {
+        return res.json({ success: true, message: 'Already active' });
+      }
+
+      // Ngăn chặn tự động phục hồi đối với Key đã bị Admin đình chỉ thủ công
+      if (license.status === 'suspended') {
+        console.warn(`[PayOS Webhook] 🛑 Từ chối tự kích hoạt Key đang bị đình chỉ (Suspended): ${license.key}`);
+        return res.json({ success: true, message: 'Cannot auto-activate suspended license.' });
+      }
+
+      const plan = await DB.plans.findOne({ id: license.planType });
+      const days = plan ? plan.durationDays : 30;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + days);
+
+      // Cập nhật Atomic chống Race Condition
+      const updatedLicense = await DB.licenses.findOneAndUpdate(
+        { key: license.key, paymentStatus: { $in: ['pending', 'expired'] } },
+        { $set: { paymentStatus: 'active', expiresAt: expiresAt.toISOString() } },
+        { new: true }
+      );
+
+      if (updatedLicense) {
+        console.log(`[PayOS Webhook] 🎉 Kích hoạt thành công License Key: ${updatedLicense.key}.`);
+        try {
+          await sendLicenseEmail({
+            toEmail: updatedLicense.userEmail,
+            fullName: updatedLicense.customerName,
+            key: updatedLicense.key,
+            planType: updatedLicense.planType,
+            expiresAt: updatedLicense.expiresAt,
+            status: 'active'
+          });
+        } catch (emailErr) {
+          console.error(`[PayOS Webhook] Lỗi gửi email:`, emailErr.message);
+        }
+      }
+
+      return res.json({ success: true });
+    } finally {
+      inFlightWebhooks.delete(keyRef);
+    }
+
+  } catch (err) {
+    console.error(`[PayOS Webhook] Lỗi xác thực chữ ký PayOS hoặc lỗi xử lý:`, err.message);
+    return res.status(400).json({ error: 'Invalid PayOS signature or process error' });
   }
 });
 
@@ -1716,6 +2565,139 @@ app.post('/api/admin/config', adminAuth, async (req, res) => {
     res.json({ success: true, message: 'Cập nhật cấu hình link tải phần mềm thành công!' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi cập nhật cấu hình: ' + err.message });
+  }
+});
+
+// API lấy toàn bộ danh sách các gói dịch vụ (Admin)
+app.get('/api/admin/plans', adminAuth, async (req, res) => {
+  try {
+    const plans = await DB.plans.find({});
+    res.json({ success: true, plans });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy danh sách gói dịch vụ: ' + err.message });
+  }
+});
+
+// API tạo gói dịch vụ mới (Admin)
+app.post('/api/admin/plans', adminAuth, async (req, res) => {
+  const { id, name, price, durationDays, description, features, isPopular, status } = req.body;
+  if (!id || !name || price === undefined || !durationDays) {
+    return res.status(400).json({ error: 'ID, tên, giá bán và hạn dùng là bắt buộc!' });
+  }
+
+  const trimmedId = id.trim().toLowerCase();
+  if (!/^[a-z0-9_]+$/.test(trimmedId)) {
+    return res.status(400).json({ error: 'Mã ID gói chỉ được chứa chữ thường không dấu, số và dấu gạch dưới (không chứa dấu cách, ký tự đặc biệt)!' });
+  }
+
+  const parsedPrice = parseFloat(price);
+  if (isNaN(parsedPrice) || parsedPrice < 0) {
+    return res.status(400).json({ error: 'Giá bán của gói phải là số lớn hơn hoặc bằng 0!' });
+  }
+
+  const parsedDuration = parseInt(durationDays);
+  if (isNaN(parsedDuration) || parsedDuration <= 0) {
+    return res.status(400).json({ error: 'Hạn sử dụng của gói phải là số ngày lớn hơn 0!' });
+  }
+
+  try {
+    const existing = await DB.plans.findOne({ id: trimmedId });
+    if (existing) {
+      return res.status(400).json({ error: `Gói dịch vụ với ID "${trimmedId}" đã tồn tại!` });
+    }
+
+    const newPlan = await DB.plans.create({
+      id: trimmedId,
+      name: name.trim(),
+      price: parsedPrice,
+      durationDays: parsedDuration,
+      description: (description || '').trim(),
+      features: Array.isArray(features) ? features : [],
+      isPopular: !!isPopular,
+      status: status === 'inactive' ? 'inactive' : 'active',
+      createdAt: new Date().toISOString()
+    });
+
+    res.json({ success: true, plan: newPlan, message: 'Tạo gói dịch vụ thành công!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi tạo gói dịch vụ: ' + err.message });
+  }
+});
+
+// API cập nhật gói dịch vụ (Admin)
+app.put('/api/admin/plans/:id', adminAuth, async (req, res) => {
+  const { id } = req.params;
+  const { name, price, durationDays, description, features, isPopular, status } = req.body;
+
+  try {
+    const plan = await DB.plans.findOne({ id });
+    if (!plan) {
+      return res.status(404).json({ error: 'Không tìm thấy gói dịch vụ!' });
+    }
+
+    if (name !== undefined) plan.name = name.trim();
+    if (price !== undefined) {
+      const parsedPrice = parseFloat(price);
+      if (isNaN(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ error: 'Giá bán của gói phải là số lớn hơn hoặc bằng 0!' });
+      }
+      plan.price = parsedPrice;
+    }
+    if (durationDays !== undefined) {
+      const parsedDuration = parseInt(durationDays);
+      if (isNaN(parsedDuration) || parsedDuration <= 0) {
+        return res.status(400).json({ error: 'Hạn sử dụng của gói phải là số ngày lớn hơn 0!' });
+      }
+      plan.durationDays = parsedDuration;
+    }
+    if (description !== undefined) plan.description = (description || '').trim();
+    if (features !== undefined) plan.features = Array.isArray(features) ? features : [];
+    if (isPopular !== undefined) plan.isPopular = !!isPopular;
+    if (status !== undefined) plan.status = status === 'inactive' ? 'inactive' : 'active';
+
+    await plan.save();
+    res.json({ success: true, plan, message: 'Cập nhật gói dịch vụ thành công!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi cập nhật gói dịch vụ: ' + err.message });
+  }
+});
+
+// API xóa gói dịch vụ (Admin)
+app.delete('/api/admin/plans/:id', adminAuth, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const plan = await DB.plans.findOne({ id });
+    if (!plan) {
+      return res.status(404).json({ error: 'Không tìm thấy gói dịch vụ!' });
+    }
+
+    // Không cho phép xóa các gói mặc định đang chạy để tránh lỗi hệ thống nghiêm trọng
+    if (['trial', 'monthly', 'yearly'].includes(id)) {
+      return res.status(400).json({ error: 'Không thể xóa các gói dịch vụ hệ thống cốt lõi (trial, monthly, yearly)!' });
+    }
+
+    // Kiểm tra xem có license nào đang sử dụng gói này không (Chỉ đếm gói active hoặc pending còn hạn dưới 24h)
+    const licenses = await DB.licenses.find({ planType: id });
+    const activeOrFreshPending = licenses.filter(l => {
+      if (l.paymentStatus === 'active') return true;
+      if (l.paymentStatus === 'pending') {
+        const age = Date.now() - new Date(l.createdAt).getTime();
+        return age < 24 * 60 * 60 * 1000; // Còn hiệu lực thanh toán
+      }
+      return false;
+    });
+
+    if (activeOrFreshPending.length > 0) {
+      return res.status(400).json({ 
+        error: `Không thể xóa gói này vì hiện tại có ${activeOrFreshPending.length} khóa bản quyền đang hoạt động hoặc chờ thanh toán còn hạn! Bạn vui lòng chuyển trạng thái gói sang "Tạm ẩn" thay vì xóa cứng.` 
+      });
+    }
+
+    await DB.plans.deleteOne({ id });
+    res.json({ success: true, message: 'Xóa gói dịch vụ thành công!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi xóa gói dịch vụ: ' + err.message });
   }
 });
 
@@ -2004,6 +2986,8 @@ app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
       lastResetAt: null,
       createdAt: new Date().toISOString()
     });
+
+    console.log(`[Admin Audit] Admin đã sinh Key tùy biến thủ công: "${key}" cấp cho khách hàng "${name}" với hạn dùng ${days} ngày.`);
 
     res.json({ success: true, key, expiresAt: expiresStr, customerName: name });
   } catch (err) {

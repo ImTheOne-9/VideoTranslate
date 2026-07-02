@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings } from 'lucide-react';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers } from 'lucide-react';
 
 export default function Admin({ showToast }) {
   const [token, setToken] = useState('');
@@ -46,6 +46,22 @@ export default function Admin({ showToast }) {
   const [installerUrl, setInstallerUrl] = useState('');
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
+
+  // Plans Management states
+  const [plans, setPlans] = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+
+  // Plan Form states
+  const [planId, setPlanId] = useState('');
+  const [planName, setPlanName] = useState('');
+  const [planPrice, setPlanPrice] = useState(199000);
+  const [planDurationDays, setPlanDurationDays] = useState(30);
+  const [planDescription, setPlanDescription] = useState('');
+  const [planFeatures, setPlanFeatures] = useState('');
+  const [planIsPopular, setPlanIsPopular] = useState(false);
+  const [planStatus, setPlanStatus] = useState('active');
 
   const getPageNumbers = (curr, total) => {
     const pages = [];
@@ -108,6 +124,145 @@ export default function Admin({ showToast }) {
       loadConfig();
     }
   }, [token]);
+
+  // Fetch Plans when token is set
+  useEffect(() => {
+    if (token) {
+      loadPlans();
+    }
+  }, [token]);
+
+  const loadPlans = async () => {
+    setLoadingPlans(true);
+    try {
+      const res = await fetch('/api/admin/plans', {
+        headers: { 'x-admin-token': token }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPlans(data.plans || []);
+      } else {
+        showToast(data.error || 'Lỗi khi tải gói dịch vụ!', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi kết nối tải gói dịch vụ: ' + err.message, 'error');
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
+
+  const handleOpenPlanModal = (plan = null) => {
+    setSelectedPlan(plan);
+    if (plan) {
+      setPlanId(plan.id);
+      setPlanName(plan.name);
+      setPlanPrice(plan.price);
+      setPlanDurationDays(plan.durationDays);
+      setPlanDescription(plan.description || '');
+      setPlanFeatures(Array.isArray(plan.features) ? plan.features.join('\n') : '');
+      setPlanIsPopular(!!plan.isPopular);
+      setPlanStatus(plan.status || 'active');
+    } else {
+      setPlanId('');
+      setPlanName('');
+      setPlanPrice(199000);
+      setPlanDurationDays(30);
+      setPlanDescription('');
+      setPlanFeatures('Đầy đủ tính năng 100%\nSử dụng trên 1 máy tính');
+      setPlanIsPopular(false);
+      setPlanStatus('active');
+    }
+    setIsPlanModalOpen(true);
+  };
+
+  const handleSavePlan = async (e) => {
+    e.preventDefault();
+    if (!planId || !planName || planPrice === undefined || !planDurationDays) {
+      showToast('Vui lòng nhập đầy đủ thông tin bắt buộc!', 'error');
+      return;
+    }
+
+    const trimmedId = planId.trim().toLowerCase();
+    if (!/^[a-z0-9_]+$/.test(trimmedId)) {
+      showToast('Mã ID gói chỉ được chứa chữ thường không dấu, số và dấu gạch dưới (không chứa dấu cách, ký tự đặc biệt)!', 'error');
+      return;
+    }
+
+    const parsedPrice = parseFloat(planPrice);
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      showToast('Giá bán của gói phải là số lớn hơn hoặc bằng 0!', 'error');
+      return;
+    }
+
+    const parsedDuration = parseInt(planDurationDays);
+    if (isNaN(parsedDuration) || parsedDuration <= 0) {
+      showToast('Hạn sử dụng của gói phải là số ngày lớn hơn 0!', 'error');
+      return;
+    }
+
+    const payload = {
+      id: trimmedId,
+      name: planName.trim(),
+      price: parsedPrice,
+      durationDays: parsedDuration,
+      description: planDescription.trim(),
+      features: planFeatures.split('\n').map(f => f.trim()).filter(Boolean),
+      isPopular: planIsPopular,
+      status: planStatus
+    };
+
+    try {
+      const url = selectedPlan ? `/api/admin/plans/${selectedPlan.id}` : '/api/admin/plans';
+      const method = selectedPlan ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'x-admin-token': token,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast(selectedPlan ? 'Cập nhật gói thành công!' : 'Tạo gói mới thành công!');
+        setIsPlanModalOpen(false);
+        await loadPlans();
+      } else {
+        showToast(data.error || 'Lỗi khi lưu gói dịch vụ', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi API lưu gói: ' + err.message, 'error');
+    }
+  };
+
+  const handleDeletePlan = async (id) => {
+    if (['trial', 'monthly', 'yearly'].includes(id)) {
+      showToast('Không thể xóa các gói hệ thống cốt lõi (trial, monthly, yearly)!', 'error');
+      return;
+    }
+    if (!confirm(`Bạn có chắc chắn muốn xóa gói dịch vụ "${id}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/plans/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': token }
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('Xóa gói dịch vụ thành công!');
+        await loadPlans();
+      } else {
+        showToast(data.error || 'Lỗi khi xóa gói', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi API xóa gói: ' + err.message, 'error');
+    }
+  };
 
   const loadKeys = async () => {
     setLoading(true);
@@ -481,6 +636,15 @@ export default function Admin({ showToast }) {
           >
             <Users className="h-4 w-4" />
             <span>Quản lý Thành viên</span>
+          </button>
+          <button 
+            onClick={() => setActiveMainTab('plans')}
+            className={`pb-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+              activeMainTab === 'plans' ? 'border-indigo-500 text-white' : 'border-transparent text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            <span>Quản lý Gói dịch vụ</span>
           </button>
           <button 
             onClick={() => setActiveMainTab('settings')}
@@ -981,6 +1145,110 @@ export default function Admin({ showToast }) {
           </div>
         )}
 
+        {activeMainTab === 'plans' && (
+          /* ================= PLAN MANAGEMENT VIEW ================= */
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-white">Quản lý Gói dịch vụ</h3>
+                <p className="text-xs text-zinc-550">Thêm, sửa, xóa các gói dịch vụ và cấu hình hạn dùng cho phần mềm</p>
+              </div>
+              <button 
+                onClick={() => handleOpenPlanModal(null)} 
+                className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-sm font-semibold text-white rounded-lg shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <PlusCircle className="h-4.5 w-4.5" />
+                <span>Thêm Gói Mới</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-zinc-900 bg-zinc-900/30">
+              <table className="min-w-full divide-y divide-zinc-900 text-left text-sm text-zinc-300">
+                <thead className="bg-zinc-900/80 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  <tr>
+                    <th scope="col" className="px-6 py-4">ID Gói</th>
+                    <th scope="col" className="px-6 py-4">Tên Gói</th>
+                    <th scope="col" className="px-6 py-4">Giá Bán</th>
+                    <th scope="col" className="px-6 py-4 text-center">Hạn Dùng</th>
+                    <th scope="col" className="px-6 py-4">Đánh Dấu</th>
+                    <th scope="col" className="px-6 py-4 text-center">Trạng Thái</th>
+                    <th scope="col" className="px-6 py-4 text-right">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900/50 bg-transparent">
+                  {loadingPlans ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center text-zinc-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+                          <span>Đang tải danh sách gói dịch vụ...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : plans.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center text-zinc-500">
+                        Không có gói dịch vụ nào trong Database
+                      </td>
+                    </tr>
+                  ) : (
+                    plans.map((p) => {
+                      const formattedPrice = p.price === 0 ? 'Miễn phí' : p.price.toLocaleString('vi-VN') + 'đ';
+                      return (
+                        <tr key={p.id} className="hover:bg-zinc-900/20 transition-colors">
+                          <td className="px-6 py-4 font-mono font-bold text-indigo-400 text-xs">{p.id}</td>
+                          <td className="px-6 py-4 font-semibold text-white">{p.name}</td>
+                          <td className="px-6 py-4 font-semibold text-zinc-300">{formattedPrice}</td>
+                          <td className="px-6 py-4 text-center text-zinc-400">{p.durationDays} ngày</td>
+                          <td className="px-6 py-4">
+                            {p.isPopular ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-900/30">
+                                Khuyên dùng
+                              </span>
+                            ) : (
+                              <span className="text-zinc-600 text-xs">-</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {p.status === 'active' ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-450 border border-emerald-900/35">
+                                Hoạt động
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-900/30">
+                                Tạm ẩn
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-2.5 whitespace-nowrap">
+                            <button 
+                              onClick={() => handleOpenPlanModal(p)}
+                              className="px-2.5 py-1 text-xs font-semibold rounded bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 transition-colors cursor-pointer"
+                            >
+                              Sửa
+                            </button>
+                            <button 
+                              onClick={() => handleDeletePlan(p.id)}
+                              disabled={['trial', 'monthly', 'yearly'].includes(p.id)}
+                              className={`px-2.5 py-1 text-xs font-semibold rounded transition-colors border ${
+                                ['trial', 'monthly', 'yearly'].includes(p.id)
+                                  ? 'bg-zinc-955 border-zinc-900 text-zinc-700 cursor-not-allowed opacity-30'
+                                  : 'bg-rose-950/40 border-rose-900/40 hover:bg-rose-900/40 text-rose-400 cursor-pointer'
+                              }`}
+                            >
+                              Xóa
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Footer Info */}
         <div className="text-center text-xs text-zinc-650 pt-4 flex items-center justify-center gap-2">
           <ShieldCheck className="h-4 w-4 text-zinc-600" />
@@ -1079,6 +1347,142 @@ export default function Admin({ showToast }) {
                       <span>Tạo Key Ngay</span>
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Plan Modal */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
+          <div className="w-full max-w-lg p-6 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => setIsPlanModalOpen(false)} 
+              className="absolute top-4 right-4 text-zinc-450 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Layers className="text-indigo-400 h-5 w-5" />
+                <span>{selectedPlan ? 'Cập Nhật Gói Dịch Vụ' : 'Thêm Gói Dịch Vụ Mới'}</span>
+              </h3>
+            </div>
+            <form onSubmit={handleSavePlan} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Mã ID Gói (Viết liền không dấu)</label>
+                  <input 
+                    type="text" 
+                    value={planId}
+                    onChange={(e) => setPlanId(e.target.value)}
+                    placeholder="Ví dụ: monthly, lifetime..." 
+                    disabled={!!selectedPlan}
+                    required
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Tên Hiển Thị Gói</label>
+                  <input 
+                    type="text" 
+                    value={planName}
+                    onChange={(e) => setPlanName(e.target.value)}
+                    placeholder="Ví dụ: Gói Tháng, Gói Trọn Đời..." 
+                    required
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Giá Bán (đơn vị: VNĐ)</label>
+                  <input 
+                    type="number" 
+                    value={planPrice}
+                    onChange={(e) => setPlanPrice(e.target.value)}
+                    placeholder="Ví dụ: 199000 (0 nếu là Dùng thử)" 
+                    min="0"
+                    required
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Hạn Sử Dụng (Ngày)</label>
+                  <input 
+                    type="number" 
+                    value={planDurationDays}
+                    onChange={(e) => setPlanDurationDays(e.target.value)}
+                    placeholder="Ví dụ: 30, 365..." 
+                    min="1"
+                    required
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 mb-1">Mô tả ngắn của gói</label>
+                <input 
+                  type="text" 
+                  value={planDescription}
+                  onChange={(e) => setPlanDescription(e.target.value)}
+                  placeholder="Ví dụ: Dành cho Creator sáng tạo thường xuyên..." 
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 mb-1">Tính năng đi kèm (Mỗi dòng một tính năng)</label>
+                <textarea 
+                  value={planFeatures}
+                  onChange={(e) => setPlanFeatures(e.target.value)}
+                  rows="4"
+                  placeholder="Ví dụ:&#10;Đầy đủ tính năng 100%&#10;Sử dụng trên 1 máy tính&#10;Hỗ trợ kỹ thuật 24/7" 
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox"
+                    id="planIsPopular"
+                    checked={planIsPopular}
+                    onChange={(e) => setPlanIsPopular(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-800 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="planIsPopular" className="text-xs font-semibold text-zinc-400 cursor-pointer">Gói nổi bật (Khuyên dùng)</label>
+                </div>
+                <div className="flex items-center gap-2.5 justify-end">
+                  <label className="text-xs font-semibold text-zinc-400">Trạng thái:</label>
+                  <select 
+                    value={planStatus}
+                    onChange={(e) => setPlanStatus(e.target.value)}
+                    className="rounded-lg bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs text-white focus:outline-none focus:ring-indigo-500"
+                  >
+                    <option value="active">Hiển thị</option>
+                    <option value="inactive">Tạm ẩn</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-zinc-800 flex justify-end gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsPlanModalOpen(false)}
+                  className="px-4 py-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-850 text-xs font-semibold text-zinc-300 rounded-lg transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-xs font-bold text-white rounded-lg shadow-lg hover:shadow-indigo-500/10 transition-all cursor-pointer"
+                >
+                  Lưu Lại
                 </button>
               </div>
             </form>

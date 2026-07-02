@@ -10,7 +10,9 @@ export default function Payment({ isDevMode, showToast }) {
   const [loading, setLoading] = useState(true);
   const [keyDetails, setKeyDetails] = useState(null);
   const [errorState, setErrorState] = useState(null); // { title, desc }
-  const [activating, setActivating] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('bank'); // 'bank', 'stripe', 'payos'
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     if (!licenseKey) {
@@ -24,6 +26,44 @@ export default function Payment({ isDevMode, showToast }) {
 
     fetchKeyDetails();
   }, [licenseKey]);
+
+  useEffect(() => {
+    if (!licenseKey || !keyDetails || keyDetails.paymentStatus !== 'pending') return;
+
+    let pollCount = 0;
+    const maxPolls = 600; // 600 lần * 3 giây = 30 phút
+
+    const interval = setInterval(async () => {
+      pollCount++;
+      if (pollCount >= maxPolls) {
+        clearInterval(interval);
+        showToast('Đã hết thời gian chờ thanh toán tự động. Vui lòng tải lại trang nếu đã chuyển khoản!', 'warning');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/plans/status?key=${encodeURIComponent(licenseKey)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.key) {
+            if (data.paymentStatus === 'active') {
+              clearInterval(interval);
+              setIsVerifyingPayment(true);
+              setTimeout(() => {
+                setKeyDetails(data);
+                setIsVerifyingPayment(false);
+                showToast('Thanh toán thành công! Bản quyền đã được kích hoạt.');
+              }, 2500);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Lỗi khi polling trạng thái thanh toán:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [licenseKey, keyDetails]);
 
   const fetchKeyDetails = async () => {
     try {
@@ -63,34 +103,29 @@ export default function Payment({ isDevMode, showToast }) {
     showToast(successMsg);
   };
 
-  const activateLicense = async () => {
-    setActivating(true);
+  const handleCheckoutRedirect = async (gateway) => {
+    setCheckoutLoading(true);
     try {
-      const res = await fetch('/api/user/simulate-payment', {
+      const endpoint = gateway === 'stripe' ? '/api/payment/stripe/create-session' : '/api/payment/payos/create-link';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ key: licenseKey })
       });
       const data = await res.json();
-
-      if (data.success) {
-        showToast('Kích hoạt bản quyền thành công! Đang quay lại trang chủ...');
-        
-        // Clear any stored redirect keys
-        localStorage.removeItem('pending_payment_key');
-
-        setTimeout(() => {
-          navigate('/');
-        }, 2000);
+      if (res.ok && data.success && data.url) {
+        window.location.href = data.url; // Redirect to the secure checkout page!
       } else {
-        showToast(data.error || 'Duyệt thanh toán thất bại!', 'error');
+        showToast(data.error || 'Lỗi khởi tạo cổng thanh toán.', 'error');
       }
     } catch (err) {
-      showToast('Lỗi kết nối khi gửi yêu cầu kích hoạt bản quyền.', 'error');
+      showToast('Lỗi kết nối khi khởi tạo cổng thanh toán.', 'error');
     } finally {
-      setActivating(false);
+      setCheckoutLoading(false);
     }
   };
+
+
 
   if (loading) {
     return (
@@ -129,12 +164,35 @@ export default function Payment({ isDevMode, showToast }) {
     );
   }
 
-  const planName = keyDetails.planType === 'trial' ? 'Gói Dùng Thử' : (keyDetails.planType === 'monthly' ? 'Gói Tháng' : 'Gói Năm');
-  const amount = keyDetails.planType === 'monthly' ? 199000 : 1499000;
-  const priceText = keyDetails.planType === 'monthly' ? '199.000đ' : '1.499.000đ';
+  if (isVerifyingPayment) {
+    return (
+      <div className="flex-1 flex flex-col justify-center items-center p-4 min-h-[60vh]">
+        <div className="w-full max-w-lg p-8 rounded-2xl glass-card text-center space-y-6 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-pulse"></div>
+          <div className="flex justify-center py-6">
+            <div className="relative">
+              <div className="h-16 w-16 rounded-full border-t-2 border-b-2 border-indigo-500 animate-spin"></div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-indigo-500/20 animate-ping"></div>
+            </div>
+          </div>
+          <h2 className="text-xl font-bold font-display text-white">Đã Phát Hiện Giao Dịch!</h2>
+          <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+            Hệ thống đang đối soát số tiền chuyển khoản và tiến hành khởi tạo chữ ký số Ed25519 kích hoạt bản quyền. Vui lòng giữ nguyên trang web...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const planName = keyDetails.planName || (keyDetails.planType === 'trial' ? 'Gói Dùng Thử' : (keyDetails.planType === 'monthly' ? 'Gói Tháng' : 'Gói Năm'));
+  const amount = keyDetails.price !== undefined ? keyDetails.price : (keyDetails.planType === 'monthly' ? 199000 : 1499000);
+  const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
   const keyRef = licenseKey.split('-')[1];
   const memo = `VST ${keyRef}`;
-  const qrUrl = `https://img.vietqr.io/image/MB-0352516480-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=HOANG%20DEVS`;
+  const bankCode = keyDetails.bankCode || 'MB';
+  const bankAccount = keyDetails.bankAccount || '0385464403';
+  const bankAccountName = keyDetails.bankAccountName || 'DOAN VIET HOANG';
+  const qrUrl = `https://img.vietqr.io/image/${bankCode}-${bankAccount}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(bankAccountName)}`;
 
   return (
     <div className="flex-1 flex flex-col justify-center items-center p-4 min-h-[80vh] relative">
@@ -211,75 +269,139 @@ export default function Payment({ isDevMode, showToast }) {
               </div>
             </div>
 
-            {/* Instruction and QR layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-              
-              <div className="space-y-3.5 text-xs text-zinc-300">
-                <p className="text-zinc-400 leading-relaxed">Vui lòng chuyển khoản đúng tài khoản ngân hàng và nhập chính xác <strong>Nội dung chuyển khoản</strong> dưới đây:</p>
-                
-                <div className="space-y-2">
-                  <div>
-                    <span className="text-[10px] text-zinc-500">Ngân hàng</span>
-                    <p className="font-bold text-white">MB Bank (Quân Đội)</p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-zinc-500">Số tài khoản (Click để copy)</span>
-                    <div 
-                      className="flex items-center gap-1.5 cursor-pointer hover:text-white" 
-                      onClick={() => copyText('0352516480', 'Đã copy số tài khoản!')}
-                    >
-                      <p className="font-mono font-bold text-white select-all text-sm">0352516480</p>
-                      <Copy className="h-3.5 w-3.5 text-zinc-500" />
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-zinc-500">Chủ tài khoản</span>
-                    <p className="font-bold text-white">NGUYEN SY HOANG</p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-zinc-500">Nội dung chuyển khoản (Click để copy)</span>
-                    <div 
-                      className="flex items-center gap-1.5 cursor-pointer bg-indigo-950/40 border border-indigo-900/50 p-2 rounded-lg hover:border-indigo-850 mt-1" 
-                      onClick={() => copyText(memo, 'Đã copy nội dung chuyển khoản!')}
-                    >
-                      <span className="font-mono text-indigo-400 font-bold select-all text-sm">{memo}</span>
-                      <Copy className="h-3.5 w-3.5 text-indigo-400" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* QR Image Visual */}
-              <div className="flex flex-col items-center justify-center space-y-2">
-                <div className="bg-white p-3 rounded-2xl shadow-lg max-w-[200px] border border-zinc-200">
-                  <img src={qrUrl} alt="VietQR Code" className="w-full h-auto" />
-                </div>
-                <span className="text-[9px] text-zinc-500 font-medium">Quét mã QR để tự điền thông tin</span>
-              </div>
-
-            </div>
-
-            {/* Activating Simulation Button */}
-            <div className="border-t border-zinc-900 pt-5 space-y-4">
-              <button 
-                onClick={activateLicense}
-                disabled={activating}
-                className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/10 hover:shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            {/* Payment Method Selector */}
+            <div className="grid grid-cols-3 gap-2 p-1.5 bg-zinc-950/85 border border-zinc-900 rounded-xl">
+              <button
+                onClick={() => setPaymentMethod('bank')}
+                className={`py-2 px-3 text-[10px] sm:text-xs font-semibold rounded-lg transition-all cursor-pointer text-center ${
+                  paymentMethod === 'bank'
+                    ? 'bg-zinc-900 border border-zinc-800 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
               >
-                {activating ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>Đang xử lý đối soát...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="h-5 w-5" />
-                    <span>Xác nhận đã chuyển khoản (Thử nghiệm)</span>
-                  </>
-                )}
+                Chuyển khoản (VietQR)
               </button>
-              <p className="text-[10px] text-center text-zinc-500">Sau khi bấm nút, hệ thống sẽ mô phỏng đối soát chuyển khoản và kích hoạt key của bạn ngay lập tức.</p>
+              <button
+                onClick={() => setPaymentMethod('stripe')}
+                className={`py-2 px-3 text-[10px] sm:text-xs font-semibold rounded-lg transition-all cursor-pointer text-center ${
+                  paymentMethod === 'stripe'
+                    ? 'bg-zinc-900 border border-zinc-800 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Thẻ quốc tế (Stripe)
+              </button>
+              <button
+                onClick={() => setPaymentMethod('payos')}
+                className={`py-2 px-3 text-[10px] sm:text-xs font-semibold rounded-lg transition-all cursor-pointer text-center ${
+                  paymentMethod === 'payos'
+                    ? 'bg-zinc-900 border border-zinc-800 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Thẻ nội địa (PayOS)
+              </button>
             </div>
+
+            {paymentMethod === 'bank' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                <div className="space-y-3.5 text-xs text-zinc-300">
+                  <p className="text-zinc-400 leading-relaxed">Vui lòng chuyển khoản đúng tài khoản ngân hàng và nhập chính xác <strong>Nội dung chuyển khoản</strong> dưới đây:</p>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[10px] text-zinc-500">Ngân hàng</span>
+                      <p className="font-bold text-white">{bankCode} Bank</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-zinc-500">Số tài khoản (Click để copy)</span>
+                      <div 
+                        className="flex items-center gap-1.5 cursor-pointer hover:text-white" 
+                        onClick={() => copyText(bankAccount, 'Đã copy số tài khoản!')}
+                      >
+                        <p className="font-mono font-bold text-white select-all text-sm">{bankAccount}</p>
+                        <Copy className="h-3.5 w-3.5 text-zinc-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-zinc-500">Chủ tài khoản</span>
+                      <p className="font-bold text-white">{bankAccountName}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-zinc-500">Nội dung chuyển khoản (Click để copy)</span>
+                      <div 
+                        className="flex items-center gap-1.5 cursor-pointer bg-indigo-950/40 border border-indigo-900/50 p-2 rounded-lg hover:border-indigo-850 mt-1" 
+                        onClick={() => copyText(memo, 'Đã copy nội dung chuyển khoản!')}
+                      >
+                        <span className="font-mono text-indigo-400 font-bold select-all text-sm">{memo}</span>
+                        <Copy className="h-3.5 w-3.5 text-indigo-400" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* QR Image Visual */}
+                <div className="flex flex-col items-center justify-center space-y-2">
+                  <div className="bg-white p-3 rounded-2xl shadow-lg max-w-[200px] border border-zinc-200">
+                    <img src={qrUrl} alt="VietQR Code" className="w-full h-auto" />
+                  </div>
+                  <span className="text-[9px] text-zinc-500 font-medium">Quét mã QR để tự điền thông tin</span>
+                </div>
+              </div>
+            )}
+
+            {paymentMethod === 'stripe' && (
+              <div className="bg-zinc-950/50 border border-zinc-900/60 rounded-2xl p-6 text-center space-y-4">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 mb-2">
+                  <CreditCard className="h-6 w-6" />
+                </div>
+                <h4 className="text-sm font-bold text-white">Thanh toán qua cổng thẻ Stripe</h4>
+                <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                  Hỗ trợ các loại thẻ Visa, Mastercard, JCB và Apple Pay. Cổng thanh toán bảo mật tiêu chuẩn quốc tế.
+                </p>
+                <button
+                  onClick={() => handleCheckoutRedirect('stripe')}
+                  disabled={checkoutLoading}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-650 hover:to-purple-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                >
+                  {checkoutLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Đang kết nối cổng Stripe...</span>
+                    </>
+                  ) : (
+                    <span>Thanh toán ngay qua Stripe</span>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {paymentMethod === 'payos' && (
+              <div className="bg-zinc-950/50 border border-zinc-900/60 rounded-2xl p-6 text-center space-y-4">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 mb-2">
+                  <QrCode className="h-6 w-6" />
+                </div>
+                <h4 className="text-sm font-bold text-white">Thanh toán qua cổng PayOS</h4>
+                <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                  Quét mã QR hoặc nhập thẻ ATM nội địa Việt Nam. Cổng thanh toán quốc gia tiện lợi, bảo mật.
+                </p>
+                <button
+                  onClick={() => handleCheckoutRedirect('payos')}
+                  disabled={checkoutLoading}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-650 hover:to-purple-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                >
+                  {checkoutLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Đang kết nối cổng PayOS...</span>
+                    </>
+                  ) : (
+                    <span>Thanh toán ngay qua PayOS</span>
+                  )}
+                </button>
+              </div>
+            )}
+
+
 
           </div>
         )}

@@ -165,11 +165,14 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
   };
 
   const pendingKey = keys.find(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
-  const amount = pendingKey ? (pendingKey.planType === 'monthly' ? 199000 : 1499000) : 0;
-  const priceText = pendingKey ? (pendingKey.planType === 'monthly' ? '199.000đ' : '1.499.000đ') : '';
+  const amount = pendingKey ? (pendingKey.price !== undefined ? pendingKey.price : (pendingKey.planType === 'monthly' ? 199000 : 1499000)) : 0;
+  const priceText = pendingKey ? (amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ') : '';
   const keyRef = pendingKey ? pendingKey.key.split('-')[1] : '';
   const memo = pendingKey ? `VST ${keyRef}` : '';
-  const qrUrl = pendingKey ? `https://img.vietqr.io/image/MB-0352516480-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=HOANG%20DEVS` : '';
+  const bankCode = pendingKey ? (pendingKey.bankCode || 'MB') : 'MB';
+  const bankAccount = pendingKey ? (pendingKey.bankAccount || '0385464403') : '0385464403';
+  const bankAccountName = pendingKey ? (pendingKey.bankAccountName || 'DOAN VIET HOANG') : 'DOAN VIET HOANG';
+  const qrUrl = pendingKey ? `https://img.vietqr.io/image/${bankCode}-${bankAccount}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(bankAccountName)}` : '';
 
   return (
     <section id="dashboard" className="py-20 border-t border-zinc-900 bg-zinc-950">
@@ -235,7 +238,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
                     ) : (
                       keys.map((k) => {
                         const isExpired = new Date(k.expiresAt) < new Date();
-                        const planName = k.planType === 'trial' ? 'Dùng thử' : (k.planType === 'monthly' ? 'Tháng' : 'Năm');
+                        const planName = k.planName || (k.planType === 'trial' ? 'Dùng thử' : (k.planType === 'monthly' ? 'Tháng' : 'Năm'));
                         const formattedExpires = new Date(k.expiresAt).toLocaleDateString('vi-VN', {
                           year: 'numeric', month: '2-digit', day: '2-digit'
                         });
@@ -356,18 +359,18 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
                 <div className="bg-zinc-950/80 border border-zinc-900 rounded-xl p-4 space-y-2.5">
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-zinc-500">Ngân hàng:</span>
-                    <span class="font-bold text-white">MB Bank (Quân Đội)</span>
+                    <span class="font-bold text-white">{bankCode} Bank</span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-zinc-500">Số tài khoản:</span>
-                    <div className="flex items-center gap-1 cursor-pointer" onClick={() => copyToClipboard('0352516480', 'Đã copy số tài khoản!')}>
-                      <span className="font-mono font-bold text-white select-all">0352516480</span>
+                    <div className="flex items-center gap-1 cursor-pointer" onClick={() => copyToClipboard(bankAccount, 'Đã copy số tài khoản!')}>
+                      <span className="font-mono font-bold text-white select-all">{bankAccount}</span>
                       <Copy className="h-3 w-3 text-zinc-500" />
                     </div>
                   </div>
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-zinc-500">Chủ tài khoản:</span>
-                    <span className="font-bold text-white">NGUYEN SY HOANG</span>
+                    <span className="font-bold text-white">{bankAccountName}</span>
                   </div>
                   <div className="flex justify-between items-center text-xs border-t border-zinc-900 pt-2.5">
                     <span className="text-zinc-500">Số tiền:</span>
