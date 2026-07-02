@@ -62,12 +62,12 @@ if (process.env.STRIPE_SECRET_KEY) {
 let payOS = null;
 if (process.env.PAYOS_CLIENT_ID && process.env.PAYOS_API_KEY && process.env.PAYOS_CHECKSUM_KEY) {
   try {
-    const PayOS = require('@payos/node');
-    payOS = new PayOS(
-      process.env.PAYOS_CLIENT_ID,
-      process.env.PAYOS_API_KEY,
-      process.env.PAYOS_CHECKSUM_KEY
-    );
+    const { PayOS } = require('@payos/node');
+    payOS = new PayOS({
+      clientId: process.env.PAYOS_CLIENT_ID,
+      apiKey: process.env.PAYOS_API_KEY,
+      checksumKey: process.env.PAYOS_CHECKSUM_KEY
+    });
     console.log('[License Server] PayOS Configured.');
   } catch (err) {
     console.error('[License Server] Lỗi khi khởi tạo PayOS SDK:', err.message);
@@ -1930,7 +1930,7 @@ app.post('/api/payment/payos/create-link', userAuth, async (req, res) => {
       returnUrl: `${domain}/payment.html?key=${license.key}&status=success`,
     };
 
-    const paymentLink = await payOS.createPaymentLink(paymentLinkData);
+    const paymentLink = await payOS.paymentRequests.create(paymentLinkData);
     res.json({ success: true, url: paymentLink.checkoutUrl });
 
   } catch (err) {
@@ -2337,7 +2337,7 @@ app.post('/api/payment/payos/webhook', async (req, res) => {
     }
 
     // XÁC THỰC CHỮ KÝ VÀ DỮ LIỆU BẢO MẬT PAYOS
-    const webhookData = payOS.verifyPaymentWebhookData(req.body);
+    const webhookData = await payOS.webhooks.verify(req.body);
     
     // Webhook data chứa description/orderCode để tìm ra License
     const orderDescription = webhookData.description;
