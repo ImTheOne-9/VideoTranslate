@@ -274,9 +274,9 @@
       }
 
       // Configure details
-      const planName = targetKeyDetail.planType === 'trial' ? 'Gói Dùng Thử' : (targetKeyDetail.planType === 'monthly' ? 'Gói Tháng' : 'Gói Năm');
-      const amount = targetKeyDetail.planType === 'monthly' ? 199000 : 1499000;
-      const priceText = targetKeyDetail.planType === 'monthly' ? '199.000đ' : '1.499.000đ';
+      const planName = targetKeyDetail.planName || (targetKeyDetail.planType === 'trial' ? 'Gói Dùng Thử' : (targetKeyDetail.planType === 'monthly' ? 'Gói Tháng' : 'Gói Năm'));
+      const amount = targetKeyDetail.price !== undefined ? targetKeyDetail.price : (targetKeyDetail.planType === 'monthly' ? 199000 : 1499000);
+      const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
       const keyRef = licenseKey.split('-')[1];
       const memo = `VST ${keyRef}`;
 

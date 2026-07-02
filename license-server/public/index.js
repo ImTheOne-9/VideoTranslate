@@ -473,7 +473,7 @@ function renderUserKeys(keys) {
       badge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-955/80 text-blue-400 border border-blue-900/30">Chờ Kích Hoạt</span>';
     }
 
-    const planName = k.planType === 'trial' ? 'Dùng thử' : (k.planType === 'monthly' ? 'Tháng' : 'Năm');
+    const planName = k.planName || (k.planType === 'trial' ? 'Dùng thử' : (k.planType === 'monthly' ? 'Tháng' : 'Năm'));
     const formattedExpires = new Date(k.expiresAt).toLocaleDateString('vi-VN', {
       year: 'numeric', month: '2-digit', day: '2-digit'
     });
@@ -565,8 +565,8 @@ function renderPaymentInstruction(keyObj) {
     return;
   }
 
-  const amount = keyObj.planType === 'monthly' ? 199000 : 1499000;
-  const priceText = keyObj.planType === 'monthly' ? '199.000đ' : '1.499.000đ';
+  const amount = keyObj.price !== undefined ? keyObj.price : (keyObj.planType === 'monthly' ? 199000 : 1499000);
+  const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
   const keyRef = keyObj.key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
   const memo = `VST ${keyRef}`;
   

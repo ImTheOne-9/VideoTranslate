@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Youtube, Video, Download, Languages, Volume2, Cpu, Layers, Settings, Tv, Flame, ShieldCheck, Check, X, Zap, Sparkles, Share2, Music, HardDrive } from 'lucide-react';
 
@@ -7,6 +8,24 @@ import subtitlesImg from '../assets/subtitles_screenshot.png';
 import voiceoverImg from '../assets/voiceover_screenshot.png';
 
 export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePlan, showToast }) {
+  const [plans, setPlans] = useState([]);
+
+  useEffect(() => {
+    fetchPlans();
+  }, []);
+
+  const fetchPlans = async () => {
+    try {
+      const res = await fetch('/api/plans');
+      const data = await res.json();
+      if (data.success) {
+        setPlans(data.plans || []);
+      }
+    } catch (err) {
+      console.error('Lỗi khi tải gói dịch vụ:', err);
+    }
+  };
+
   const handleDownloadClick = () => {
     if (!currentUser) {
       showToast('Vui lòng đăng nhập/đăng ký tài khoản để tải file cài đặt!', 'error');
@@ -369,126 +388,63 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            
-            {/* Trial Card */}
-            <div className="glass-card p-8 rounded-2xl flex flex-col justify-between hover:border-indigo-500/40 transition-all relative overflow-hidden">
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Gói Dùng thử</h3>
-                  <p className="text-xs text-zinc-400 mt-1">Trải nghiệm đầy đủ tính năng công cụ</p>
-                </div>
-                <div className="flex items-baseline">
-                  <span className="text-4xl font-extrabold text-white">0đ</span>
-                  <span className="text-sm text-zinc-500 ml-1">/ 7 ngày</span>
-                </div>
-                <ul className="space-y-3.5 text-sm text-zinc-300 font-medium">
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Đầy đủ tính năng 100%</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Sử dụng trên 1 máy tính</span>
-                  </li>
-                  <li className="flex items-center gap-2.5 text-zinc-500">
-                    <X className="h-4.5 w-4.5 text-zinc-650" />
-                    <span>Hỗ trợ kỹ thuật ưu tiên</span>
-                  </li>
-                </ul>
+            {plans.length === 0 ? (
+              <div className="col-span-3 text-center py-12 text-zinc-500">
+                Đang tải danh sách các gói dịch vụ...
               </div>
-              <div className="pt-8">
-                <button 
-                  onClick={() => onSubscribePlan('trial')} 
-                  className="w-full py-3 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/60 font-semibold rounded-xl text-zinc-200 transition-all cursor-pointer text-xs"
-                >
-                  Đăng ký dùng thử
-                </button>
-              </div>
-            </div>
-            
-            {/* Monthly Card */}
-            <div className="glass-card p-8 rounded-2xl flex flex-col justify-between border-gradient transition-all relative overflow-hidden transform md:scale-105 shadow-xl shadow-indigo-950/20">
-              <div className="absolute top-3 right-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-[10px] font-bold text-white px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                Khuyên Dùng
-              </div>
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Gói Tháng</h3>
-                  <p className="text-xs text-zinc-400 mt-1">Dành cho Creator sáng tạo thường xuyên</p>
-                </div>
-                <div className="flex items-baseline">
-                  <span className="text-4xl font-extrabold text-white">199.000đ</span>
-                  <span className="text-sm text-zinc-500 ml-1">/ 30 ngày</span>
-                </div>
-                <ul className="space-y-3.5 text-sm text-zinc-300 font-medium">
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Đầy đủ tính năng 100%</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Sử dụng trên 1 máy tính</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Tự động nhận key qua email</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Hỗ trợ kỹ thuật 24/7</span>
-                  </li>
-                </ul>
-              </div>
-              <div className="pt-8">
-                <button 
-                  onClick={() => onSubscribePlan('monthly')} 
-                  className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold rounded-xl shadow-md transition-all cursor-pointer text-xs"
-                >
-                  Đăng ký Gói Tháng
-                </button>
-              </div>
-            </div>
-            
-            {/* Yearly Card */}
-            <div className="glass-card p-8 rounded-2xl flex flex-col justify-between hover:border-purple-500/40 transition-all relative overflow-hidden">
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Gói Năm</h3>
-                  <p className="text-xs text-zinc-400 mt-1">Tiết kiệm tối đa chi phí dài hạn</p>
-                </div>
-                <div className="flex items-baseline">
-                  <span className="text-4xl font-extrabold text-white">1.499.000đ</span>
-                  <span className="text-sm text-zinc-500 ml-1">/ 365 ngày</span>
-                </div>
-                <ul className="space-y-3.5 text-sm text-zinc-300 font-medium">
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Đầy đủ tính năng 100%</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Sử dụng trên 1 máy tính</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Cập nhật các tính năng mới miễn phí</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="h-4.5 w-4.5 text-indigo-400" />
-                    <span>Ưu tiên xử lý lỗi & Hỗ trợ VIP</span>
-                  </li>
-                </ul>
-              </div>
-              <div className="pt-8">
-                <button 
-                  onClick={() => onSubscribePlan('yearly')} 
-                  className="w-full py-3 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/60 font-semibold rounded-xl text-zinc-200 transition-all cursor-pointer text-xs"
-                >
-                  Đăng ký Gói Năm
-                </button>
-              </div>
-            </div>
-            
+            ) : (
+              plans.map((p) => {
+                const formattedPrice = p.price === 0 ? '0đ' : p.price.toLocaleString('vi-VN') + 'đ';
+                return (
+                  <div 
+                    key={p.id}
+                    className={`glass-card p-8 rounded-2xl flex flex-col justify-between transition-all relative overflow-hidden ${
+                      p.isPopular 
+                        ? 'border-gradient transform md:scale-105 shadow-xl shadow-indigo-950/20' 
+                        : 'hover:border-indigo-500/40'
+                    }`}
+                  >
+                    {p.isPopular && (
+                      <div className="absolute top-3 right-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-[10px] font-bold text-white px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        Khuyên Dùng
+                      </div>
+                    )}
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-xl font-bold text-white">{p.name}</h3>
+                        {p.description && <p className="text-xs text-zinc-400 mt-1">{p.description}</p>}
+                      </div>
+                      <div className="flex items-baseline">
+                        <span className="text-4xl font-extrabold text-white">{formattedPrice}</span>
+                        <span className="text-sm text-zinc-500 ml-1">/ {p.durationDays} ngày</span>
+                      </div>
+                      {p.features && p.features.length > 0 && (
+                        <ul className="space-y-3.5 text-sm text-zinc-300 font-medium">
+                          {p.features.map((feature, idx) => (
+                            <li key={idx} className="flex items-center gap-2.5">
+                              <Check className="h-4.5 w-4.5 text-indigo-400" />
+                              <span>{feature}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div className="pt-8">
+                      <button 
+                        onClick={() => onSubscribePlan(p.id)} 
+                        className={`w-full py-3 font-bold rounded-xl shadow-md transition-all cursor-pointer text-xs ${
+                          p.isPopular
+                            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white'
+                            : 'border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/60 text-zinc-200'
+                        }`}
+                      >
+                        Đăng ký {p.name}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </section>
