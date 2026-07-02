@@ -6683,6 +6683,49 @@ window.addEventListener('beforeunload', () => {
   saveProjectSynchronously();
 });
 
+// Điều chỉnh âm lượng video gốc khi xem trước
+document.addEventListener('DOMContentLoaded', () => {
+  const volSlider = document.getElementById('main-video-volume-slider');
+  const mainVideo = document.getElementById('studio-video-preview');
+  const volIcon = document.getElementById('main-video-volume-icon');
+  
+  if (volSlider && mainVideo && volIcon) {
+    const updateIcon = () => {
+      if (mainVideo.muted || mainVideo.volume === 0) {
+        volIcon.textContent = '🔇';
+      } else {
+        volIcon.textContent = '🔊';
+      }
+    };
 
-
-
+    volSlider.addEventListener('input', (e) => {
+      mainVideo.volume = e.target.value;
+      if (mainVideo.volume > 0) {
+        mainVideo.muted = false;
+      } else {
+        mainVideo.muted = true;
+      }
+      updateIcon();
+    });
+    
+    volIcon.addEventListener('click', () => {
+      if (mainVideo.muted || mainVideo.volume === 0) {
+        mainVideo.muted = false;
+        if (mainVideo.volume === 0) {
+          mainVideo.volume = 1;
+          volSlider.value = 1;
+        }
+      } else {
+        mainVideo.muted = true;
+      }
+      updateIcon();
+    });
+    
+    // Đặt lại âm lượng nếu video được load
+    mainVideo.addEventListener('loadedmetadata', () => {
+      mainVideo.volume = volSlider.value;
+      mainVideo.muted = false;
+      updateIcon();
+    });
+  }
+});
