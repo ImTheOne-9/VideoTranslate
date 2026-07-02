@@ -257,7 +257,17 @@ async function executeRenderTask(task) {
     }
 
     let subtitlePath = null;
-    const subtitleMode = body.subtitleMode || 'none';
+    let subtitleMode = body.subtitleMode || 'none';
+    const voiceMode = body.voiceMode || 'none';
+    const omiScriptText = (body.omiScript || '').trim();
+
+    let isVoiceOnlySub = false;
+    if (voiceMode === 'omi' && !omiScriptText && subtitleMode === 'none') {
+      subtitleMode = 'generate';
+      isVoiceOnlySub = true;
+      console.log('[Studio Render] Tự động chuyển sang chế độ tạo phụ đề ngầm để phục vụ thuyết minh.');
+    }
+
     if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
       shared.updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
       subtitlePath = shared.moveUploadedFile(files.subtitleUpload[0], shared.SUBTITLES_DIR, files.subtitleUpload[0].originalname);
@@ -309,7 +319,6 @@ async function executeRenderTask(task) {
     }
 
     let voicePath = null;
-    const voiceMode = body.voiceMode || 'none';
     if (voiceMode === 'upload' && files.voiceUpload?.[0]) {
       shared.updateStudioProgress(38, 'Đang chuẩn bị file lồng tiếng tải lên...');
       voicePath = shared.moveUploadedFile(files.voiceUpload[0], workDir, files.voiceUpload[0].originalname);
@@ -729,7 +738,7 @@ async function executeRenderTask(task) {
     let videoFilter = null;
     let hasVideoFilter = false;
 
-    if (subtitlePath && body.burnSub === 'true') {
+    if (subtitlePath && body.burnSub === 'true' && !isVoiceOnlySub) {
       const scaleFactor = 1.35;
       const fontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
       const marginV = Number(body.subtitleMargin || 28);
