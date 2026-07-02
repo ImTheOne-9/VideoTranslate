@@ -2381,6 +2381,8 @@ function submitSaveTemplate(event) {
     subtitleMaxLines: document.querySelector('select[name="subtitleMaxLines"]').value,
     subtitleMargin: document.querySelector('input[name="subtitleMargin"]').value,
     subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
+    subtitleMarginL: document.querySelector('input[name="subtitleMarginL"]')?.value || '',
+    subtitleMarginR: document.querySelector('input[name="subtitleMarginR"]')?.value || '',
     subtitleTemplateWidth: konvaStage ? konvaStage.width() : (document.querySelector('select[name="preview-aspect-select"]')?.value === '16-9' ? 1920 : 1080),
     blurOriginalSub: (blurBoxes && blurBoxes.length > 0),
     blurBoxes: blurBoxes,
@@ -2600,6 +2602,12 @@ function loadStudioTemplate(templateName) {
       marginHInput.dataset.lastStageWidth = (Number(template.subtitleMarginH) > 200) ? '1920' : '1080';
     }
   }
+
+  // Khôi phục marginL và marginR nếu có
+  const marginLInput = document.querySelector('input[name="subtitleMarginL"]');
+  const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
+  if (marginLInput) marginLInput.value = template.subtitleMarginL || '';
+  if (marginRInput) marginRInput.value = template.subtitleMarginR || '';
 
   // Restore blur settings
 
@@ -3053,6 +3061,22 @@ subtitleInputs.forEach(name => {
     });
   }
 });
+
+// Khi user chỉnh marginH bằng tay → đồng bộ marginL = marginR = marginH (đối xứng)
+const marginHSyncEl = document.querySelector('input[name="subtitleMarginH"]');
+if (marginHSyncEl) {
+  const syncMarginLR = (e) => {
+    if (e && e.isTrusted) {
+      const val = marginHSyncEl.value;
+      const mL = document.querySelector('input[name="subtitleMarginL"]');
+      const mR = document.querySelector('input[name="subtitleMarginR"]');
+      if (mL) mL.value = val;
+      if (mR) mR.value = val;
+    }
+  };
+  marginHSyncEl.addEventListener('input', syncMarginLR);
+  marginHSyncEl.addEventListener('change', syncMarginLR);
+}
 
 // Interactive Alignment Grid Clicks
 const alignmentGrid = $('alignment-visual-grid');
@@ -5354,6 +5378,12 @@ function resetStudioConfig() {
     marginHInput.value = '20';
     delete marginHInput.dataset.lastStageWidth;
   }
+
+  // Reset marginL/marginR
+  const marginLInput = document.querySelector('input[name="subtitleMarginL"]');
+  const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
+  if (marginLInput) marginLInput.value = '';
+  if (marginRInput) marginRInput.value = '';
 
   // Subtitle alignment
   const alignInput = $('subtitle-alignment-input');
