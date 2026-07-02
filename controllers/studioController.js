@@ -526,6 +526,7 @@ async function executeRenderTask(task) {
                 }
               } catch (speedUpErr) {
                 console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
+                throw speedUpErr;
               }
 
               voiceChunks.push({
@@ -533,9 +534,12 @@ async function executeRenderTask(task) {
                 startMs: startMs
               });
               tempFiles.push(chunkPath);
+            } else {
+              throw new Error(`Không tìm thấy file âm thanh thuyết minh đầu ra của nhóm câu ${idx + 1} sau khi chạy OmniVoice.`);
             }
           } catch (err) {
-            console.error(`Lỗi khi đọc nhóm câu ${idx + 1}/${groups.length}:`, err.message);
+            console.error(`Lỗi khi thuyết minh nhóm câu ${idx + 1}/${groups.length}:`, err.message);
+            throw err;
           }
         }
 
