@@ -8,6 +8,33 @@ const axios = require('axios');
 const shared = require('./lib/shared-state');
 const { verifyLocalLicense } = require('./lib/license-manager');
 
+// --- Rate Limiting (chống flood API local) ---
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 120;
+function rateLimiter(req, res, next) {
+  if (!req.path.startsWith('/api/')) return next();
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let entry = rateLimitMap.get(ip);
+  if (!entry || now - entry.timestamp > RATE_LIMIT_WINDOW_MS) {
+    entry = { timestamp: now, count: 1 };
+    rateLimitMap.set(ip, entry);
+    return next();
+  }
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) {
+    return res.status(429).json({ error: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.' });
+  }
+  next();
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap) {
+    if (now - entry.timestamp > RATE_LIMIT_WINDOW_MS * 2) rateLimitMap.delete(ip);
+  }
+}, 5 * 60 * 1000).unref();
+
 // Khởi chạy dọn dẹp các tệp tạm của lần chạy trước (Startup Cleanup Task)
 function cleanupTempOnStartup() {
   console.log('[Cleanup] Bắt đầu dọn dẹp tệp tạm thời từ phiên chạy trước...');
@@ -117,6 +144,7 @@ function licenseMiddleware(req, res, next) {
   }
   next();
 }
+app.use(rateLimiter);
 app.use(licenseMiddleware);
 
 // Controllers
@@ -259,6 +287,19 @@ function killAllActiveProcesses() {
   shared.killAllActiveProcesses();
 }
 
+
+// --- Centralized Error Handler Middleware ---
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error('[Unhandled Error]', err.message);
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File quá lớn. Giới hạn upload là 50MB.' });
+  }
+  if (err.code && err.code.startsWith('LIMIT_')) {
+    return res.status(400).json({ error: 'Lỗi upload file: ' + err.message });
+  }
+  res.status(500).json({ error: 'Lỗi server nội bộ: ' + (err.message || 'Không xác định') });
+});
 if (require.main === module) {
   startServer(3456).catch(err => {
     console.error('Lỗi khi khởi động server trực tiếp:', err.message);

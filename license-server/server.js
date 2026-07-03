@@ -97,9 +97,25 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
 
 // Khóa riêng tư Ed25519 để ký bản quyền (Trùng khớp với Public Key nhúng ở Client)
-const PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+// BẢO MẬT: Đọc từ biến môi trường thay vì hardcode trong source code
+// Normalize: chuyển \\n literal (2 ký tự) thành newline thật, bỏ ngoặc kép dư
+function normalizePem(pem) {
+  if (!pem) return pem;
+  let result = pem.trim();
+  if ((result.startsWith('"') && result.endsWith('"')) || (result.startsWith("'") && result.endsWith("'"))) {
+    result = result.slice(1, -1);
+  }
+  result = result.replace(/\\\\n/g, '\n');
+  return result;
+}
+const PRIVATE_KEY = normalizePem(process.env.LICENSE_PRIVATE_KEY) || `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEINCSkH2ERf0+fEmOBZAFIHPJlihYwsLNf2g4o+QZxmdw
 -----END PRIVATE KEY-----`;
+if (!process.env.LICENSE_PRIVATE_KEY) {
+  console.warn('[License Server] ⚠️ CẢNH BÁO: LICENSE_PRIVATE_KEY chưa được set trong .env. Đang dùng khóa fallback hardcoded - KHÔNG an toàn cho production!');
+} else {
+  console.log('[License Server] ✅ LICENSE_PRIVATE_KEY đã load từ biến môi trường.');
+}
 
 // Mongoose Setup
 const userSchema = new mongoose.Schema({

@@ -254,14 +254,16 @@ module.exports = {
         console.error('Lỗi khi mở thư mục bằng Electron shell:', err.message);
       }
     }
-    let command = '';
-    switch (process.platform) { 
-      case 'win32': command = `explorer "${shared.DOWNLOADS_DIR}"`; break;
-      case 'darwin': command = `open "${shared.DOWNLOADS_DIR}"`; break;
-      default: command = `xdg-open "${shared.DOWNLOADS_DIR}"`; break;
+    // Bảo mật: dùng execFile (không qua shell) để tránh command injection
+    try {
+      const cmd = process.platform === 'win32' ? 'explorer'
+        : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+      child_process.execFile(cmd, [shared.DOWNLOADS_DIR]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Lỗi mở thư mục:', err.message);
+      res.status(500).json({ error: 'Lỗi mở thư mục' });
     }
-    child_process.exec(command);
-    res.json({ success: true });
   },
 
   openFileFolder: async (req, res) => {
@@ -271,13 +273,19 @@ module.exports = {
         return res.status(400).json({ error: 'Thiếu tên file' });
       }
 
-      let fullPath = path.join(shared.DOWNLOADS_DIR, filename);
+      // BẢO MẬT: path.basename() loại bỏ mọi ký tự đường dẫn để chống path traversal & command injection
+      const safeFilename = path.basename(filename);
+      if (!safeFilename || safeFilename === '.' || safeFilename === '..') {
+        return res.status(400).json({ error: 'Tên file không hợp lệ' });
+      }
+
+      let fullPath = path.join(shared.DOWNLOADS_DIR, safeFilename);
       if (!fs.existsSync(fullPath)) {
-        fullPath = path.join(shared.RENDERS_DIR, filename);
+        fullPath = path.join(shared.RENDERS_DIR, safeFilename);
       }
       if (!fs.existsSync(fullPath)) {
         const homeDir = os.homedir();
-        fullPath = path.join(homeDir, 'Downloads', filename);
+        fullPath = path.join(homeDir, 'Downloads', safeFilename);
       }
 
       if (fs.existsSync(fullPath)) {
@@ -290,19 +298,14 @@ module.exports = {
           }
         }
 
-        let command = '';
-        switch (process.platform) {
-          case 'win32':
-            command = `explorer.exe /select,"${fullPath}"`;
-            break;
-          case 'darwin':
-            command = `open -R "${fullPath}"`;
-            break;
-          default:
-            command = `xdg-open "${path.dirname(fullPath)}"`;
-            break;
+        // Bảo mật: dùng execFile (không qua shell) để tránh command injection
+        if (process.platform === 'win32') {
+          child_process.execFile('explorer.exe', ['/select,', fullPath]);
+        } else if (process.platform === 'darwin') {
+          child_process.execFile('open', ['-R', fullPath]);
+        } else {
+          child_process.execFile('xdg-open', [path.dirname(fullPath)]);
         }
-        child_process.exec(command);
         return res.json({ success: true });
       } else {
         if (electronShell) {
@@ -313,13 +316,9 @@ module.exports = {
             console.error('Lỗi khi mở thư mục bằng Electron shell:', err.message);
           }
         }
-        let command = '';
-        switch (process.platform) { 
-          case 'win32': command = `explorer "${shared.DOWNLOADS_DIR}"`; break;
-          case 'darwin': command = `open "${shared.DOWNLOADS_DIR}"`; break;
-          default: command = `xdg-open "${shared.DOWNLOADS_DIR}"`; break;
-        }
-        child_process.exec(command);
+        const cmd = process.platform === 'win32' ? 'explorer'
+          : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+        child_process.execFile(cmd, [shared.DOWNLOADS_DIR]);
         return res.json({ success: true });
       }
     } catch (error) {
