@@ -97,7 +97,7 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
       {/* SECTION 2: SYSTEM CAPABILITIES (GIỚI THIỆU TOÀN BỘ CÔNG CỤ VỚI ẢNH MINH HỌA) */}
       <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
-          <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Hệ Sinh Thái Video Studio</span>
+          <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Hệ Sinh Thái Editnhanh</span>
           <h2 className="text-3xl sm:text-4xl font-bold font-display text-white">4 Phân Hệ Công Cụ Chuyên Nghiệp</h2>
           <p className="text-zinc-400">Tích hợp đầy đủ các giải pháp tải, dịch thuật, lồng tiếng và render video thông minh trên máy tính.</p>
         </div>

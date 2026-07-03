@@ -315,7 +315,7 @@ function AppContent() {
                     <Video className="text-white h-5 w-5" />
                   </div>
                   <span className="text-lg font-bold tracking-tight text-white font-display">
-                    Video Studio <span className="text-indigo-400">Tools</span>
+                    Editnhanh
                   </span>
                 </Link>
                 <p className="text-xs text-zinc-400 leading-relaxed max-w-xs">
@@ -389,7 +389,7 @@ function AppContent() {
             {/* Bottom section */}
             <div className="pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
               <p className="text-[11px] text-zinc-500 font-display">
-                &copy; {new Date().getFullYear()} Video Studio Tools. Bản quyền được bảo lưu.
+                &copy; {new Date().getFullYear()} Editnhanh. Bản quyền được bảo lưu.
               </p>
               <p className="text-[10px] text-zinc-650 flex items-center gap-1">
                 <Shield className="h-3.5 w-3.5 text-indigo-500/50" />

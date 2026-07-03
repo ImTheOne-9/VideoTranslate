@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 const ADMIN_TOKEN = 'my_super_secret_admin_token_2026';
-const SERVER_URL = 'https://video-studio-license-server.onrender.com';
+const SERVER_URL = 'https://editnhanh.com';
 
 const days = process.argv[2] ? Number(process.argv[2]) : 30;
 
