@@ -442,6 +442,36 @@ function AppContent() {
           </div>
         ))}
       </div>
+
+      {/* Zalo Floating Bubble - chỉ hiển thị nếu có SĐT Zalo */}
+      {!isAdminRoute && contact.zalo && (
+        <a
+          href={`https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Chat Zalo hỗ trợ: ${contact.zalo}`}
+          style={{ zIndex: 9999 }}
+          className="fixed bottom-6 right-6 group flex flex-row-reverse items-center gap-3"
+        >
+          {/* Tooltip label */}
+          <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 -translate-x-2 group-hover:translate-x-0 bg-zinc-900 border border-zinc-700 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-xl whitespace-nowrap pointer-events-none">
+            💬 Chat Zalo hỗ trợ
+          </div>
+          {/* Zalo Button */}
+          <div className="relative w-14 h-14 shrink-0">
+            {/* Ripple animation */}
+            <span className="absolute inset-0 rounded-full bg-blue-500 opacity-30 animate-ping" />
+            <span className="absolute inset-1 rounded-full bg-blue-400 opacity-20 animate-ping" style={{ animationDelay: '0.3s' }} />
+            {/* Main button */}
+            <div className="relative w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 hover:scale-110 transition-all duration-200 border-2 border-blue-400/30">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-8 h-8" fill="none">
+                <path d="M24 4C12.95 4 4 12.07 4 22c0 5.54 2.72 10.48 7 13.84V42l6.38-3.5C19.14 39.48 21.52 40 24 40c11.05 0 20-8.07 20-18S35.05 4 24 4z" fill="white"/>
+                <path d="M16 20h16M16 26h10" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round"/>
+              </svg>
+            </div>
+          </div>
+        </a>
+      )}
     </div>
   );
 }
