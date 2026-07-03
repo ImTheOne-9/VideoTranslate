@@ -3,14 +3,16 @@ const path = require('path');
 const contentDisposition = require('content-disposition');
 const shared = require('../lib/shared-state');
 const { translateSubtitles } = require('../lib/translate-sub');
+const { validate, validators } = require('../lib/validate');
 
 module.exports = {
   proxyImage: async (req, res) => {
     try {
-      const { url } = req.query;
-      if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
-        return res.status(400).send('Invalid image URL');
-      }
+      const { err, values } = validate(req.query, {
+        url: validators.url('Invalid image URL')
+      });
+      if (err) return res.status(400).send(err);
+      const url = values.url;
       const axios = require('axios');
       const response = await axios({
         method: 'get',

@@ -7,6 +7,7 @@ const shared = require('../lib/shared-state');
 const { getCompositeHWID, saveLicenseLocal, verifyLocalLicense, LICENSE_SERVER_URL } = require('../lib/license-manager');
 const { checkDependencyStatus, downloadAndExtract } = require('../lib/dependency-downloader');
 const FacebookApiService = require('../lib/facebookApi');
+const { validate, validators } = require('../lib/validate');
 
 let electronShell = null;
 try {
@@ -21,13 +22,14 @@ let activeDependencyDownload = null;
 module.exports = {
   getVideoInfo: async (req, res) => {
     try {
-      let { url } = req.body;
-      url = shared.extractUrl(url);
-      if (!url) {
-        return res.status(400).json({ error: 'Vui lòng nhập URL video' });
-      }
+      // Validation tập trung qua validate helper
+      const { err, values } = validate(req.body, {
+        url: validators.url('Vui lòng nhập URL video hợp lệ (http/https)')
+      });
+      if (err) return res.status(400).json({ error: err });
 
-      if (!shared.isValidVideoUrl(url)) {
+      let url = shared.extractUrl(values.url);
+      if (!url || !shared.isValidVideoUrl(url)) {
         return res.status(400).json({ error: 'URL không hợp lệ' });
       }
 
