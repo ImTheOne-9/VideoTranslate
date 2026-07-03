@@ -50,18 +50,18 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const topPercent = top / stageH;
   
   let verticalSec = 'bottom';
-  if (topPercent < 0.35) {
+  if (topPercent < 0.48) {
     verticalSec = 'top';
-  } else if (topPercent > 0.65) {
+  } else if (topPercent > 0.52) {
     verticalSec = 'bottom';
   } else {
     verticalSec = 'middle';
   }
   
   let horizontalSec = 'center';
-  if (centerPercent < 0.35) {
+  if (centerPercent < 0.48) {
     horizontalSec = 'left';
-  } else if (centerPercent > 0.65) {
+  } else if (centerPercent > 0.52) {
     horizontalSec = 'right';
   } else {
     horizontalSec = 'center';
