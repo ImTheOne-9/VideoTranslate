@@ -51,17 +51,58 @@ function setBusy(button, busy, text) {
   }
 }
 
+let pendingSwitchViewName = null;
+
+function closeSaveProjectConfirmModal() {
+  const modal = $('save-project-confirm-modal');
+  if (modal) modal.classList.add('hidden');
+  pendingSwitchViewName = null;
+}
+
+async function proceedWithSaveAndSwitch() {
+  const modal = $('save-project-confirm-modal');
+  if (modal) modal.classList.add('hidden');
+  
+  if (pendingSwitchViewName) {
+    const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
+    if (hasVideo) {
+      await saveProjectExplicitly();
+    }
+    // Perform the actual view switch bypassing the check
+    executeSwitchView(pendingSwitchViewName);
+    pendingSwitchViewName = null;
+  }
+}
+
+// Add event listener for the confirm button
+document.addEventListener('DOMContentLoaded', () => {
+  const confirmBtn = $('confirm-save-project-btn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', proceedWithSaveAndSwitch);
+  }
+});
+
 function switchView(name) {
   stopAllAudio();
 
+  const isStudioViewActive = $('view-studio') && $('view-studio').classList.contains('active');
   const editorView = $('studio-editor-view');
-  if (editorView && !editorView.classList.contains('hidden') && currentProjectId && name !== 'studio') {
+  if (isStudioViewActive && editorView && !editorView.classList.contains('hidden') && currentProjectId) {
     const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
     if (hasVideo) {
-      saveProjectExplicitly();
+      pendingSwitchViewName = name;
+      const modal = $('save-project-confirm-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        return; // Dừng việc chuyển tab, chờ người dùng xác nhận
+      }
     }
   }
 
+  executeSwitchView(name);
+}
+
+function executeSwitchView(name) {
   document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
   
@@ -2146,7 +2187,16 @@ function setPreviewReactionVideo(url) {
     video.play().catch(() => {});
     const placeholder = pipEl.querySelector('.reaction-placeholder-box');
     if (placeholder) placeholder.classList.add('hidden');
-    setTimeout(updateReactionPreview, 100);
+    
+    const onReactionMetadataLoaded = () => {
+      updateReactionPreview();
+    };
+    
+    if (video.readyState >= 1) {
+      onReactionMetadataLoaded();
+    } else {
+      video.onloadedmetadata = onReactionMetadataLoaded;
+    }
   } else {
     video.pause();
     video.src = '';
@@ -2381,6 +2431,8 @@ function submitSaveTemplate(event) {
     subtitleMaxLines: document.querySelector('select[name="subtitleMaxLines"]').value,
     subtitleMargin: document.querySelector('input[name="subtitleMargin"]').value,
     subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
+    subtitleMarginL: document.querySelector('input[name="subtitleMarginL"]')?.value || '',
+    subtitleMarginR: document.querySelector('input[name="subtitleMarginR"]')?.value || '',
     subtitleTemplateWidth: konvaStage ? konvaStage.width() : (document.querySelector('select[name="preview-aspect-select"]')?.value === '16-9' ? 1920 : 1080),
     blurOriginalSub: (blurBoxes && blurBoxes.length > 0),
     blurBoxes: blurBoxes,
@@ -2600,6 +2652,12 @@ function loadStudioTemplate(templateName) {
       marginHInput.dataset.lastStageWidth = (Number(template.subtitleMarginH) > 200) ? '1920' : '1080';
     }
   }
+
+  // Khôi phục marginL và marginR nếu có
+  const marginLInput = document.querySelector('input[name="subtitleMarginL"]');
+  const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
+  if (marginLInput) marginLInput.value = template.subtitleMarginL || '';
+  if (marginRInput) marginRInput.value = template.subtitleMarginR || '';
 
   // Restore blur settings
 
@@ -3053,6 +3111,22 @@ subtitleInputs.forEach(name => {
     });
   }
 });
+
+// Khi user chỉnh marginH bằng tay → đồng bộ marginL = marginR = marginH (đối xứng)
+const marginHSyncEl = document.querySelector('input[name="subtitleMarginH"]');
+if (marginHSyncEl) {
+  const syncMarginLR = (e) => {
+    if (e && e.isTrusted) {
+      const val = marginHSyncEl.value;
+      const mL = document.querySelector('input[name="subtitleMarginL"]');
+      const mR = document.querySelector('input[name="subtitleMarginR"]');
+      if (mL) mL.value = val;
+      if (mR) mR.value = val;
+    }
+  };
+  marginHSyncEl.addEventListener('input', syncMarginLR);
+  marginHSyncEl.addEventListener('change', syncMarginLR);
+}
 
 // Interactive Alignment Grid Clicks
 const alignmentGrid = $('alignment-visual-grid');
@@ -5355,6 +5429,12 @@ function resetStudioConfig() {
     delete marginHInput.dataset.lastStageWidth;
   }
 
+  // Reset marginL/marginR
+  const marginLInput = document.querySelector('input[name="subtitleMarginL"]');
+  const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
+  if (marginLInput) marginLInput.value = '';
+  if (marginRInput) marginRInput.value = '';
+
   // Subtitle alignment
   const alignInput = $('subtitle-alignment-input');
   if (alignInput) alignInput.value = '10';
@@ -6103,7 +6183,24 @@ function deserializeStudioForm(obj) {
   }
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
   renderBlurBoxesList();
-  updateSubtitleOverlayFromInputs();
+
+  // Đợi video load metadata xong rồi mới cập nhật overlay phụ đề
+  // để tránh tính toán sai vị trí khi videoWidth/videoHeight chưa sẵn sàng
+  const previewVideo = $('studio-video-preview');
+  if (previewVideo && previewVideo.src && previewVideo.src !== '') {
+    if (previewVideo.readyState >= 1) {
+      // Video đã có metadata, delay nhỏ để đảm bảo input values đã được gán hết
+      setTimeout(() => updateSubtitleOverlayFromInputs(), 150);
+    } else {
+      // Chờ video tải metadata xong rồi mới cập nhật overlay
+      previewVideo.addEventListener('loadedmetadata', () => {
+        // Delay nhỏ để đảm bảo callback gốc từ setPreviewVideo chạy xong trước
+        setTimeout(() => updateSubtitleOverlayFromInputs(), 100);
+      }, { once: true });
+    }
+  } else {
+    updateSubtitleOverlayFromInputs();
+  }
 }
 
 function resetStudioForm() {
@@ -6167,24 +6264,7 @@ function openStudioEditor() {
 }
 
 async function backToStudioHome() {
-  if (currentProjectId) {
-    const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
-    if (hasVideo) {
-      await saveProjectExplicitly();
-    }
-  }
-
-  const homeView = $('studio-home-view');
-  const editorView = $('studio-editor-view');
-  if (homeView) homeView.classList.remove('hidden');
-  if (editorView) editorView.classList.add('hidden');
-
-  const standardInfo = $('topbar-standard-info');
-  const projectInfo = $('topbar-project-info');
-  if (standardInfo) standardInfo.style.display = 'block';
-  if (projectInfo) projectInfo.style.display = 'none';
-
-  renderProjectsList();
+  switchView('studio');
 }
 
 async function createNewProject() {
@@ -6604,6 +6684,49 @@ window.addEventListener('beforeunload', () => {
   saveProjectSynchronously();
 });
 
+// Điều chỉnh âm lượng video gốc khi xem trước
+document.addEventListener('DOMContentLoaded', () => {
+  const volSlider = document.getElementById('main-video-volume-slider');
+  const mainVideo = document.getElementById('studio-video-preview');
+  const volIcon = document.getElementById('main-video-volume-icon');
+  
+  if (volSlider && mainVideo && volIcon) {
+    const updateIcon = () => {
+      if (mainVideo.muted || mainVideo.volume === 0) {
+        volIcon.textContent = '🔇';
+      } else {
+        volIcon.textContent = '🔊';
+      }
+    };
 
-
-
+    volSlider.addEventListener('input', (e) => {
+      mainVideo.volume = e.target.value;
+      if (mainVideo.volume > 0) {
+        mainVideo.muted = false;
+      } else {
+        mainVideo.muted = true;
+      }
+      updateIcon();
+    });
+    
+    volIcon.addEventListener('click', () => {
+      if (mainVideo.muted || mainVideo.volume === 0) {
+        mainVideo.muted = false;
+        if (mainVideo.volume === 0) {
+          mainVideo.volume = 1;
+          volSlider.value = 1;
+        }
+      } else {
+        mainVideo.muted = true;
+      }
+      updateIcon();
+    });
+    
+    // Đặt lại âm lượng nếu video được load
+    mainVideo.addEventListener('loadedmetadata', () => {
+      mainVideo.volume = volSlider.value;
+      mainVideo.muted = false;
+      updateIcon();
+    });
+  }
+});

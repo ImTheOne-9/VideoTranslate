@@ -424,7 +424,10 @@
                         <button type="submit" id="render-btn" class="premium-render-btn" style="width: auto; padding: 4px 12px; font-size: 11px; height: 28px; margin: 0; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; border-radius: 4px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2); display: inline-flex; align-items: center; justify-content: center; gap: 8px;">RENDER VIDEO</button>
                       </div>
                       <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 11px; color: var(--soft); font-weight: 500;">Kéo thước đo để tua, kéo khối để chỉnh thời gian</span>
+                        <div style="display: flex; align-items: center; gap: 8px;" title="Chỉnh âm lượng video gốc khi xem trước">
+                          <span id="main-video-volume-icon" style="font-size: 18px; cursor: pointer; user-select: none;">🔊</span>
+                          <input type="range" id="main-video-volume-slider" min="0" max="1" step="0.05" value="1" style="width: 80px; accent-color: var(--accent); cursor: pointer;">
+                        </div>
                         <span id="timeline-time-label" style="font-size: 12px; font-weight: 600; color: var(--muted);">00:00 / 00:00</span>
                       </div>
                     </div>
@@ -610,7 +613,7 @@
                         <div>
                           <label style="margin-top: 14px; margin-bottom: 7px;">Vị trí hiển thị</label>
                           <select name="reactionPosition" class="premium-select">
-                            <option value="custom" disabled>Tự chọn (Kéo thả)</option>
+                            <option value="custom">Tự chọn (Kéo thả)</option>
                             <option value="bottom-right" selected>Dưới - Phải</option>
                             <option value="bottom-left">Dưới - Trái</option>
                             <option value="top-right">Trên - Phải</option>
@@ -704,7 +707,7 @@
                     </div>
                   </div>
 
-                  <div class="form-group">
+                  <div class="form-group" style="display: none;">
                     <label>Căn lề phụ đề</label>
                     <div class="alignment-grid-container">
                       <div class="alignment-grid" id="alignment-visual-grid">
@@ -731,6 +734,8 @@
                       <div class="form-group">
                         <label>Lề ngang (MarginH)</label>
                         <input type="number" name="subtitleMarginH" value="20" min="0" class="premium-input">
+                        <input type="hidden" name="subtitleMarginL" value="">
+                        <input type="hidden" name="subtitleMarginR" value="">
                       </div>
                     </div>
                     <div class="form-group">
@@ -1356,6 +1361,27 @@
         <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
           <button type="button" id="confirm-delete-btn" class="premium-render-btn" style="background: var(--danger); color: white; flex: 1; margin: 0;" onclick="executeDeletePage()">Xác nhận xóa</button>
           <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeDeleteModal()">Hủy bỏ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Project Confirm Modal (Tab Switch) -->
+  <div id="save-project-confirm-modal" class="fb-modal-overlay hidden" style="z-index: 10005;">
+    <div class="fb-modal-content" style="width: 400px;">
+      <div class="fb-modal-header">
+        <h3 style="color: var(--text); display: flex; align-items: center; gap: 8px;">
+          💾 Lưu dự án
+        </h3>
+        <button class="fb-modal-close" onclick="closeSaveProjectConfirmModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; text-align: center; gap: 16px;">
+        <p style="margin: 0; color: var(--text); font-size: 14px; line-height: 1.5;">
+          Bạn đang ở trong một dự án. Bạn có muốn lưu các thay đổi trước khi chuyển sang trang khác không?
+        </p>
+        <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
+          <button type="button" id="confirm-save-project-btn" class="premium-render-btn" style="background: var(--accent); color: white; flex: 1; margin: 0;">Lưu & Chuyển</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeSaveProjectConfirmModal()">Hủy bỏ (Ở lại)</button>
         </div>
       </div>
     </div>

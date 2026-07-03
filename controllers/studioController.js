@@ -146,7 +146,8 @@ function convertSrtToAss(srtPath, assPath, options) {
     backColor,
     alignment,
     marginV,
-    marginH,
+    marginL,
+    marginR,
     theme
   } = options;
 
@@ -159,7 +160,7 @@ function convertSrtToAss(srtPath, assPath, options) {
   assLines.push('');
   assLines.push('[V4+ Styles]');
   assLines.push('Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, Strikeout, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding');
-  assLines.push(`Style: Default,${fontName},${fontSize},${assColor},&H000000FF,${outlineColor},${backColor},${isBold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginH},${marginH},${marginV},1`);
+  assLines.push(`Style: Default,${fontName},${fontSize},${assColor},&H000000FF,${outlineColor},${backColor},${isBold ? -1 : 0},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginL},${marginR},${marginV},1`);
   assLines.push('');
   assLines.push('[Events]');
   assLines.push('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text');
@@ -171,7 +172,7 @@ function convertSrtToAss(srtPath, assPath, options) {
     if (theme === 'neon-glow') {
       text = `{\\blur4}${text}`;
     }
-    assLines.push(`Dialogue: 0,${start},${end},Default,,${marginH},${marginH},${marginV},,${text}`);
+    assLines.push(`Dialogue: 0,${start},${end},Default,,${marginL},${marginR},${marginV},,${text}`);
   }
 
   fs.writeFileSync(assPath, assLines.join('\n'), 'utf8');
@@ -257,7 +258,17 @@ async function executeRenderTask(task) {
     }
 
     let subtitlePath = null;
-    const subtitleMode = body.subtitleMode || 'none';
+    let subtitleMode = body.subtitleMode || 'none';
+    const voiceMode = body.voiceMode || 'none';
+    const omiScriptText = (body.omiScript || '').trim();
+
+    let isVoiceOnlySub = false;
+    if (voiceMode === 'omi' && !omiScriptText && subtitleMode === 'none') {
+      subtitleMode = 'generate';
+      isVoiceOnlySub = true;
+      console.log('[Studio Render] Tự động chuyển sang chế độ tạo phụ đề ngầm để phục vụ thuyết minh.');
+    }
+
     if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
       shared.updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
       subtitlePath = shared.moveUploadedFile(files.subtitleUpload[0], shared.SUBTITLES_DIR, files.subtitleUpload[0].originalname);
@@ -282,7 +293,9 @@ async function executeRenderTask(task) {
     const scaleFactor = 1.35;
     const studioFontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
     const studioMarginH = Number(body.subtitleMarginH || 20);
-    const studioBoxWidth = videoWidth - 2 * studioMarginH;
+    const studioMarginL = (body.subtitleMarginL !== undefined && body.subtitleMarginL !== '') ? Number(body.subtitleMarginL) : studioMarginH;
+    const studioMarginR = (body.subtitleMarginR !== undefined && body.subtitleMarginR !== '') ? Number(body.subtitleMarginR) : studioMarginH;
+    const studioBoxWidth = videoWidth - studioMarginL - studioMarginR;
     const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * 0.5)));
 
     if (subtitlePath && body.translateVi === 'true') {
@@ -309,7 +322,6 @@ async function executeRenderTask(task) {
     }
 
     let voicePath = null;
-    const voiceMode = body.voiceMode || 'none';
     if (voiceMode === 'upload' && files.voiceUpload?.[0]) {
       shared.updateStudioProgress(38, 'Đang chuẩn bị file lồng tiếng tải lên...');
       voicePath = shared.moveUploadedFile(files.voiceUpload[0], workDir, files.voiceUpload[0].originalname);
@@ -517,6 +529,7 @@ async function executeRenderTask(task) {
                 }
               } catch (speedUpErr) {
                 console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
+                throw speedUpErr;
               }
 
               voiceChunks.push({
@@ -524,9 +537,12 @@ async function executeRenderTask(task) {
                 startMs: startMs
               });
               tempFiles.push(chunkPath);
+            } else {
+              throw new Error(`Không tìm thấy file âm thanh thuyết minh đầu ra của nhóm câu ${idx + 1} sau khi chạy OmniVoice.`);
             }
           } catch (err) {
-            console.error(`Lỗi khi đọc nhóm câu ${idx + 1}/${groups.length}:`, err.message);
+            console.error(`Lỗi khi thuyết minh nhóm câu ${idx + 1}/${groups.length}:`, err.message);
+            throw err;
           }
         }
 
@@ -729,12 +745,15 @@ async function executeRenderTask(task) {
     let videoFilter = null;
     let hasVideoFilter = false;
 
-    if (subtitlePath && body.burnSub === 'true') {
+    if (subtitlePath && body.burnSub === 'true' && !isVoiceOnlySub) {
       const scaleFactor = 1.35;
       const fontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
       const marginV = Number(body.subtitleMargin || 28);
       const marginH = Number(body.subtitleMarginH || 20);
-      const boxWidth = videoWidth - 2 * marginH;
+      // Đọc marginL và marginR riêng biệt, fallback về marginH đối xứng
+      const marginL = (body.subtitleMarginL !== undefined && body.subtitleMarginL !== '') ? Number(body.subtitleMarginL) : marginH;
+      const marginR = (body.subtitleMarginR !== undefined && body.subtitleMarginR !== '') ? Number(body.subtitleMarginR) : marginH;
+      const boxWidth = videoWidth - marginL - marginR;
       const maxChars = Math.max(10, Math.floor(boxWidth / (fontSize * 0.5)));
 
       try {
@@ -806,7 +825,7 @@ async function executeRenderTask(task) {
         convertSrtToAss(subtitlePath, assPath, {
           videoWidth, videoHeight, fontName, fontSize,
           assColor: finalAssColor, isBold, borderStyle, outline, shadow,
-          outlineColor, backColor, alignment, marginV, marginH, theme
+          outlineColor, backColor, alignment, marginV, marginL, marginR, theme
         });
         renderSubtitlePath = assPath;
       } catch (err) {

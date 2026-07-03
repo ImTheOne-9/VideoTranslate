@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Xác nhận thoát</title>
+  <style>
+    :root {
+      --bg: #0B0F14;
+      --panel: #141A21;
+      --panel-2: #1C242D;
+      --border: #2A333D;
+      --text: #E8EBEF;
+      --muted: #8A94A0;
+      --accent: #3B82F6;
+      --danger: #EF4444;
+      --radius: 6px;
+      --font: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--text);
+      font-family: var(--font);
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    .modal-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: 380px;
+      height: 180px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    .drag-header {
+      height: 32px;
+      background: var(--panel-2);
+      border-bottom: 1px solid var(--border);
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    .content {
+      flex: 1;
+      padding: 20px 24px;
+      font-size: 14px;
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+    }
+
+    .footer {
+      padding: 12px 24px;
+      background: var(--panel-2);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    button {
+      border: 0;
+      border-radius: var(--radius);
+      font-weight: 500;
+      padding: 8px 18px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      -webkit-app-region: no-drag;
+      outline: none;
+    }
+
+    .btn-cancel {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    .btn-cancel:hover {
+      background: var(--panel-2);
+      filter: brightness(1.15);
+    }
+
+    .btn-confirm {
+      background: var(--danger);
+      color: white;
+    }
+
+    .btn-confirm:hover {
+      filter: brightness(1.15);
+    }
+  </style>
+</head>
+<body>
+  <div class="modal-card">
+    <div class="drag-header">XÁC NHẬN THOÁT</div>
+    <div class="content">
+      Bạn có chắc chắn muốn thoát ứng dụng không? Các tiến trình đang chạy sẽ bị dừng lại.
+    </div>
+    <div class="footer">
+      <button class="btn-cancel" id="btnCancel">Hủy</button>
+      <button class="btn-confirm" id="btnConfirm">Thoát</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    document.getElementById('btnCancel').addEventListener('click', () => {
+      ipcRenderer.send('confirm-close-choice', 'cancel');
+    });
+
+    document.getElementById('btnConfirm').addEventListener('click', () => {
+      ipcRenderer.send('confirm-close-choice', 'quit');
+    });
+  </script>
+</body>
+</html>

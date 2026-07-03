@@ -50,18 +50,18 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const topPercent = top / stageH;
   
   let verticalSec = 'bottom';
-  if (topPercent < 0.35) {
+  if (topPercent < 0.48) {
     verticalSec = 'top';
-  } else if (topPercent > 0.65) {
+  } else if (topPercent > 0.52) {
     verticalSec = 'bottom';
   } else {
     verticalSec = 'middle';
   }
   
   let horizontalSec = 'center';
-  if (centerPercent < 0.35) {
+  if (centerPercent < 0.48) {
     horizontalSec = 'left';
-  } else if (centerPercent > 0.65) {
+  } else if (centerPercent > 0.52) {
     horizontalSec = 'right';
   } else {
     horizontalSec = 'center';
@@ -107,6 +107,8 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const marginL_act = left;
   const marginR_act = stageW - (left + dragWidth);
   const MarginH_act = Math.round((Math.min(marginL_act, marginR_act) / stageW) * W_act);
+  const MarginL_act_scaled = Math.round((marginL_act / stageW) * W_act);
+  const MarginR_act_scaled = Math.round((marginR_act / stageW) * W_act);
   
   const marginInput = document.querySelector('input[name="subtitleMargin"]');
   if (marginInput) {
@@ -119,6 +121,16 @@ function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
     marginHInput.value = Math.max(0, MarginH_act);
     marginHInput.dataset.lastStageWidth = W_act;
     marginHInput.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Lưu marginL và marginR riêng biệt để khôi phục vị trí chính xác
+  const marginLInput = document.querySelector('input[name="subtitleMarginL"]');
+  if (marginLInput) {
+    marginLInput.value = Math.max(0, MarginL_act_scaled);
+  }
+  const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
+  if (marginRInput) {
+    marginRInput.value = Math.max(0, MarginR_act_scaled);
   }
 }
 
@@ -624,6 +636,12 @@ function updateSubtitleOverlayFromInputs() {
         marginHInput.dataset.lastStageWidth = stageW;
       }
 
+      // Cập nhật marginL và marginR khi co giãn
+      const marginLInput = document.querySelector('input[name="subtitleMarginL"]');
+      const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
+      if (marginLInput) marginLInput.value = newMarginH;
+      if (marginRInput) marginRInput.value = newMarginH;
+
       konvaSubtitle.scaleX(1);
       konvaSubtitle.scaleY(1);
 
@@ -812,7 +830,16 @@ function updateSubtitleOverlayFromInputs() {
   let marginHInput = Number(marginHEl ? marginHEl.value : 20) || 20;
 
   const maxLines = Number(document.querySelector('[name="subtitleMaxLines"]').value || 0);
-  const boxWidth = W_act - 2 * marginHInput;
+  // Tính chiều ngang khung phụ đề: ưu tiên marginL+marginR nếu có
+  const marginLHidden = document.querySelector('input[name="subtitleMarginL"]');
+  const marginRHidden = document.querySelector('input[name="subtitleMarginR"]');
+  let boxWidth;
+  if (marginLHidden && marginRHidden && marginLHidden.value !== '' && marginRHidden.value !== '') {
+    boxWidth = W_act - Number(marginLHidden.value) - Number(marginRHidden.value);
+  } else {
+    boxWidth = W_act - 2 * marginHInput;
+  }
+  boxWidth = Math.max(50, boxWidth);
   const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
 
   let wrappedText = rawText;
@@ -918,18 +945,47 @@ function updateSubtitleOverlayFromInputs() {
   const alignment = Number(document.querySelector('[name="subtitleAlignment"]').value || 2);
   const marginVInput = Number(document.querySelector('input[name="subtitleMargin"]').value || 28);
 
+  // Đọc marginL và marginR riêng biệt (nếu có)
+  const marginLEl = document.querySelector('input[name="subtitleMarginL"]');
+  const marginREl = document.querySelector('input[name="subtitleMarginR"]');
+  const hasCustomMargins = marginLEl && marginREl && marginLEl.value !== '' && marginREl.value !== '';
+  const marginLInput = hasCustomMargins ? Number(marginLEl.value) : null;
+  const marginRInput = hasCustomMargins ? Number(marginREl.value) : null;
+
   const stageW = konvaStage ? konvaStage.width() : W_act;
   const stageH = konvaStage ? konvaStage.height() : H_act;
 
   const marginVStage = (marginVInput / H_act) * stageH;
-  const marginHStage = (marginHInput / W_act) * stageW;
 
-  const dragWidth = subTextNode.width();
-  const dragHeight = subTextNode.height();
+  let dragWidth, dragHeight;
 
-  let subX = marginHStage;
+  if (hasCustomMargins) {
+    // Dùng marginL + marginR để tính chiều ngang chính xác
+    const marginLStage = (marginLInput / W_act) * stageW;
+    const marginRStage = (marginRInput / W_act) * stageW;
+    dragWidth = Math.max(50, stageW - marginLStage - marginRStage);
+    subTextNode.width(dragWidth);
+    dragHeight = subTextNode.height();
+
+    // Vị trí X: dùng marginL trực tiếp
+    subX = marginLStage;
+  } else {
+    // Fallback cho dự án cũ: dùng marginH đối xứng
+    const marginHStage = (marginHInput / W_act) * stageW;
+    dragWidth = subTextNode.width();
+    dragHeight = subTextNode.height();
+
+    if ([1, 5, 9].includes(alignment)) {
+      subX = marginHStage;
+    } else if ([3, 7, 11].includes(alignment)) {
+      subX = stageW - dragWidth - marginHStage;
+    } else {
+      subX = (stageW - dragWidth) / 2;
+    }
+  }
+
+  // Vị trí Y: giữ logic cũ dựa trên alignment
   let subY = 0;
-
   if ([5, 6, 7].includes(alignment)) {
     subY = marginVStage;
   } else if ([9, 10, 11].includes(alignment)) {
@@ -938,16 +994,8 @@ function updateSubtitleOverlayFromInputs() {
     subY = stageH - dragHeight - marginVStage;
   }
 
-  if ([1, 5, 9].includes(alignment)) {
-    subX = marginHStage;
-  } else if ([3, 7, 11].includes(alignment)) {
-    subX = stageW - dragWidth - marginHStage;
-  } else {
-    subX = (stageW - dragWidth) / 2;
-  }
-
   konvaSubtitle.position({ x: subX, y: subY });
-  console.log(`[Subtitle Position Debug] alignment=${alignment}, marginVInput=${marginVInput}, marginHInput=${marginHInput}, stageW=${stageW}, stageH=${stageH}, W_act=${W_act}, H_act=${H_act}, subX=${subX}, subY=${subY}`);
+  console.log(`[Subtitle Position Debug] alignment=${alignment}, marginVInput=${marginVInput}, marginHInput=${marginHInput}, marginL=${marginLInput}, marginR=${marginRInput}, stageW=${stageW}, stageH=${stageH}, W_act=${W_act}, H_act=${H_act}, subX=${subX}, subY=${subY}`);
   
   const subMode = $('subtitle-mode').value;
   konvaSubtitle.visible(subMode !== 'none');
@@ -1746,3 +1794,56 @@ function initTimelineControls() {
   });
 }
 
+// ==========================================
+// THÊM SỰ KIỆN PHÍM TẮT ĐỂ XÓA OBJECT
+// ==========================================
+document.addEventListener('keydown', (e) => {
+  // Chỉ xử lý phím Delete hoặc Backspace
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+  // Nếu người dùng đang gõ trong input hoặc textarea, hoặc phần tử có thể edit, thì bỏ qua
+  const activeEl = document.activeElement;
+  if (activeEl) {
+    const tagName = activeEl.tagName.toUpperCase();
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || activeEl.isContentEditable) {
+      return;
+    }
+  }
+
+  // Nếu không có đối tượng nào đang được chọn trên Konva, bỏ qua
+  if (!konvaTransformer || !konvaTransformer.nodes() || konvaTransformer.nodes().length === 0) return;
+
+  const selectedNode = konvaTransformer.nodes()[0];
+  const nodeName = selectedNode.name();
+  let changed = false;
+
+  if (nodeName === 'subtitle') {
+    const noneBtn = document.querySelector('.sub-tab-btn[data-sub-mode="none"]');
+    if (noneBtn && !noneBtn.classList.contains('active')) {
+      noneBtn.click();
+      changed = true;
+    }
+  } else if (nodeName === 'reaction') {
+    const noneBtn = document.querySelector('.reaction-tab-btn[data-reaction-tab-mode="none"]');
+    if (noneBtn && !noneBtn.classList.contains('active')) {
+      noneBtn.click();
+      changed = true;
+    }
+  } else if (nodeName === 'blur-box-shape' || nodeName === 'blur') {
+    // ID của blur box được gắn trong thuộc tính name hoặc id (ví dụ: "blur-box-178235...")
+    const blurIdStr = selectedNode.id();
+    if (blurIdStr && blurIdStr.startsWith('blur-box-')) {
+      const id = parseInt(blurIdStr.replace('blur-box-', ''), 10);
+      if (!isNaN(id) && typeof removeBlurBox === 'function') {
+        removeBlurBox(id);
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    // Xóa vùng chọn
+    konvaTransformer.nodes([]);
+    konvaLayer.draw();
+  }
+});
