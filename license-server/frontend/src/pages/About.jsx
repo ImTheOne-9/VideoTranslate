@@ -35,7 +35,7 @@ export default function About() {
             <span className="text-gradient">Sản xuất Video AI Offline</span>
           </h1>
           <p className="text-sm sm:text-base text-zinc-400 leading-relaxed pt-2">
-            Video Studio Tools ra đời nhằm giúp các nhà sáng tạo nội dung (Content Creators) giải phóng sức lao động thủ công, tối ưu hóa 90% quy trình sản xuất video ngắn (Reup/Edit) thông qua sức mạnh trí tuệ nhân tạo chạy trực tiếp trên máy tính cá nhân.
+            Editnhanh ra đời nhằm giúp các nhà sáng tạo nội dung (Content Creators) giải phóng sức lao động thủ công, tối ưu hóa 90% quy trình sản xuất video ngắn (Reup/Edit) thông qua sức mạnh trí tuệ nhân tạo chạy trực tiếp trên máy tính cá nhân.
           </p>
         </div>
 

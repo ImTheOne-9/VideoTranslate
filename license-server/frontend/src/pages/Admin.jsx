@@ -594,7 +594,7 @@ export default function Admin({ showToast }) {
                 <ShieldCheck className="text-white h-5 w-5" />
               </div>
               <div>
-                <span className="text-lg font-bold tracking-tight text-white font-display">Video Studio Tools</span>
+                <span className="text-lg font-bold tracking-tight text-white font-display">Editnhanh</span>
                 <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">License Admin</span>
               </div>
             </div>
@@ -1103,7 +1103,7 @@ export default function Admin({ showToast }) {
               </div>
               <div>
                 <h3 className="text-lg font-bold text-white">Cấu hình Đường dẫn tải xuống</h3>
-                <p className="text-xs text-zinc-500">Quản lý link tải phần mềm Video Studio Tools</p>
+                <p className="text-xs text-zinc-500">Quản lý link tải phần mềm Editnhanh</p>
               </div>
             </div>
 

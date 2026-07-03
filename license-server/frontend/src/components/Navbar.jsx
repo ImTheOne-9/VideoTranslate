@@ -24,7 +24,7 @@ export default function Navbar({ currentUser, onOpenAuth, onLogout, onScrollToDa
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight text-white font-display">
-                Video Studio <span className="text-indigo-400">Tools</span>
+                Editnhanh
               </span>
             </div>
           </Link>

@@ -1,7 +1,7 @@
 {
   "name": "video-studio-license-server",
   "version": "1.0.0",
-  "description": "Central License Server for Video Studio Tools",
+  "description": "Central License Server for Editnhanh",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

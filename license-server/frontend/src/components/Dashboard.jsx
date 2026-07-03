@@ -325,7 +325,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
               <div className="space-y-2 text-center md:text-left">
                 <h3 className="text-lg font-bold text-white flex items-center justify-center md:justify-start gap-2">
                   <DownloadCloud className="text-indigo-400 h-5 w-5" />
-                  <span>Tải và cài đặt Video Studio Tools</span>
+                  <span>Tải và cài đặt Editnhanh</span>
                 </h3>
                 <p className="text-sm text-zinc-400 leading-relaxed max-w-xl">
                   Để bắt đầu, hãy tải bộ cài đặt an toàn phía bên phải. Sau khi cài đặt, khởi chạy app và copy/paste License Key của bạn đang ở trạng thái <strong>Active</strong> để mở khóa sử dụng.

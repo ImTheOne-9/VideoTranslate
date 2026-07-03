@@ -1015,18 +1015,18 @@ async function sendMailHelper({ toEmail, subject, bodyContent }) {
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Video Studio Tools</title>
+      <title>Editnhanh</title>
     </head>
     <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #6366f1; padding-bottom: 15px;">
-        <h2 style="color: #6366f1; margin: 0;">Video Studio Tools</h2>
+        <h2 style="color: #6366f1; margin: 0;">Editnhanh</h2>
         <p style="font-size: 12px; color: #9ca3af; margin: 5px 0 0 0;">Hệ thống quản lý & cấp bản quyền tự động</p>
       </div>
       ${bodyContent}
       <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 30px 0 20px 0;" />
       <div style="font-size: 11px; color: #9ca3af; text-align: center;">
-        <p>Đây là email tự động từ hệ thống Video Studio License Server. Vui lòng không trả lời trực tiếp email này.</p>
-        <p>© 2026 Video Studio Tools. All rights reserved.</p>
+        <p>Đây là email tự động từ hệ thống Editnhanh License Server. Vui lòng không trả lời trực tiếp email này.</p>
+        <p>© 2026 Editnhanh. All rights reserved.</p>
       </div>
     </body>
     </html>
@@ -1035,7 +1035,7 @@ async function sendMailHelper({ toEmail, subject, bodyContent }) {
   // Try sending via Resend SDK if configured
   if (resendClient) {
     try {
-      const fromEmail = process.env.RESEND_FROM || 'Video Studio Tools <onboarding@resend.dev>';
+      const fromEmail = process.env.RESEND_FROM || 'Editnhanh <onboarding@resend.dev>';
       const response = await resendClient.emails.send({
         from: fromEmail,
         to: toEmail,
@@ -1068,7 +1068,7 @@ async function sendMailHelper({ toEmail, subject, bodyContent }) {
         auth: { user, pass }
       });
       await transporter.sendMail({
-        from: `"Video Studio Tools" <${user}>`,
+        from: `"Editnhanh" <${user}>`,
         to: toEmail,
         subject,
         html: htmlTemplate
@@ -1108,7 +1108,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
   });
   
-  const subject = `[Video Studio Tools] Mã bản quyền kích hoạt dịch vụ của bạn`;
+  const subject = `[Editnhanh] Mã bản quyền kích hoạt dịch vụ của bạn`;
   
   let bodyContent = '';
   if (status === 'pending') {
@@ -1118,7 +1118,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
     
     bodyContent = `
       <h3>Chào bạn ${escapedName},</h3>
-      <p>Cảm ơn bạn đã đăng ký mua gói dịch vụ <strong>${escapedPlan}</strong> của Video Studio Tools!</p>
+      <p>Cảm ơn bạn đã đăng ký mua gói dịch vụ <strong>${escapedPlan}</strong> của Editnhanh!</p>
       <p>Yêu cầu mua gói của bạn đang ở trạng thái <strong>Chờ thanh toán (Pending)</strong>.</p>
       <hr style="border: 0; border-top: 1px solid #e5e7eb;" />
       <h4 style="color: #6366f1; margin-top: 15px;">Thông tin chuyển khoản thanh toán:</h4>
@@ -1141,10 +1141,10 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
       </div>
       <h4 style="margin-top: 15px;">Hướng dẫn sử dụng:</h4>
       <ol>
-        <li>Tải và cài đặt phần mềm Video Studio Tools.</li>
+        <li>Tải và cài đặt phần mềm Editnhanh.</li>
         <li>Đăng nhập tài khoản và nhập mã key trên để kích hoạt phần mềm.</li>
       </ol>
-      <p>Chúc bạn có những video tuyệt vời cùng Video Studio Tools!</p>
+      <p>Chúc bạn có những video tuyệt vời cùng Editnhanh!</p>
     `;
   }
 
@@ -1157,10 +1157,10 @@ async function sendVerificationEmail({ toEmail, fullName, token }) {
   const domain = process.env.APP_URL || `http://localhost:${PORT}`;
   const verifyLink = `${domain}/verify-email.html?token=${token}`;
   
-  const subject = `[Video Studio Tools] Kích hoạt tài khoản của bạn`;
+  const subject = `[Editnhanh] Kích hoạt tài khoản của bạn`;
   const bodyContent = `
     <h3>Chào bạn ${escapedName},</h3>
-    <p>Cảm ơn bạn đã đăng ký tài khoản tại Video Studio Tools!</p>
+    <p>Cảm ơn bạn đã đăng ký tài khoản tại Editnhanh!</p>
     <p>Vui lòng nhấp vào liên kết dưới đây để kích hoạt tài khoản của bạn và đăng nhập sử dụng hệ thống:</p>
     <div style="margin: 20px 0;">
       <a href="${verifyLink}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Kích hoạt tài khoản</a>
@@ -1178,10 +1178,10 @@ async function sendResetPasswordEmail({ toEmail, fullName, token }) {
   const domain = process.env.APP_URL || `http://localhost:${PORT}`;
   const resetLink = `${domain}/reset-password.html?token=${token}`;
   
-  const subject = `[Video Studio Tools] Yêu cầu đặt lại mật khẩu`;
+  const subject = `[Editnhanh] Yêu cầu đặt lại mật khẩu`;
   const bodyContent = `
     <h3>Chào bạn ${escapedName},</h3>
-    <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn tại Video Studio Tools.</p>
+    <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn tại Editnhanh.</p>
     <p>Nếu bạn thực hiện yêu cầu này, vui lòng nhấp vào nút dưới đây để đổi mật khẩu mới:</p>
     <div style="margin: 20px 0;">
       <a href="${resetLink}" style="background-color: #e11d48; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Đặt lại mật khẩu</a>
@@ -1852,7 +1852,7 @@ app.post('/api/payment/stripe/create-session', userAuth, async (req, res) => {
         price_data: {
           currency: 'vnd', // Stripe VND là zero-decimal (không nhân 100)
           product_data: {
-            name: `Gia hạn bản quyền Video Studio - ${plan.name}`,
+            name: `Gia hạn bản quyền Editnhanh - ${plan.name}`,
             description: `Mã key: ${license.key}`,
           },
           unit_amount: amount,
@@ -2523,9 +2523,9 @@ app.get('/download', async (req, res) => {
   }
 
   // Absolute path safe resolving (Fallback ở localhost)
-  const filePath = path.resolve(__dirname, '..', 'dist', 'Video Studio Tools Setup 1.0.0.exe');
+  const filePath = path.resolve(__dirname, '..', 'dist', 'Editnhanh Setup 1.0.0.exe');
   
-  res.attachment('Video Studio Tools Setup 1.0.0.exe');
+  res.attachment('Editnhanh Setup 1.0.0.exe');
   res.sendFile(filePath, { acceptRanges: true }, (err) => {
     if (err) {
       console.error('[License Server] Lỗi truyền file bộ cài:', err.message);
