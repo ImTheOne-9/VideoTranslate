@@ -7,7 +7,7 @@ import studioImg from '../assets/studio_render_screenshot.png';
 import subtitlesImg from '../assets/subtitles_screenshot.png';
 import voiceoverImg from '../assets/voiceover_screenshot.png';
 
-export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePlan, showToast }) {
+export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePlan, showToast, appVersion }) {
   const [plans, setPlans] = useState([]);
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
           <div className="text-center max-w-5xl mx-auto space-y-6">
             <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300">
               <span className="flex h-2 w-2 rounded-full bg-indigo-500 animate-pulse"></span>
-              Phiên bản Editnhanh v1.0.6 đã sẵn sàng
+              Phiên bản Editnhanh v{appVersion || '1.0.6'} đã sẵn sàng
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold font-display leading-[1.1] tracking-tight text-white">
               Tự động hóa sản xuất Video ngắn <br/>

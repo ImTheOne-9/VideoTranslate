@@ -1293,8 +1293,27 @@ app.post('/api/server/verify', async (req, res) => {
 // ==========================================
 
 // Endpoint check config mode
-app.get('/api/config', (req, res) => {
-  res.json({ isDev: process.env.NODE_ENV !== 'production' });
+app.get('/api/config', async (req, res) => {
+  try {
+    const installerUrl = await DB.settings.get('installerUrl', process.env.INSTALLER_URL || '');
+    let version = '1.0.6';
+    if (installerUrl) {
+      const match = installerUrl.match(/(\d+\.\d+\.\d+)/);
+      if (match) {
+        version = match[1];
+      }
+    }
+    const supportEmail = await DB.settings.get('supportEmail', 'support@editnhanh.com');
+    const supportZalo = await DB.settings.get('supportZalo', '');
+    const supportTelegram = await DB.settings.get('supportTelegram', '');
+    res.json({ 
+      isDev: process.env.NODE_ENV !== 'production',
+      version,
+      contact: { email: supportEmail, zalo: supportZalo, telegram: supportTelegram }
+    });
+  } catch (err) {
+    res.json({ isDev: process.env.NODE_ENV !== 'production', version: '1.0.6', contact: { email: 'support@editnhanh.com', zalo: '', telegram: '' } });
+  }
 });
 
 // API Đăng ký
@@ -1614,6 +1633,10 @@ app.get('/api/user/keys', userAuth, async (req, res) => {
       return acc;
     }, {});
 
+    const bankCode = await DB.settings.get('bankCode', process.env.BANK_CODE || 'MB');
+    const bankAccount = await DB.settings.get('bankAccount', process.env.BANK_ACCOUNT || '0385464403');
+    const bankAccountName = await DB.settings.get('bankAccountName', process.env.BANK_ACCOUNT_NAME || 'DOAN VIET HOANG');
+
     const keys = licenses.map(k => {
       const plainObj = useMongo ? k.toObject() : k;
       const planInfo = planMap[plainObj.planType] || { name: plainObj.planType, price: 0 };
@@ -1621,9 +1644,9 @@ app.get('/api/user/keys', userAuth, async (req, res) => {
         ...plainObj,
         planName: planInfo.name,
         price: planInfo.price,
-        bankCode: process.env.BANK_CODE || 'MB',
-        bankAccount: process.env.BANK_ACCOUNT || '0385464403',
-        bankAccountName: process.env.BANK_ACCOUNT_NAME || 'DOAN VIET HOANG'
+        bankCode,
+        bankAccount,
+        bankAccountName
       };
     });
 
@@ -1795,9 +1818,9 @@ app.get('/api/plans/status', async (req, res) => {
       status: license.status,
       expiresAt: license.expiresAt,
       createdAt: license.createdAt,
-      bankCode: process.env.BANK_CODE || 'MB',
-      bankAccount: process.env.BANK_ACCOUNT || '0385464403',
-      bankAccountName: process.env.BANK_ACCOUNT_NAME || 'DOAN VIET HOANG'
+      bankCode: await DB.settings.get('bankCode', process.env.BANK_CODE || 'MB'),
+      bankAccount: await DB.settings.get('bankAccount', process.env.BANK_ACCOUNT || '0385464403'),
+      bankAccountName: await DB.settings.get('bankAccountName', process.env.BANK_ACCOUNT_NAME || 'DOAN VIET HOANG')
     });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi lấy thông tin key: ' + err.message });
@@ -2551,7 +2574,13 @@ function adminAuth(req, res, next) {
 app.get('/api/admin/config', adminAuth, async (req, res) => {
   try {
     const installerUrl = await DB.settings.get('installerUrl', process.env.INSTALLER_URL || '');
-    res.json({ success: true, installerUrl });
+    const supportEmail = await DB.settings.get('supportEmail', 'support@editnhanh.com');
+    const supportZalo = await DB.settings.get('supportZalo', '');
+    const supportTelegram = await DB.settings.get('supportTelegram', '');
+    const bankCode = await DB.settings.get('bankCode', process.env.BANK_CODE || 'MB');
+    const bankAccount = await DB.settings.get('bankAccount', process.env.BANK_ACCOUNT || '');
+    const bankAccountName = await DB.settings.get('bankAccountName', process.env.BANK_ACCOUNT_NAME || '');
+    res.json({ success: true, installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi lấy cấu hình: ' + err.message });
   }
@@ -2559,10 +2588,16 @@ app.get('/api/admin/config', adminAuth, async (req, res) => {
 
 // API cập nhật cấu hình hệ thống (Admin)
 app.post('/api/admin/config', adminAuth, async (req, res) => {
-  const { installerUrl } = req.body;
+  const { installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName } = req.body;
   try {
     await DB.settings.set('installerUrl', (installerUrl || '').trim());
-    res.json({ success: true, message: 'Cập nhật cấu hình link tải phần mềm thành công!' });
+    if (supportEmail !== undefined) await DB.settings.set('supportEmail', (supportEmail || '').trim());
+    if (supportZalo !== undefined) await DB.settings.set('supportZalo', (supportZalo || '').trim());
+    if (supportTelegram !== undefined) await DB.settings.set('supportTelegram', (supportTelegram || '').trim());
+    if (bankCode !== undefined) await DB.settings.set('bankCode', (bankCode || '').trim());
+    if (bankAccount !== undefined) await DB.settings.set('bankAccount', (bankAccount || '').trim());
+    if (bankAccountName !== undefined) await DB.settings.set('bankAccountName', (bankAccountName || '').trim());
+    res.json({ success: true, message: 'Cập nhật cấu hình thành công!' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi cập nhật cấu hình: ' + err.message });
   }

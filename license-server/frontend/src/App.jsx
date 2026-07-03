@@ -20,6 +20,8 @@ function AppContent() {
 
   const [currentUser, setCurrentUser] = useState(null);
   const [isDevMode, setIsDevMode] = useState(false);
+  const [appVersion, setAppVersion] = useState('1.0.6');
+  const [contact, setContact] = useState({ email: 'support@editnhanh.com', zalo: '', telegram: '' });
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: 'login' });
   const [toasts, setToasts] = useState([]);
 
@@ -53,6 +55,12 @@ function AppContent() {
       const res = await fetch('/api/config');
       const data = await res.json();
       setIsDevMode(data.isDev);
+      if (data.version) {
+        setAppVersion(data.version);
+      }
+      if (data.contact) {
+        setContact(data.contact);
+      }
     } catch (err) {
       console.warn('Lỗi kiểm tra cấu hình:', err.message);
     }
@@ -233,13 +241,14 @@ function AppContent() {
               <Home 
                 currentUser={currentUser} 
                 isDevMode={isDevMode} 
+                appVersion={appVersion}
                 onOpenAuth={(mode) => openAuthModal(mode)}
                 onSubscribePlan={handleSubscribePlan}
                 showToast={showToast}
               />
             } 
           />
-          <Route path="/index.html" element={<Home currentUser={currentUser} isDevMode={isDevMode} onOpenAuth={(mode) => openAuthModal(mode)} onSubscribePlan={handleSubscribePlan} showToast={showToast} />} />
+          <Route path="/index.html" element={<Home currentUser={currentUser} isDevMode={isDevMode} appVersion={appVersion} onOpenAuth={(mode) => openAuthModal(mode)} onSubscribePlan={handleSubscribePlan} showToast={showToast} />} />
           <Route path="/payment.html" element={<Payment isDevMode={isDevMode} showToast={showToast} />} />
           <Route path="/verify-email.html" element={<VerifyEmail />} />
           <Route path="/reset-password.html" element={<ResetPassword showToast={showToast} />} />
@@ -371,16 +380,20 @@ function AppContent() {
                 <ul className="space-y-3 text-xs text-zinc-400 font-medium">
                   <li className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-indigo-400 shrink-0" />
-                    <a href="mailto:support@videostudiotools.com" className="hover:text-white transition-colors truncate">support@videostudiotools.com</a>
+                    <a href={`mailto:${contact.email}`} className="hover:text-white transition-colors truncate">{contact.email}</a>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-indigo-400 shrink-0" />
-                    <span className="select-text">Zalo: 0988.xxx.xxx</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Globe className="h-4 w-4 text-indigo-400 shrink-0" />
-                    <span className="select-text">Telegram: @vst_support</span>
-                  </li>
+                  {contact.zalo && (
+                    <li className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-indigo-400 shrink-0" />
+                      <span className="select-text">Zalo: {contact.zalo}</span>
+                    </li>
+                  )}
+                  {contact.telegram && (
+                    <li className="flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-indigo-400 shrink-0" />
+                      <span className="select-text">Telegram: {contact.telegram}</span>
+                    </li>
+                  )}
                 </ul>
               </div>
 

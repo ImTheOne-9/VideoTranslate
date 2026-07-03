@@ -44,6 +44,12 @@ export default function Admin({ showToast }) {
 
   // Config states
   const [installerUrl, setInstallerUrl] = useState('');
+  const [supportEmail, setSupportEmail] = useState('');
+  const [supportZalo, setSupportZalo] = useState('');
+  const [supportTelegram, setSupportTelegram] = useState('');
+  const [bankCode, setBankCode] = useState('MB');
+  const [bankAccount, setBankAccount] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -339,6 +345,12 @@ export default function Admin({ showToast }) {
       const data = await res.json();
       if (data.success) {
         setInstallerUrl(data.installerUrl || '');
+        setSupportEmail(data.supportEmail || '');
+        setSupportZalo(data.supportZalo || '');
+        setSupportTelegram(data.supportTelegram || '');
+        setBankCode(data.bankCode || 'MB');
+        setBankAccount(data.bankAccount || '');
+        setBankAccountName(data.bankAccountName || '');
       }
     } catch (err) {
       showToast('Lỗi khi tải cấu hình link tải: ' + err.message, 'error');
@@ -357,7 +369,7 @@ export default function Admin({ showToast }) {
           'Content-Type': 'application/json',
           'x-admin-token': token
         },
-        body: JSON.stringify({ installerUrl })
+        body: JSON.stringify({ installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName })
       });
       const data = await res.json();
       if (data.success) {
@@ -1120,6 +1132,80 @@ export default function Admin({ showToast }) {
                   placeholder="Ví dụ: https://drive.google.com/... hoặc để trống"
                   className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
                 />
+              </div>
+
+              <div className="border-t border-zinc-800/50 pt-4 space-y-4">
+                <p className="text-xs font-bold text-white uppercase tracking-wider">Thông tin liên hệ & Hỗ trợ</p>
+                <div className="space-y-2">
+                  <label htmlFor="supportEmail" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Email hỗ trợ</label>
+                  <input
+                    id="supportEmail"
+                    type="text"
+                    value={supportEmail}
+                    onChange={(e) => setSupportEmail(e.target.value)}
+                    placeholder="support@editnhanh.com"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="supportZalo" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Số điện thoại Zalo</label>
+                  <input
+                    id="supportZalo"
+                    type="text"
+                    value={supportZalo}
+                    onChange={(e) => setSupportZalo(e.target.value)}
+                    placeholder="Ví dụ: 0988.xxx.xxx"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="supportTelegram" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Telegram (username)</label>
+                  <input
+                    id="supportTelegram"
+                    type="text"
+                    value={supportTelegram}
+                    onChange={(e) => setSupportTelegram(e.target.value)}
+                    placeholder="Ví dụ: @editnhanh_support"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-800/50 pt-4 space-y-4">
+                <p className="text-xs font-bold text-white uppercase tracking-wider">Thông tin tài khoản ngân hàng (VietQR)</p>
+                <div className="space-y-2">
+                  <label htmlFor="bankCode" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Mã ngân hàng (Bank Code)</label>
+                  <input
+                    id="bankCode"
+                    type="text"
+                    value={bankCode}
+                    onChange={(e) => setBankCode(e.target.value)}
+                    placeholder="Ví dụ: MB, TCB, VCB, ACB..."
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="bankAccount" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Số tài khoản</label>
+                  <input
+                    id="bankAccount"
+                    type="text"
+                    value={bankAccount}
+                    onChange={(e) => setBankAccount(e.target.value)}
+                    placeholder="Ví dụ: 0385464403"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="bankAccountName" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Tên chủ tài khoản (IN HOA)</label>
+                  <input
+                    id="bankAccountName"
+                    type="text"
+                    value={bankAccountName}
+                    onChange={(e) => setBankAccountName(e.target.value.toUpperCase())}
+                    placeholder="Ví dụ: NGUYEN VAN A"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono uppercase"
+                  />
+                </div>
               </div>
 
               <div className="pt-2 flex items-center justify-between border-t border-zinc-800/50">
