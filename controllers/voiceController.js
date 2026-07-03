@@ -2,9 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const shared = require('../lib/shared-state');
-
-const VBEE_APP_ID = process.env.VBEE_APP_ID || '470eb36b-eca1-4d22-96b6-c88c997b5bea';
-const VBEE_TOKEN = process.env.VBEE_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3ODIxNzkwMzd9.5k5_aMzZw-BQLLBPtFZMNL0O2bCS6mootc_UBMKlNIU';
+const { VBEE_APP_ID, VBEE_TOKEN } = require('../lib/secrets');
 
 module.exports = {
   generateVbeeVoice: async (req, res) => {
