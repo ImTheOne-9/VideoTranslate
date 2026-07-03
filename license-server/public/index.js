@@ -43,6 +43,12 @@ async function checkConfig() {
     const res = await fetch('/api/config');
     const data = await res.json();
     isDevMode = data.isDev;
+    if (data.version) {
+      const versionEl = document.getElementById('app-version-text');
+      if (versionEl) {
+        versionEl.textContent = `Phiên bản Editnhanh v${data.version} đã sẵn sàng`;
+      }
+    }
   } catch (err) {
     console.warn('Lỗi kiểm tra cấu hình:', err.message);
   }
