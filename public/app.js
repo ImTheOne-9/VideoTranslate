@@ -85,8 +85,9 @@ document.addEventListener('DOMContentLoaded', () => {
 function switchView(name) {
   stopAllAudio();
 
+  const isStudioViewActive = $('view-studio') && $('view-studio').classList.contains('active');
   const editorView = $('studio-editor-view');
-  if (editorView && !editorView.classList.contains('hidden') && currentProjectId) {
+  if (isStudioViewActive && editorView && !editorView.classList.contains('hidden') && currentProjectId) {
     const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
     if (hasVideo) {
       pendingSwitchViewName = name;
