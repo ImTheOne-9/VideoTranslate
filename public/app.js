@@ -314,11 +314,6 @@ async function fetchVideoInfo() {
     return;
   }
 
-  // === DOUYIN: dùng extractor BrowserWindow ẩn (không cần yt-dlp/cookies) ===
-  if (url.includes('douyin.com') || url.includes('iesdouyin.com')) {
-    return fetchDouyinInfo(url, $('fetch-btn'), $('video-card-loading'), finalExtractedTitle);
-  }
-
   // Tra cứu xem liên kết này có nằm trong danh mục đã lưu không để lấy tên đã lưu làm dự phòng
   let localSavedTitle = '';
   const savedItem = savedLinks.find(item => item.url === url);
@@ -329,6 +324,11 @@ async function fetchVideoInfo() {
   }
 
   const finalExtractedTitle = extractedTitle || localSavedTitle;
+
+  // === DOUYIN: dùng extractor BrowserWindow ẩn (không cần yt-dlp/cookies) ===
+  if (url.includes('douyin.com') || url.includes('iesdouyin.com')) {
+    return fetchDouyinInfo(url, $('fetch-btn'), $('video-card-loading'), finalExtractedTitle);
+  }
 
   const btn = $('fetch-btn');
   setBusy(btn, true, 'Đang lấy...');
