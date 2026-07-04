@@ -65,20 +65,30 @@ function runFFmpegWithProgress(args, totalDuration) {
       }
     });
     
+    let settled = false;
+    const safeResolve = (v) => { if (!settled) { settled = true; clearTimeout(timeoutHandle); resolve(v); } };
+    const safeReject = (e) => { if (!settled) { settled = true; clearTimeout(timeoutHandle); e.stderr = stderrOutput; reject(e); } };
+
     proc.on('close', (code) => {
       if (code === 0) {
-        resolve();
+        safeResolve();
       } else {
-        const err = new Error(`FFmpeg error (code ${code})`);
-        err.stderr = stderrOutput;
-        reject(err);
+        safeReject(new Error(`FFmpeg error (code ${code})`));
       }
     });
     
     proc.on('error', (err) => {
-      err.stderr = stderrOutput;
-      reject(err);
+      safeReject(err);
     });
+
+    // Khi proc bị kill ngoài (user hủy), 'close' vẫn fire với code != 0 -> safeReject
+    // Timeout dự phòng: 2 tiếng (tránh treo vĩnh viễn nếu pipe chết mà không fire event)
+    const timeoutHandle = setTimeout(() => {
+      if (!settled) {
+        try { proc.kill('SIGKILL'); } catch (e) {}
+        safeReject(new Error('FFmpeg render timeout (2h)'));
+      }
+    }, 2 * 60 * 60 * 1000);
   });
 }
 
