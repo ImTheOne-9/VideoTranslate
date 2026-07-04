@@ -1,0 +1,14 @@
+{
+  "payload": {
+    "key": "STUDIO-EF6D71B6-F87871C6-C83A36A0",
+    "hwid": "4561c1b0112fedb37105b223b67d89f8cde1d2eb172acb8d03c300218b493554",
+    "expiresAt": "2026-08-02T08:23:23.323Z",
+    "issuedAt": 1783073455822,
+    "nonce": "891d8436-ef8a-4ee6-86ed-40e4b2fe07d7",
+    "lastOnlineCheck": 1783073454863,
+    "launchCountSinceOnlineCheck": 0,
+    "lastRunTimestamp": 1783074306151
+  },
+  "signature": "0ac3fc498cf187befcb606d081c9d395b2165f7f961c733899dc45bb229f2e4b71e0f9f40097cea808d938b9e5e671fbe4363267e124eede1bed86d018bb3102",
+  "localSig": "ad7746b0488f41efe6f2e09e76d6abfb2f7542d8d381c462bd0f7dbb77d3078b"
+}
