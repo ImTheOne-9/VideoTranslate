@@ -69,6 +69,9 @@ function cleanupTempOnStartup() {
   }
 }
 
+// Đảm bảo toàn bộ thư mục dữ liệu tồn tại TRƯỚC khi thao tác file (fix ENOENT)
+shared.ensureDataDirectories();
+
 // Chạy dọn dẹp
 cleanupTempOnStartup();
 
