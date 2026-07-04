@@ -34,7 +34,7 @@ module.exports = {
         sizeMB: Math.round((f.dataSize || 0) / 1048576 * 10) / 10,
         src: f.src
       }));
-      res.json({ success: true, title: info.title, thumbnail: info.thumbnail, duration: info.duration, formats });
+      res.json({ success: true, title: info.title, author: info.author || '', thumbnail: info.thumbnail, duration: info.duration, formats });
     } catch (e) {
       console.error('[Douyin] Lỗi extract:', e.message);
       res.status(500).json({ error: 'Không lấy được thông tin video Douyin: ' + e.message });

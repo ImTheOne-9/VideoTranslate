@@ -390,7 +390,7 @@ async function fetchDouyinInfo(url, btn, loadingIndicator, extractedTitle) {
     currentUrl = url;
     $('video-thumbnail').src = data.thumbnail || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="124"><rect width="220" height="124" fill="%23161c24"/><text x="50%" y="50%" text-anchor="middle" font-size="14" fill="%23555">Douyin</text></svg>';
     $('video-title').textContent = title;
-    $('video-meta').textContent = 'Douyin' + (data.duration ? ' · ' + formatDuration(data.duration) : '');
+    $('video-meta').textContent = (data.author || 'Douyin') + (data.duration ? ' · ' + formatDuration(data.duration) : '');
     const fnInput = $('video-filename-input');
     if (fnInput) fnInput.value = title.replace(/[<>:\"/\\|?*]/g, '_').substring(0, 100);
     const grid = $('quality-grid');
