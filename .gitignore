@@ -8,21 +8,33 @@ temp_env/
 # Binaries, models, third-party tools and dependencies
 tools/
 
-# Local media assets and renders
+# Local media assets and renders (data local, KHÔNG commit)
 downloads/
 uploads/
+renders/
+
+# Saved projects (data local)
+projects/
+
+# Models (data local, tải sau)
+models/
+
+# Local app data directories (tạo khi chạy app packaged)
+VideoStudio/
+VideoStudioData/
 
 # OS files
 .DS_Store
 Thumbs.db
+
 # Build output
 dist/
-models/
+
+# Logs
+*.log
 
 # Local databases and secrets
 .env
+.env.local
 license-server/.env
 license-server/database.json
-
-# Saved projects
-projects/*.json

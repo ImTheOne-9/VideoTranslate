@@ -7,6 +7,7 @@ const shared = require('../lib/shared-state');
 const { getCompositeHWID, saveLicenseLocal, verifyLocalLicense, LICENSE_SERVER_URL } = require('../lib/license-manager');
 const { checkDependencyStatus, downloadAndExtract } = require('../lib/dependency-downloader');
 const FacebookApiService = require('../lib/facebookApi');
+const { validate, validators } = require('../lib/validate');
 
 let electronShell = null;
 try {
@@ -21,13 +22,14 @@ let activeDependencyDownload = null;
 module.exports = {
   getVideoInfo: async (req, res) => {
     try {
-      let { url } = req.body;
-      url = shared.extractUrl(url);
-      if (!url) {
-        return res.status(400).json({ error: 'Vui lòng nhập URL video' });
-      }
+      // Validation tập trung qua validate helper
+      const { err, values } = validate(req.body, {
+        url: validators.url('Vui lòng nhập URL video hợp lệ (http/https)')
+      });
+      if (err) return res.status(400).json({ error: err });
 
-      if (!shared.isValidVideoUrl(url)) {
+      let url = shared.extractUrl(values.url);
+      if (!url || !shared.isValidVideoUrl(url)) {
         return res.status(400).json({ error: 'URL không hợp lệ' });
       }
 
@@ -379,7 +381,8 @@ module.exports = {
   checkDependencies: async (req, res) => {
     const ffmpegOk = fs.existsSync(shared.FFMPEG_PATH);
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
-    const whisperCliOk = fs.existsSync(shared.TOOLS_DIR + '/whisper_onnx.exe');
+    // Whisper CLI: ưu tiên DATA_TOOLS_DIR (bản mới), fallback TOOLS_DIR (bản cũ)
+    const whisperCliOk = fs.existsSync(shared.WHISPER_ONNX_PATH) || fs.existsSync(shared.TOOLS_DIR + '/whisper_onnx.exe');
 
     const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
     const downloadedWhisperModels = whisperModels.filter(model => 
@@ -405,7 +408,9 @@ module.exports = {
 
   checkDependenciesStatus: async (req, res) => {
     try {
-      const status = checkDependencyStatus(shared.TOOLS_DIR);
+      // Ưu tiên DATA_TOOLS_DIR (data dir), fallback TOOLS_DIR (resources, bản cũ)
+      const checkDir = fs.existsSync(shared.DATA_TOOLS_DIR) ? shared.DATA_TOOLS_DIR : shared.TOOLS_DIR;
+      const status = checkDependencyStatus(checkDir);
       res.json(status);
     } catch (error) {
       console.error('Check dependency status error:', error.message);
@@ -427,8 +432,8 @@ module.exports = {
     res.json({ message: 'Bắt đầu tải xuống ngầm' });
 
     try {
-      console.log(`[Dependency Downloader] Bắt đầu tải ${type} vào ${shared.TOOLS_DIR}...`);
-      await downloadAndExtract(type, shared.TOOLS_DIR, (downloaded, total) => {
+      console.log(`[Dependency Downloader] Bắt đầu tải ${type} vào ${shared.DATA_TOOLS_DIR}...`);
+      await downloadAndExtract(type, shared.DATA_TOOLS_DIR, (downloaded, total) => {
         if (activeDependencyDownload) {
           activeDependencyDownload.percent = Math.floor((downloaded / (total || 1)) * 100);
         }

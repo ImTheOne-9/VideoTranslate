@@ -65,20 +65,30 @@ function runFFmpegWithProgress(args, totalDuration) {
       }
     });
     
+    let settled = false;
+    const safeResolve = (v) => { if (!settled) { settled = true; clearTimeout(timeoutHandle); resolve(v); } };
+    const safeReject = (e) => { if (!settled) { settled = true; clearTimeout(timeoutHandle); e.stderr = stderrOutput; reject(e); } };
+
     proc.on('close', (code) => {
       if (code === 0) {
-        resolve();
+        safeResolve();
       } else {
-        const err = new Error(`FFmpeg error (code ${code})`);
-        err.stderr = stderrOutput;
-        reject(err);
+        safeReject(new Error(`FFmpeg error (code ${code})`));
       }
     });
     
     proc.on('error', (err) => {
-      err.stderr = stderrOutput;
-      reject(err);
+      safeReject(err);
     });
+
+    // Khi proc bị kill ngoài (user hủy), 'close' vẫn fire với code != 0 -> safeReject
+    // Timeout dự phòng: 2 tiếng (tránh treo vĩnh viễn nếu pipe chết mà không fire event)
+    const timeoutHandle = setTimeout(() => {
+      if (!settled) {
+        try { proc.kill('SIGKILL'); } catch (e) {}
+        safeReject(new Error('FFmpeg render timeout (2h)'));
+      }
+    }, 2 * 60 * 60 * 1000);
   });
 }
 
@@ -445,6 +455,10 @@ async function executeRenderTask(task) {
         }
 
         for (let idx = 0; idx < groups.length; idx++) {
+          if (!shared.state.isStudioRendering || task.status === 'failed' || (task.step && task.step.includes('hủy'))) {
+            console.log(`[Studio Render] Phát hiện đã hủy, dừng loop OmniVoice tại câu ${idx + 1}/${groups.length}`);
+            throw new Error('Đã hủy kết xuất bởi người dùng');
+          }
           const group = groups[idx];
           const lineText = group.map(item => item.text.replace(/\n/g, ' ').trim()).join(' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
           if (!lineText) continue;
@@ -1032,9 +1046,15 @@ async function executeRenderTask(task) {
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message);
     shared.state.isStudioRendering = false;
-    
-    if (task.status === 'failed' || task.step?.includes('hủy') || task.error?.includes('hủy') || task.error?.includes('cancel')) {
-      console.log(`[Queue] Tác vụ ${task.id} đã bị hủy trước đó, giữ nguyên trạng thái.`);
+    shared.state.activeRenderId = null;
+    if (shared.state.currentActiveTask === task) {
+      shared.state.currentActiveTask = null;
+    }
+    if (task.status === 'failed' || task.step?.includes('hủy') || task.error?.includes('hủy') || task.error?.includes('cancel') || (error.message && error.message.includes('hủy'))) {
+      console.log(`[Queue] Tác vụ ${task.id} đã bị hủy, reset state.`);
+      task.status = 'failed';
+      task.step = 'Đã bị hủy';
+      shared.state.studioProgress = { status: 'idle', percent: 0, step: 'Đã hủy kết xuất', error: null };
       return;
     }
     task.status = 'error';

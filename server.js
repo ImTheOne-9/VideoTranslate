@@ -69,6 +69,83 @@ function cleanupTempOnStartup() {
   }
 }
 
+// Đảm bảo toàn bộ thư mục dữ liệu tồn tại TRƯỚC khi thao tác file (fix ENOENT)
+shared.ensureDataDirectories();
+
+// === MIGRATE dữ liệu từ cấu trúc cũ sang cấu trúc mới (chạy 1 lần khi update) ===
+// 1. Di chuyển file render từ downloads/renders/ cũ sang renders/ mới (riêng biệt)
+// 2. Di chuyển whisper_onnx.exe + CUDA DLLs từ resources/tools/ sang DATA_TOOLS_DIR (data dir)
+//    để auto-update không làm mất -> user không phải tải lại
+function migrateOldDataLayout() {
+  console.log('[Migrate] Kiểm tra cấu trúc dữ liệu cũ...');
+  const path = require('path');
+  const fs = require('fs');
+
+  // --- 1. Migrate renders: downloads/renders/ -> renders/ ---
+  const oldRendersDir = path.join(shared.DOWNLOADS_DIR, 'renders');
+  if (fs.existsSync(oldRendersDir)) {
+    try {
+      const files = fs.readdirSync(oldRendersDir);
+      let movedCount = 0;
+      for (const file of files) {
+        const src = path.join(oldRendersDir, file);
+        const dest = path.join(shared.RENDERS_DIR, file);
+        if (!fs.existsSync(dest)) {
+          try {
+            fs.renameSync(src, dest);
+            movedCount++;
+          } catch (e) {
+            // rename fail (khác ổ) -> copy rồi xóa
+            try {
+              fs.copyFileSync(src, dest);
+              fs.unlinkSync(src);
+              movedCount++;
+            } catch (e2) {
+              console.error(`[Migrate] Lỗi di chuyển render ${file}: ${e2.message}`);
+            }
+          }
+        }
+      }
+      if (movedCount > 0) {
+        console.log(`[Migrate] ✅ Đã di chuyển ${movedCount} file render từ downloads/renders/ sang renders/`);
+      }
+      // Xóa thư mục renders cũ nếu rỗng
+      const remaining = fs.readdirSync(oldRendersDir);
+      if (remaining.length === 0) {
+        try { fs.rmdirSync(oldRendersDir); console.log('[Migrate] Đã xóa thư mục renders cũ rỗng'); } catch (e) {}
+      }
+    } catch (e) {
+      console.error('[Migrate] Lỗi migrate renders:', e.message);
+    }
+  }
+
+  // --- 2. Migrate whisper_onnx.exe + CUDA DLLs: resources/tools/ -> DATA_TOOLS_DIR ---
+  const oldToolsDir = shared.TOOLS_DIR; // resources/tools (app dir)
+  const newToolsDir = shared.DATA_TOOLS_DIR; // data dir (VideoStudioData/tools)
+  if (fs.existsSync(oldToolsDir) && oldToolsDir !== newToolsDir) {
+    const depFiles = ['whisper_onnx.exe', 'cublasLt64_12.dll', 'cublas64_12.dll', 'cudart64_12.dll'];
+    let depMoved = 0;
+    for (const file of depFiles) {
+      const src = path.join(oldToolsDir, file);
+      const dest = path.join(newToolsDir, file);
+      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+        try {
+          fs.copyFileSync(src, dest); // copy (không xóa ở resources, vì resources thuộc app)
+          depMoved++;
+        } catch (e) {
+          console.error(`[Migrate] Lỗi di chuyển ${file}: ${e.message}`);
+        }
+      }
+    }
+    if (depMoved > 0) {
+      console.log(`[Migrate] ✅ Đã copy ${depMoved} file dependency (whisper/CUDA) sang DATA_TOOLS_DIR`);
+    }
+  }
+
+  console.log('[Migrate] Hoàn tất kiểm tra migrate.');
+}
+migrateOldDataLayout();
+
 // Chạy dọn dẹp
 cleanupTempOnStartup();
 
@@ -229,6 +306,10 @@ app.get('/api/cookie/status', systemController.getCookieStatus);
 app.post('/api/cookie/save', systemController.saveCookie);
 app.post('/api/cookie/clear', systemController.clearCookie);
 app.get('/api/open-folder', systemController.openFolder);
+// Douyin: extract + download qua BrowserWindow ẩn (không cần yt-dlp/cookies)
+app.get('/api/douyin-info', downloadController.getDouyinInfo);
+app.post('/api/douyin-download', downloadController.downloadDouyin);
+
 app.get('/api/open-file-folder', systemController.openFileFolder);
 app.post('/api/publish-facebook', systemController.publishFacebook);
 app.post('/api/verify-facebook-page', systemController.verifyFacebookPage);
