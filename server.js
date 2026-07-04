@@ -306,6 +306,10 @@ app.get('/api/cookie/status', systemController.getCookieStatus);
 app.post('/api/cookie/save', systemController.saveCookie);
 app.post('/api/cookie/clear', systemController.clearCookie);
 app.get('/api/open-folder', systemController.openFolder);
+// Douyin: extract + download qua BrowserWindow ẩn (không cần yt-dlp/cookies)
+app.get('/api/douyin-info', downloadController.getDouyinInfo);
+app.post('/api/douyin-download', downloadController.downloadDouyin);
+
 app.get('/api/open-file-folder', systemController.openFileFolder);
 app.post('/api/publish-facebook', systemController.publishFacebook);
 app.post('/api/verify-facebook-page', systemController.verifyFacebookPage);

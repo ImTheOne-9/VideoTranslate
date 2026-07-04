@@ -314,6 +314,11 @@ async function fetchVideoInfo() {
     return;
   }
 
+  // === DOUYIN: dùng extractor BrowserWindow ẩn (không cần yt-dlp/cookies) ===
+  if (url.includes('douyin.com') || url.includes('iesdouyin.com')) {
+    return fetchDouyinInfo(url, $('fetch-btn'), $('video-card-loading'), finalExtractedTitle);
+  }
+
   // Tra cứu xem liên kết này có nằm trong danh mục đã lưu không để lấy tên đã lưu làm dự phòng
   let localSavedTitle = '';
   const savedItem = savedLinks.find(item => item.url === url);
@@ -370,6 +375,80 @@ async function fetchVideoInfo() {
   } finally {
     setBusy(btn, false);
     if (loadingIndicator) loadingIndicator.classList.add('hidden');
+  }
+}
+
+async function fetchDouyinInfo(url, btn, loadingIndicator, extractedTitle) {
+  setBusy(btn, true, 'Đang mở Douyin...');
+  $('video-card').classList.add('hidden');
+  if (loadingIndicator) loadingIndicator.classList.remove('hidden');
+  try {
+    const res = await fetch('/api/douyin-info?url=' + encodeURIComponent(url));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Không lấy được thông tin Douyin');
+    const title = extractedTitle || data.title || 'Douyin Video';
+    currentUrl = url;
+    $('video-thumbnail').src = data.thumbnail || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="124"><rect width="220" height="124" fill="%23161c24"/><text x="50%" y="50%" text-anchor="middle" font-size="14" fill="%23555">Douyin</text></svg>';
+    $('video-title').textContent = title;
+    $('video-meta').textContent = 'Douyin' + (data.duration ? ' · ' + formatDuration(data.duration) : '');
+    const fnInput = $('video-filename-input');
+    if (fnInput) fnInput.value = title.replace(/[<>:\"/\\|?*]/g, '_').substring(0, 100);
+    const grid = $('quality-grid');
+    grid.innerHTML = '';
+    if (!data.formats || data.formats.length === 0) {
+      const msg = document.createElement('div');
+      msg.style = 'color: var(--muted); font-size: 13px; padding: 10px; text-align: center; width: 100%;';
+      msg.textContent = '⚠️ Không tìm thấy chất lượng. Video có thể cần đăng nhập.';
+      grid.appendChild(msg);
+    } else {
+      const vs = document.createElement('button');
+      vs.className = 'quality-btn green'; vs.type = 'button';
+      vs.onclick = (e) => startDouyinDownload(e.target, data.formats[0].src, title, 'vietsub');
+      vs.textContent = 'Tải + dịch Vietsub';
+      grid.appendChild(vs);
+      for (const fmt of data.formats) {
+        const b = document.createElement('button');
+        b.className = 'quality-btn'; b.type = 'button'; b.dataset.src = fmt.src;
+        b.onclick = (e) => startDouyinDownload(e.currentTarget, fmt.src, title, fmt.label);
+        b.textContent = fmt.label + (fmt.sizeMB ? ' · ' + fmt.sizeMB + ' MB' : '');
+        grid.appendChild(b);
+      }
+    }
+    $('video-card').classList.remove('hidden');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    setBusy(btn, false);
+    if (loadingIndicator) loadingIndicator.classList.add('hidden');
+  }
+}
+
+async function startDouyinDownload(btn, cdnUrl, videoTitle, qualityLabel) {
+  if (btn.disabled) return;
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang tải...';
+  const isVietsub = qualityLabel === 'vietsub';
+  try {
+    const customFilename = $('video-filename-input')?.value.trim() || videoTitle;
+    const res = await fetch('/api/douyin-download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src: cdnUrl, filename: customFilename })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Lỗi tải Douyin');
+    const savedFilename = data.filename || (customFilename + '.mp4');
+    toast(`Tải thành công: ${savedFilename}`, 'success');
+    addDownloadHistory(videoTitle, '', 'success', savedFilename, isVietsub ? 'Vietsub' : ('Douyin ' + qualityLabel));
+    await loadAssets();
+  } catch (error) {
+    console.error('Douyin download error:', error);
+    toast(`Lỗi: ${error.message}`, 'error');
+    addDownloadHistory(videoTitle, '', 'failed', '', isVietsub ? 'Vietsub' : ('Douyin ' + qualityLabel));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
   }
 }
 

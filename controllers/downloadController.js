@@ -4,8 +4,98 @@ const contentDisposition = require('content-disposition');
 const shared = require('../lib/shared-state');
 const { translateSubtitles } = require('../lib/translate-sub');
 const { validate, validators } = require('../lib/validate');
+const douyinExtractor = require('../lib/douyin-extractor');
+const axios = require('axios');
 
 module.exports = {
+  // === DOUYIN: lấy danh sách chất lượng qua BrowserWindow ẩn ===
+  getDouyinInfo: async (req, res) => {
+    const { err, values } = validate(req.query, {
+      url: validators.url('Vui lòng nhập URL Douyin hợp lệ')
+    });
+    if (err) return res.status(400).json({ error: err });
+
+    const url = values.url;
+    if (!url.includes('douyin.com') && !url.includes('iesdouyin.com')) {
+      return res.status(400).json({ error: 'URL phải là link Douyin' });
+    }
+    if (!douyinExtractor.isAvailable()) {
+      return res.status(503).json({ error: 'Extractor Douyin cần chạy trong app Electron.' });
+    }
+
+    try {
+      const info = await douyinExtractor.getDouyinVideoInfo(url, (msg) => console.log(msg));
+      // Trả danh sách chất lượng (chỉ mp4 để dễ chọn)
+      const formats = info.formats.filter(f => f.format === 'mp4').map(f => ({
+        label: `${f.height}p${f.width ? ' (' + f.width + 'x' + f.height + ')' : ''}`,
+        quality: f.height,
+        format: f.format,
+        bitRate: f.bitRate,
+        sizeMB: Math.round((f.dataSize || 0) / 1048576 * 10) / 10,
+        src: f.src
+      }));
+      res.json({ success: true, title: info.title, thumbnail: info.thumbnail, duration: info.duration, formats });
+    } catch (e) {
+      console.error('[Douyin] Lỗi extract:', e.message);
+      res.status(500).json({ error: 'Không lấy được thông tin video Douyin: ' + e.message });
+    }
+  },
+
+  // === DOUYIN: tải video từ URL CDN (zjcdn.com) ===
+  downloadDouyin: async (req, res) => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+
+    const { err, values } = validate(req.body, {
+      src: validators.url('Thiếu URL CDN video'),
+      filename: validators.safeStr(200, 'Thiếu tên file')
+    });
+    if (err) return res.status(400).json({ error: err });
+
+    const cdnUrl = values.src;
+    const safeName = shared.removeVietnameseTones(values.filename).replace(/[<>:\"/\\|?*]/g, '_').substring(0, 150);
+    const outPath = path.join(shared.DOWNLOADS_DIR, `${safeName}.mp4`);
+
+    try {
+      console.log(`[Douyin] Đang tải từ CDN: ${cdnUrl.substring(0, 80)}...`);
+      const response = await axios({
+        method: 'get',
+        url: cdnUrl,
+        responseType: 'stream',
+        timeout: 120000,
+        signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+      const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+      console.log(`[Douyin] Kích thước: ${(totalSize / 1048576).toFixed(1)} MB`);
+
+      const writer = fs.createWriteStream(outPath);
+      let downloaded = 0;
+      response.data.on('data', (chunk) => {
+        downloaded += chunk.length;
+        if (totalSize > 0 && downloaded % (1024 * 1024) < chunk.length) {
+          const pct = Math.round((downloaded / totalSize) * 100);
+          console.log(`[Douyin] Tiến trình: ${pct}%`);
+        }
+      });
+      response.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+        response.data.on('error', reject);
+      });
+
+      console.log(`[Douyin] Tải xong: ${outPath}`);
+      res.json({ success: true, filename: `${safeName}.mp4`, path: outPath });
+    } catch (e) {
+      console.error('[Douyin] Lỗi tải:', e.message);
+      if (fs.existsSync(outPath)) { try { fs.unlinkSync(outPath); } catch(_) {} }
+      res.status(500).json({ error: 'Lỗi tải video Douyin: ' + e.message });
+    }
+  },
+
   proxyImage: async (req, res) => {
     try {
       const { err, values } = validate(req.query, {
