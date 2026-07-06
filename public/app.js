@@ -4935,8 +4935,8 @@ window.testOpenRouterConnection = testOpenRouterConnection;
 window.testNineRouterConnection = testNineRouterConnection;
 
 /* ==========================================================================
-   
-
+   CONNECTION STATUS MODAL & HELPERS
+   ========================================================================== */
 function openConnectionStatusModal() {
   const modal = $('connection-status-modal');
   if (modal) {
