@@ -259,7 +259,28 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
 
                         return (
                           <tr key={k.key} className="hover:bg-zinc-900/20 transition-colors">
-                            <td className="px-4 py-4 font-bold text-white">{planName}</td>
+                            <td className="px-4 py-4">
+                              {(() => {
+                                if (isPermanent) {
+                                  return (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border bg-emerald-955/60 text-emerald-300 border-emerald-900/40">
+                                      Vĩnh viễn
+                                    </span>
+                                  );
+                                }
+                                const pt = (k.planType || '').toLowerCase();
+                                let cls = 'bg-zinc-800 text-zinc-300 border-zinc-700';
+                                if (pt === 'trial') cls = 'bg-amber-955/60 text-amber-300 border-amber-900/40';
+                                else if (pt === 'monthly') cls = 'bg-indigo-955/60 text-indigo-300 border-indigo-900/40';
+                                else if (pt === 'yearly' || pt === 'annual') cls = 'bg-purple-955/60 text-purple-300 border-purple-900/40';
+                                else if (pt === 'lifetime') cls = 'bg-emerald-955/60 text-emerald-300 border-emerald-900/40';
+                                return (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>
+                                    {planName}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <td className="px-4 py-4 font-mono text-zinc-400 text-xs">
                               <div className="flex items-center gap-1.5">
                                 <span className="bg-zinc-950 border border-zinc-900 px-1.5 py-0.5 rounded select-all">{k.key}</span>

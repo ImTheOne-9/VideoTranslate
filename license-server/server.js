@@ -1179,11 +1179,11 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
       <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; border: 1px solid #bbf7d0; margin: 15px 0;">
         <p style="margin: 0 0 10px 0; color: #166534; font-weight: 600;">🔑 Mã bản quyền (License Key):</p>
         <p style="font-family: monospace; font-size: 18px; font-weight: bold; color: #15803d; margin: 0; background: #fff; padding: 8px 12px; border-radius: 4px; border: 1px solid #86efac; display: inline-block; letter-spacing: 1px;">${escapedKey}</p>
-        <p style="margin: 15px 0 0 0; font-size: 13px; color: #166534;">📅 Hạn sử dụng: <strong>${formattedExpires}</strong></p>
+        <p style="margin: 15px 0 0 0; font-size: 13px; color: #166534;">📅 Hạn sử dụng: Bắt đầu từ khi License Key này được kích hoạt</p>
       </div>
       <h4 style="margin-top: 15px;">Hướng dẫn sử dụng:</h4>
       <ol>
-        <li>Tải và cài đặt phần mềm Editnhanh.</li>
+        <li>Tải và cài đặt phần mềm trên <a href="[https://editnhanh.com/](https://editnhanh.com/)" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">Editnhanh</a>.</li>
         <li>Đăng nhập tài khoản và nhập mã key trên để kích hoạt phần mềm.</li>
       </ol>
       <p>Chúc bạn có những video tuyệt vời cùng Editnhanh!</p>
@@ -3297,7 +3297,7 @@ app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
       key,
       customerName: name,
       userEmail: null,
-      planType: 'monthly',
+      planType: (expiresStr === '9999-12-31T23:59:59.000Z') ? 'lifetime' : 'monthly',
       paymentStatus: 'active',
       hwid: null,
       expiresAt: expiresStr,
