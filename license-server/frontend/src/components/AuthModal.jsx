@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Lock, UserPlus, KeyRound, Info, AlertTriangle, ArrowRight, Send, LogIn } from 'lucide-react';
 
 export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthSuccess, showToast }) {
@@ -8,10 +8,14 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
   const [phoneNumber, setPhoneNumber] = useState('');
   const [notice, setNotice] = useState(null); // { text, isError }
   const [loading, setLoading] = useState(false);
+  const skipNoticeClearRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
-      setNotice(null);
+      if (!skipNoticeClearRef.current) {
+        setNotice(null);
+      }
+      skipNoticeClearRef.current = false;
       // Don't reset email, but reset passwords and errors
       setPassword('');
       setFullName('');
@@ -135,6 +139,7 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
             isError: false,
             emailForResend: email
           });
+          skipNoticeClearRef.current = true;
           onSwitchMode('login');
         } else {
           setNotice({ text: data.error || 'Đăng ký thất bại!', isError: true });
