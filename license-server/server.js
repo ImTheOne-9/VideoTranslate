@@ -81,6 +81,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'my_super_secret_admin_token_2026
 let stripeWebhookHandler = null;
 
 const app = express();
+app.set('trust proxy', true);
 
 // Stripe Webhook Endpoint receives raw body before express.json() parses it
 app.post('/api/payment/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -131,6 +132,8 @@ const userSchema = new mongoose.Schema({
   resetPasswordToken: { type: String, default: null },
   resetPasswordExpires: { type: Date, default: null },
   passwordChangedAt: { type: Date, default: null },
+  registrationIp: { type: String, default: null },
+  registrationHwid: { type: String, default: null },
   createdAt: { type: Date, default: Date.now }
 });
 const UserModel = mongoose.model('User', userSchema);
@@ -430,6 +433,8 @@ const DB = {
           password: user.password,
           fullName: user.fullName,
           phoneNumber: user.phoneNumber,
+          registrationIp: user.registrationIp || null,
+          registrationHwid: user.registrationHwid || null,
           role: user.role || 'user',
           avatar: user.avatar || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
@@ -448,6 +453,8 @@ const DB = {
                 password: this.password,
                 fullName: this.fullName,
                 phoneNumber: this.phoneNumber,
+                registrationIp: this.registrationIp || null,
+                registrationHwid: this.registrationHwid || null,
                 role: this.role,
                 avatar: this.avatar || null,
                 isVerified: this.isVerified,
@@ -491,6 +498,10 @@ const DB = {
         let user = null;
         if (query.email) {
           user = db.users.find(u => u.email.toLowerCase() === query.email.toLowerCase());
+        } else if (query.registrationIp) {
+          user = db.users.find(u => u.registrationIp === query.registrationIp);
+        } else if (query.registrationHwid) {
+          user = db.users.find(u => u.registrationHwid === query.registrationHwid);
         } else if (query.verificationToken) {
           user = db.users.find(u => u.verificationToken === query.verificationToken);
         } else if (query.resetPasswordToken) {
@@ -503,6 +514,8 @@ const DB = {
           password: user.password,
           fullName: user.fullName,
           phoneNumber: user.phoneNumber,
+          registrationIp: user.registrationIp || null,
+          registrationHwid: user.registrationHwid || null,
           role: user.role || 'user',
           avatar: user.avatar || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
@@ -521,6 +534,8 @@ const DB = {
                 password: this.password,
                 fullName: this.fullName,
                 phoneNumber: this.phoneNumber,
+                registrationIp: this.registrationIp || null,
+                registrationHwid: this.registrationHwid || null,
                 role: this.role,
                 avatar: this.avatar || null,
                 isVerified: this.isVerified,
@@ -547,6 +562,8 @@ const DB = {
           password: data.password,
           fullName: data.fullName,
           phoneNumber: data.phoneNumber,
+          registrationIp: data.registrationIp || null,
+          registrationHwid: data.registrationHwid || null,
           role: data.role || 'user',
           avatar: data.avatar || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
@@ -561,6 +578,8 @@ const DB = {
           password: data.password,
           fullName: data.fullName,
           phoneNumber: data.phoneNumber,
+          registrationIp: data.registrationIp || null,
+          registrationHwid: data.registrationHwid || null,
           role: data.role || 'user',
           avatar: data.avatar || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
@@ -1333,8 +1352,28 @@ app.get('/api/config', async (req, res) => {
 });
 
 // API Đăng ký
+// Helper: lay IP that cua client (ho tro sau reverse proxy nginx/VPS)
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff && typeof xff === 'string') {
+    return xff.split(',')[0].trim().replace(/^::ffff:/, '');
+  }
+  const raw = (req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
+  return String(raw).replace(/^::ffff:/, '');
+}
+
+// Helper: validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+function validatePhoneNumber(phone) {
+  if (!phone) return 'Vui long nhap so dien thoai!';
+  const digits = String(phone).replace(/\D/g, '');
+  if (!/^0\d{9,10}$/.test(digits)) {
+    return 'So dien thoai khong hop le! Chi nhan 10-11 chu so, bat dau bang 0 (VD: 0912345678).';
+  }
+  return null;
+}
+
 app.post('/api/auth/register', authLimiter, async (req, res) => {
-  const { email, password, fullName, phoneNumber } = req.body;
+  const { email, password, fullName, phoneNumber, hwid } = req.body;
   if (!email || !password || !fullName || !phoneNumber) {
     return res.status(400).json({ error: 'Vui lòng nhập đầy đủ các thông tin đăng ký!' });
   }
@@ -1344,10 +1383,33 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Mật khẩu phải dài tối thiểu 8 ký tự!' });
   }
 
+  // Validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+  const phoneDigitsReg = String(phoneNumber||'').replace(/\D/g, '');
+  const phoneErr = validatePhoneNumber(phoneDigitsReg);
+  if (phoneErr) {
+    return res.status(400).json({ error: phoneErr });
+  }
+
   try {
     const existing = await DB.users.findOne({ email });
     if (existing) {
       return res.status(400).json({ error: 'Địa chỉ email này đã được đăng ký hệ thống!' });
+    }
+
+    // Kiem tra trung lap theo IP va HWID thiet bi (chong dang ky nhieu tai khoan)
+    const clientIp = getClientIp(req);
+    const clientHwid = (hwid || '').trim();
+    if (clientIp && clientIp !== 'unknown') {
+      const existingByIp = await DB.users.findOne({ registrationIp: clientIp });
+      if (existingByIp) {
+        return res.status(403).json({ error: 'Dia chi IP nay da duoc su dung dang ky tai khoan khac! Moi thiet bi/mang chi duoc dang ky mot tai khoan.' });
+      }
+    }
+    if (clientHwid) {
+      const existingByHwid = await DB.users.findOne({ registrationHwid: clientHwid });
+      if (existingByHwid) {
+        return res.status(403).json({ error: 'Thiet bi nay da duoc su dung dang ky tai khoan khac! Moi thiet bi chi duoc dang ky mot tai khoan.' });
+      }
     }
 
     // Generate random verification token
@@ -1361,7 +1423,9 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       email,
       password: hashedPassword,
       fullName,
-      phoneNumber,
+      phoneNumber: phoneDigitsReg,
+      registrationIp: clientIp,
+      registrationHwid: clientHwid,
       role: 'user',
       isVerified: false, // Must verify email first
       verificationToken: hashed,
@@ -1598,6 +1662,15 @@ app.post('/api/user/update-profile', userAuth, async (req, res) => {
     return res.status(400).json({ error: 'Họ tên không được để trống!' });
   }
   
+  // Validate so dien thoai neu duoc cung cap (chi chu so, bat dau 0, 10-11 chu so)
+  if (phoneNumber !== undefined && phoneNumber !== null && String(phoneNumber).trim() !== "") {
+    const digits = String(phoneNumber).replace(/\D/g, '');
+    const phoneErr = validatePhoneNumber(digits);
+    if (phoneErr) {
+      return res.status(400).json({ error: phoneErr });
+    }
+  }
+
   try {
     const user = await DB.users.findOne({ email: req.user.email });
     if (!user) {
@@ -1606,8 +1679,8 @@ app.post('/api/user/update-profile', userAuth, async (req, res) => {
     
     // Cập nhật thông tin
     user.fullName = fullName.trim();
-    if (phoneNumber !== undefined) {
-      user.phoneNumber = phoneNumber.trim();
+    if (phoneNumber !== undefined && phoneNumber !== null && String(phoneNumber).trim() !== "") {
+      user.phoneNumber = String(phoneNumber).replace(/\D/g, '');
     }
     if (avatar !== undefined) {
       user.avatar = avatar; // Chuỗi Base64
@@ -3054,6 +3127,8 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
       email: u.email,
       fullName: u.fullName,
       phoneNumber: u.phoneNumber,
+      registrationIp: u.registrationIp || null,
+      registrationHwid: u.registrationHwid || null,
       role: u.role || 'user',
       avatar: u.avatar || null,
       isVerified: u.isVerified || false,

@@ -1,6 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Lock, UserPlus, KeyRound, Info, AlertTriangle, ArrowRight, Send, LogIn } from 'lucide-react';
 
+// Tao fingerprint thiet bi on dinh (hash thong tin trinh duyet + persist localStorage)
+function getDeviceFingerprint() {
+  try {
+    const stored = localStorage.getItem('vst_device_fp');
+    if (stored && stored.length > 0) return stored;
+    const parts = [
+      navigator.userAgent || '',
+      navigator.language || '',
+      (navigator.languages || []).join(','),
+      String(screen.width || 0) + 'x' + String(screen.height || 0),
+      String(screen.colorDepth || 0),
+      String(screen.availWidth || 0) + 'x' + String(screen.availHeight || 0),
+      String(new Date().getTimezoneOffset()),
+      String(navigator.hardwareConcurrency || 0),
+      String(navigator.deviceMemory || 0),
+      String(navigator.platform || ''),
+      String(navigator.maxTouchPoints || 0)
+    ];
+    let h = 2166136261 >>> 0;
+    const str = parts.join('|');
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    const fp = h.toString(16).padStart(8, '0') + Date.now().toString(16).slice(-6);
+    localStorage.setItem('vst_device_fp', fp);
+    return fp;
+  } catch (e) {
+    return 'fp-' + Math.random().toString(36).slice(2, 12);
+  }
+}
 export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthSuccess, showToast }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -8,10 +39,14 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
   const [phoneNumber, setPhoneNumber] = useState('');
   const [notice, setNotice] = useState(null); // { text, isError }
   const [loading, setLoading] = useState(false);
+  const skipNoticeClearRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
-      setNotice(null);
+      if (!skipNoticeClearRef.current) {
+        setNotice(null);
+      }
+      skipNoticeClearRef.current = false;
       // Don't reset email, but reset passwords and errors
       setPassword('');
       setFullName('');
@@ -103,10 +138,18 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
       }
 
       try {
-        const res = await fetch('/api/auth/register', {
+        // Validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+      const phoneRegex = /^0\d{9,10}$/;
+      if (!phoneRegex.test(phoneNumber)) {
+        setNotice({ text: 'So dien thoai khong hop le! Chi nhan 10-11 chu so, bat dau bang 0 (VD: 0912345678).', isError: true });
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ email, password, fullName, phoneNumber })
+          body: JSON.stringify({ email, password, fullName, phoneNumber, hwid: getDeviceFingerprint() })
         });
         const data = await res.json();
         
@@ -127,6 +170,7 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
             isError: false,
             emailForResend: email
           });
+          skipNoticeClearRef.current = true;
           onSwitchMode('login');
         } else {
           setNotice({ text: data.error || 'Đăng ký thất bại!', isError: true });
@@ -271,7 +315,7 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
               <input 
                 type="text" 
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                onChange={(e) => { setPhoneNumber(e.target.value.replace(/\D/g, '')); }}
                 placeholder="Ví dụ: 0912345678" 
                 required
                 className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
