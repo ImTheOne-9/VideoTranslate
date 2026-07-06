@@ -974,7 +974,7 @@ export default function Admin({ showToast }) {
                   type="text" 
                   value={userSearchText}
                   onChange={(e) => setUserSearchText(e.target.value)}
-                  placeholder="Tìm kiếm theo Tên, Email, Số điện thoại..." 
+                  placeholder="Tìm kiếm theo Tên, Email, Số điện thoại, IP, HWID..." 
                   className="w-full rounded-lg bg-zinc-900 border border-zinc-800 pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
@@ -993,6 +993,8 @@ export default function Admin({ showToast }) {
                     <th scope="col" className="px-6 py-4">Số Điện Thoại</th>
                     <th scope="col" className="px-6 py-4 text-center">Vai Trò</th>
                     <th scope="col" className="px-6 py-4 text-center">Email Xác Minh</th>
+                    <th scope="col" className="px-6 py-4">IP Đăng Ký</th>
+                    <th scope="col" className="px-6 py-4">HWID Thiết Bị</th>
                     <th scope="col" className="px-6 py-4">Ngày Tham Gia</th>
                     <th scope="col" className="px-6 py-4 text-right">Thao Tác</th>
                   </tr>
@@ -1000,7 +1002,7 @@ export default function Admin({ showToast }) {
                 <tbody className="divide-y divide-zinc-900/50 bg-transparent">
                   {loadingUsers ? (
                     <tr>
-                      <td colSpan="6" className="px-6 py-12 text-center text-zinc-500">
+                      <td colSpan="8" className="px-6 py-12 text-center text-zinc-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
                           <span>Đang tải danh sách thành viên...</span>
@@ -1009,7 +1011,7 @@ export default function Admin({ showToast }) {
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="px-6 py-12 text-center text-zinc-500">
+                      <td colSpan="8" className="px-6 py-12 text-center text-zinc-500">
                         Không có người dùng nào khớp với từ khóa tìm kiếm
                       </td>
                     </tr>
@@ -1063,6 +1065,12 @@ export default function Admin({ showToast }) {
                                 Chưa Xác Minh
                               </span>
                             )}
+                          </td>
+                          <td className="px-6 py-4 text-[11px] font-mono text-zinc-400" title={u.registrationIp || ''}>
+                            {u.registrationIp && u.registrationIp !== 'unknown' ? u.registrationIp : <span className="italic text-zinc-700">N/A</span>}
+                          </td>
+                          <td className="px-6 py-4 text-[10px] font-mono text-zinc-500 max-w-[120px] truncate" title={u.registrationHwid || ''}>
+                            {u.registrationHwid ? u.registrationHwid.slice(0, 12) + '...' : <span className="italic text-zinc-700">N/A</span>}
                           </td>
                           <td className="px-6 py-4 text-xs text-zinc-500">{formattedJoined}</td>
                           <td className="px-6 py-4 text-right space-x-1.5 whitespace-nowrap">

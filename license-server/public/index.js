@@ -3,6 +3,39 @@ let currentUser = null;
 let authMode = 'login'; // 'login' | 'register' | 'forgot'
 let redirectActionAfterAuth = null; // Stored subscribe action if unauthenticated
 
+// Tao fingerprint thiet bi on dinh (hash thong tin trinh duyet + persist localStorage)
+function getDeviceFingerprint() {
+  try {
+    const stored = localStorage.getItem('vst_device_fp');
+    if (stored && stored.length > 0) return stored;
+    const parts = [
+      navigator.userAgent || '',
+      navigator.language || '',
+      (navigator.languages || []).join(','),
+      String(screen.width || 0) + 'x' + String(screen.height || 0),
+      String(screen.colorDepth || 0),
+      String(screen.availWidth || 0) + 'x' + String(screen.availHeight || 0),
+      String(new Date().getTimezoneOffset()),
+      String(navigator.hardwareConcurrency || 0),
+      String(navigator.deviceMemory || 0),
+      String(navigator.platform || ''),
+      String(navigator.maxTouchPoints || 0)
+    ];
+    let h = 2166136261 >>> 0;
+    const str = parts.join('|');
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    const fp = h.toString(16).padStart(8, '0') + Date.now().toString(16).slice(-6);
+    localStorage.setItem('vst_device_fp', fp);
+    return fp;
+  } catch (e) {
+    return 'fp-' + Math.random().toString(36).slice(2, 12);
+  }
+}
+
+
 window.addEventListener('load', async () => {
   lucide.createIcons();
   await checkConfig();
@@ -308,7 +341,7 @@ async function handleAuthSubmit() {
     const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, fullName, phoneNumber })
+        body: JSON.stringify({ email, password, fullName, phoneNumber, hwid: getDeviceFingerprint() })
       });
       const data = await res.json();
       
