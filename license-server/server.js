@@ -3122,17 +3122,25 @@ app.delete('/api/admin/users/:email', adminAuth, async (req, res) => {
 // B. API tạo mới Key bản quyền
 app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
   const { days, customerName } = req.body;
-  if (!days || isNaN(days)) {
-    return res.status(400).json({ error: 'Số ngày sử dụng không hợp lệ' });
+  const name = customerName && customerName.trim() ? customerName.trim() : 'Khách lẻ';
+  const key = 'STUDIO-' + crypto.randomBytes(4).toString('hex').toUpperCase() + '-' + crypto.randomBytes(4).toString('hex').toUpperCase() + '-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+  // Quyết định hạn dùng: để trống / 0 / null => Vĩnh viễn (sentinel 9999), số dương => theo số ngày
+  const rawDays = (days === '' || days === null || days === undefined) ? null : days;
+  let expiresStr;
+  if (rawDays === null || rawDays === 0) {
+    expiresStr = '9999-12-31T23:59:59.000Z';
+  } else {
+    const numDays = Number(rawDays);
+    if (isNaN(numDays) || numDays <= 0) {
+      return res.status(400).json({ error: 'Số ngày sử dụng không hợp lệ (để trống hoặc nhập 0 để tạo key vĩnh viễn)' });
+    }
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + numDays);
+    expiresStr = expiresAt.toISOString();
   }
 
-  const name = customerName && customerName.trim() ? customerName.trim() : 'Khách lẻ';
-  const key = `STUDIO-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + Number(days));
-
   try {
-    const expiresStr = expiresAt.toISOString();
     const license = await DB.licenses.create({
       key,
       customerName: name,
@@ -3147,7 +3155,9 @@ app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
       createdAt: new Date().toISOString()
     });
 
-    console.log(`[Admin Audit] Admin đã sinh Key tùy biến thủ công: "${key}" cấp cho khách hàng "${name}" với hạn dùng ${days} ngày.`);
+    const isPerm = expiresStr === '9999-12-31T23:59:59.000Z';
+    const daysLabel = isPerm ? 'VĨNH VIỄN' : (Number(rawDays) + ' ngày');
+    console.log('[Admin Audit] Admin đã sinh Key tùy biến thủ công: "' + key + '" cấp cho khách hàng "' + name + '" với hạn dùng ' + daysLabel + '.');
 
     res.json({ success: true, key, expiresAt: expiresStr, customerName: name });
   } catch (err) {

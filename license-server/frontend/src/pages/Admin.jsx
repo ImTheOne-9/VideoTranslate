@@ -445,7 +445,7 @@ export default function Admin({ showToast }) {
 
   const handleGenerateKey = async (e) => {
     e.preventDefault();
-    if (!licenseDays || licenseDays <= 0) {
+    if (licenseDays && (isNaN(Number(licenseDays)) || Number(licenseDays) < 0)) {
       showToast('Vui lòng nhập số ngày sử dụng hợp lệ', 'error');
       return;
     }
@@ -455,7 +455,7 @@ export default function Admin({ showToast }) {
       const res = await apiFetch('/api/admin/generate-key', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ days: Number(licenseDays), customerName: customerName.trim() })
+        body: JSON.stringify({ days: licenseDays ? Number(licenseDays) : 0, customerName: customerName.trim() })
       });
 
       const data = await res.json();
@@ -576,7 +576,7 @@ export default function Admin({ showToast }) {
   };
 
   const getStatusBadge = (k) => {
-    const isExpired = new Date(k.expiresAt) < new Date();
+    const isExpired = k.expiresAt && new Date(k.expiresAt) < new Date();
     if (k.status === 'suspended') {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-900/30">
@@ -826,7 +826,8 @@ export default function Admin({ showToast }) {
                       const formattedCreated = new Date(k.createdAt).toLocaleDateString('vi-VN', {
                         year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                       });
-                      const formattedExpires = new Date(k.expiresAt).toLocaleDateString('vi-VN', {
+                      const isPermanent = !k.expiresAt || new Date(k.expiresAt).getFullYear() >= 9999;
+                      const formattedExpires = isPermanent ? 'Vĩnh viễn' : new Date(k.expiresAt).toLocaleDateString('vi-VN', {
                         year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                       });
 
@@ -1457,10 +1458,10 @@ export default function Admin({ showToast }) {
                   type="number" 
                   value={licenseDays}
                   onChange={(e) => setLicenseDays(e.target.value)}
-                  min="1" 
-                  required
+                  placeholder="VD: 30 (để trống = vĩnh viễn)"
                   className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
+                <p className="mt-1.5 text-[11px] text-zinc-500">💡 Để trống ô số ngày nếu muốn tạo <span className="text-emerald-400 font-semibold">Key vĩnh viễn</span> (không giới hạn thời gian).</p>
               </div>
               <div className="pt-2">
                 <button 

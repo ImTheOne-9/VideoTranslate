@@ -130,7 +130,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
   };
 
   const getStatusBadge = (k) => {
-    const isExpired = new Date(k.expiresAt) < new Date();
+    const isExpired = k.expiresAt && new Date(k.expiresAt) < new Date();
     if (k.status === 'suspended') {
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950/80 text-rose-400 border border-rose-900/30">
@@ -237,9 +237,10 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
                       </tr>
                     ) : (
                       keys.map((k) => {
-                        const isExpired = new Date(k.expiresAt) < new Date();
+                        const isExpired = k.expiresAt && new Date(k.expiresAt) < new Date();
                         const planName = k.planName || (k.planType === 'trial' ? 'Dùng thử' : (k.planType === 'monthly' ? 'Tháng' : 'Năm'));
-                        const formattedExpires = new Date(k.expiresAt).toLocaleDateString('vi-VN', {
+                        const isPermanent = !k.expiresAt || new Date(k.expiresAt).getFullYear() >= 9999;
+                        const formattedExpires = isPermanent ? 'Vĩnh viễn' : new Date(k.expiresAt).toLocaleDateString('vi-VN', {
                           year: 'numeric', month: '2-digit', day: '2-digit'
                         });
 
