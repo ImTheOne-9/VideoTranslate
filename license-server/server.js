@@ -134,6 +134,7 @@ const userSchema = new mongoose.Schema({
   passwordChangedAt: { type: Date, default: null },
   registrationIp: { type: String, default: null },
   registrationHwid: { type: String, default: null },
+  deviceHwid: { type: String, default: null }, // HWID that cua thiet bi (lay khi active key dau tien)
   createdAt: { type: Date, default: Date.now }
 });
 const UserModel = mongoose.model('User', userSchema);
@@ -435,6 +436,7 @@ const DB = {
           phoneNumber: user.phoneNumber,
           registrationIp: user.registrationIp || null,
           registrationHwid: user.registrationHwid || null,
+          deviceHwid: user.deviceHwid || null,
           role: user.role || 'user',
           avatar: user.avatar || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
@@ -455,6 +457,7 @@ const DB = {
                 phoneNumber: this.phoneNumber,
                 registrationIp: this.registrationIp || null,
                 registrationHwid: this.registrationHwid || null,
+                deviceHwid: this.deviceHwid || null,
                 role: this.role,
                 avatar: this.avatar || null,
                 isVerified: this.isVerified,
@@ -516,6 +519,7 @@ const DB = {
           phoneNumber: user.phoneNumber,
           registrationIp: user.registrationIp || null,
           registrationHwid: user.registrationHwid || null,
+          deviceHwid: user.deviceHwid || null,
           role: user.role || 'user',
           avatar: user.avatar || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
@@ -536,6 +540,7 @@ const DB = {
                 phoneNumber: this.phoneNumber,
                 registrationIp: this.registrationIp || null,
                 registrationHwid: this.registrationHwid || null,
+                deviceHwid: this.deviceHwid || null,
                 role: this.role,
                 avatar: this.avatar || null,
                 isVerified: this.isVerified,
@@ -564,6 +569,7 @@ const DB = {
           phoneNumber: data.phoneNumber,
           registrationIp: data.registrationIp || null,
           registrationHwid: data.registrationHwid || null,
+          deviceHwid: data.deviceHwid || null,
           role: data.role || 'user',
           avatar: data.avatar || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
@@ -580,6 +586,7 @@ const DB = {
           phoneNumber: data.phoneNumber,
           registrationIp: data.registrationIp || null,
           registrationHwid: data.registrationHwid || null,
+          deviceHwid: data.deviceHwid || null,
           role: data.role || 'user',
           avatar: data.avatar || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
@@ -1254,6 +1261,22 @@ app.post('/api/server/activate', async (req, res) => {
     const expiresDate = new Date(license.expiresAt);
     if (expiresDate < new Date()) {
       return res.status(403).json({ error: 'Bản quyền đã hết hạn sử dụng' });
+    }
+
+    // Khoa thiet bi theo tai khoan (Huong B): 1 tai khoan = 1 may
+    if (license.userEmail) {
+      const owner = await DB.users.findOne({ email: license.userEmail });
+      if (owner) {
+        if (!owner.deviceHwid) {
+          // May dau tien active -> gan HWID that vao profile user
+          owner.deviceHwid = hwid;
+          await owner.save();
+          console.log('[License Server] Tai khoan ' + license.userEmail + ' da lien ket thiet bi (HWID that): ' + hwid);
+        } else if (owner.deviceHwid !== hwid) {
+          // Da co may khac -> chan
+          return res.status(403).json({ error: 'Tai khoan nay da duoc lien ket voi mot thiet bi khac. Vui long lien he admin de doi thiet bi.' });
+        }
+      }
     }
 
     // Khóa thiết bị (HWID Binding)
@@ -3129,6 +3152,7 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
       phoneNumber: u.phoneNumber,
       registrationIp: u.registrationIp || null,
       registrationHwid: u.registrationHwid || null,
+      deviceHwid: u.deviceHwid || null,
       role: u.role || 'user',
       avatar: u.avatar || null,
       isVerified: u.isVerified || false,
@@ -3153,6 +3177,59 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi lấy danh sách người dùng: ' + err.message });
+  }
+});
+
+// API cập nhật thông tin người dùng (Admin - Sửa thành viên)
+app.post('/api/admin/update-user', adminAuth, async (req, res) => {
+  const { email, fullName, phoneNumber, isVerified, role, registrationIp, registrationHwid, deviceHwid } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Thiếu email người dùng cần cập nhật!' });
+  }
+  if (role && !['user', 'admin'].includes(role)) {
+    return res.status(400).json({ error: 'Vai trò không hợp lệ (chỉ user/admin)!' });
+  }
+
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng này!' });
+    }
+
+    // Cap nhat cac field neu duoc cung cap
+    if (fullName !== undefined) user.fullName = String(fullName).trim();
+    if (phoneNumber !== undefined) {
+      const digits = String(phoneNumber).replace(/\D/g, '');
+      if (digits) {
+        const phoneErr = validatePhoneNumber(digits);
+        if (phoneErr) return res.status(400).json({ error: phoneErr });
+        user.phoneNumber = digits;
+      }
+    }
+    if (isVerified !== undefined) user.isVerified = !!isVerified;
+    if (role !== undefined) user.role = role;
+    if (registrationIp !== undefined) user.registrationIp = String(registrationIp).trim() || null;
+    if (registrationHwid !== undefined) user.registrationHwid = String(registrationHwid).trim() || null;
+    if (deviceHwid !== undefined) user.deviceHwid = String(deviceHwid).trim() || null;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Đã cập nhật thông tin người dùng thành công!',
+      user: {
+        email: user.email,
+        fullName: user.fullName,
+        phoneNumber: user.phoneNumber,
+        role: user.role || 'user',
+        isVerified: user.isVerified || false,
+        registrationIp: user.registrationIp || null,
+        registrationHwid: user.registrationHwid || null,
+        deviceHwid: user.deviceHwid || null
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi cập nhật người dùng: ' + err.message });
   }
 });
 
