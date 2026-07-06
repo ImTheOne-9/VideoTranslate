@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Video, LayoutDashboard, LogOut, User } from 'lucide-react';
+import { Video, LayoutDashboard, LogOut, User, ShieldCheck } from 'lucide-react';
 
 export default function Navbar({ currentUser, onOpenAuth, onLogout, onScrollToDashboard }) {
   const navigate = useNavigate();
@@ -95,6 +95,19 @@ export default function Navbar({ currentUser, onOpenAuth, onLogout, onScrollToDa
                         <User className="h-3.5 w-3.5 text-indigo-400" />
                         <span>Trang cá nhân</span>
                       </button>
+
+                      {currentUser.role === 'admin' && (
+                        <button
+                          onClick={() => {
+                            setDropdownOpen(false);
+                            navigate('/admin');
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs font-semibold text-amber-300 hover:text-amber-200 hover:bg-amber-955/30 rounded-lg flex items-center gap-2 transition-all cursor-pointer"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
+                          <span>Quản trị Admin</span>
+                        </button>
+                      )}
 
                       <button
                         onClick={() => {
