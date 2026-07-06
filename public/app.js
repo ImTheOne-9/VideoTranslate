@@ -4936,11 +4936,6 @@ window.testNineRouterConnection = testNineRouterConnection;
 
 /* ==========================================================================
    
-window.openCookieSettingsModal = openCookieSettingsModal;
-window.closeCookieSettingsModal = closeCookieSettingsModal;
-window.saveCookieSettings = saveCookieSettings;
-window.clearCookieSettings = clearCookieSettings;
-window.handleCookieFileUpload = handleCookieFileUpload;
 
 function openConnectionStatusModal() {
   const modal = $('connection-status-modal');
