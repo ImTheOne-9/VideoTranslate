@@ -208,45 +208,6 @@ module.exports = {
     }
   },
 
-  getCookieStatus: async (req, res) => {
-    try {
-      if (fs.existsSync(shared.COOKIES_PATH)) {
-        const stats = fs.statSync(shared.COOKIES_PATH);
-        return res.json({ exists: true, lastModified: stats.mtime });
-      }
-      return res.json({ exists: false });
-    } catch (error) {
-      console.error('Lỗi kiểm tra cookie:', error.message);
-      res.status(500).json({ error: 'Lỗi kiểm tra cookie' });
-    }
-  },
-
-  saveCookie: async (req, res) => {
-    try {
-      const { cookieText } = req.body;
-      if (!cookieText || cookieText.trim() === '') {
-        return res.status(400).json({ error: 'Nội dung cookie trống' });
-      }
-      fs.writeFileSync(shared.COOKIES_PATH, cookieText, 'utf8');
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Lỗi lưu cookie:', error.message);
-      res.status(500).json({ error: 'Lỗi ghi file cookie: ' + error.message });
-    }
-  },
-
-  clearCookie: async (req, res) => {
-    try {
-      if (fs.existsSync(shared.COOKIES_PATH)) {
-        fs.unlinkSync(shared.COOKIES_PATH);
-      }
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Lỗi xóa cookie:', error.message);
-      res.status(500).json({ error: 'Lỗi xóa file cookie: ' + error.message });
-    }
-  },
-
   openFolder: async (req, res) => {
     if (electronShell) {
       try {
