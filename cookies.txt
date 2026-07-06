@@ -48,7 +48,6 @@
 .douyin.com	TRUE	/	TRUE	1787712757	uid_tt	34ef077278c6b43b0984f2e974cbcc91
 .douyin.com	TRUE	/	TRUE	1787712757	uid_tt_ss	34ef077278c6b43b0984f2e974cbcc91
 .douyin.com	TRUE	/	FALSE	1817694839	volume_info	%7B%22isUserMute%22%3Afalse%2C%22isMute%22%3Afalse%2C%22volume%22%3A0.335%7D
-.youtube.com	TRUE	/	TRUE	1783141687	GPS	1
 .youtube.com	TRUE	/	FALSE	0	PREF	hl=en&tz=UTC
 .youtube.com	TRUE	/	TRUE	0	SOCS	CAI
 .youtube.com	TRUE	/	TRUE	1798691887	VISITOR_INFO1_LIVE	uluUM1EtduY
