@@ -302,9 +302,6 @@ app.post('/api/ninerouter-models', async (req, res) => {
     res.status(500).json({ error: `Lỗi kết nối tới 9Router: ${errorMsg}` });
   }
 });
-app.get('/api/cookie/status', systemController.getCookieStatus);
-app.post('/api/cookie/save', systemController.saveCookie);
-app.post('/api/cookie/clear', systemController.clearCookie);
 app.get('/api/open-folder', systemController.openFolder);
 // Douyin: extract + download qua BrowserWindow ẩn (không cần yt-dlp/cookies)
 app.get('/api/douyin-info', downloadController.getDouyinInfo);

@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers } from 'lucide-react';
 
 export default function Admin({ showToast }) {
-  const [token, setToken] = useState('');
-  const [tokenInput, setTokenInput] = useState('');
+  const [adminUser, setAdminUser] = useState(null);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   
@@ -79,25 +81,52 @@ export default function Admin({ showToast }) {
     return pages;
   };
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem('license_admin_token') || '';
-    if (!storedToken) {
+  // Helper: gọi API Admin kèm cookie phiên, tự mở lại modal đăng nhập khi 401
+  const apiFetch = async (url, options = {}) => {
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+      setAdminUser(null);
       setIsAuthModalOpen(true);
-    } else {
-      setToken(storedToken);
+      const err = new Error('Phiên đăng nhập Admin hết hạn. Vui lòng đăng nhập lại!');
+      err.sessionExpired = true;
+      throw err;
     }
+    return res;
+  };
+
+  // Kiểm tra phiên đăng nhập Admin qua cookie JWT
+  useEffect(() => {
+    const checkAdminSession = async () => {
+      try {
+        const res = await fetch('/api/admin/me');
+        if (res.status === 200) {
+          const data = await res.json();
+          if (data.success && data.user) {
+            setAdminUser(data.user);
+          } else {
+            setIsAuthModalOpen(true);
+          }
+        } else {
+          setIsAuthModalOpen(true);
+        }
+      } catch (err) {
+        setIsAuthModalOpen(true);
+      }
+    };
+    checkAdminSession();
+    localStorage.removeItem('license_admin_token');
   }, []);
 
-  // Fetch Keys when token, page, search, or status tab changes
+  // Fetch Keys when adminUser, page, search, or status tab changes
   useEffect(() => {
-    if (token) {
+    if (adminUser) {
       loadKeys();
     }
-  }, [token, currentPage, currentFilterTab]);
+  }, [adminUser, currentPage, currentFilterTab]);
 
   // Reset keys page to 1 when search text changes
   useEffect(() => {
-    if (token) {
+    if (adminUser) {
       if (currentPage === 1) {
         loadKeys();
       } else {
@@ -106,16 +135,16 @@ export default function Admin({ showToast }) {
     }
   }, [searchText]);
 
-  // Fetch Users when token or page changes
+  // Fetch Users when adminUser or page changes
   useEffect(() => {
-    if (token) {
+    if (adminUser) {
       loadUsers();
     }
-  }, [token, userPage]);
+  }, [adminUser, userPage]);
 
   // Reset users page to 1 when search text changes
   useEffect(() => {
-    if (token) {
+    if (adminUser) {
       if (userPage === 1) {
         loadUsers();
       } else {
@@ -124,26 +153,24 @@ export default function Admin({ showToast }) {
     }
   }, [userSearchText]);
 
-  // Fetch config when token is set
+  // Fetch config when adminUser is set
   useEffect(() => {
-    if (token) {
+    if (adminUser) {
       loadConfig();
     }
-  }, [token]);
+  }, [adminUser]);
 
-  // Fetch Plans when token is set
+  // Fetch Plans when adminUser is set
   useEffect(() => {
-    if (token) {
+    if (adminUser) {
       loadPlans();
     }
-  }, [token]);
+  }, [adminUser]);
 
   const loadPlans = async () => {
     setLoadingPlans(true);
     try {
-      const res = await fetch('/api/admin/plans', {
-        headers: { 'x-admin-token': token }
-      });
+      const res = await apiFetch('/api/admin/plans');
       const data = await res.json();
       if (data.success) {
         setPlans(data.plans || []);
@@ -221,12 +248,9 @@ export default function Admin({ showToast }) {
       const url = selectedPlan ? `/api/admin/plans/${selectedPlan.id}` : '/api/admin/plans';
       const method = selectedPlan ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
-        headers: {
-          'x-admin-token': token,
-          'content-type': 'application/json'
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
@@ -253,9 +277,8 @@ export default function Admin({ showToast }) {
     }
 
     try {
-      const res = await fetch(`/api/admin/plans/${id}`, {
-        method: 'DELETE',
-        headers: { 'x-admin-token': token }
+      const res = await apiFetch(`/api/admin/plans/${id}`, {
+        method: 'DELETE'
       });
       const data = await res.json();
 
@@ -273,15 +296,7 @@ export default function Admin({ showToast }) {
   const loadKeys = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/keys?page=${currentPage}&limit=10&search=${encodeURIComponent(searchText)}&status=${currentFilterTab}`, {
-        headers: { 'x-admin-token': token }
-      });
-
-      if (res.status === 401) {
-        showToast('Token bảo mật không hợp lệ. Vui lòng nhập lại.', 'error');
-        handleResetToken();
-        return;
-      }
+      const res = await apiFetch(`/api/admin/keys?page=${currentPage}&limit=10&search=${encodeURIComponent(searchText)}&status=${currentFilterTab}`);
 
       const data = await res.json();
       if (data.success) {
@@ -307,9 +322,7 @@ export default function Admin({ showToast }) {
   const loadUsers = async () => {
     setLoadingUsers(true);
     try {
-      const res = await fetch(`/api/admin/users?page=${userPage}&limit=10&search=${encodeURIComponent(userSearchText)}`, {
-        headers: { 'x-admin-token': token }
-      });
+      const res = await apiFetch(`/api/admin/users?page=${userPage}&limit=10&search=${encodeURIComponent(userSearchText)}`);
 
       if (res.status === 401) {
         return; // Handled by loadKeys 401 check
@@ -339,9 +352,7 @@ export default function Admin({ showToast }) {
   const loadConfig = async () => {
     setLoadingConfig(true);
     try {
-      const res = await fetch('/api/admin/config', {
-        headers: { 'x-admin-token': token }
-      });
+      const res = await apiFetch('/api/admin/config');
       const data = await res.json();
       if (data.success) {
         setInstallerUrl(data.installerUrl || '');
@@ -363,12 +374,9 @@ export default function Admin({ showToast }) {
     e.preventDefault();
     setSavingConfig(true);
     try {
-      const res = await fetch('/api/admin/config', {
+      const res = await apiFetch('/api/admin/config', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': token
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName })
       });
       const data = await res.json();
@@ -384,23 +392,50 @@ export default function Admin({ showToast }) {
     }
   };
 
-  const handleResetToken = () => {
-    localStorage.removeItem('license_admin_token');
-    setToken('');
-    setTokenInput('');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST' });
+    } catch (e) { /* bỏ qua lỗi mạng khi đăng xuất */ }
+    setAdminUser(null);
+    setLoginEmail('');
+    setLoginPassword('');
+    setRawKeys([]);
+    setFilteredKeys([]);
+    setUsers([]);
+    setFilteredUsers([]);
+    setPlans([]);
     setIsAuthModalOpen(true);
   };
 
-  const handleTokenSubmit = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const val = tokenInput.trim();
-    if (!val) {
-      showToast('Vui lòng nhập token bảo mật!', 'error');
+    const email = loginEmail.trim().toLowerCase();
+    const pwd = loginPassword;
+    if (!email || !pwd) {
+      showToast('Vui lòng nhập email và mật khẩu!', 'error');
       return;
     }
-    localStorage.setItem('license_admin_token', val);
-    setToken(val);
-    setIsAuthModalOpen(false);
+    setLoginLoading(true);
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password: pwd })
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        setAdminUser(data.user);
+        setIsAuthModalOpen(false);
+        setLoginPassword('');
+        showToast(`Chào mừng ${data.user.fullName || data.user.email}!`);
+      } else {
+        showToast(data.error || 'Đăng nhập Admin thất bại!', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi kết nối khi đăng nhập: ' + err.message, 'error');
+    } finally {
+      setLoginLoading(false);
+    }
   };
 
   const copyToClipboard = (text) => {
@@ -417,12 +452,9 @@ export default function Admin({ showToast }) {
 
     setGenerating(true);
     try {
-      const res = await fetch('/api/admin/generate-key', {
+      const res = await apiFetch('/api/admin/generate-key', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-admin-token': token
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ days: Number(licenseDays), customerName: customerName.trim() })
       });
 
@@ -449,12 +481,9 @@ export default function Admin({ showToast }) {
     }
 
     try {
-      const res = await fetch('/api/admin/reset-hwid', {
+      const res = await apiFetch('/api/admin/reset-hwid', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-admin-token': token
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ key })
       });
 
@@ -479,12 +508,9 @@ export default function Admin({ showToast }) {
     }
 
     try {
-      const res = await fetch('/api/admin/toggle-status', {
+      const res = await apiFetch('/api/admin/toggle-status', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-admin-token': token
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ key, status: nextStatus })
       });
 
@@ -509,12 +535,9 @@ export default function Admin({ showToast }) {
     }
 
     try {
-      const res = await fetch('/api/admin/update-user-role', {
+      const res = await apiFetch('/api/admin/update-user-role', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': token
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, role: newRole })
       });
 
@@ -536,9 +559,8 @@ export default function Admin({ showToast }) {
     }
 
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {
-        method: 'DELETE',
-        headers: { 'x-admin-token': token }
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(email)}`, {
+        method: 'DELETE'
       });
 
       const data = await res.json();
@@ -611,15 +633,18 @@ export default function Admin({ showToast }) {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className="text-sm text-zinc-500 hidden sm:block">
-                Server URL: <span className="font-mono text-zinc-300">{window.location.origin}</span>
-              </div>
+              {adminUser && (
+                <span className="text-xs text-zinc-400 hidden sm:flex items-center gap-1.5">
+                  <UserCheck className="h-3.5 w-3.5 text-indigo-400" />
+                  <span className="font-semibold text-zinc-200">{adminUser.fullName || adminUser.email}</span>
+                </span>
+              )}
               <button 
-                onClick={handleResetToken} 
+                onClick={handleLogout} 
                 className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <KeyRound className="h-3.5 w-3.5" />
-                <span>Đổi Token</span>
+                <span>Đăng xuất</span>
               </button>
             </div>
           </div>
@@ -1343,7 +1368,7 @@ export default function Admin({ showToast }) {
 
       </main>
 
-      {/* Admin Authentication Token Modal */}
+      {/* Admin Login Modal (email/password) */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md transition-opacity duration-300">
           <div className="w-full max-w-md p-8 rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl">
@@ -1351,27 +1376,48 @@ export default function Admin({ showToast }) {
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 mb-4">
                 <Lock className="h-6 w-6" />
               </div>
-              <h3 className="text-xl font-bold text-white">Yêu cầu xác thực Admin</h3>
-              <p className="text-sm text-zinc-400 mt-2">Vui lòng nhập Token bảo mật để truy cập bảng quản trị.</p>
+              <h3 className="text-xl font-bold text-white">Đăng nhập Quản trị viên</h3>
+              <p className="text-sm text-zinc-400 mt-2">Vui lòng nhập email và mật khẩu tài khoản Admin để truy cập bảng quản trị.</p>
             </div>
-            <form onSubmit={handleTokenSubmit} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Admin Security Token</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Email</label>
+                <input 
+                  type="email" 
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="admin@example.com" 
+                  required
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Mật khẩu</label>
                 <input 
                   type="password" 
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Nhập mã token..." 
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••" 
                   required
                   className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                 />
               </div>
               <button 
                 type="submit"
-                className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-indigo-500/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                disabled={loginLoading}
+                className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-indigo-500/10 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span>Xác nhận</span>
-                <ArrowRight className="h-4 w-4" />
+                {loginLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Đang đăng nhập...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Đăng nhập</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
               </button>
             </form>
           </div>

@@ -70,10 +70,6 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Kết nối
           </button>
-          <button type="button" class="ghost-btn" id="open-cookie-btn" onclick="openCookieSettingsModal()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-8 0 4 4 0 0 0-8 0a10 10 0 0 0 6 9.2"/></svg>
-            Cookie
-          </button>
           <button type="button" class="ghost-btn" onclick="openQueueModal()" style="position: relative; overflow: visible !important;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             Hàng đợi
@@ -1864,21 +1860,7 @@
     </div>
   </div>
 
-  <!-- Modal Cấu hình Cookie -->
-  <div id="cookie-settings-modal" class="fb-modal-overlay hidden" style="z-index: 10006;">
-    <div class="fb-modal-content" style="width: 500px; max-width: 95%;">
-      <div class="fb-modal-header" style="background: rgba(245, 158, 11, 0.1); border-bottom-color: rgba(245, 158, 11, 0.2);">
-        <h3 style="color: #f59e0b; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
-          🍪 Cấu hình Cookie (Facebook, Douyin, Instagram...)
-        </h3>
-        <button class="fb-modal-close" onclick="closeCookieSettingsModal()">&times;</button>
-      </div>
-      <div class="fb-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
-        <p style="font-size: 13px; color: var(--muted); margin: 0; line-height: 1.5;">
-          Cookie giúp ứng dụng vượt qua tường lửa của <strong>Facebook, Instagram, Douyin, TikTok</strong> để lấy danh sách video hoặc tải không bị chặn.
-        </p>
-
-        <!-- Trạng thái cookie -->
+          <!-- Trạng thái cookie -->
         <div id="cookie-status-container" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; font-size: 13px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span class="dot" id="cookie-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
