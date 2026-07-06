@@ -59,6 +59,14 @@ export default function Profile({ currentUser, onUpdateUser, showToast }) {
 
     setIsSaving(true);
     try {
+      // Validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+      const phoneRegex = /^0\d{9,10}$/;
+      if (phoneNumber && !phoneRegex.test(phoneNumber)) {
+        showToast('So dien thoai khong hop le! Chi nhan 10-11 chu so, bat dau bang 0.', 'error');
+        setIsSaving(false);
+        return;
+      }
+
       const res = await fetch('/api/user/update-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -205,7 +213,7 @@ export default function Profile({ currentUser, onUpdateUser, showToast }) {
                   <input
                     type="text"
                     value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    onChange={(e) => { setPhoneNumber(e.target.value.replace(/\D/g, '')); }}
                     placeholder="Nhập số điện thoại"
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all placeholder-zinc-700"
                     disabled={isSaving}

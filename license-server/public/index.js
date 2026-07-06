@@ -298,7 +298,14 @@ async function handleAuthSubmit() {
     }
 
     try {
-      const res = await fetch('/api/auth/register', {
+      // Validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+    const phoneRegex = /^0\d{9,10}$/;
+    if (!phoneRegex.test(phoneNumber)) {
+      showModalNotice('So dien thoai khong hop le! Chi nhan 10-11 chu so, bat dau bang 0 (VD: 0912345678).');
+      return;
+    }
+
+    const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, password, fullName, phoneNumber })

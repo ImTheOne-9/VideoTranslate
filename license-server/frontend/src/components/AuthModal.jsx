@@ -103,7 +103,15 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
       }
 
       try {
-        const res = await fetch('/api/auth/register', {
+        // Validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+      const phoneRegex = /^0\d{9,10}$/;
+      if (!phoneRegex.test(phoneNumber)) {
+        setNotice({ text: 'So dien thoai khong hop le! Chi nhan 10-11 chu so, bat dau bang 0 (VD: 0912345678).', isError: true });
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ email, password, fullName, phoneNumber })
@@ -271,7 +279,7 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
               <input 
                 type="text" 
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                onChange={(e) => { setPhoneNumber(e.target.value.replace(/\D/g, '')); }}
                 placeholder="Ví dụ: 0912345678" 
                 required
                 className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"

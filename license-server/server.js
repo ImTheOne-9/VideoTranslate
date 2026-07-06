@@ -1333,6 +1333,16 @@ app.get('/api/config', async (req, res) => {
 });
 
 // API Đăng ký
+// Helper: validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+function validatePhoneNumber(phone) {
+  if (!phone) return 'Vui long nhap so dien thoai!';
+  const digits = String(phone).replace(/\D/g, '');
+  if (!/^0\d{9,10}$/.test(digits)) {
+    return 'So dien thoai khong hop le! Chi nhan 10-11 chu so, bat dau bang 0 (VD: 0912345678).';
+  }
+  return null;
+}
+
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { email, password, fullName, phoneNumber } = req.body;
   if (!email || !password || !fullName || !phoneNumber) {
@@ -1342,6 +1352,13 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   // Password length validation
   if (password.length < 8) {
     return res.status(400).json({ error: 'Mật khẩu phải dài tối thiểu 8 ký tự!' });
+  }
+
+  // Validate so dien thoai (chi chu so, bat dau 0, 10-11 chu so)
+  const phoneDigitsReg = String(phoneNumber||'').replace(/\D/g, '');
+  const phoneErr = validatePhoneNumber(phoneDigitsReg);
+  if (phoneErr) {
+    return res.status(400).json({ error: phoneErr });
   }
 
   try {
@@ -1361,7 +1378,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       email,
       password: hashedPassword,
       fullName,
-      phoneNumber,
+      phoneNumber: phoneDigitsReg,
       role: 'user',
       isVerified: false, // Must verify email first
       verificationToken: hashed,
@@ -1598,6 +1615,15 @@ app.post('/api/user/update-profile', userAuth, async (req, res) => {
     return res.status(400).json({ error: 'Họ tên không được để trống!' });
   }
   
+  // Validate so dien thoai neu duoc cung cap (chi chu so, bat dau 0, 10-11 chu so)
+  if (phoneNumber !== undefined && phoneNumber !== null && String(phoneNumber).trim() !== "") {
+    const digits = String(phoneNumber).replace(/\D/g, '');
+    const phoneErr = validatePhoneNumber(digits);
+    if (phoneErr) {
+      return res.status(400).json({ error: phoneErr });
+    }
+  }
+
   try {
     const user = await DB.users.findOne({ email: req.user.email });
     if (!user) {
@@ -1606,8 +1632,8 @@ app.post('/api/user/update-profile', userAuth, async (req, res) => {
     
     // Cập nhật thông tin
     user.fullName = fullName.trim();
-    if (phoneNumber !== undefined) {
-      user.phoneNumber = phoneNumber.trim();
+    if (phoneNumber !== undefined && phoneNumber !== null && String(phoneNumber).trim() !== "") {
+      user.phoneNumber = String(phoneNumber).replace(/\D/g, '');
     }
     if (avatar !== undefined) {
       user.avatar = avatar; // Chuỗi Base64
