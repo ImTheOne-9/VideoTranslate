@@ -1402,13 +1402,13 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     if (clientIp && clientIp !== 'unknown') {
       const existingByIp = await DB.users.findOne({ registrationIp: clientIp });
       if (existingByIp) {
-        return res.status(403).json({ error: 'Dia chi IP nay da duoc su dung dang ky tai khoan khac! Moi thiet bi/mang chi duoc dang ky mot tai khoan.' });
+        return res.status(403).json({ error: 'Địa chỉ IP này đã được sử dụng để đăng ký tài khoản khác! Mỗi thiết bị/mạng chỉ được đăng ký một tài khoản.' });
       }
     }
     if (clientHwid) {
       const existingByHwid = await DB.users.findOne({ registrationHwid: clientHwid });
       if (existingByHwid) {
-        return res.status(403).json({ error: 'Thiet bi nay da duoc su dung dang ky tai khoan khac! Moi thiet bi chi duoc dang ky mot tai khoan.' });
+        return res.status(403).json({ error: 'Thiết bị này đã được sử dụng để đăng ký tài khoản khác! Mỗi thiết bị chỉ được đăng ký một tài khoản.' });
       }
     }
 
