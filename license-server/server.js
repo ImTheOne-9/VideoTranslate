@@ -2576,15 +2576,124 @@ app.get('/download', async (req, res) => {
 });
 
 // ==========================================
-// API ADMIN (Bảo vệ bằng X-Admin-Token)
+// API ADMIN (Bảo vệ bằng phiên đăng nhập Admin hoặc X-Admin-Token legacy)
 // ==========================================
-function adminAuth(req, res, next) {
-  const token = req.headers['x-admin-token'];
-  if (!token || token !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'Không có quyền truy cập API Admin' });
+// Helper: đọc JWT session token từ cookie (ưu tiên) hoặc header Authorization
+function _readAdminSessionToken(req) {
+  if (req.headers.cookie) {
+    const cookies = {};
+    req.headers.cookie.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      cookies[parts.shift().trim()] = decodeURIComponent(parts.join('='));
+    });
+    if (cookies.token) return cookies.token;
   }
-  next();
+  if (req.headers['authorization']) {
+    const authHeader = req.headers['authorization'];
+    if (authHeader.startsWith('Bearer ')) {
+      return authHeader.split(' ')[1];
+    }
+  }
+  return null;
 }
+
+// Middleware bảo vệ các route /api/admin/*
+//  1. Ưu tiên phiên đăng nhập Admin qua JWT cookie (email/password, role = admin)
+//  2. Fallback: header X-Admin-Token (giữ tương thích với CLI generate-key.js / legacy)
+async function adminAuth(req, res, next) {
+  const sessionToken = _readAdminSessionToken(req);
+  if (sessionToken) {
+    const payload = verifyToken(sessionToken);
+    if (payload && payload.email) {
+      try {
+        const user = await DB.users.findOne({ email: payload.email });
+        if (user && user.role === 'admin') {
+          const jwtIssuedAtMs = payload.iat * 1000;
+          if (user.passwordChangedAt && jwtIssuedAtMs < new Date(user.passwordChangedAt).getTime()) {
+            return res.status(401).json({ error: 'Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại!' });
+          }
+          req.user = payload;
+          req.adminUser = { email: user.email, fullName: user.fullName, role: user.role };
+          return next();
+        }
+        return res.status(403).json({ error: 'Tài khoản không có quyền Quản trị viên (Admin)!' });
+      } catch (err) {
+        return res.status(500).json({ error: 'Lỗi hệ thống khi xác thực Admin: ' + err.message });
+      }
+    }
+  }
+
+  const adminTokenHeader = req.headers['x-admin-token'];
+  if (adminTokenHeader && adminTokenHeader === ADMIN_TOKEN) {
+    req.adminUser = null;
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Chưa đăng nhập Admin hoặc phiên đã hết hạn!' });
+}
+
+// API Đăng nhập Admin (email/password, yêu cầu role = admin)
+app.post('/api/admin/login', authLimiter, async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Vui lòng nhập email và mật khẩu!' });
+  }
+
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
+    }
+
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Tài khoản không có quyền Quản trị viên (Admin)!' });
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({ error: 'Tài khoản chưa được xác thực email. Vui lòng kiểm tra hòm thư!' });
+    }
+
+    const isMatch = verifyPassword(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
+    }
+
+    const token = generateToken({ email: user.email, fullName: user.fullName, role: user.role });
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.json({
+      success: true,
+      user: {
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi hệ thống khi đăng nhập Admin: ' + err.message });
+  }
+});
+
+// API Đăng xuất Admin (xoá phiên cookie)
+app.post('/api/admin/logout', (req, res) => {
+  res.clearCookie('token');
+  res.json({ success: true, message: 'Đã đăng xuất Admin!' });
+});
+
+// API Lấy thông tin phiên Admin hiện tại (frontend dùng để kiểm tra đăng nhập)
+app.get('/api/admin/me', adminAuth, async (req, res) => {
+  if (req.adminUser) {
+    return res.json({ success: true, user: req.adminUser });
+  }
+  return res.json({ success: true, user: null, via: 'token' });
+});
+
 
 // API lấy cấu hình hệ thống (Admin)
 app.get('/api/admin/config', adminAuth, async (req, res) => {
