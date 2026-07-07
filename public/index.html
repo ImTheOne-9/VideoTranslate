@@ -2051,6 +2051,23 @@
     </div>
   </div>
 
+  <!-- Rename Project Modal -->
+  <div id="rename-project-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 380px;">
+      <div class="fb-modal-header">
+        <h3 style="color: var(--text); display: flex; align-items: center; gap: 8px;">Đổi tên dự án</h3>
+        <button class="fb-modal-close" onclick="closeRenameModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; gap: 16px;">
+        <input type="text" id="rename-project-input" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text); font-size: 14px; outline: none;" placeholder="Nhập tên dự án..." />
+        <div style="display: flex; gap: 10px; width: 100%;">
+          <button type="button" class="premium-render-btn" style="flex: 1; margin: 0;" onclick="confirmRenameProject()">Xác nhận</button>
+          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;" onclick="closeRenameModal()">Hủy bỏ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
   <script src="js/globals.js"></script>
   <script src="js/canvas-module.js"></script>

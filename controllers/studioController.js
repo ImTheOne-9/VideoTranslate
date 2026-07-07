@@ -1156,7 +1156,7 @@ module.exports = {
       }
       const file = path.join(shared.PROJECTS_DIR, `${id}.json`);
       const projectObj = {
-        id, name, updatedAt: new Date().toISOString(), ...data
+        ...data, id, name, updatedAt: new Date().toISOString()
       };
       fs.writeFileSync(file, JSON.stringify(projectObj, null, 2), 'utf8');
       res.json({ success: true, project: projectObj });

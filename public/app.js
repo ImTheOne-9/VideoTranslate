@@ -6639,39 +6639,74 @@ async function loadProjectQuietly(id) {
   }
 }
 
-async function renameProject(id, oldName) {
-  const newName = prompt('Nhập tên mới cho dự án:', oldName);
-  if (newName === null) return;
-  const trimmed = newName.trim();
-  if (trimmed === '') {
+function closeRenameModal() {
+  const modal = $('rename-project-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function confirmRenameProject() {
+  const modal = $('rename-project-modal');
+  const input = $('rename-project-input');
+  const val = input ? input.value.trim() : '';
+  const id = modal ? modal.dataset.projectId : null;
+
+  if (val === '') {
     toast('Tên dự án không được để trống.', 'error');
     return;
   }
+  if (!id) {
+    toast('Không tìm thấy ID dự án.', 'error');
+    return;
+  }
 
-  try {
-    const getRes = await fetch(`/api/projects/${id}`);
-    if (!getRes.ok) throw new Error('Không tìm thấy dự án');
-    const proj = await getRes.json();
-    
-    const saveRes = await fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name: trimmed, data: proj })
-    });
-    if (!saveRes.ok) throw new Error('Lỗi cập nhật tên');
+  if (modal) modal.classList.add('hidden');
 
-    if (id === currentProjectId) {
-      currentProjectName = trimmed;
-      localStorage.setItem('current_project_name', trimmed);
-      const nameInput = $('project-name-input');
-      if (nameInput) nameInput.value = trimmed;
+  const trimmed = val.trim();
+  (async () => {
+    try {
+      const getRes = await fetch(`/api/projects/${id}`);
+      if (!getRes.ok) throw new Error('Không tìm thấy dự án');
+      const proj = await getRes.json();
+
+      const saveRes = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: trimmed, data: proj })
+      });
+      if (!saveRes.ok) throw new Error('Lỗi cập nhật tên');
+
+      if (id === currentProjectId) {
+        currentProjectName = trimmed;
+        localStorage.setItem('current_project_name', trimmed);
+        const nameInput = $('project-name-input');
+        if (nameInput) nameInput.value = trimmed;
+      }
+
+      toast('✏️ Đã đổi tên dự án thành công!', 'success');
+      renderProjectsList();
+    } catch (error) {
+      console.error('Lỗi đổi tên dự án:', error);
+      toast('Lỗi đổi tên dự án: ' + error.message, 'error');
     }
+  })();
+}
 
-    toast('✏️ Đã đổi tên dự án thành công!', 'success');
-    renderProjectsList();
-  } catch (error) {
-    console.error('Lỗi đổi tên dự án:', error);
-    toast('Lỗi đổi tên dự án: ' + error.message, 'error');
+function renameProject(id, oldName) {
+  const modal = $('rename-project-modal');
+  const input = $('rename-project-input');
+  if (modal) {
+    modal.dataset.projectId = id;
+    input.value = oldName || '';
+    input.focus();
+    input.select();
+    input.onkeydown = e => {
+      if (e.key === 'Enter') confirmRenameProject();
+      if (e.key === 'Escape') closeRenameModal();
+    };
+    modal.onclick = e => {
+      if (e.target === modal) closeRenameModal();
+    };
+    modal.classList.remove('hidden');
   }
 }
 
@@ -6839,6 +6874,8 @@ window.createNewProjectAndNavigate = createNewProjectAndNavigate;
 window.saveProjectExplicitly = saveProjectExplicitly;
 window.loadProject = loadProject;
 window.renameProject = renameProject;
+window.closeRenameModal = closeRenameModal;
+window.confirmRenameProject = confirmRenameProject;
 window.duplicateProject = duplicateProject;
 window.deleteProject = deleteProject;
 window.renderProjectsList = renderProjectsList;
