@@ -507,11 +507,45 @@ function loadDownloadHistory() {
     downloadHistory = [];
   }
   renderDownloadHistory();
+  updateDownloadStats();
 }
 
 function saveDownloadHistory() {
   localStorage.setItem('downloadHistory', JSON.stringify(downloadHistory));
+  updateDownloadStats();
 }
+
+// Cập nhật dải thống kê Tải video
+function updateDownloadStats() {
+  const totalEl = $('stat-total-downloads');
+  const todayEl = $('stat-today-downloads');
+  const errorEl = $('stat-error-count');
+
+  if (totalEl) totalEl.textContent = downloadHistory.length;
+
+  if (todayEl) {
+    const today = new Date();
+    const todayCount = downloadHistory.filter(item => {
+      const d = new Date(item.timestamp);
+      return d.toDateString() === today.toDateString();
+    }).length;
+    todayEl.textContent = todayCount;
+  }
+
+  if (errorEl) {
+    const errCount = downloadHistory.filter(item => item.status === 'failed').length;
+    errorEl.textContent = errCount;
+  }
+
+  // Cập nhật số hàng đợi từ badge
+  const queueEl = $('stat-queue-count');
+  const queueBadge = $('queue-badge');
+  if (queueEl && queueBadge) {
+    const count = parseInt(queueBadge.textContent || '0', 10);
+    queueEl.textContent = isNaN(count) ? 0 : count;
+  }
+}
+
 
 function addDownloadHistory(title, thumbnail, status, filename, type) {
   const item = {
@@ -593,8 +627,16 @@ function renderDownloadHistory() {
   
   if (downloadHistory.length === 0) {
     container.innerHTML = `
-      <div style="text-align: center; padding: 24px; color: var(--muted); border: 2px dashed var(--border); border-radius: 8px; background: var(--panel-2); font-size: 12px;">
-        📥 Chưa có lịch sử tải video nào.
+      <div class="empty-state-block">
+        <div class="esb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </div>
+        <h4>Chưa có lịch sử tải video nào</h4>
+        <p>Sau khi tải xong video, lịch sử sẽ xuất hiện tại đây</p>
       </div>
     `;
     return;
@@ -3735,12 +3777,12 @@ const musicPerPage = 12;
 
 function renderFbPages(filter = '') {
   const container = $('page-list-container');
-  const tbody = $('page-list-tbody');
+  const grid = $('page-cards-grid');
   const countBadge = $('page-count-badge');
   const paginationContainer = $('page-pagination');
-  if (!container || !tbody) return;
+  if (!container || !grid) return;
 
-  tbody.innerHTML = '';
+  grid.innerHTML = '';
   const searchVal = filter.toLowerCase().trim();
   const filtered = fbPages.filter(p => 
     p.name.toLowerCase().includes(searchVal) || 
@@ -3757,16 +3799,17 @@ function renderFbPages(filter = '') {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="4" style="text-align: center; padding: 40px 16px; border-bottom: none;">
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-            <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchVal ? 'Không tìm thấy Page nào phù hợp' : 'Chưa có Fanpage nào được lưu'}</div>
-            <div style="font-size: 11px;">${searchVal ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "THÊM PAGE MỚI" ở trên để kết nối trang Facebook của bạn'}</div>
-          </div>
-        </td>
-      </tr>
+    grid.innerHTML = `
+      <div class="empty-state-block" style="grid-column: 1 / -1;">
+        <div class="esb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
+          </svg>
+        </div>
+        <h4>${searchVal ? 'Không tìm thấy Page nào phù hợp' : 'Chưa có Fanpage nào được lưu'}</h4>
+        <p>${searchVal ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "THÊM PAGE MỚI" ở trên để kết nối trang Facebook của bạn'}</p>
+        ${!searchVal ? `<button type="button" onclick="openPageModal()" style="margin-top:4px;background:var(--accent);color:white;font-weight:600;padding:8px 18px;border-radius:var(--radius);">Thêm Page đầu tiên</button>` : ''}
+      </div>
     `;
     if (paginationContainer) paginationContainer.innerHTML = '';
     return;
@@ -3779,31 +3822,31 @@ function renderFbPages(filter = '') {
   pageItems.forEach((page) => {
     // Tìm index tuyệt đối trong mảng gốc fbPages
     const originalIdx = fbPages.findIndex(p => p.id === page.id);
-    
-    // Mask token để hiển thị an toàn
-    const maskedToken = page.token.length > 10 
-      ? page.token.substring(0, 6) + '...' + page.token.substring(page.token.length - 4)
-      : '...';
+    const initials = page.name.charAt(0).toUpperCase() || 'F';
 
-    const tr = document.createElement('tr');
-    tr.style = 'border-bottom: 1px solid var(--border); transition: background 0.15s ease;';
-    
-    // Thêm hiệu ứng hover dòng
-    tr.onmouseover = function() { this.style.background = 'rgba(255, 255, 255, 0.02)'; };
-    tr.onmouseout = function() { this.style.background = 'transparent'; };
+    const card = document.createElement('div');
+    card.className = 'page-card';
 
-    tr.innerHTML = `
-      <td style="padding: 12px 8px; font-weight: 600; color: var(--text); font-size: 13px; max-width: 200px; word-break: break-all;">${page.name}</td>
-      <td style="padding: 12px 8px; color: var(--muted); font-size: 13px; font-family: monospace;">${page.id}</td>
-      <td style="padding: 12px 8px; color: var(--soft); font-size: 13px; font-family: monospace; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${page.token}">${maskedToken}</td>
-      <td style="padding: 12px 8px; text-align: right;">
-        <div style="display: inline-flex; gap: 6px; flex-shrink: 0;">
-          <button type="button" class="ghost-btn" style="padding: 4px 8px; font-size: 11px; height: auto;" onclick="editFbPage(${originalIdx})">Sửa</button>
-          <button type="button" class="ghost-btn" style="padding: 4px 8px; font-size: 11px; height: auto; border-color: rgba(239, 68, 68, 0.2); color: var(--danger);" onclick="deleteFbPage(${originalIdx})">Xóa</button>
+    card.innerHTML = `
+      <div class="page-card-header">
+        <div class="page-card-avatar">${initials}</div>
+        <div class="page-card-info">
+          <div class="page-card-name" title="${page.name}">${page.name}</div>
+          <div class="page-card-id">ID: ${page.id}</div>
         </div>
-      </td>
+      </div>
+      <div class="page-card-actions">
+        <button type="button" class="ghost-btn" style="flex:1;font-size:12px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;gap:4px;" onclick="editFbPage(${originalIdx})">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Chỉnh sửa
+        </button>
+        <button type="button" class="ghost-btn" style="flex:1;font-size:12px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;gap:4px;border-color:rgba(239,68,68,0.25);color:var(--danger);" onclick="deleteFbPage(${originalIdx})">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          Xóa
+        </button>
+      </div>
     `;
-    tbody.appendChild(tr);
+    grid.appendChild(card);
   });
 
   // Vẽ các nút điều khiển phân trang
@@ -5062,9 +5105,25 @@ async function checkSystemConnections() {
       }
     }
 
+    // Cập nhật connection dot trên topbar
+    const connDot = $('connection-dot');
+    const connBtn = $('refresh-assets-btn');
+    if (data.ffmpeg && data.ytdlp) {
+      if (connDot) connDot.className = 'status-dot connected';
+      if (connBtn) connBtn.classList.add('btn-connected');
+    } else {
+      if (connDot) connDot.className = 'status-dot error';
+      if (connBtn) connBtn.classList.remove('btn-connected');
+    }
+
   } catch (err) {
     console.error('Error checking connection status:', err);
     toast('Lỗi khi kết nối với máy chủ kiểm tra', 'error');
+    // Cập nhật connection dot lỗi
+    const dot = $('connection-dot');
+    if (dot) { dot.className = 'status-dot error'; }
+    const btn = $('refresh-assets-btn');
+    if (btn) btn.classList.remove('btn-connected');
   }
 }
 
@@ -6464,6 +6523,10 @@ async function renderProjectsList() {
     currentProjectsList = data.projects || [];
     
     filterAndRenderProjects();
+
+    // Cập nhật stat strip Studio
+    const statProjects = $('stat-total-projects');
+    if (statProjects) statProjects.textContent = currentProjectsList.length;
   } catch (error) {
     console.error('Lỗi khi nạp danh sách dự án:', error);
     toast('Lỗi khi nạp danh sách dự án: ' + error.message, 'error');
