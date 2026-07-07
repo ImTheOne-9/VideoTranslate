@@ -1,21 +1,47 @@
 :root {
-  --bg: #0B0F14;
-  --panel: #141A21;
-  --panel-2: #1C242D;
-  --border: #2A333D;
-  --text: #E8EBEF;
-  --muted: #8A94A0;
-  --soft: #5a6370;
-  --accent: #3B82F6;
+  /* ---- Backgrounds ---- */
+  --bg:       #0C1018;
+  --bg-2:     #0F1520;
+  --panel:    #141D2B;
+  --panel-2:  #1A2438;
+  --panel-hover: rgba(30,42,60,0.9);
+
+  /* ---- Borders ---- */
+  --border:   #252F3F;
+  --border-2: #2E3E55;
+
+  /* ---- Text ---- */
+  --text:     #E9EDF4;
+  --muted:    #7A8899;
+  --soft:     #4A5568;
+
+  /* ---- Accents ---- */
+  --accent:       #3B82F6;
   --accent-hover: #2563EB;
-  --accent-2: #60A5FA;
+  --accent-2:     #60A5FA;
+  --accent-glow:  rgba(59,130,246,0.18);
+
+  /* ---- Status ---- */
   --success: #22C55E;
   --heavy-action: #F97316;
-  --danger: #EF4444;
-  --warn: #F59E0B;
-  --secondary-bg: #374151;
-  --secondary-text: #D1D5DB;
-  --radius: 6px;
+  --danger:  #EF4444;
+  --warn:    #F59E0B;
+
+  /* ---- Misc ---- */
+  --secondary-bg:   #2A3B52;
+  --secondary-text: #B8C5D6;
+
+  /* ---- Radius ---- */
+  --radius:    8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  /* ---- Shadows ---- */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 0 3px var(--accent-glow);
+
   --font: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
 }
 
@@ -25,14 +51,14 @@
 
 /* Custom Scrollbars globally */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-2);
   border-radius: 99px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -45,6 +71,61 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
+  -webkit-app-region: drag;
+}
+
+/* Tắt drag cho tất cả element tương tác */
+button, input, select, textarea, a,
+.nav-btn, .view, .panel, .modal,
+[onclick], label, [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* =============================================
+   WIN-TITLEBAR — Thanh tiêu đề tùy chỉnh
+   Nằm trong vùng titleBarOverlay 38px
+   ============================================= */
+#win-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 0 12px;
+  -webkit-app-region: drag;
+}
+
+#win-title-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#win-title-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 152px; /* chừa chỗ cho 3 nút native Windows */
+  -webkit-app-region: no-drag;
+}
+
+#win-title-right .ghost-btn {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  border-color: rgba(255,255,255,0.08);
+  gap: 5px;
+}
+
+#win-title-right .ghost-btn:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.15);
 }
 
 button,
@@ -56,7 +137,7 @@ textarea {
 
 button {
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--accent);
   color: white;
   font-weight: 500;
@@ -66,7 +147,12 @@ button {
 }
 
 button:hover {
-  filter: brightness(1.12);
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
 }
 
 button:disabled {
@@ -80,10 +166,18 @@ textarea {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #0b1016;
+  background: rgba(12,16,24,0.8);
   color: var(--text);
-  padding: 11px 12px;
+  padding: 11px 14px;
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 input[type="checkbox"],
@@ -102,17 +196,17 @@ textarea {
 label {
   display: block;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
   margin: 14px 0 7px;
 }
 
 .app-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 18px;
+  gap: 16px;
   min-height: 100vh;
-  padding: 18px 18px 8px 18px;
+  padding: 46px 16px 8px 16px;
 }
 
 .sidebar,
@@ -124,38 +218,47 @@ label {
 .workspace {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 26px);
-  max-height: calc(100vh - 26px);
+  height: calc(100vh - 54px);
+  max-height: calc(100vh - 54px);
   overflow: hidden;
 }
 
+/* Brand o sidebar an khi da co trong titlebar */
+.brand { display: none; }
+
 .sidebar {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--panel);
-  padding: 16px;
-  height: calc(100vh - 26px);
+  padding: 16px 10px;
+  height: calc(100vh - 54px);
   position: sticky;
-  top: 18px;
+  top: 46px;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-bottom: 18px;
+  padding-bottom: 16px;
+  margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border-radius: var(--radius);
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: linear-gradient(135deg, #2563EB, #7C3AED);
   color: white;
   font-weight: 800;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(37,99,235,0.35);
+  flex-shrink: 0;
 }
 
 .brand h1,
@@ -178,9 +281,16 @@ label {
 }
 
 .nav {
-  display: grid;
-  gap: 8px;
-  margin: 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.nav-section-label {
+  display: none;
 }
 
 .nav-btn {
@@ -191,21 +301,21 @@ label {
   border: 1px solid transparent;
   color: var(--muted);
   justify-content: flex-start;
-  border-left: 3px solid transparent;
-  border-radius: 0 var(--radius) var(--radius) 0;
-  padding: 8px 12px 8px 9px;
+  border-radius: var(--radius);
+  padding: 8px 10px;
   transition: all 0.15s ease;
+  font-size: 13px;
 }
 
 .nav-btn.active {
-  background: rgba(59, 130, 246, 0.06);
-  border-left-color: var(--accent);
-  color: var(--text);
+  background: rgba(59,130,246,0.12);
+  border-color: rgba(59,130,246,0.2);
+  color: var(--accent-2);
   font-weight: 600;
 }
 
-.nav-btn:hover {
-  background: var(--panel-2);
+.nav-btn:hover:not(.active) {
+  background: rgba(255,255,255,0.04);
   color: var(--text);
 }
 
@@ -214,29 +324,30 @@ label {
   height: 28px;
   display: grid;
   place-items: center;
-  background: #0b1016;
-  border-radius: 6px;
+  border-radius: 7px;
   transition: all 0.15s ease;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .nav-btn.active span {
-  background: var(--accent);
-  color: white;
+  opacity: 1;
+  color: var(--accent-2);
 }
 
 .nav-btn span svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 .tool-status {
   margin-top: auto;
   border-top: 1px solid var(--border);
-  padding-top: 14px;
+  padding-top: 12px;
   display: grid;
-  gap: 9px;
+  gap: 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .dot {
@@ -256,22 +367,27 @@ label {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
+  padding: 0 2px;
 }
 
 .topbar h2 {
-  font-size: 28px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
 }
 
 .topbar p {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
 }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
 }
 
 .panel + .panel {
@@ -283,14 +399,42 @@ label {
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  padding-bottom: 12px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 14px;
+  margin-bottom: 16px;
+}
+
+.panel-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.2px;
 }
 
 .panel-head span {
   font-size: 12px;
   text-align: right;
+  color: var(--muted);
+}
+
+/* Section label phong cách uppercase */
+.section-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--soft);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 .view {
@@ -316,6 +460,224 @@ label {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+}
+
+/* =============================================
+   STATS STRIP — Dải thẻ thống kê nhanh
+   ============================================= */
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
+}
+
+.stat-card.warn-accent::before { background: linear-gradient(90deg, var(--warn) 0%, transparent 100%); }
+.stat-card.danger-accent::before { background: linear-gradient(90deg, var(--danger) 0%, transparent 100%); }
+.stat-card.success-accent::before { background: linear-gradient(90deg, var(--success) 0%, transparent 100%); }
+
+.stat-card:hover { border-color: rgba(59,130,246,0.4); box-shadow: var(--shadow-md); }
+
+.stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text);
+}
+
+.stat-value.clr-accent { color: var(--accent-2); }
+.stat-value.clr-warn   { color: #FCD34D; }
+.stat-value.clr-danger { color: #FCA5A5; }
+.stat-value.clr-success{ color: #86EFAC; }
+
+/* =============================================
+   EMPTY STATE BLOCK — Trạng thái rỗng có thiết kế
+   ============================================= */
+.empty-state-block {
+  border: 1.5px dashed var(--border-2);
+  border-radius: var(--radius-md);
+  padding: 52px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: rgba(20,29,44,0.5);
+  margin-top: 8px;
+}
+
+.empty-state-block .esb-icon {
+  font-size: 40px;
+  opacity: 0.35;
+  line-height: 1;
+}
+
+.empty-state-block .esb-icon svg {
+  width: 44px;
+  height: 44px;
+  stroke: var(--soft);
+  opacity: 0.5;
+}
+
+.empty-state-block h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.empty-state-block p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 300px;
+  line-height: 1.5;
+}
+
+/* =============================================
+   PAGE CARDS GRID — Quản lý Fanpage
+   ============================================= */
+.page-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.page-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s;
+  position: relative;
+}
+
+.page-card:hover {
+  border-color: rgba(59,130,246,0.3);
+}
+
+.page-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-card-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #1877F2, #7C3AED);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.page-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-card-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-card-id {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+.page-card-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* =============================================
+   TOPBAR STATUS DOT — Chấm trạng thái kết nối
+   ============================================= */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--soft);
+  margin-right: 4px;
+  vertical-align: middle;
+  transition: background 0.3s;
+}
+
+.status-dot.connected {
+  background: var(--success);
+  animation: pulse-dot 2.5s ease-in-out infinite;
+}
+
+.status-dot.error {
+  background: var(--danger);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.ghost-btn.btn-connected {
+  color: var(--success);
+}
+
+/* =============================================
+   EDITOR PREVIEW — Nền gradient thay vì đen tuyệt đối
+   ============================================= */
+#subtitle-positioner-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #141c2e 0%, var(--bg) 70%);
+  border-radius: var(--radius);
+  min-height: 200px;
 }
 
 #bulk-limit {
@@ -500,19 +862,24 @@ label {
 
 .ghost-btn {
   background: transparent;
-  border: 1px solid var(--secondary-bg);
+  border: 1px solid var(--border);
   color: var(--secondary-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.15s ease;
+  border-radius: var(--radius);
+  transition: all 0.18s ease;
+  font-size: 12.5px;
+  padding: 7px 12px;
+  height: 34px;
 }
 
 .ghost-btn:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: var(--soft);
+  background: rgba(59,130,246,0.07);
+  border-color: rgba(59,130,246,0.35);
   color: var(--text);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.08);
 }
 
 #render-status,
@@ -673,11 +1040,11 @@ label {
 /* Studio Source Video UI Extensions */
 .studio-source-tabs {
   display: flex;
-  background: #080c10;
+  background: rgba(8,12,20,0.7);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 4px;
-  gap: 4px;
+  gap: 3px;
   margin-bottom: 14px;
 }
 
@@ -691,10 +1058,10 @@ label {
   flex: 1;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
   transition: all 0.18s ease;
   display: inline-flex;
   align-items: center;
@@ -710,7 +1077,7 @@ label {
 .sub-tab-btn:hover,
 .settings-tab-btn:hover {
   color: var(--text);
-  background: #111823;
+  background: rgba(255,255,255,0.05);
 }
 
 /* Base active style for standard/passive buttons */
@@ -718,20 +1085,20 @@ label {
 .settings-tab-btn.active,
 .sub-tab-btn.active[data-sub-mode="none"],
 .voice-tab-btn.active[data-voice-mode="none"] {
-  background: var(--border) !important;
+  background: var(--panel-2) !important;
   color: var(--text) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
-  border-color: transparent !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.06) !important;
+  border-color: var(--border-2) !important;
 }
 
-/* Accent blue background for equal-choice segmented controls (Reaction, Music/Volume, Source Video) */
+/* Accent blue background for equal-choice segmented controls */
 .source-tab-btn.active,
 .reaction-tab-btn.active,
 .music-tab-btn.active {
   background: var(--accent) !important;
   color: white !important;
   border-color: transparent !important;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3) !important;
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.4) !important;
 }
 
 /* Green success gradient for active feature states (Phụ đề/Giọng đọc "on") */
@@ -1283,11 +1650,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .premium-input,
 .premium-textarea {
   width: 100%;
-  background: #080c10;
+  background: rgba(8,12,20,0.9);
   border: 1.5px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text);
-  padding: 10px 12px;
+  padding: 10px 14px;
   font-size: 13px;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -1295,9 +1662,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .premium-select:focus,
 .premium-input:focus,
 .premium-textarea:focus {
-  border-color: var(--accent-2);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-  background: #0c121a;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: rgba(12,18,28,0.95);
 }
 
 .premium-textarea {

@@ -146,6 +146,13 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
     width: 1280,
     height: 800,
     title: 'Video Studio Tools',
+    icon: path.join(__dirname, 'logo.ico'),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0C1018',
+      symbolColor: '#7A8899',
+      height: 38
+    },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true

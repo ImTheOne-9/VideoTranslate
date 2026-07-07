@@ -97,6 +97,30 @@ function renderPaginationControls(containerId, currentPage, totalPages, onPageCh
    HÀM ĐIỀU KHIỂN KHO VIDEO
    ========================================================================== */
 
+// Cập nhật dải thống kê Thư viện
+function updateLibraryStats() {
+  const videoBadge = $('rendered-count-badge');
+  const voiceBadge = $('voice-count-badge');
+  const musicBadge = $('music-count-badge');
+
+  const statVideos = $('stat-lib-videos');
+  const statVoices = $('stat-lib-voices');
+  const statMusic  = $('stat-lib-music');
+
+  if (statVideos && videoBadge) {
+    const n = parseInt(videoBadge.textContent, 10);
+    statVideos.textContent = isNaN(n) ? 0 : n;
+  }
+  if (statVoices && voiceBadge) {
+    const n = parseInt(voiceBadge.textContent, 10);
+    statVoices.textContent = isNaN(n) ? 0 : n;
+  }
+  if (statMusic && musicBadge) {
+    const n = parseInt(musicBadge.textContent, 10);
+    statMusic.textContent = isNaN(n) ? 0 : n;
+  }
+}
+
 async function renderRenderedVideosGrid(searchFilter = '') {
   const container = $('rendered-videos-grid');
   if (!container) return;
@@ -118,6 +142,7 @@ async function renderRenderedVideosGrid(searchFilter = '') {
   if (countBadge) {
     countBadge.textContent = `${filtered.length} Video`;
   }
+  setTimeout(updateLibraryStats, 0);
 
   container.innerHTML = '';
 
@@ -128,8 +153,15 @@ async function renderRenderedVideosGrid(searchFilter = '') {
 
   if (filtered.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--muted); border: 2px dashed var(--border); border-radius: 8px; background: var(--panel-2);">
-        🎞️ Không tìm thấy video render nào.
+      <div class="empty-state-block" style="grid-column: 1 / -1;">
+        <div class="esb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"/>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+        </div>
+        <h4>Chưa có video đã render nào</h4>
+        <p>Sau khi render xong, video sẽ xuất hiện tại đây</p>
       </div>
     `;
     const pagContainer = $('rendered-pagination');
