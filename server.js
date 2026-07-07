@@ -261,7 +261,9 @@ app.post('/api/render-studio', studioUpload.fields([
 ]), studioController.renderStudio);
 
 // 4. Voice and asset routes
-app.post('/api/generate-vbee-voice', voiceController.generateVbeeVoice);
+app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
+app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
+app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);
 app.post('/api/save-voice', studioUpload.single('voice'), voiceController.saveVoice);
 app.post('/api/save-music', studioUpload.single('music'), voiceController.saveMusic);
 app.post('/api/save-video', studioUpload.single('video'), voiceController.saveVideo);
