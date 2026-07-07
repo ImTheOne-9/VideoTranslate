@@ -3173,6 +3173,23 @@ if (mainVideo && previewOverlay) {
   bindSafezoneControls(mainVideo, previewOverlay);
 }
 
+// Space bar to toggle preview video play/pause
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.code === 'Space') {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+    e.preventDefault();
+    const video = document.getElementById('studio-video-preview');
+    if (video && video.src && video.src !== '') {
+      if (video.paused) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
+    }
+  }
+});
+
 // Register two-way binding inputs
 const subtitleInputs = [
   'subtitleSize', 'subtitleMargin', 'subtitleMarginH',
