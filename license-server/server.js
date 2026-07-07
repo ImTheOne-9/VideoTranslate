@@ -151,6 +151,7 @@ const licenseSchema = new mongoose.Schema({
   resetCount: { type: Number, default: 0 },
   lastResetAt: { type: Date, default: null },
   priceAtPurchase: { type: Number, default: 0 },
+  lastExpiryWarningSent: { type: Date, default: null }, // Lan cuoi gui email canh bao sap het han
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -282,6 +283,7 @@ const DB = {
           resetCount: license.resetCount || 0,
           lastResetAt: license.lastResetAt,
           priceAtPurchase: license.priceAtPurchase || 0,
+          lastExpiryWarningSent: license.lastExpiryWarningSent || null,
           createdAt: license.createdAt,
           save: async function() {
             const dbData = readJSON();
@@ -299,6 +301,7 @@ const DB = {
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
                 priceAtPurchase: this.priceAtPurchase,
+                lastExpiryWarningSent: this.lastExpiryWarningSent || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -327,6 +330,7 @@ const DB = {
           resetCount: data.resetCount || 0,
           lastResetAt: data.lastResetAt || null,
           priceAtPurchase: data.priceAtPurchase || 0,
+          lastExpiryWarningSent: data.lastExpiryWarningSent || null,
           createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : (data.createdAt || new Date().toISOString())
         };
         db.licenses.push(newLicense);
@@ -350,6 +354,7 @@ const DB = {
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
                 priceAtPurchase: this.priceAtPurchase,
+                lastExpiryWarningSent: this.lastExpiryWarningSent || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -408,6 +413,7 @@ const DB = {
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
                 priceAtPurchase: this.priceAtPurchase,
+                lastExpiryWarningSent: this.lastExpiryWarningSent || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -1179,7 +1185,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
       <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; border: 1px solid #bbf7d0; margin: 15px 0;">
         <p style="margin: 0 0 10px 0; color: #166534; font-weight: 600;">🔑 Mã bản quyền (License Key):</p>
         <p style="font-family: monospace; font-size: 18px; font-weight: bold; color: #15803d; margin: 0; background: #fff; padding: 8px 12px; border-radius: 4px; border: 1px solid #86efac; display: inline-block; letter-spacing: 1px;">${escapedKey}</p>
-        <p style="margin: 15px 0 0 0; font-size: 13px; color: #166534;">📅 Hạn sử dụng: Bắt đầu từ khi License Key này được kích hoạt</p>
+        <p style="margin: 15px 0 0 0; font-size: 13px; color: #166534;">📅 Hạn sử dụng: <strong>${formattedExpires}</strong></p>
       </div>
       <h4 style="margin-top: 15px;">Hướng dẫn sử dụng:</h4>
       <ol>
@@ -1326,6 +1332,15 @@ app.post('/api/server/activate', async (req, res) => {
   }
 });
 
+// Helper: tinh so ngay con lai cua key (null = vinh vien, am = da het han)
+function computeDaysLeft(expiresAt) {
+  if (!expiresAt) return null;
+  const exp = new Date(expiresAt);
+  if (exp.getFullYear() >= 9999) return null; // Vinh vien
+  const ms = exp.getTime() - Date.now();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
 // 2. API Tái xác thực bản quyền trực tuyến (Heartbeat Check)
 app.post('/api/server/verify', async (req, res) => {
   const { key, hwid } = req.body;
@@ -1340,7 +1355,8 @@ app.post('/api/server/verify', async (req, res) => {
       return res.json({ status: 'inactive', error: 'Bản quyền không khả dụng hoặc bị đổi thiết bị' });
     }
 
-    res.json({ status: 'active' });
+    const daysLeft = computeDaysLeft(license.expiresAt);
+    res.json({ status: 'active', daysLeft });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi máy chủ: ' + err.message });
   }
@@ -1756,6 +1772,7 @@ app.get('/api/user/keys', userAuth, async (req, res) => {
         ...plainObj,
         planName: planInfo.name,
         price: planInfo.price,
+        daysLeft: computeDaysLeft(plainObj.expiresAt),
         bankCode,
         bankAccount,
         bankAccountName
@@ -3059,9 +3076,14 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
       keys = filtered.slice((page - 1) * limit, page * limit);
     }
 
+    const keysWithDaysLeft = keys.map(k => {
+      const obj = useMongo ? (k.toObject ? k.toObject() : k) : k;
+      return { ...obj, daysLeft: computeDaysLeft(obj.expiresAt) };
+    });
+
     res.json({
       success: true,
-      keys,
+      keys: keysWithDaysLeft,
       pagination: {
         page,
         limit,
@@ -3368,6 +3390,125 @@ app.post('/api/admin/toggle-status', adminAuth, async (req, res) => {
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
 });
+
+// ==========================================
+// CANH BAO SAP HET HAN KEY (EMAIL)
+// ==========================================
+
+// Email template: canh bao sap het han key
+async function sendExpiryWarningEmail({ toEmail, fullName, key, planName, daysLeft, expiresAt }) {
+  const escapedName = escapeHtml(fullName || 'Ban');
+  const escapedKey = escapeHtml(key);
+  const expStr = new Date(expiresAt).toLocaleDateString('vi-VN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const dayText = daysLeft <= 0 ? 'hom nay' : (daysLeft + ' ngay');
+  const subject = '[Canh bao] Key ban quyen cua ban sap het han con ' + dayText;
+  const bodyContent = `
+    <h3>Xin chao ${escapedName},</h3>
+    <p>Day la email tu dong canh bao tu he thong ban quyen <strong>Editnhanh</strong>.</p>
+    <p>Key ban quuyen cua ban <strong>sap het han</strong> con lai <strong style="color:#e11d48;">${dayText}</strong>.</p>
+    <div style="background:#fef2f2;padding:18px;border-radius:8px;border:1px solid #fecaca;margin:15px 0;">
+      <p style="margin:4px 0;"><strong>Ma key:</strong> <span style="font-family:monospace;background:#fff;padding:2px 6px;border-radius:4px;">${escapedKey}</span></p>
+      <p style="margin:4px 0;"><strong>Goi dich vu:</strong> ${escapeHtml(planName || '')}</p>
+      <p style="margin:4px 0;"><strong>Ngay het han:</strong> ${expStr}</p>
+    </div>
+    <p>Vui long <strong>gia han</strong> hoac <strong>mua key moi</strong> truoc khi het han de tiep tuc su dung phan mem khong bi gian doan.</p>
+    <p style="font-size:12px;color:#6b7280;">Day la email tu dong, vui long khong tra loi email nay.</p>
+  `;
+  await sendMailHelper({ toEmail, subject, bodyContent });
+}
+
+// Background job: scan key sap het han va gui email canh bao (1 email/ngay/key)
+async function sendExpiryWarnings() {
+  try {
+    const now = new Date();
+    const warningWindowMs = 7 * 24 * 60 * 60 * 1000; // 7 ngay
+    let mongoQuery, jsonFilter;
+    if (useMongo) {
+      mongoQuery = {
+        status: 'active',
+        paymentStatus: 'active',
+        expiresAt: { $gte: now, $lte: new Date(now.getTime() + warningWindowMs) }
+      };
+    }
+
+    let licenses;
+    if (useMongo) {
+      licenses = await LicenseModel.find(mongoQuery);
+    } else {
+      const db = readJSON();
+      const all = db.licenses || [];
+      const matchedKeys = all.filter(l => {
+        if (l.status !== 'active' || l.paymentStatus !== 'active') return false;
+        const exp = new Date(l.expiresAt);
+        if (exp.getFullYear() >= 9999) return false; // bo qua vinh vien
+        const ms = exp.getTime() - now.getTime();
+        return ms >= 0 && ms <= warningWindowMs;
+      }).map(l => l.key);
+      // Dung findOne de co save() method
+      licenses = [];
+      for (const k of matchedKeys) {
+        const lic = await DB.licenses.findOne({ key: k });
+        if (lic) licenses.push(lic);
+      }
+    }
+
+    let sentCount = 0;
+    for (const license of licenses) {
+      const daysLeft = computeDaysLeft(license.expiresAt);
+      if (daysLeft === null || daysLeft < 0) continue;
+
+      // Chi gui 1 email/ngay/key (tranh spam)
+      const lastSent = license.lastExpiryWarningSent ? new Date(license.lastExpiryWarningSent) : null;
+      if (lastSent) {
+        const hoursSinceLast = (now.getTime() - lastSent.getTime()) / (60 * 60 * 1000);
+        if (hoursSinceLast < 20) continue; // chua du 20h -> chua gui lai
+      }
+
+      // Chi gui email neu key co userEmail (key cua user dang ky)
+      if (!license.userEmail) continue;
+
+      let fullName = 'Ban';
+      try {
+        const user = await DB.users.findOne({ email: license.userEmail });
+        if (user && user.fullName) fullName = user.fullName;
+      } catch (e) {}
+
+      const planName = (license.planType === 'trial') ? 'Dung thu'
+        : (license.planType === 'monthly') ? 'Thang'
+        : (license.planType === 'yearly' || license.planType === 'annual') ? 'Nam'
+        : (license.planType === 'lifetime') ? 'Tron doi'
+        : (license.planType || 'Goi dich vu');
+
+      try {
+        await sendExpiryWarningEmail({
+          toEmail: license.userEmail,
+          fullName,
+          key: license.key,
+          planName,
+          daysLeft,
+          expiresAt: license.expiresAt
+        });
+        license.lastExpiryWarningSent = now.toISOString();
+        await license.save();
+        sentCount++;
+        console.log('[Expiry Warning] Da gui email canh bao cho ' + license.userEmail + ' (key ' + license.key + ', con ' + daysLeft + ' ngay)');
+      } catch (err) {
+        console.error('[Expiry Warning] Loi gui email cho ' + license.userEmail + ': ' + err.message);
+      }
+    }
+
+    if (sentCount > 0) {
+      console.log('[Expiry Warning] Tong cong da gui ' + sentCount + ' email canh bao sap het han.');
+    }
+  } catch (err) {
+    console.error('[Expiry Warning] Loi job canh bao: ' + err.message);
+  }
+}
+
+// Chay job canh bao moi 1 gio
+setInterval(sendExpiryWarnings, 60 * 60 * 1000);
+// Trigger lan dau sau 60s de MongoDB connect xong
+setTimeout(sendExpiryWarnings, 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`[License Server] Máy chủ bản quyền đang chạy tại http://127.0.0.1:${PORT}`);
