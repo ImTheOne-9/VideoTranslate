@@ -2744,7 +2744,15 @@ select option {
 }
 
 
-#studio-home-view,
+#studio-home-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 #studio-editor-view {
   height: 100%;
   display: flex;
