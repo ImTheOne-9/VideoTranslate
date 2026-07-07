@@ -2851,14 +2851,16 @@ document.querySelectorAll('.source-tab-btn').forEach(btn => {
     $('source-upload-container').classList.toggle('hidden', mode !== 'upload');
     
     if (mode === 'upload') {
-      $('selected-video-file').value = '';
-      document.querySelectorAll('#studio-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
-      setPreviewVideo(null);
+      // Không clear preview, giữ video đã chọn
     } else {
       $('video-upload').value = '';
       $('upload-video-preview').removeAttribute('src');
       $('upload-video-preview-container').classList.add('hidden');
-      setPreviewVideo(null);
+      // Khôi phục preview nếu đã có video library được chọn
+      const selectedFile = $('selected-video-file')?.value;
+      if (selectedFile) {
+        setPreviewVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+      }
     }
     updateConditionalFields();
   });
@@ -2874,17 +2876,20 @@ document.querySelectorAll('.reaction-tab-btn').forEach(btn => {
     $('reaction-mode').value = mode;
     
     if (mode === 'upload') {
-      $('selected-reaction-video-file').value = '';
-      document.querySelectorAll('#studio-reaction-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
-      setPreviewReactionVideo(null);
+      // Không clear preview, giữ video đã chọn
     } else if (mode === 'library') {
       $('reaction-upload').value = '';
       const preview = $('reaction-upload-preview');
       if (preview) preview.removeAttribute('src');
       const container = $('reaction-upload-preview-container');
       if (container) container.classList.add('hidden');
-      setPreviewReactionVideo(null);
+      // Khôi phục preview nếu đã có reaction video được chọn
+      const selectedFile = $('selected-reaction-video-file')?.value;
+      if (selectedFile) {
+        setPreviewReactionVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+      }
     } else {
+      // "none" mode: clear reaction hoàn toàn
       $('selected-reaction-video-file').value = '';
       document.querySelectorAll('#studio-reaction-video-grid .video-card-item').forEach(card => card.classList.remove('selected'));
       $('reaction-upload').value = '';
