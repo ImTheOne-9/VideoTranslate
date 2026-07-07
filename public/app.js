@@ -234,6 +234,11 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
+  // Mở modal thiết lập nếu thiếu CUDA hoặc Whisper (chỉ 1 lần)
+  if (!window._setupModalShown && (!dependencyStatus.cuda || !dependencyStatus.whisper)) {
+    window._setupModalShown = true;
+    setTimeout(() => openSetupModal(), 500);
+  }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
   renderVideoGrid(assets.videos);
@@ -6050,6 +6055,190 @@ window.checkLocalDependencies = checkLocalDependencies;
 window.showDependencyModal = showDependencyModal;
 window.closeDependencyModal = closeDependencyModal;
 window.startDependencyDownload = startDependencyDownload;
+
+// ==========================================
+// SETUP MODAL (gộp CUDA & Whisper khi lần đầu vào app)
+// ==========================================
+let setupDownloadState = { cuda: false, whisper: false };
+
+function openSetupModal() {
+  const cudaMissing = !dependencyStatus.cuda;
+  const whisperMissing = !dependencyStatus.whisper;
+  if (!cudaMissing && !whisperMissing) return;
+
+  const cudaItem = $('setup-cuda-item');
+  const whisperItem = $('setup-whisper-item');
+
+  if (cudaItem) {
+    cudaItem.classList.toggle('hidden', !cudaMissing);
+    resetSetupItemUI('cuda');
+  }
+  if (whisperItem) {
+    whisperItem.classList.toggle('hidden', !whisperMissing);
+    resetSetupItemUI('whisper');
+  }
+
+  setupDownloadState = { cuda: false, whisper: false };
+
+  const modal = $('setup-dependencies-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeSetupModal() {
+  const modal = $('setup-dependencies-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function resetSetupItemUI(type) {
+  const progressArea = $(`setup-${type}-progress-area`);
+  const errorEl = $(`setup-${type}-error`);
+  const btn = $(`setup-${type}-btn`);
+  if (progressArea) progressArea.classList.add('hidden');
+  if (errorEl) errorEl.classList.add('hidden');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = type === 'cuda' ? '📥 Tải CUDA' : '📥 Tải Whisper';
+    btn.style.background = 'var(--accent)';
+  }
+}
+
+async function startSetupDownload(type) {
+  if (setupDownloadState[type]) return; // đang tải rồi
+  setupDownloadState[type] = true;
+
+  // Vô hiệu hóa nút của item kia (chỉ tải 1 cái 1 lúc)
+  const setupOtherType = type === 'cuda' ? 'whisper' : 'cuda';
+  const otherBtn = $(`setup-${setupOtherType}-btn`);
+  if (otherBtn && !otherBtn.disabled) {
+    otherBtn.disabled = true;
+    otherBtn.style.opacity = '0.5';
+  }
+
+  const btn = $(`setup-${type}-btn`);
+  const progressArea = $(`setup-${type}-progress-area`);
+  const progressBar = $(`setup-${type}-progress-bar`);
+  const progressText = $(`setup-${type}-progress-text`);
+  const statusText = $(`setup-${type}-status-text`);
+  const errorEl = $(`setup-${type}-error`);
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang tải...'; btn.style.background = '#6b7280'; }
+  if (progressArea) progressArea.classList.remove('hidden');
+  if (errorEl) errorEl.classList.add('hidden');
+  if (progressBar) progressBar.style.width = '0%';
+  if (progressText) progressText.textContent = '0%';
+  if (statusText) statusText.textContent = 'Đang tải...';
+
+  try {
+    const res = await fetch('/api/download-dependency', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Yêu cầu tải thất bại');
+
+    // Poll progress
+    await pollSetupDownload(type);
+
+  } catch (err) {
+    console.error(`Lỗi tải ${type}:`, err);
+    if (errorEl) {
+      errorEl.textContent = `Lỗi: ${err.message}`;
+      errorEl.classList.remove('hidden');
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '📥 Thử lại';
+      btn.style.background = 'var(--accent)';
+    }
+    // Kích hoạt lại nút kia
+    const resetOtherBtn = $(`setup-${setupOtherType}-btn`);
+    if (resetOtherBtn && resetOtherBtn.disabled) {
+      resetOtherBtn.disabled = false;
+      resetOtherBtn.style.opacity = '1';
+    }
+    if (statusText) statusText.textContent = 'Thất bại';
+    setupDownloadState[type] = false;
+  }
+}
+
+function pollSetupDownload(type) {
+  return new Promise((resolve) => {
+    const interval = setInterval(async () => {
+      try {
+        const pRes = await fetch('/api/download-dependency-progress');
+        if (!pRes.ok) return;
+        const pData = await pRes.json();
+
+        const progressBar = $(`setup-${type}-progress-bar`);
+        const progressText = $(`setup-${type}-progress-text`);
+        const statusText = $(`setup-${type}-status-text`);
+        const btn = $(`setup-${type}-btn`);
+        const errorEl = $(`setup-${type}-error`);
+
+        if (pData.status === 'downloading') {
+          const pct = pData.percent || 0;
+          if (progressBar) progressBar.style.width = `${pct}%`;
+          if (progressText) progressText.textContent = `${pct}%`;
+        } else if (pData.status === 'success') {
+          clearInterval(interval);
+          if (progressBar) progressBar.style.width = '100%';
+          if (progressText) progressText.textContent = '100%';
+          if (statusText) statusText.textContent = '✅ Hoàn tất';
+          if (btn) {
+            btn.textContent = '✅ Đã tải';
+            btn.style.background = '#22c55e';
+          }
+
+          // Check lại dependency status
+          await checkLocalDependencies();
+
+          setupDownloadState[type] = false;
+
+          // Nếu cả 2 đều xong thì đóng modal
+          if (!setupDownloadState.cuda && !setupDownloadState.whisper &&
+              dependencyStatus.cuda && dependencyStatus.whisper) {
+            setTimeout(() => {
+              closeSetupModal();
+              toast('🎉 Đã tải xong tất cả tài nguyên hệ thống!', 'success');
+            }, 1200);
+          } else {
+            // Chỉ disable nút tải của cái đã xong
+            if (btn) btn.disabled = true;
+            // Kích hoạt lại nút kia nếu nó đang bị vô hiệu
+            const enableOtherBtn = $(`setup-${type === 'cuda' ? 'whisper' : 'cuda'}-btn`);
+            if (enableOtherBtn && enableOtherBtn.disabled) {
+              enableOtherBtn.disabled = false;
+              enableOtherBtn.style.opacity = '1';
+            }
+          }
+          resolve(true);
+        } else if (pData.status === 'error') {
+          clearInterval(interval);
+          if (errorEl) {
+            errorEl.textContent = `Lỗi: ${pData.error || 'Không xác định'}`;
+            errorEl.classList.remove('hidden');
+          }
+          if (statusText) statusText.textContent = '❌ Thất bại';
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = '📥 Thử lại';
+            btn.style.background = 'var(--accent)';
+          }
+          setupDownloadState[type] = false;
+          resolve(false);
+        }
+      } catch (err) {
+        console.error(`Lỗi poll ${type}:`, err);
+        clearInterval(interval);
+      }
+    }, 500);
+  });
+}
+
+window.openSetupModal = openSetupModal;
+window.closeSetupModal = closeSetupModal;
+window.startSetupDownload = startSetupDownload;
 
 // ==========================================
 // AUTO-UPDATE FEATURE HANDLER

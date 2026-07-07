@@ -2015,6 +2015,73 @@
     </div>
   </div>
 
+  <!-- Modal Thiết lập tài nguyên lần đầu (CUDA & Whisper) -->
+  <div id="setup-dependencies-modal" class="fb-modal-overlay hidden" style="z-index: 10006;">
+    <div class="fb-modal-content" style="width: 520px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(59, 130, 246, 0.1); border-bottom-color: rgba(59, 130, 246, 0.2);">
+        <h3 style="color: #3b82f6; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
+          🔧 Thiết lập tài nguyên hệ thống
+        </h3>
+        <button class="fb-modal-close" onclick="closeSetupModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        <p style="font-size: 13px; color: var(--muted); margin: 0; line-height: 1.5;">
+          Một số tài nguyên cần thiết chưa được cài đặt. Vui lòng tải xuống bên dưới:
+        </p>
+
+        <!-- CUDA item -->
+        <div id="setup-cuda-item" class="hidden" style="border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--panel-2);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+            <div style="flex: 1;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🚀 Thư viện CUDA 12</div>
+              <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
+                Tăng tốc GPU, giúp render và thuyết minh nhanh gấp 5-10 lần. Dung lượng ~480MB.
+              </p>
+            </div>
+            <button type="button" id="setup-cuda-btn" class="premium-render-btn" style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: var(--accent); color: white;" onclick="startSetupDownload('cuda')">📥 Tải CUDA</button>
+          </div>
+          <div id="setup-cuda-progress-area" class="hidden" style="margin-top: 10px;">
+            <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
+              <div id="setup-cuda-progress-bar" style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+              <span id="setup-cuda-progress-text" style="font-size: 11px; color: var(--muted);">0%</span>
+              <span id="setup-cuda-status-text" style="font-size: 11px; color: var(--muted);">Đang tải...</span>
+            </div>
+          </div>
+          <div id="setup-cuda-error" class="hidden" style="color: #ef4444; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px;"></div>
+        </div>
+
+        <!-- Whisper item -->
+        <div id="setup-whisper-item" class="hidden" style="border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--panel-2);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+            <div style="flex: 1;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎙️ Công cụ nhận diện giọng nói Whisper</div>
+              <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
+                Nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng ~90MB.
+              </p>
+            </div>
+            <button type="button" id="setup-whisper-btn" class="premium-render-btn" style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: var(--accent); color: white;" onclick="startSetupDownload('whisper')">📥 Tải Whisper</button>
+          </div>
+          <div id="setup-whisper-progress-area" class="hidden" style="margin-top: 10px;">
+            <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
+              <div id="setup-whisper-progress-bar" style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+              <span id="setup-whisper-progress-text" style="font-size: 11px; color: var(--muted);">0%</span>
+              <span id="setup-whisper-status-text" style="font-size: 11px; color: var(--muted);">Đang tải...</span>
+            </div>
+          </div>
+          <div id="setup-whisper-error" class="hidden" style="color: #ef4444; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px;"></div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 4px; justify-content: flex-end;">
+          <button type="button" id="setup-close-btn" class="premium-render-btn ghost-btn" style="margin: 0;" onclick="closeSetupModal()">Bỏ qua</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Hàng đợi Render -->
   <div id="render-queue-modal" class="fb-modal-overlay hidden" style="z-index: 10002;">
     <div class="fb-modal-content" style="width: 600px; max-width: 95%;">
