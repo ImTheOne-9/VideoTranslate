@@ -555,7 +555,7 @@ async function executeRenderTask(task) {
               throw new Error(`Không tìm thấy file âm thanh thuyết minh đầu ra của nhóm câu ${idx + 1} sau khi chạy OmniVoice.`);
             }
           } catch (err) {
-            console.error(`Lỗi khi thuyết minh nhóm câu ${idx + 1}/${groups.length}:`, err.message);
+            console.error(`Lỗi khi thuyết minh nhóm câu ${idx + 1}/${groups.length}:`, err.stderr || err.message);
             throw err;
           }
         }
@@ -991,7 +991,7 @@ async function executeRenderTask(task) {
         }
         mixLabels.push(`[${label}]`);
       });
-      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
+      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=1[aout]`);
       filterComplex.push(audioFilters.join(';'));
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
@@ -1044,7 +1044,7 @@ async function executeRenderTask(task) {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
     }
   } catch (error) {
-    console.error('Render studio error:', error.stderr || error.message);
+    console.error('Render studio error:', error.stderr || error.message, error.code ? `(code: ${error.code})` : '');
     shared.state.isStudioRendering = false;
     shared.state.activeRenderId = null;
     if (shared.state.currentActiveTask === task) {
