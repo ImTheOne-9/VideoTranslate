@@ -665,6 +665,13 @@ export default function Admin({ showToast }) {
           Hết Hạn
         </span>
       );
+    } else if (typeof k.daysLeft === 'number' && k.daysLeft >= 0 && k.daysLeft <= 7) {
+      const urgent = k.daysLeft <= 1;
+      return (
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${urgent ? 'bg-rose-500/10 text-rose-400 border-rose-900/30' : 'bg-amber-500/10 text-amber-500 border-amber-900/30'}`}>
+          Sắp Hết Hạn (còn {k.daysLeft} ngày)
+        </span>
+      );
     } else if (k.hwid) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-900/30">
@@ -722,7 +729,7 @@ export default function Admin({ showToast }) {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-6 lg:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-3 lg:p-4 space-y-4">
         
         {/* Main Tab Controls */}
         <div className="flex border-b border-zinc-900 gap-6 text-sm font-semibold mb-6">

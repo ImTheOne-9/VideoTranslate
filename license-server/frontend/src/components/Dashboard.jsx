@@ -149,6 +149,13 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
           Hết Hạn
         </span>
       );
+    } else if (typeof k.daysLeft === 'number' && k.daysLeft >= 0 && k.daysLeft <= 7) {
+      const urgent = k.daysLeft <= 1;
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${urgent ? 'bg-rose-950/80 text-rose-400 border-rose-900/30' : 'bg-amber-950/80 text-amber-400 border-amber-900/30'}`}>
+          Sắp Hết Hạn{typeof k.daysLeft === 'number' ? ' (còn ' + k.daysLeft + ' ngày)' : ''}
+        </span>
+      );
     } else if (k.hwid) {
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-955/80 text-emerald-400 border border-emerald-900/30">
