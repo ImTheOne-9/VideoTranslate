@@ -78,14 +78,19 @@
           <p id="view-desc">Dán link YouTube, TikTok, Douyin, Facebook, Instagram hoặc Xiaohongshu để tải về thư mục downloads.</p>
         </div>
         <div id="topbar-project-info" style="display: none; align-items: center; justify-content: space-between; flex: 1;">
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <span style="font-size: 10px; color: var(--muted); font-weight: 700; letter-spacing: 0.5px;">DỰ ÁN HIỆN TẠI</span>
-            <input type="text" id="project-name-input" class="premium-input" style="height: 28px; font-weight: 700; font-size: 16px; background: transparent; border: none; border-bottom: 1.5px dashed var(--border); border-radius: 0; padding: 0; color: var(--text); width: 280px; margin: 0;" placeholder="Nhập tên dự án..." value="Dự án chưa đặt tên">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-size: 10px; color: var(--muted); font-weight: 700; letter-spacing: 0.5px;">DỰ ÁN HIỆN TẠI</span>
+              <input type="text" id="project-name-input" class="premium-input" style="height: 28px; font-weight: 700; font-size: 16px; background: transparent; border: none; border-bottom: 1.5px dashed var(--border); border-radius: 0; padding: 0; color: var(--text); width: 280px; margin: 0;" placeholder="Nhập tên dự án..." value="Dự án chưa đặt tên">
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button type="button" class="ghost-btn" id="back-project-btn-top" onclick="backToStudioHome()" style="padding: 0 12px; height: 30px; font-size: 12px;">Quay lại</button>
+              <button type="button" class="ghost-btn" id="new-project-btn-top" onclick="createNewProject()" style="padding: 0 12px; height: 30px; font-size: 12px;">Mới</button>
+              <button type="button" class="ghost-btn" id="save-project-btn-top" onclick="saveProjectExplicitly()" style="padding: 0 12px; height: 30px; font-size: 12px; color: var(--accent);">Lưu</button>
+            </div>
           </div>
-          <div style="display: flex; gap: 6px;">
-            <button type="button" class="ghost-btn" id="back-project-btn-top" onclick="backToStudioHome()" style="padding: 0 12px; height: 30px; font-size: 12px;">Quay lại</button>
-            <button type="button" class="ghost-btn" id="new-project-btn-top" onclick="createNewProject()" style="padding: 0 12px; height: 30px; font-size: 12px;">Mới</button>
-            <button type="button" class="ghost-btn" id="save-project-btn-top" onclick="saveProjectExplicitly()" style="padding: 0 12px; height: 30px; font-size: 12px; color: var(--accent);">Lưu</button>
+          <div style="min-width: 320px;">
+            <button type="submit" id="render-btn" class="premium-render-btn" style="width: 100%; padding: 0 16px; height: 32px; font-size: 12px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);">RENDER VIDEO</button>
           </div>
         </div>
       </header>
@@ -482,9 +487,9 @@
                   <div id="studio-timeline-panel" class="studio-timeline-panel hidden" style="margin-top: 15px; background: rgba(8, 12, 16, 0.6); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; font-family: inherit; position: relative;">
                     <div class="timeline-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                       <div style="display: flex; align-items: center; gap: 8px;">
-                        <button type="button" id="timeline-play-btn" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; height: 28px; width: auto; margin: 0; font-weight: 600;">Phát</button>
+                        <button type="button" id="timeline-play-btn" class="ghost-btn" style="padding: 4px 10px; height: 28px; width: auto; margin: 0; display: inline-flex; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
                         <button type="button" class="ghost-btn" style="padding: 4px 10px; font-size: 11px; height: 28px; width: auto; margin: 0; font-weight: 600;" onclick="saveStudioTemplate()">Thêm cấu hình</button>
-                        <button type="submit" id="render-btn" class="premium-render-btn" style="width: auto; padding: 4px 12px; font-size: 11px; height: 28px; margin: 0; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; border-radius: 4px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2); display: inline-flex; align-items: center; justify-content: center; gap: 8px;">RENDER VIDEO</button>
+                        
                       </div>
                       <div style="display: flex; align-items: center; gap: 12px;">
                         <div style="display: flex; align-items: center; gap: 8px;" title="Chỉnh âm lượng video gốc khi xem trước">
@@ -550,11 +555,11 @@
             <div class="studio-config-column-new">
               <!-- Thanh Tab Icon ở đầu cột cấu hình -->
               <div class="studio-config-tabs-bar">
-                <button type="button" class="config-tab-icon-btn active" data-target="panel-source-video" title="Video nguồn">Nguồn</button>
-                <button type="button" class="config-tab-icon-btn" data-target="panel-reaction" title="Ghép video reaction">Reaction</button>
-                <button type="button" class="config-tab-icon-btn" data-target="panel-subtitle" title="Phụ đề Subtitle">Phụ đề</button>
-                <button type="button" class="config-tab-icon-btn" data-target="panel-voice" title="Lồng tiếng & Cloner">Giọng đọc</button>
-                <button type="button" class="config-tab-icon-btn" data-target="panel-music" title="Bảng trộn âm lượng">Âm lượng</button>
+                <button type="button" class="config-tab-icon-btn active" data-target="panel-source-video" title="Video nguồn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg></button>
+                <button type="button" class="config-tab-icon-btn" data-target="panel-reaction" title="Ghép video reaction"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><rect x="9" y="9" width="10" height="10" rx="1.5"/></svg></button>
+                <button type="button" class="config-tab-icon-btn" data-target="panel-subtitle" title="Phụ đề Subtitle"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/><line x1="6" y1="16" x2="14" y2="16"/></svg></button>
+                <button type="button" class="config-tab-icon-btn" data-target="panel-voice" title="Lồng tiếng & Cloner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
+                <button type="button" class="config-tab-icon-btn" data-target="panel-music" title="Bảng trộn âm lượng"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33"/><path d="M19.4 9a1.65 1.65 0 0 1 .33-1.82l.06-.06a2 2 0 0 0-2.83-2.83l-.06.06a1.65 1.65 0 0 1-1.82.33"/><path d="M4.6 15a1.65 1.65 0 0 1-.33 1.82l-.06.06a2 2 0 0 0 2.83 2.83l.06-.06a1.65 1.65 0 0 0 1.82-.33"/><path d="M4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33"/></svg></button>
               </div>
 
               <!-- Cấu hình sẵn Panel (No logo, save/delete moved inside custom dropdown list) -->
@@ -1002,8 +1007,8 @@
                     </div>
                     
                     <div style="display: none;">
-                      <span id="omi-steps-badge">16</span>
-                      <input type="range" name="omiSteps" id="omi-steps-slider" value="16" min="10" max="50" step="1">
+                      <span id="omi-steps-badge">40</span>
+                      <input type="range" name="omiSteps" id="omi-steps-slider" value="40" min="10" max="50" step="1">
                       <select id="omi-seed-preset">
                         <option value="" selected>Tự động ngẫu nhiên</option>
                       </select>

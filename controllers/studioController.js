@@ -43,13 +43,13 @@ function runFFmpegWithProgress(args, totalDuration) {
   return new Promise((resolve, reject) => {
     console.log(`[FFmpeg Progress] Running FFmpeg with total duration ${totalDuration}s`);
     const proc = shared.spawn(shared.FFMPEG_PATH, args);
-    
+
     let stderrOutput = '';
-    
+
     proc.stderr.on('data', (data) => {
       const chunk = data.toString('utf8');
       stderrOutput += chunk;
-      
+
       if (totalDuration > 0) {
         const match = chunk.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
         if (match) {
@@ -57,14 +57,14 @@ function runFFmpegWithProgress(args, totalDuration) {
           const minutes = parseInt(match[2], 10);
           const seconds = parseInt(match[3], 10);
           const currentTime = hours * 3600 + minutes * 60 + seconds;
-          
+
           const ffmpegProgress = Math.min(99, Math.floor((currentTime / totalDuration) * 100));
           const overallPercent = 83 + Math.floor((ffmpegProgress / 100) * 14);
           shared.updateStudioProgress(overallPercent, `Đang kết xuất (render) video: ${ffmpegProgress}%`);
         }
       }
     });
-    
+
     let settled = false;
     const safeResolve = (v) => { if (!settled) { settled = true; clearTimeout(timeoutHandle); resolve(v); } };
     const safeReject = (e) => { if (!settled) { settled = true; clearTimeout(timeoutHandle); e.stderr = stderrOutput; reject(e); } };
@@ -76,7 +76,7 @@ function runFFmpegWithProgress(args, totalDuration) {
         safeReject(new Error(`FFmpeg error (code ${code})`));
       }
     });
-    
+
     proc.on('error', (err) => {
       safeReject(err);
     });
@@ -85,7 +85,7 @@ function runFFmpegWithProgress(args, totalDuration) {
     // Timeout dự phòng: 2 tiếng (tránh treo vĩnh viễn nếu pipe chết mà không fire event)
     const timeoutHandle = setTimeout(() => {
       if (!settled) {
-        try { proc.kill('SIGKILL'); } catch (e) {}
+        try { proc.kill('SIGKILL'); } catch (e) { }
         safeReject(new Error('FFmpeg render timeout (2h)'));
       }
     }, 2 * 60 * 60 * 1000);
@@ -123,7 +123,7 @@ function convertSrtToAss(srtPath, assPath, options) {
     let minutes = "00";
     let seconds = "00";
     let ms = "000";
-    
+
     if (parts.length === 2) {
       minutes = parts[0];
       const secParts = parts[1].split(',');
@@ -202,11 +202,11 @@ async function executeRenderTask(task) {
 
   const res = {
     statusCode: 200,
-    status: function(code) {
+    status: function (code) {
       this.statusCode = code;
       return this;
     },
-    json: function(data) {
+    json: function (data) {
       if (this.statusCode >= 400 || data.error) {
         throw new Error(data.error || 'Lỗi không xác định khi kết xuất');
       }
@@ -423,27 +423,27 @@ async function executeRenderTask(task) {
 
         const groups = [];
         let currentGroup = [];
-        
+
         for (let i = 0; i < srtArray.length; i++) {
           const item = srtArray[i];
           currentGroup.push(item);
-          
+
           const currentEndMs = srtTimeToMs(item.endTime);
           const nextItem = srtArray[i + 1];
-          
+
           let shouldSplit = false;
           if (!nextItem) {
             shouldSplit = true;
           } else {
             const nextStartMs = srtTimeToMs(nextItem.startTime);
             const gapMs = nextStartMs - currentEndMs;
-            
+
             const endsWithPunctuation = /[.!?…]$/.test(item.text.trim());
             if (gapMs > 1000 || endsWithPunctuation) {
               shouldSplit = true;
             }
           }
-          
+
           if (shouldSplit) {
             groups.push(currentGroup);
             currentGroup = [];
@@ -467,14 +467,14 @@ async function executeRenderTask(task) {
           shared.updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
 
           const chunkPath = path.join(workDir, `chunk_${idx}_${timestamp}.wav`);
-          
+
           const startMs = srtTimeToMs(group[0].startTime);
           const endMs = srtTimeToMs(group[group.length - 1].endTime);
           const durationSec = Math.max(0.5, (endMs - startMs) / 1000);
-          
+
           const syllableCount = lineText.split(/\s+/).filter(w => w.length > 0).length;
           const naturalDuration = Math.max(0.6, syllableCount * 0.17);
-          
+
           const minSpeed = originalIsChinese ? 0.85 : 1.0;
           const speed = Math.max(minSpeed, Math.min(2.0, naturalDuration / durationSec));
           const targetDuration = naturalDuration / speed;
@@ -489,7 +489,7 @@ async function executeRenderTask(task) {
             '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
             '--speed', String(speed.toFixed(2)),
-            '--position-temperature', '1.5'
+            '--position-temperature', '1.0'
           ];
 
           if (finalRefAudioPath && refText) {
@@ -500,7 +500,7 @@ async function executeRenderTask(task) {
             omnivoiceArgs.push('--duration', String(targetDuration.toFixed(2)));
           }
 
-          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs/1000).toFixed(2)}s)`);
+          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s)`);
           try {
             await shared.runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(shared.OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
             if (fs.existsSync(chunkPath)) {
@@ -508,14 +508,14 @@ async function executeRenderTask(task) {
                 const stats = fs.statSync(chunkPath);
                 const pcmSize = stats.size - 44;
                 const actualDurationMs = Math.round(pcmSize / 48);
-                
+
                 const subtitleDurationMs = endMs - startMs;
                 const maxAllowedDurationMs = Math.max(200, subtitleDurationMs - 50);
-                
+
                 if (actualDurationMs > maxAllowedDurationMs) {
                   const speedUpRatio = actualDurationMs / maxAllowedDurationMs;
                   console.log(`[OmniVoice-Sub] Nhóm câu ${idx + 1} dài hơn phụ đề (${actualDurationMs}ms > ${maxAllowedDurationMs}ms). Đang dùng FFmpeg để tăng tốc ${speedUpRatio.toFixed(2)}x...`);
-                  
+
                   const tempSpeedUpPath = chunkPath.replace('.wav', '_speedup.wav');
                   let remainingRatio = speedUpRatio;
                   const filterParts = [];
@@ -527,13 +527,13 @@ async function executeRenderTask(task) {
                     filterParts.push(`atempo=${remainingRatio.toFixed(3)}`);
                   }
                   const atempoFilter = filterParts.join(',');
-                  
+
                   const ffmpegSpeedArgs = [
                     '-i', chunkPath,
                     '-filter:a', atempoFilter,
                     '-y', tempSpeedUpPath
                   ];
-                  
+
                   await shared.runExecFile(shared.FFMPEG_PATH, ffmpegSpeedArgs);
                   if (fs.existsSync(tempSpeedUpPath)) {
                     fs.copyFileSync(tempSpeedUpPath, chunkPath);
@@ -571,7 +571,7 @@ async function executeRenderTask(task) {
           console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
           let maxEndMs = 0;
           const chunkDataList = [];
-          
+
           for (const chunk of voiceChunks) {
             const stats = fs.statSync(chunk.filePath);
             const pcmSize = stats.size - 44;
@@ -580,18 +580,18 @@ async function executeRenderTask(task) {
             if (endMs > maxEndMs) {
               maxEndMs = endMs;
             }
-            
+
             const fd = fs.openSync(chunk.filePath, 'r');
             const pcmBuffer = Buffer.alloc(pcmSize);
             fs.readSync(fd, pcmBuffer, 0, pcmSize, 44);
             fs.closeSync(fd);
-            
+
             const totalSamples = pcmSize / 2;
             const fadeSamples = Math.min(360, Math.floor(totalSamples / 2));
             for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
               const byteOffset = sampleIdx * 2;
               let val = pcmBuffer.readInt16LE(byteOffset);
-              
+
               if (sampleIdx < fadeSamples) {
                 val = Math.round(val * (sampleIdx / fadeSamples));
               } else if (sampleIdx >= totalSamples - fadeSamples) {
@@ -600,43 +600,43 @@ async function executeRenderTask(task) {
               }
               pcmBuffer.writeInt16LE(val, byteOffset);
             }
-            
+
             chunkDataList.push({
               startMs: chunk.startMs,
               pcmBuffer: pcmBuffer,
               durationMs: durationMs
             });
           }
-          
+
           if (maxEndMs > 0) {
             const combinedDataSize = maxEndMs * 48;
             const combinedBuffer = Buffer.alloc(combinedDataSize);
-            
+
             for (const chunk of chunkDataList) {
               const targetOffset = chunk.startMs * 48;
               const pcmLength = chunk.pcmBuffer.length;
               const limit = Math.min(pcmLength, combinedDataSize - targetOffset);
-              
+
               for (let i = 0; i < limit; i += 2) {
                 if (targetOffset + i + 1 >= combinedDataSize) break;
-                
+
                 const sample1 = combinedBuffer.readInt16LE(targetOffset + i);
                 const sample2 = chunk.pcmBuffer.readInt16LE(i);
-                
+
                 let mixed = sample1 + sample2;
                 if (mixed > 32767) mixed = 32767;
                 else if (mixed < -32768) mixed = -32768;
-                
+
                 combinedBuffer.writeInt16LE(mixed, targetOffset + i);
               }
             }
-            
+
             const wavHeader = createWavHeader(combinedDataSize, 24000, 1, 16);
             voicePath = path.join(workDir, `combined_voice_${timestamp}.wav`);
             fs.writeFileSync(voicePath, Buffer.concat([wavHeader, combinedBuffer]));
             tempFiles.push(voicePath);
-            
-            console.log(`[OmniVoice] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs/1000).toFixed(2)}s)`);
+
+            console.log(`[OmniVoice] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs / 1000).toFixed(2)}s)`);
             voiceChunks.length = 0;
           }
         } catch (mergeErr) {
@@ -669,7 +669,7 @@ async function executeRenderTask(task) {
           '--response-format', 'wav',
           '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
           '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
-          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
           '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
           '--position-temperature', '1.5'
         ];
@@ -686,7 +686,7 @@ async function executeRenderTask(task) {
         console.log('\n======================================================================');
         console.log(`[OmniVoice] Kịch bản đang đọc (${body.omiLanguage || 'vi'}):\n${omiScript}`);
         console.log('======================================================================\n');
-        
+
         const scriptOutName = `studio_${timestamp}.txt`;
         fs.writeFileSync(path.join(shared.RENDERS_DIR, scriptOutName), omiScript, 'utf8');
         console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(shared.RENDERS_DIR, scriptOutName)}`);
@@ -706,9 +706,10 @@ async function executeRenderTask(task) {
       musicPath = shared.resolveAssetPath('music', body.savedMusicFile);
     }
 
+    const hasCUDA = process.platform === 'win32' && fs.existsSync('C:\\Windows\\System32\\nvcuda.dll');
     const outName = `studio_${timestamp}.mp4`;
     const outPath = path.join(shared.RENDERS_DIR, outName);
-    const args = ['-i', sourceVideo];
+    const args = hasCUDA ? ['-hwaccel', 'cuda', '-i', sourceVideo] : ['-i', sourceVideo];
     const audioInputs = [];
 
     const voiceVolume = Math.max(0, Number(body.voiceVolume !== undefined ? body.voiceVolume : 1.0));
@@ -775,7 +776,7 @@ async function executeRenderTask(task) {
       } catch (err) {
         console.error('Lỗi định dạng phụ đề 1-2 dòng:', err.message);
       }
-      
+
       const ssaToAssAlignment = {
         1: 1, 2: 2, 3: 3, 9: 4, 10: 5, 11: 6, 5: 7, 6: 8, 7: 9
       };
@@ -784,14 +785,14 @@ async function executeRenderTask(task) {
       const isBold = body.subtitleBold !== 'false';
       const assColor = hexToAssColor(body.subtitleColor || '#FFFFFF');
       const theme = body.subtitleTheme || 'outline';
-      
+
       let borderStyle = 1;
       let outline = 2.5 * scaleFactor;
       let shadow = 1 * scaleFactor;
       let outlineColor = '&H00000000';
       let backColor = '&H80000000';
       let finalAssColor = assColor;
-      
+
       if (theme === 'box') {
         borderStyle = 3;
         backColor = '&H66000000';
@@ -864,31 +865,31 @@ async function executeRenderTask(task) {
           console.error('Lỗi parse blurBoxes JSON:', e.message);
         }
       }
-      
+
       if (!Array.isArray(blurBoxes) || blurBoxes.length === 0) {
         const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
         const blurWidthPercentVal = Math.min(100, Math.max(1, Number(body.blurWidth !== undefined ? body.blurWidth : 80))) / 100;
         const blurYPercentVal = Math.min(100, Math.max(0, Number(body.blurY !== undefined ? body.blurY : 75))) / 100;
         const blurHeightPercentVal = Math.min(100, Math.max(1, Number(body.blurHeight !== undefined ? body.blurHeight : 15))) / 100;
         const blurRadius = Math.min(50, Math.max(1, Number(body.blurRadius || 20)));
-        
+
         let blurXPercent = blurXPercentVal;
         if (blurXPercent + blurWidthPercentVal > 1) blurXPercent = 1 - blurWidthPercentVal;
         let blurYPercent = blurYPercentVal;
         if (blurYPercent + blurHeightPercentVal > 1) blurYPercent = 1 - blurHeightPercentVal;
-        
+
         const cropW = videoWidth * blurWidthPercentVal;
         const cropH = videoHeight * blurHeightPercentVal;
         const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
         const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
         const safeLumaRadius = Math.min(blurRadius, maxLumaR);
         const safeChromaRadius = Math.min(blurRadius, maxChromaR);
-        
+
         blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[${baseVideoLabel}]`;
       } else {
         let currentInputLabel = '0:v';
         const filters = [];
-        
+
         blurBoxes.forEach((box, index) => {
           const isLast = index === blurBoxes.length - 1;
           const outputLabel = isLast ? baseVideoLabel : `v_blur_${index}`;
@@ -897,26 +898,26 @@ async function executeRenderTask(task) {
           const yPercent = Math.min(100, Math.max(0, Number(box.y !== undefined ? box.y : 75))) / 100;
           const heightPercent = Math.min(100, Math.max(1, Number(box.height !== undefined ? box.height : 15))) / 100;
           const radius = Math.min(50, Math.max(1, Number(box.radius || 20)));
-          
+
           let clampedX = xPercent;
           if (clampedX + widthPercent > 1) clampedX = 1 - widthPercent;
           let clampedY = yPercent;
           if (clampedY + heightPercent > 1) clampedY = 1 - heightPercent;
-          
+
           const cropW = videoWidth * widthPercent;
           const cropH = videoHeight * heightPercent;
           const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
           const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
           const safeLumaRadius = Math.min(radius, maxLumaR);
           const safeChromaRadius = Math.min(radius, maxChromaR);
-          
+
           const start = Number(box.start !== undefined ? box.start : 0);
           const end = Number(box.end !== undefined ? box.end : 99999);
-          
+
           const origLabel = `orig_${index}`;
           const copyLabel = `copy_${index}`;
           const blurredLabel = `blurred_${index}`;
-          
+
           filters.push(`[${currentInputLabel}]split[${origLabel}][${copyLabel}]`);
           filters.push(`[${copyLabel}]crop=iw*${widthPercent}:ih*${heightPercent}:iw*${clampedX}:ih*${clampedY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[${blurredLabel}]`);
           filters.push(`[${origLabel}][${blurredLabel}]overlay=W*${clampedX}:H*${clampedY}:enable='between(t,${start},${end})'[${outputLabel}]`);
@@ -930,7 +931,7 @@ async function executeRenderTask(task) {
       hasVideoFilter = true;
       const rx = body.reactionX !== undefined && body.reactionX !== '' ? Number(body.reactionX) : null;
       const ry = body.reactionY !== undefined && body.reactionY !== '' ? Number(body.reactionY) : null;
-      
+
       let overlayPos = 'main_w-overlay_w-20:main_h-overlay_h-20';
       if (rx !== null && ry !== null) {
         overlayPos = `${rx}:${ry}`;
@@ -940,14 +941,14 @@ async function executeRenderTask(task) {
         if (position === 'top-right') overlayPos = 'main_w-overlay_w-20:20';
         if (position === 'top-left') overlayPos = '20:20';
       }
-      
+
       const width = Number(body.reactionWidth || 320);
       let filterChain = '';
       if (blurFilterString) {
         filterChain += blurFilterString + ';';
       }
       filterChain += `[${reactionInputIndex}:v]scale=${width}:-1[pip];[${baseVideoLabel}][pip]overlay=${overlayPos}`;
-      
+
       if (renderSubtitlePath) {
         filterChain += `[v_pip];[v_pip]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
       } else {
@@ -970,7 +971,7 @@ async function executeRenderTask(task) {
     if (hasVideoFilter && videoFilter) {
       filterComplex.push(videoFilter);
     }
-    
+
     let hasAudioFilter = false;
     const originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
     if (audioInputs.length > 0) {
@@ -991,30 +992,33 @@ async function executeRenderTask(task) {
         }
         mixLabels.push(`[${label}]`);
       });
-      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=1[aout]`);
+      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0,dynaudnorm=p=0.95:m=1[aout]`);
       filterComplex.push(audioFilters.join(';'));
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
       filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
     }
-    
+
     if (filterComplex.length > 0) {
       args.push('-filter_complex', filterComplex.join(';'));
     }
-    
+
     if (hasVideoFilter) {
       args.push('-map', '[vout]');
     } else {
       args.push('-map', '0:v');
     }
-    
+
     if (hasAudioFilter) {
       args.push('-map', '[aout]', '-c:a', 'aac');
     } else {
       args.push('-map', '0:a?', '-c:a', 'aac');
     }
 
-    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-movflags', '+faststart', '-shortest', '-y', outPath);
+    const encoderArgs = hasCUDA
+      ? ['-c:v', 'h264_nvenc', '-preset', 'p7', '-rc', 'vbr', '-cq', '23']
+      : ['-c:v', 'libx264', '-preset', 'veryfast'];
+    args.push(...encoderArgs, '-movflags', '+faststart', '-shortest', '-y', outPath);
     shared.updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
     console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
     await runFFmpegWithProgress(args, totalDuration);
@@ -1189,7 +1193,7 @@ module.exports = {
       }
       const content = fs.readFileSync(srcFile, 'utf8');
       const proj = JSON.parse(content);
-      
+
       const newId = `proj_${Date.now()}`;
       const newName = `${proj.name} (Bản sao)`;
       const newProj = {
@@ -1227,7 +1231,7 @@ module.exports = {
 
     console.log('Rendering Reaction with FFmpeg...');
     shared.execFile(shared.FFMPEG_PATH, args, (error, stdout, stderr) => {
-      try { fs.unlinkSync(reactionFile.path); } catch(e){}
+      try { fs.unlinkSync(reactionFile.path); } catch (e) { }
       if (error) {
         console.error('FFmpeg error:', stderr);
         return res.status(500).json({ error: 'Lỗi khi render video' });
@@ -1294,7 +1298,7 @@ module.exports = {
       shared.state.renderQueue.push(task);
       console.log(`[Queue] Đã xếp hàng tác vụ ${taskId}. Tổng hàng đợi: ${shared.state.renderQueue.length}`);
       processNextRenderTask();
-      
+
       return res.json({
         success: true,
         message: 'Đã thêm video vào hàng đợi thành công.',
@@ -1351,7 +1355,7 @@ module.exports = {
       };
       task.status = 'failed';
       task.step = 'Đã bị người dùng hủy';
-      
+
       shared.state.renderQueue.splice(taskIndex, 1);
       shared.state.currentActiveTask = null;
 
@@ -1402,7 +1406,7 @@ module.exports = {
       if (global.activeRenderRes) {
         try {
           global.activeRenderRes.status(400).json({ error: 'Render đã bị hủy.' });
-        } catch (e) {}
+        } catch (e) { }
         global.activeRenderRes = null;
       }
     }
