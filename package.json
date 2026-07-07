@@ -2,13 +2,13 @@
   "name": "video-studio-tools",
   "version": "1.0.11",
   "description": "Video Studio Tools",
-  "main": "main.js",
+  "main": "index.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "electron-dev": "electron .",
     "electron-dist": "electron-builder build --win --x64",
-    "build-obfuscate": "node tools/obfuscate.js --build",
+    "build-obfuscate": "node obfuscate.js --build",
     "test": "node test/run-tests.js"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@vitalets/google-translate-api": "^9.2.1",
     "adm-zip": "^0.5.17",
     "axios": "^1.18.0",
+    "bytenode": "^1.6.0",
     "content-disposition": "^0.5.4",
     "electron-updater": "^6.8.9",
     "express": "^4.21.0",
@@ -39,14 +40,16 @@
       "url": "https://huggingface.co/datasets/dvh1910/video-studio-tools/resolve/main/"
     },
     "directories": {
-      "output": "dist"
+      "output": "D:/BuildApp"
     },
+    "asar": true,
     "files": [
       "public/**/*",
-      "lib/**/*",
-      "controllers/**/*",
-      "server.js",
-      "main.js",
+      "lib/**/*.jsc",
+      "controllers/**/*.jsc",
+      "server.jsc",
+      "main.jsc",
+      "index.js",
       "package.json"
     ],
     "extraResources": [

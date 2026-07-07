@@ -3366,7 +3366,12 @@ app.post('/api/admin/toggle-status', adminAuth, async (req, res) => {
 
 // SPA Fallback Route
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
+  const indexPath = path.join(__dirname, 'frontend', 'dist', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(200).json({ status: 'ok', message: 'License Server đang chạy. Frontend chưa được build.' });
+  }
 });
 
 app.listen(PORT, () => {

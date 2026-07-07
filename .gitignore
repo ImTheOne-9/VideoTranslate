@@ -38,3 +38,5 @@ dist/
 .env.local
 license-server/.env
 license-server/database.json
+license.json
+*.jsc
