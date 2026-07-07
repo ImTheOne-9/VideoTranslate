@@ -15,9 +15,10 @@ const backendFiles = [
     .map(f => `controllers/${f}`)
 ];
 
-// File frontend làm rối bằng javascript-obfuscator
+// File chạy dạng JS thô cần làm rối bằng javascript-obfuscator
 const frontendFiles = [
-  'public/app.js'
+  'public/app.js',
+  'index.js'
 ];
 
 const OBFUSCATOR_OPTIONS = {
