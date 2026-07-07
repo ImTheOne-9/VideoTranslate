@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const { ensureModelsExist } = require('./lib/model-downloader');
 const { getAppDataRoot } = require('./lib/path-helper');
-const { checkLicenseStartup } = require('./lib/license-manager');
+const { checkLicenseStartup, startExpiryWarningWatcher } = require('./lib/license-manager');
 
 // Cấu hình thư mục log
 const logDir = app.getPath('userData');
@@ -298,6 +298,8 @@ app.whenReady().then(async () => {
     if (licenseCheck.valid) {
       console.log('Xác thực bản quyền thành công!');
       createWindow(global.runningPort, true);
+      // Bat dau background watcher canh bao sap het han key
+      startExpiryWarningWatcher();
     } else {
       console.warn(`Xác thực bản quyền thất bại: ${licenseCheck.error}`);
       createWindow(global.runningPort, false, licenseCheck.error);
@@ -389,5 +391,8 @@ app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0 && global.runningPort) {
     const licenseCheck = await checkLicenseStartup();
     createWindow(global.runningPort, licenseCheck.valid, licenseCheck.error || '');
+    if (licenseCheck.valid) {
+      startExpiryWarningWatcher();
+    }
   }
 });
