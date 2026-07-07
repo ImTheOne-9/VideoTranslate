@@ -50,6 +50,7 @@
       "server.jsc",
       "main.jsc",
       "index.js",
+      "logo.ico",
       "package.json"
     ],
     "extraResources": [
@@ -66,6 +67,7 @@
       }
     ],
     "win": {
+      "icon": "logo.ico",
       "target": [
         "nsis"
       ],
@@ -74,6 +76,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "installerIcon": "logo.ico",
+      "uninstallerIcon": "logo.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false,
