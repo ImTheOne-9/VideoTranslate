@@ -3402,6 +3402,7 @@ if (previewVideo && voiceAudio && musicAudio) {
   musicAudio.loop = true;
 
   previewVideo.addEventListener('play', () => {
+    if (typeof applyMixerVolumes === 'function') applyMixerVolumes();
     if (voiceAudio.src) voiceAudio.play().catch(() => {});
     if (musicAudio.src) musicAudio.play().catch(() => {});
   });
@@ -3449,20 +3450,27 @@ function applyMixerVolumes() {
   const musicAudio = document.getElementById('preview-music-audio');
 
   const origSlider = document.querySelector('[name="originalVolume"]');
-  if (origSlider && previewVideo) {
+  if (origSlider) {
     const vol = Math.min(sliderToVolume(origSlider.value), 1);
-    previewVideo.volume = vol;
-    previewVideo.muted = (vol === 0);
+    console.log('[Mixer] originalVolume:', origSlider.value, '→ vol:', vol);
+    if (previewVideo) {
+      previewVideo.volume = vol;
+      previewVideo.muted = (vol === 0);
+    }
   }
 
   const voiceSlider = document.querySelector('[name="voiceVolume"]');
-  if (voiceSlider && voiceAudio) {
-    voiceAudio.volume = Math.min(sliderToVolume(voiceSlider.value), 1);
+  if (voiceSlider) {
+    const vol = Math.min(sliderToVolume(voiceSlider.value), 1);
+    console.log('[Mixer] voiceVolume:', voiceSlider.value, '→ vol:', vol);
+    if (voiceAudio) voiceAudio.volume = vol;
   }
 
   const musicSlider = document.querySelector('[name="musicVolume"]');
-  if (musicSlider && musicAudio) {
-    musicAudio.volume = Math.min(sliderToVolume(musicSlider.value), 1);
+  if (musicSlider) {
+    const vol = Math.min(sliderToVolume(musicSlider.value), 1);
+    console.log('[Mixer] musicVolume:', musicSlider.value, '→ vol:', vol);
+    if (musicAudio) musicAudio.volume = vol;
   }
 }
 
@@ -6302,6 +6310,16 @@ function deserializeStudioForm(obj) {
   // Áp dụng âm lượng mixer đã lưu lên preview
   applyMixerVolumes();
 
+  // Cập nhật label % cho volume sliders
+  ['originalVolume', 'voiceVolume', 'musicVolume'].forEach(name => {
+    const el = document.querySelector(`[name="${name}"]`);
+    if (el) {
+      const spanId = name.replace(/([A-Z])/g, "-$1").toLowerCase() + "-val";
+      const valSpan = $(spanId);
+      if (valSpan) valSpan.textContent = Math.round(sliderToVolume(el.value) * 100) + '%';
+    }
+  });
+
   // Cập nhật nguồn audio preview cho giọng/nhạc
   if (typeof updatePreviewAudioSources === 'function') {
     updatePreviewAudioSources();
@@ -6456,6 +6474,13 @@ function setupStudioFormAutoSave() {
   let autoSaveTimeout = null;
   const triggerAutoSave = () => {
     window.__projectDirty = true;
+
+    // Backup form data to localStorage ngay lập tức khi có thay đổi
+    try {
+      const formData = serializeStudioForm();
+      localStorage.setItem('studio_form_backup', JSON.stringify(formData));
+    } catch (e) { /* silent */ }
+
     if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(async () => {
       const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
@@ -6586,6 +6611,15 @@ async function loadProjectQuietly(id) {
 
         // Gọi lại các hàm cập nhật UI sau khi merge backup
         if (typeof applyMixerVolumes === 'function') applyMixerVolumes();
+        // Cập nhật label % cho volume sliders
+        ['originalVolume', 'voiceVolume', 'musicVolume'].forEach(name => {
+          const el = document.querySelector(`[name="${name}"]`);
+          if (el) {
+            const spanId = name.replace(/([A-Z])/g, "-$1").toLowerCase() + "-val";
+            const valSpan = $(spanId);
+            if (valSpan) valSpan.textContent = Math.round(sliderToVolume(el.value) * 100) + '%';
+          }
+        });
         const aspectInput = form.elements['previewAspect'];
         if (aspectInput) aspectInput.dispatchEvent(new Event('change'));
         renderSelectedVoiceRow();
@@ -6777,8 +6811,18 @@ function initActiveProject() {
 window.__projectDirty = false;
 window.__isProjectDirty = () => window.__projectDirty;
 window.__getProjectName = () => currentProjectName || 'Dự án chưa đặt tên';
-window.__saveProjectForQuit = () => {
-  saveProjectSynchronously();
+window.__saveProjectForQuit = async () => {
+  // Backup form data to localStorage ngay lập tức (luôn chạy trước)
+  try {
+    const formData = serializeStudioForm();
+    localStorage.setItem('studio_form_backup', JSON.stringify(formData));
+  } catch (e) { /* silent */ }
+
+  try {
+    await saveProjectExplicitly();
+  } catch (e) {
+    console.error('[Quit] Lỗi lưu dự án:', e.message);
+  }
   window.__projectDirty = false;
 };
 
