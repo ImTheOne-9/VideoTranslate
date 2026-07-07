@@ -91,6 +91,12 @@ function createLogWindow() {
   logWindow.setMenu(null);
   logWindow.loadFile(path.join(__dirname, 'public', 'log-viewer.html'));
 
+  if (app.isPackaged) {
+    logWindow.webContents.on('devtools-opened', () => {
+      logWindow.webContents.closeDevTools();
+    });
+  }
+
   logWindow.on('closed', () => {
     logWindow = null;
   });
@@ -116,8 +122,8 @@ ipcMain.on('confirm-close-choice', (event, choice) => {
   }
 });
 
-// Require server.js để lấy hàm startServer và dọn dẹp tiến trình con
-const { startServer, killAllActiveProcesses } = require('./server.js');
+// Require server để lấy hàm startServer và dọn dẹp tiến trình con
+const { startServer, killAllActiveProcesses } = require('./server');
 
 app.on('second-instance', () => {
   if (mainWindow) {
@@ -160,15 +166,19 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
   // Chỉ bật tự động DevTools ở môi trường phát triển (chưa đóng gói)
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
+  } else {
+    mainWindow.webContents.on('devtools-opened', () => {
+      mainWindow.webContents.closeDevTools();
+    });
   }
 
-  // Đăng ký phím tắt Ctrl+R / F5 để tải lại trang và Ctrl+Shift+I để bật DevTools
+  // Đăng ký phím tắt Ctrl+R / F5 để tải lại trang và Ctrl+Shift+I để bật DevTools (chỉ ở dev)
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if ((input.control && input.key.toLowerCase() === 'r') || input.key === 'F5') {
       mainWindow.reload();
       event.preventDefault();
     }
-    if (app.isPackaged && input.control && input.shift && input.key.toLowerCase() === 'i') {
+    if (!app.isPackaged && input.control && input.shift && input.key.toLowerCase() === 'i') {
       mainWindow.webContents.toggleDevTools();
       event.preventDefault();
     }
@@ -203,6 +213,12 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
 
     confirmWindow.setMenu(null);
     confirmWindow.loadURL(`http://127.0.0.1:${global.runningPort}/close-confirm.html`);
+
+    if (app.isPackaged) {
+      confirmWindow.webContents.on('devtools-opened', () => {
+        confirmWindow.webContents.closeDevTools();
+      });
+    }
 
     confirmWindow.on('closed', () => {
       confirmWindow = null;
