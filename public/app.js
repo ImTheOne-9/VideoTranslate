@@ -776,6 +776,11 @@ async function saveVoice(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const btn = event.submitter;
+  const fileInput = form.querySelector('input[type="file"][name="voice"]');
+  if (fileInput && fileInput.files[0] && !isAllowedAudioFile(fileInput.files[0].name)) {
+    toast('❌ Chỉ hỗ trợ file audio (.mp3, .wav, .m4a, .aac, .ogg)', 'error');
+    return;
+  }
   setBusy(btn, true, 'Đang lưu...');
   try {
     const res = await fetch('/api/save-voice', { method: 'POST', body: new FormData(form) });
@@ -796,6 +801,11 @@ async function saveMusic(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const btn = event.submitter;
+  const fileInput = form.querySelector('input[type="file"][name="music"]');
+  if (fileInput && fileInput.files[0] && !isAllowedAudioFile(fileInput.files[0].name)) {
+    toast('❌ Chỉ hỗ trợ file audio (.mp3, .wav, .m4a, .aac, .ogg)', 'error');
+    return;
+  }
   setBusy(btn, true, 'Đang lưu...');
   try {
     const res = await fetch('/api/save-music', { method: 'POST', body: new FormData(form) });
@@ -2999,6 +3009,20 @@ $('video-upload').addEventListener('change', async function() {
   updateConditionalFields();
 });
 
+// Kiểm tra định dạng file audio cho phép
+function isAllowedAudioFile(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  return ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'mp4'].includes(ext);
+}
+
+// Voice upload validation
+$('voice-upload').addEventListener('change', function() {
+  if (this.files && this.files[0] && !isAllowedAudioFile(this.files[0].name)) {
+    toast('❌ Chỉ hỗ trợ file audio (.mp3, .wav, .m4a, .aac, .ogg)', 'error');
+    this.value = '';
+  }
+});
+
 // Local music upload preview and auto-upload handler
 $('music-upload').addEventListener('change', async function() {
   const container = $('upload-music-preview-container');
@@ -3008,6 +3032,12 @@ $('music-upload').addEventListener('change', async function() {
   
   if (this.files && this.files[0]) {
     const file = this.files[0];
+    if (!isAllowedAudioFile(file.name)) {
+toast('❌ Chỉ hỗ trợ file audio/video (.mp3, .wav, .m4a, .aac, .ogg, .mp4)', 'error');
+      this.value = '';
+      container.classList.add('hidden');
+      return;
+    }
     const objectUrl = URL.createObjectURL(file);
     audio.src = objectUrl;
     nameEl.textContent = file.name;
