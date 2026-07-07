@@ -2929,9 +2929,14 @@ select option {
   margin-top: 4px;
 }
 
-.project-action-dropdown:hover .project-action-menu,
-.project-action-dropdown:focus-within .project-action-menu {
+.project-action-dropdown.open .project-action-menu {
   display: block;
+}
+
+.project-action-menu.project-action-fixed {
+  position: fixed;
+  z-index: 1000;
+  margin-top: 0;
 }
 
 .project-action-item {

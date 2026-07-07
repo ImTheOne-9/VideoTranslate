@@ -6365,6 +6365,8 @@ function resetStudioForm() {
   updateSubtitleOverlayFromInputs();
 }
 
+let currentProjectsList = [];
+
 function generateNextProjectName() {
   let maxNum = 0;
   if (currentProjectsList && currentProjectsList.length) {
@@ -6746,20 +6748,97 @@ async function deleteProject(id) {
   }
 }
 
-let currentProjectsList = [];
-
 async function renderProjectsList() {
   try {
     const res = await fetch('/api/projects');
     if (!res.ok) throw new Error('Không thể tải danh sách dự án');
     const data = await res.json();
     currentProjectsList = data.projects || [];
+    projectsPage = 1;
     
     filterAndRenderProjects();
   } catch (error) {
     console.error('Lỗi khi nạp danh sách dự án:', error);
     toast('Lỗi khi nạp danh sách dự án: ' + error.message, 'error');
   }
+}
+
+const PROJECTS_PER_PAGE = 5;
+let projectsPage = 1;
+
+function renderPaginationControls(total, perPage, currentPage, container) {
+  if (!container || typeof container.appendChild !== 'function') return;
+  const totalPages = Math.ceil(total / perPage);
+  if (totalPages <= 1) return;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 0;';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.type = 'button';
+  prevBtn.className = 'ghost-btn';
+  prevBtn.textContent = '‹';
+  prevBtn.style.cssText = 'padding: 4px 12px; font-size: 14px; font-weight: 700;';
+  prevBtn.disabled = currentPage <= 1;
+  prevBtn.onclick = () => { projectsPage = currentPage - 1; filterAndRenderProjects(); };
+  wrap.appendChild(prevBtn);
+
+  const maxVisible = 5;
+  let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+  let end = Math.min(totalPages, start + maxVisible - 1);
+  if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
+
+  if (start > 1) {
+    const first = document.createElement('button');
+    first.type = 'button';
+    first.className = 'ghost-btn';
+    first.textContent = '1';
+    first.style.cssText = 'padding: 4px 10px; font-size: 13px;';
+    first.onclick = () => { projectsPage = 1; filterAndRenderProjects(); };
+    wrap.appendChild(first);
+    if (start > 2) {
+      const dots = document.createElement('span');
+      dots.textContent = '...';
+      dots.style.cssText = 'color: var(--muted); font-size: 12px; padding: 0 2px;';
+      wrap.appendChild(dots);
+    }
+  }
+
+  for (let i = start; i <= end; i++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ghost-btn';
+    btn.textContent = String(i);
+    btn.style.cssText = `padding: 4px 10px; font-size: 13px; font-weight: ${i === currentPage ? '700' : '400'}; background: ${i === currentPage ? 'var(--accent)' : 'transparent'}; color: ${i === currentPage ? 'white' : 'var(--text)'};`;
+    btn.onclick = () => { projectsPage = i; filterAndRenderProjects(); };
+    wrap.appendChild(btn);
+  }
+
+  if (end < totalPages) {
+    if (end < totalPages - 1) {
+      const dots = document.createElement('span');
+      dots.textContent = '...';
+      dots.style.cssText = 'color: var(--muted); font-size: 12px; padding: 0 2px;';
+      wrap.appendChild(dots);
+    }
+    const last = document.createElement('button');
+    last.type = 'button';
+    last.className = 'ghost-btn';
+    last.textContent = String(totalPages);
+    last.style.cssText = 'padding: 4px 10px; font-size: 13px;';
+    last.onclick = () => { projectsPage = totalPages; filterAndRenderProjects(); };
+    wrap.appendChild(last);
+  }
+
+  const nextBtn = document.createElement('button');
+  nextBtn.type = 'button';
+  nextBtn.className = 'ghost-btn';
+  nextBtn.textContent = '›';
+  nextBtn.style.cssText = 'padding: 4px 12px; font-size: 14px; font-weight: 700;';
+  nextBtn.disabled = currentPage >= totalPages;
+  nextBtn.onclick = () => { projectsPage = currentPage + 1; filterAndRenderProjects(); };
+  wrap.appendChild(nextBtn);
+  container.appendChild(wrap);
 }
 
 function filterAndRenderProjects() {
@@ -6801,7 +6880,11 @@ function filterAndRenderProjects() {
     if (filtered.length === 0) {
       tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 30px; color: var(--muted);">Không tìm thấy dự án nào.</td></tr>`;
     } else {
-      filtered.forEach(p => {
+      const totalPages = Math.ceil(filtered.length / PROJECTS_PER_PAGE);
+      if (projectsPage > totalPages) projectsPage = totalPages;
+      const startIdx = (projectsPage - 1) * PROJECTS_PER_PAGE;
+      const pageItems = filtered.slice(startIdx, startIdx + PROJECTS_PER_PAGE);
+      pageItems.forEach(p => {
         const isActive = p.id === currentProjectId;
         const tr = document.createElement('tr');
         tr.style.cssText = 'border-bottom: 1px solid var(--border); font-size: 13px;';
@@ -6827,8 +6910,94 @@ function filterAndRenderProjects() {
         tbody.appendChild(tr);
       });
     }
+    // Pagination controls
+    const paginationRoot = $('project-pagination-root');
+    if (paginationRoot) paginationRoot.innerHTML = '';
+    if (filtered.length > PROJECTS_PER_PAGE && paginationRoot) {
+      const paginationWrap = document.createElement('div');
+      paginationWrap.className = 'project-pagination';
+      renderPaginationControls(filtered.length, PROJECTS_PER_PAGE, projectsPage, paginationWrap);
+      paginationRoot.appendChild(paginationWrap);
+    }
   }
 }
+
+function positionDropdown(trigger, menu) {
+  menu.style.visibility = 'hidden';
+  menu.style.display = 'block';
+  menu.classList.add('project-action-fixed');
+  menu.style.top = '-9999px';
+  menu.style.left = '-9999px';
+  // Force reflow để đo kích thước
+  void menu.offsetHeight;
+
+  const menuH = menu.offsetHeight;
+  const menuW = menu.offsetWidth;
+
+  menu.style.visibility = '';
+  menu.style.display = '';
+  menu.style.top = '';
+  menu.style.left = '';
+
+  const tr = trigger.getBoundingClientRect();
+  const gap = 4;
+  const menuWidth = Math.min(Math.max(menuW, 120), 160);
+  const spaceBelow = window.innerHeight - tr.bottom - gap;
+  const spaceAbove = tr.top - gap;
+
+  menu.style.width = menuWidth + 'px';
+  menu.style.left = Math.max(gap, tr.right - menuWidth) + 'px';
+
+  if (spaceBelow >= menuH) {
+    menu.style.top = (tr.bottom + gap) + 'px';
+  } else {
+    menu.style.top = Math.max(gap, tr.top - menuH - gap) + 'px';
+  }
+}
+
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('.project-action-btn-trigger');
+  if (!trigger) return;
+  const dropdown = trigger.closest('.project-action-dropdown');
+  if (!dropdown) return;
+
+  e.stopPropagation();
+
+  const isOpening = !dropdown.classList.contains('open');
+
+  // Đóng tất cả dropdown khác, xoá inline styles + class
+  document.querySelectorAll('.project-action-dropdown.open').forEach(d => {
+    d.classList.remove('open');
+    const m = d.querySelector('.project-action-menu');
+    if (m) {
+      m.classList.remove('project-action-fixed');
+      m.style.top = '';
+      m.style.left = '';
+      m.style.width = '';
+    }
+  });
+
+  if (isOpening) {
+    dropdown.classList.add('open');
+    const menu = dropdown.querySelector('.project-action-menu');
+    if (menu) positionDropdown(trigger, menu);
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.project-action-dropdown')) {
+    document.querySelectorAll('.project-action-dropdown.open').forEach(d => {
+      d.classList.remove('open');
+      const m = d.querySelector('.project-action-menu');
+      if (m) {
+        m.classList.remove('project-action-fixed');
+        m.style.top = '';
+        m.style.left = '';
+        m.style.width = '';
+      }
+    });
+  }
+});
 
 function initActiveProject() {
   currentProjectId = localStorage.getItem('current_project_id') || null;
