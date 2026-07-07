@@ -55,7 +55,8 @@ module.exports = {
 
     const cdnUrl = values.src;
     const safeName = shared.removeVietnameseTones(values.filename).replace(/[<>:\"/\\|?*]/g, '_').substring(0, 150);
-    const outPath = path.join(shared.DOWNLOADS_DIR, `${safeName}.mp4`);
+    const downloadDir = req.body.outputDir || shared.DOWNLOADS_DIR;
+    const outPath = path.join(downloadDir, `${safeName}.mp4`);
 
     try {
       console.log(`[Douyin] Đang tải từ CDN: ${cdnUrl.substring(0, 80)}...`);
@@ -460,7 +461,7 @@ module.exports = {
     });
 
     try {
-      let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -490,7 +491,8 @@ module.exports = {
 
         const videoPathPattern = path.join(tempDir, `video.%(ext)s`);
         const subPathPattern = path.join(tempDir, `sub.%(ext)s`);
-        const finalVideoPath = path.join(shared.DOWNLOADS_DIR, `${safeTitle}_Vietsub.mp4`);
+        const videoDir = outputDir || shared.DOWNLOADS_DIR;
+        const finalVideoPath = path.join(videoDir, `${safeTitle}_Vietsub.mp4`);
         const translatedSubPath = path.join(tempDir, `translated.srt`);
 
         const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...shared.getCustomExtractorArgs(url)];
@@ -563,7 +565,8 @@ module.exports = {
         res.json({ success: true, message: 'Đã tải thành công video Vietsub', filename: `${safeTitle}_Vietsub.mp4` });
 
       } else {
-        const finalVideoPath = path.join(shared.DOWNLOADS_DIR, `${safeTitle}.mp4`);
+        const videoDir = outputDir || shared.DOWNLOADS_DIR;
+        const finalVideoPath = path.join(videoDir, `${safeTitle}.mp4`);
         
         const args = [
           '--no-warnings',

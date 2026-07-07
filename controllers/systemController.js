@@ -10,9 +10,11 @@ const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
 
 let electronShell = null;
+let electronDialog = null;
 try {
   const electron = require('electron');
   electronShell = electron.shell;
+  electronDialog = electron.dialog;
 } catch (e) {}
 
 let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
@@ -205,6 +207,40 @@ module.exports = {
       console.error('Lỗi khi lấy danh sách model OpenRouter:', error.message);
       const errorMsg = error.response?.data?.error?.message || error.message;
       res.status(500).json({ error: `Lỗi: ${errorMsg}` });
+    }
+  },
+
+  selectSavePath: async (req, res) => {
+    try {
+      const { defaultFilename, mode } = req.query;
+      const { BrowserWindow } = require('electron');
+      const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+
+      if (mode === 'folder') {
+        const result = await electronDialog.showOpenDialog(win, {
+          defaultPath: shared.DOWNLOADS_DIR,
+          properties: ['openDirectory', 'createDirectory']
+        });
+        if (result.canceled) return res.json({ canceled: true });
+        return res.json({ canceled: false, dir: result.filePaths[0] });
+      }
+
+      const defaultPath = defaultFilename
+        ? path.join(shared.DOWNLOADS_DIR, defaultFilename)
+        : shared.DOWNLOADS_DIR;
+      const result = await electronDialog.showSaveDialog(win, {
+        defaultPath,
+        filters: [{ name: 'Video files', extensions: ['mp4'] }]
+      });
+      if (result.canceled) return res.json({ canceled: true });
+      return res.json({
+        canceled: false,
+        dir: path.dirname(result.filePath),
+        filename: path.basename(result.filePath)
+      });
+    } catch (err) {
+      console.error('selectSavePath error:', err.message);
+      return res.status(500).json({ error: err.message });
     }
   },
 

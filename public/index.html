@@ -253,7 +253,7 @@
                       <div style="display: inline-flex; align-items: center; gap: 12px; margin-left: 16px;">
                         <div style="display: inline-flex; align-items: center; gap: 6px;">
                           <span style="font-size: 11px; color: var(--muted); font-weight: 600;">📐 Tỷ lệ:</span>
-                          <select id="preview-aspect-select" class="premium-input" style="padding: 4px 8px; font-size: 11px; height: 28px; width: auto; margin: 0; background: var(--panel-2); border-color: var(--border); border-radius: 4px; color: var(--text); cursor: pointer;">
+                          <select id="preview-aspect-select" name="previewAspect" class="premium-input" style="padding: 4px 8px; font-size: 11px; height: 28px; width: auto; margin: 0; background: var(--panel-2); border-color: var(--border); border-radius: 4px; color: var(--text); cursor: pointer;">
                             <option value="9-16" selected>9:16 (Đứng)</option>
                             <option value="16-9">16:9 (Ngang)</option>
                           </select>
@@ -278,6 +278,8 @@
                     <div id="preview-placeholder" class="empty-result-msg" style="color: var(--muted); font-size: 13px;">Chưa chọn video nguồn. Vui lòng chọn hoặc tải lên video ở cột bên phải.</div>
                     <div id="video-preview-wrapper" class="video-preview-wrapper aspect-9-16 hidden">
                       <video id="studio-video-preview" muted playsinline></video>
+                      <audio id="preview-voice-audio" preload="auto" style="display:none"></audio>
+                      <audio id="preview-music-audio" preload="auto" style="display:none"></audio>
                       
                       <!-- Konva stage container -->
                       <div id="konva-stage-container" style="position: absolute; top: 0; left: 0; z-index: 15; pointer-events: none;"></div>

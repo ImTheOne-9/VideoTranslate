@@ -12,18 +12,14 @@
       --text: #E8EBEF;
       --muted: #8A94A0;
       --accent: #3B82F6;
+      --success: #10b981;
       --danger: #EF4444;
       --radius: 6px;
       --font: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
     }
-
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
     body {
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       background: transparent;
       color: var(--text);
       font-family: var(--font);
@@ -31,106 +27,112 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
-      width: 100vw;
+      height: 100vh; width: 100vw;
     }
-
     .modal-card {
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 8px;
       width: 380px;
-      height: 180px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-      display: flex;
-      flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      display: flex; flex-direction: column;
       user-select: none;
     }
-
     .drag-header {
       height: 32px;
       background: var(--panel-2);
       border-bottom: 1px solid var(--border);
       -webkit-app-region: drag;
-      display: flex;
-      align-items: center;
+      display: flex; align-items: center;
       padding: 0 16px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--muted);
-      letter-spacing: 0.5px;
+      font-size: 12px; font-weight: 600;
+      color: var(--muted); letter-spacing: 0.5px;
     }
-
     .content {
-      flex: 1;
-      padding: 20px 24px;
-      font-size: 14px;
-      line-height: 1.5;
-      display: flex;
-      align-items: center;
+      padding: 18px 24px;
+      font-size: 14px; line-height: 1.5;
     }
-
+    .project-name {
+      font-weight: 700; color: var(--accent);
+      margin-top: 4px; font-size: 15px;
+    }
     .footer {
       padding: 12px 24px;
       background: var(--panel-2);
       border-top: 1px solid var(--border);
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
+      display: flex; justify-content: flex-end; gap: 10px;
     }
-
     button {
-      border: 0;
-      border-radius: var(--radius);
-      font-weight: 500;
-      padding: 8px 18px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      -webkit-app-region: no-drag;
-      outline: none;
+      border: 0; border-radius: var(--radius);
+      font-weight: 600; padding: 8px 16px;
+      font-size: 12px; cursor: pointer;
+      transition: all 0.15s ease;
+      -webkit-app-region: no-drag; outline: none;
     }
-
-    .btn-cancel {
-      background: var(--border);
-      color: var(--text);
-    }
-
-    .btn-cancel:hover {
-      background: var(--panel-2);
-      filter: brightness(1.15);
-    }
-
-    .btn-confirm {
-      background: var(--danger);
-      color: white;
-    }
-
-    .btn-confirm:hover {
-      filter: brightness(1.15);
-    }
+    .btn-cancel { background: var(--border); color: var(--text); }
+    .btn-cancel:hover { filter: brightness(1.15); }
+    .btn-save { background: var(--success); color: white; }
+    .btn-save:hover { filter: brightness(1.15); }
+    .btn-discard { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-discard:hover { color: var(--danger); border-color: var(--danger); }
+    .btn-quit { background: var(--danger); color: white; }
+    .btn-quit:hover { filter: brightness(1.15); }
+    #save-section { display: none; }
+    #nosave-section { display: none; }
   </style>
 </head>
 <body>
-  <div class="modal-card">
+  <div class="modal-card" id="save-section">
+    <div class="drag-header">XÁC NHẬN THOÁT</div>
+    <div class="content">
+      <div>Dự án hiện tại chưa được lưu:</div>
+      <div class="project-name" id="project-name-display">Dự án chưa đặt tên</div>
+    </div>
+    <div class="footer">
+      <button class="btn-discard" id="btnDiscard">Không lưu</button>
+      <button class="btn-cancel" id="btnCancelSave">Hủy</button>
+      <button class="btn-save" id="btnSave">Lưu</button>
+    </div>
+  </div>
+
+  <div class="modal-card" id="nosave-section">
     <div class="drag-header">XÁC NHẬN THOÁT</div>
     <div class="content">
       Bạn có chắc chắn muốn thoát ứng dụng không? Các tiến trình đang chạy sẽ bị dừng lại.
     </div>
     <div class="footer">
-      <button class="btn-cancel" id="btnCancel">Hủy</button>
-      <button class="btn-confirm" id="btnConfirm">Thoát</button>
+      <button class="btn-cancel" id="btnCancelQuit">Hủy</button>
+      <button class="btn-quit" id="btnQuit">Thoát</button>
     </div>
   </div>
 
   <script>
     const { ipcRenderer } = require('electron');
 
-    document.getElementById('btnCancel').addEventListener('click', () => {
+    const params = new URLSearchParams(window.location.search);
+    const hasUnsaved = params.get('hasUnsaved') === '1';
+    const projectName = params.get('projectName') || 'Dự án chưa đặt tên';
+
+    if (hasUnsaved) {
+      document.getElementById('save-section').style.display = 'flex';
+      document.getElementById('project-name-display').textContent = projectName;
+    } else {
+      document.getElementById('nosave-section').style.display = 'flex';
+    }
+
+    document.getElementById('btnCancelSave')?.addEventListener('click', () => {
       ipcRenderer.send('confirm-close-choice', 'cancel');
     });
-
-    document.getElementById('btnConfirm').addEventListener('click', () => {
+    document.getElementById('btnCancelQuit')?.addEventListener('click', () => {
+      ipcRenderer.send('confirm-close-choice', 'cancel');
+    });
+    document.getElementById('btnSave')?.addEventListener('click', () => {
+      ipcRenderer.send('confirm-close-choice', 'save-and-quit');
+    });
+    document.getElementById('btnDiscard')?.addEventListener('click', () => {
+      ipcRenderer.send('confirm-close-choice', 'quit-without-saving');
+    });
+    document.getElementById('btnQuit')?.addEventListener('click', () => {
       ipcRenderer.send('confirm-close-choice', 'quit');
     });
   </script>

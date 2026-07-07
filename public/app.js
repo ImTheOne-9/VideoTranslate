@@ -197,6 +197,7 @@ function switchToPreviewTab() {
 function fillSelect(id, items, placeholder) {
   const select = $(id);
   if (!select) return;
+  const prevValue = select.value;
   select.innerHTML = `<option value="">${placeholder}</option>`;
   for (const item of items) {
     const option = document.createElement('option');
@@ -209,6 +210,7 @@ function fillSelect(id, items, placeholder) {
     }
     select.appendChild(option);
   }
+  if (prevValue) select.value = prevValue;
 }
 
 function renderAssetList(id, items) {
@@ -425,21 +427,28 @@ async function fetchDouyinInfo(url, btn, loadingIndicator, extractedTitle) {
 
 async function startDouyinDownload(btn, cdnUrl, videoTitle, qualityLabel) {
   if (btn.disabled) return;
+
+  const defaultName = encodeURIComponent(($('video-filename-input')?.value.trim() || videoTitle) + '.mp4');
+  const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
+  const saveData = await saveRes.json();
+  if (saveData.canceled) return;
+  const outputDir = saveData.dir;
+  const customFilename = saveData.filename.replace(/\.mp4$/i, '');
+
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = '⏳ Đang tải...';
   const isVietsub = qualityLabel === 'vietsub';
   try {
-    const customFilename = $('video-filename-input')?.value.trim() || videoTitle;
     const res = await fetch('/api/douyin-download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ src: cdnUrl, filename: customFilename })
+      body: JSON.stringify({ src: cdnUrl, filename: customFilename, outputDir })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Lỗi tải Douyin');
     const savedFilename = data.filename || (customFilename + '.mp4');
-    toast(`Tải thành công: ${savedFilename}`, 'success');
+    toast(`Tải thành công: ${outputDir}\\${savedFilename}`, 'success');
     addDownloadHistory(videoTitle, '', 'success', savedFilename, isVietsub ? 'Vietsub' : ('Douyin ' + qualityLabel));
     await loadAssets();
   } catch (error) {
@@ -665,6 +674,14 @@ function renderDownloadHistory() {
 
 async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
   if (btn.disabled) return;
+
+  const defaultName = encodeURIComponent(($('video-filename-input')?.value.trim() || videoTitle) + '.mp4');
+  const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
+  const saveData = await saveRes.json();
+  if (saveData.canceled) return;
+  const outputDir = saveData.dir;
+  const customFilename = saveData.filename.replace(/\.mp4$/i, '');
+
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = '⏳ Đang tải...';
@@ -672,7 +689,6 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
   const isVietsub = formatId === 'vietsub';
 
   try {
-    const customFilename = $('video-filename-input')?.value.trim() || videoTitle;
     const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
     const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
     const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
@@ -685,6 +701,7 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
         url,
         format_id: formatId,
         customFilename,
+        outputDir,
         ...aiSettings,
         subtitleMaxLines,
         subtitleSize,
@@ -695,7 +712,7 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
     if (!res.ok) throw new Error(data.error || 'Lỗi tải video');
 
     const savedFilename = data.filename || `${customFilename}${isVietsub ? '_Vietsub' : ''}.mp4`;
-    toast(`Tải thành công và lưu vào thư mục downloads: ${savedFilename}`, 'success');
+    toast(`Tải thành công: ${outputDir}\\${savedFilename}`, 'success');
     addDownloadHistory(videoTitle, thumbnail, 'success', savedFilename, isVietsub ? 'Vietsub' : originalText);
     await loadAssets();
   } catch (error) {
@@ -1695,6 +1712,13 @@ async function downloadSingleBulkVideo(btn, index) {
   const video = currentPlaylistVideos[index];
   if (!video) return;
 
+  const defaultName = encodeURIComponent((video.title || 'video') + '.mp4');
+  const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
+  const saveData = await saveRes.json();
+  if (saveData.canceled) return;
+  const outputDir = saveData.dir;
+  const customFilename = saveData.filename.replace(/\.mp4$/i, '');
+
   const select = $(`format-select-${index}`);
   if (!select) return;
   const val = select.value;
@@ -1734,6 +1758,8 @@ async function downloadSingleBulkVideo(btn, index) {
       body: JSON.stringify({
         url: video.url,
         format_id: val,
+        customFilename,
+        outputDir,
         ...aiSettings,
         subtitleMaxLines,
         subtitleSize,
@@ -1747,7 +1773,7 @@ async function downloadSingleBulkVideo(btn, index) {
       statusLabel.textContent = 'Thành công';
       statusLabel.style.color = '#10b981';
     }
-    toast(`🎉 Tải thành công: ${video.title || video.id}`, 'success');
+    toast(`Tải thành công: ${outputDir}\\${data.filename || (video.title || video.id) + '.mp4'}`, 'success');
     
     const thumbUrl = video.thumbnail || (video.id && (video.url.includes('youtube.com') || video.url.includes('youtu.be')) ? `https://img.youtube.com/vi/${video.id}/mqdefault.jpg` : '');
     addDownloadHistory(video.title, thumbUrl, 'success', data.filename || `${video.title || video.id}.mp4`, 'Kênh/Playlist');
@@ -1777,6 +1803,12 @@ async function downloadSelectedBulkVideos() {
     toast('Vui lòng chọn ít nhất 1 video để tải.', 'warn');
     return;
   }
+
+  // Choose folder once for all videos
+  const folderRes = await fetch('/api/select-save-path?mode=folder');
+  const folderData = await folderRes.json();
+  if (folderData.canceled) return;
+  const bulkOutputDir = folderData.dir;
 
   // Validate format selected for all checked videos
   for (const video of selectedVideos) {
@@ -1914,6 +1946,7 @@ async function downloadSelectedBulkVideos() {
           url: video.url,
           format_id: formatId,
           customFilename: video.customTitle || video.title,
+          outputDir: bulkOutputDir,
           ...aiSettings,
           subtitleMaxLines,
           subtitleSize,
@@ -2482,7 +2515,7 @@ function submitSaveTemplate(event) {
     subtitleMarginH: document.querySelector('input[name="subtitleMarginH"]').value,
     subtitleMarginL: document.querySelector('input[name="subtitleMarginL"]')?.value || '',
     subtitleMarginR: document.querySelector('input[name="subtitleMarginR"]')?.value || '',
-    subtitleTemplateWidth: konvaStage ? konvaStage.width() : (document.querySelector('select[name="preview-aspect-select"]')?.value === '16-9' ? 1920 : 1080),
+    subtitleTemplateWidth: konvaStage ? konvaStage.width() : ($('preview-aspect-select')?.value === '16-9' ? 1920 : 1080),
     blurOriginalSub: (blurBoxes && blurBoxes.length > 0),
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
@@ -3308,6 +3341,7 @@ if (presetContainer) {
 
 // Register volume slider listeners with live percentage labels
 const volumeInputs = ['originalVolume', 'voiceVolume', 'musicVolume'];
+const previewVideo = document.getElementById('studio-video-preview');
 volumeInputs.forEach(name => {
   const el = document.querySelector(`[name="${name}"]`);
   if (el) {
@@ -3320,9 +3354,127 @@ volumeInputs.forEach(name => {
     };
     el.addEventListener('input', updateLabel);
     el.addEventListener('change', updateLabel);
-    // Initialize
     updateLabel();
   }
+});
+
+// Connect original volume slider to preview video in real-time
+const origSlider = document.querySelector('[name="originalVolume"]');
+if (origSlider && previewVideo) {
+  const syncVolume = () => {
+    const vol = Math.min(sliderToVolume(origSlider.value), 1);
+    previewVideo.volume = vol;
+    previewVideo.muted = (vol === 0);
+  };
+  origSlider.addEventListener('input', syncVolume);
+  origSlider.addEventListener('change', syncVolume);
+  syncVolume();
+}
+
+// === Preview audio sync: thuyết minh & nhạc nền ===
+const voiceAudio = document.getElementById('preview-voice-audio');
+const musicAudio = document.getElementById('preview-music-audio');
+
+function updatePreviewAudioSources() {
+  if (!voiceAudio || !musicAudio) return;
+  const voiceMode = document.querySelector('[name="voiceMode"]')?.value;
+  const musicMode = document.querySelector('[name="musicMode"]')?.value;
+  const voiceFile = document.getElementById('saved-voice-select')?.value;
+  const musicFile = document.getElementById('saved-music-select')?.value;
+
+  if (voiceMode && voiceMode !== 'none' && voiceFile) {
+    voiceAudio.src = '/voices/' + encodeURIComponent(voiceFile);
+  } else {
+    voiceAudio.pause();
+    voiceAudio.src = '';
+  }
+  if (musicMode && musicMode !== 'none' && musicFile) {
+    musicAudio.src = '/music/' + encodeURIComponent(musicFile);
+  } else {
+    musicAudio.pause();
+    musicAudio.src = '';
+  }
+}
+
+// Sync play/pause/seek with video
+if (previewVideo && voiceAudio && musicAudio) {
+  voiceAudio.loop = true;
+  musicAudio.loop = true;
+
+  previewVideo.addEventListener('play', () => {
+    if (voiceAudio.src) voiceAudio.play().catch(() => {});
+    if (musicAudio.src) musicAudio.play().catch(() => {});
+  });
+  previewVideo.addEventListener('pause', () => {
+    voiceAudio.pause();
+    musicAudio.pause();
+  });
+  previewVideo.addEventListener('seeked', () => {
+    const t = previewVideo.currentTime;
+    if (voiceAudio.src) {
+      voiceAudio.currentTime = t;
+      if (!previewVideo.paused) voiceAudio.play().catch(() => {});
+    }
+    if (musicAudio.src) {
+      musicAudio.currentTime = t;
+      if (!previewVideo.paused) musicAudio.play().catch(() => {});
+    }
+  });
+  previewVideo.addEventListener('ended', () => {
+    voiceAudio.pause();
+    musicAudio.pause();
+  });
+
+  // Sync volume từ mixer sliders
+  const voiceSlider = document.querySelector('[name="voiceVolume"]');
+  const musicSlider = document.querySelector('[name="musicVolume"]');
+  const syncVoiceVol = () => { voiceAudio.volume = Math.min(sliderToVolume(voiceSlider.value), 1); };
+  const syncMusicVol = () => { musicAudio.volume = Math.min(sliderToVolume(musicSlider.value), 1); };
+  if (voiceSlider) {
+    voiceSlider.addEventListener('input', syncVoiceVol);
+    voiceSlider.addEventListener('change', syncVoiceVol);
+    syncVoiceVol();
+  }
+  if (musicSlider) {
+    musicSlider.addEventListener('input', syncMusicVol);
+    musicSlider.addEventListener('change', syncMusicVol);
+    syncMusicVol();
+  }
+}
+
+// Áp dụng âm lượng mixer lên preview (cho cả 3 kênh)
+function applyMixerVolumes() {
+  const previewVideo = document.getElementById('studio-video-preview');
+  const voiceAudio = document.getElementById('preview-voice-audio');
+  const musicAudio = document.getElementById('preview-music-audio');
+
+  const origSlider = document.querySelector('[name="originalVolume"]');
+  if (origSlider && previewVideo) {
+    const vol = Math.min(sliderToVolume(origSlider.value), 1);
+    previewVideo.volume = vol;
+    previewVideo.muted = (vol === 0);
+  }
+
+  const voiceSlider = document.querySelector('[name="voiceVolume"]');
+  if (voiceSlider && voiceAudio) {
+    voiceAudio.volume = Math.min(sliderToVolume(voiceSlider.value), 1);
+  }
+
+  const musicSlider = document.querySelector('[name="musicVolume"]');
+  if (musicSlider && musicAudio) {
+    musicAudio.volume = Math.min(sliderToVolume(musicSlider.value), 1);
+  }
+}
+
+// Cập nhật audio sources khi chọn giọng/nhạc khác
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'saved-voice-select' || e.target.id === 'saved-music-select') {
+    updatePreviewAudioSources();
+  }
+});
+['voiceMode', 'musicMode'].forEach(name => {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (el) el.addEventListener('change', updatePreviewAudioSources);
 });
 
 $('reaction-upload').addEventListener('change', async function() {
@@ -5181,7 +5333,7 @@ function selectVoiceFile(filename) {
   const select = $('saved-voice-select');
   if (select) {
     select.value = filename;
-    select.dispatchEvent(new Event('change'));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
   }
   
   // Cập nhật trạng thái active chỉ cho phần giọng nói
@@ -5549,7 +5701,7 @@ function selectMusicFile(filename) {
   const select = $('saved-music-select');
   if (select) {
     select.value = filename;
-    select.dispatchEvent(new Event('change'));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
   }
   
   // Cập nhật trạng thái active
@@ -6124,6 +6276,36 @@ function deserializeStudioForm(obj) {
   } else {
     updateSubtitleOverlayFromInputs();
   }
+
+  // Áp dụng tỉ lệ màn hình đã lưu lên preview
+  const aspectInput = form.elements['previewAspect'];
+  if (aspectInput) {
+    aspectInput.dispatchEvent(new Event('change'));
+  }
+
+  // Cập nhật giao diện giọng đang chọn
+  if (obj.savedVoiceFile) {
+    document.querySelectorAll('.voice-item-card').forEach(card => {
+      card.classList.toggle('active', card.dataset.filename === obj.savedVoiceFile);
+    });
+  }
+  renderSelectedVoiceRow();
+
+  // Cập nhật giao diện nhạc đang chọn
+  if (obj.savedMusicFile) {
+    document.querySelectorAll('.music-item-card').forEach(card => {
+      card.classList.toggle('active', card.dataset.filename === obj.savedMusicFile);
+    });
+  }
+  renderSelectedMusicRow();
+
+  // Áp dụng âm lượng mixer đã lưu lên preview
+  applyMixerVolumes();
+
+  // Cập nhật nguồn audio preview cho giọng/nhạc
+  if (typeof updatePreviewAudioSources === 'function') {
+    updatePreviewAudioSources();
+  }
 }
 
 function resetStudioForm() {
@@ -6210,6 +6392,7 @@ async function createNewProject() {
   if (nameInput) nameInput.value = currentProjectName;
 
   resetStudioForm();
+  window.__projectDirty = true;
   toast('🆕 Đã tạo dự án mới! Bắt đầu thiết lập chỉnh sửa.', 'success');
 }
 
@@ -6258,6 +6441,7 @@ async function saveProjectExplicitly() {
     localStorage.setItem('current_project_id', currentProjectId);
     localStorage.setItem('current_project_name', currentProjectName);
     
+    window.__projectDirty = false;
     toast('Đã lưu dự án thành công!', 'success');
   } catch (error) {
     console.error('Lỗi khi lưu dự án:', error);
@@ -6271,6 +6455,7 @@ function setupStudioFormAutoSave() {
 
   let autoSaveTimeout = null;
   const triggerAutoSave = () => {
+    window.__projectDirty = true;
     if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(async () => {
       const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
@@ -6359,6 +6544,7 @@ async function loadProject(id) {
 
     resetStudioForm();
     deserializeStudioForm(proj);
+    window.__projectDirty = false;
 
     toast(`📂 Đã nạp dự án "${currentProjectName}" thành công!`, 'success');
     switchView('studio');
@@ -6376,6 +6562,38 @@ async function loadProjectQuietly(id) {
       const proj = await res.json();
       deserializeStudioForm(proj);
       console.log(`[Project] Đã tự động khôi phục dự án "${proj.name}"`);
+    }
+
+    // Khôi phục backup từ localStorage (ưu tiên cao nhất — ghi đè dữ liệu server)
+    const backup = localStorage.getItem('studio_form_backup');
+    if (backup) {
+      try {
+        const backupData = JSON.parse(backup);
+        const form = $('studio-form');
+        if (form) {
+          Object.entries(backupData).forEach(([key, val]) => {
+            const input = form.elements[key];
+            if (input) {
+              if (input.type === 'checkbox') {
+                input.checked = (val === 'true' || val === true);
+              } else {
+                input.value = val;
+              }
+            }
+          });
+        }
+        console.log('[Project] Đã merge backup localStorage.');
+
+        // Gọi lại các hàm cập nhật UI sau khi merge backup
+        if (typeof applyMixerVolumes === 'function') applyMixerVolumes();
+        const aspectInput = form.elements['previewAspect'];
+        if (aspectInput) aspectInput.dispatchEvent(new Event('change'));
+        renderSelectedVoiceRow();
+        renderSelectedMusicRow();
+        if (typeof updatePreviewAudioSources === 'function') updatePreviewAudioSources();
+      } catch (e) {
+        console.error('[Project] Lỗi parse backup localStorage:', e.message);
+      }
     }
   } catch (e) {
     console.error('[Project] Không thể tự động khôi phục dự án cũ:', e.message);
@@ -6550,9 +6768,19 @@ function initActiveProject() {
   if (currentProjectId) {
     loadProjectQuietly(currentProjectId);
   }
+  window.__projectDirty = false;
   
   setupStudioFormAutoSave();
 }
+
+// Dirty flag for unsaved project changes
+window.__projectDirty = false;
+window.__isProjectDirty = () => window.__projectDirty;
+window.__getProjectName = () => currentProjectName || 'Dự án chưa đặt tên';
+window.__saveProjectForQuit = () => {
+  saveProjectSynchronously();
+  window.__projectDirty = false;
+};
 
 // Export functions to global scope
 window.applyAppUpdate = applyAppUpdate;
@@ -6570,9 +6798,14 @@ window.backToStudioHome = backToStudioHome;
 window.openStudioEditor = openStudioEditor;
 
 function saveProjectSynchronously() {
-  if (!currentProjectId) return;
-  const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
-  if (!hasVideo) return;
+  if (!currentProjectId) {
+    currentProjectId = `proj_${Date.now()}`;
+  }
+
+  const nameInput = $('project-name-input');
+  if (nameInput) {
+    currentProjectName = nameInput.value.trim() || currentProjectName;
+  }
 
   const formData = serializeStudioForm();
   let thumbnail = '';
@@ -6592,20 +6825,30 @@ function saveProjectSynchronously() {
     }
   };
 
+  // Backup form data to localStorage trước, đảm bảo không mất dữ liệu
+  try {
+    localStorage.setItem('studio_form_backup', JSON.stringify(payload.data));
+    localStorage.setItem('current_project_id', currentProjectId);
+    localStorage.setItem('current_project_name', currentProjectName);
+  } catch (e) {
+    console.error('[Unload] Lỗi lưu backup localStorage:', e.message);
+  }
+
   try {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/projects', false); // Synchronous request to block unloading until saved
+    xhr.open('POST', '/api/projects', false);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(payload));
-    console.log('[Unload] Dự án đã được tự động lưu đồng bộ trước khi đóng/chuyển.');
+    const resp = JSON.parse(xhr.responseText || '{}');
+    if (!resp.success) throw new Error(resp.error || 'Unknown error');
+    window.__projectDirty = false;
+    console.log('[Unload] Dự án đã được lưu đồng bộ:', currentProjectId);
   } catch (e) {
-    console.error('[Unload] Lỗi khi tự động lưu đồng bộ trước khi đóng/chuyển:', e);
+    console.error('[Unload] Lỗi lưu dự án:', e.message);
   }
 }
 
-window.addEventListener('beforeunload', () => {
-  saveProjectSynchronously();
-});
+// beforeunload removed — việc lưu project được xử lý qua close confirmation dialog
 
 // Điều chỉnh âm lượng video gốc khi xem trước
 document.addEventListener('DOMContentLoaded', () => {

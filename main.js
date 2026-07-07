@@ -106,19 +106,28 @@ ipcMain.on('request-log-path', (event) => {
   event.reply('log-path-response', logFile);
 });
 
-ipcMain.on('confirm-close-choice', (event, choice) => {
-  if (choice === 'quit') {
-    isQuitting = true;
+ipcMain.on('confirm-close-choice', async (event, choice) => {
+  if (choice === 'cancel') {
     if (confirmWindow && !confirmWindow.isDestroyed()) {
       confirmWindow.close();
     }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.close();
+    return;
+  }
+
+  if (choice === 'save-and-quit') {
+    try {
+      await mainWindow.webContents.executeJavaScript('window.__saveProjectForQuit ? window.__saveProjectForQuit() : null');
+    } catch (e) {
+      console.error('Lỗi khi lưu dự án trước khi thoát:', e.message);
     }
-  } else {
-    if (confirmWindow && !confirmWindow.isDestroyed()) {
-      confirmWindow.close();
-    }
+  }
+
+  isQuitting = true;
+  if (confirmWindow && !confirmWindow.isDestroyed()) {
+    confirmWindow.close();
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
   }
 });
 
@@ -197,36 +206,47 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
     // Làm mờ cửa sổ chính
     mainWindow.webContents.executeJavaScript("document.body.style.transition = 'filter 0.3s ease'; document.body.style.filter = 'blur(5px)';").catch(() => {});
 
-    confirmWindow = new BrowserWindow({
-      width: 380,
-      height: 180,
-      frame: false,
-      transparent: true,
-      parent: mainWindow,
-      modal: true,
-      resizable: false,
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false
-      }
-    });
+    // Kiểm tra unsaved project
+    (async () => {
+      let hasUnsaved = false;
+      let projectName = '';
+      try {
+        hasUnsaved = await mainWindow.webContents.executeJavaScript('window.__isProjectDirty ? window.__isProjectDirty() : false');
+        projectName = await mainWindow.webContents.executeJavaScript('window.__getProjectName ? window.__getProjectName() : ""');
+      } catch (e) {}
 
-    confirmWindow.setMenu(null);
-    confirmWindow.loadURL(`http://127.0.0.1:${global.runningPort}/close-confirm.html`);
+      const confirmHeight = hasUnsaved ? 200 : 180;
 
-    if (app.isPackaged) {
-      confirmWindow.webContents.on('devtools-opened', () => {
-        confirmWindow.webContents.closeDevTools();
+      confirmWindow = new BrowserWindow({
+        width: 380,
+        height: confirmHeight,
+        frame: false,
+        transparent: true,
+        parent: mainWindow,
+        modal: true,
+        resizable: false,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false
+        }
       });
-    }
 
-    confirmWindow.on('closed', () => {
-      confirmWindow = null;
-      // Khôi phục độ nét cho cửa sổ chính
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.executeJavaScript("document.body.style.filter = 'none';").catch(() => {});
+      confirmWindow.setMenu(null);
+      confirmWindow.loadURL(`http://127.0.0.1:${global.runningPort}/close-confirm.html?hasUnsaved=${hasUnsaved ? 1 : 0}&projectName=${encodeURIComponent(projectName)}`);
+
+      if (app.isPackaged) {
+        confirmWindow.webContents.on('devtools-opened', () => {
+          confirmWindow.webContents.closeDevTools();
+        });
       }
-    });
+
+      confirmWindow.on('closed', () => {
+        confirmWindow = null;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.executeJavaScript("document.body.style.filter = 'none';").catch(() => {});
+        }
+      });
+    })();
   });
 
   mainWindow.on('closed', () => {
