@@ -1356,7 +1356,12 @@ app.post('/api/server/verify', async (req, res) => {
     }
 
     const daysLeft = computeDaysLeft(license.expiresAt);
-    res.json({ status: 'active', daysLeft });
+    res.json({
+      status: 'active',
+      daysLeft,
+      customerName: license.customerName || null,
+      planType: license.planType || 'trial'
+    });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi máy chủ: ' + err.message });
   }

@@ -6523,6 +6523,7 @@ async function renderProjectsList() {
     currentProjectsList = data.projects || [];
     
     filterAndRenderProjects();
+    renderSidebarRecentProjects(); // Cập nhật sidebar recent
 
     // Cập nhật stat strip Studio
     const statProjects = $('stat-total-projects');
@@ -6715,4 +6716,142 @@ document.addEventListener('DOMContentLoaded', () => {
       updateIcon();
     });
   }
+});
+
+// =============================================
+// SIDEBAR — Dự án gần đây, Disk, User Info
+// =============================================
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const gb = bytes / 1073741824;
+  if (gb >= 1) return gb.toFixed(1) + ' GB';
+  const mb = bytes / 1048576;
+  if (mb >= 1) return mb.toFixed(0) + ' MB';
+  return Math.round(bytes / 1024) + ' KB';
+}
+
+function renderSidebarRecentProjects() {
+  const container = $('sidebar-recent-list');
+  if (!container) return;
+
+  const list = (currentProjectsList || []).slice(0, 5);
+  if (list.length === 0) {
+    container.innerHTML = '<div class="sidebar-recent-empty">Chưa có dự án nào</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(p => `
+    <div class="sidebar-recent-item" onclick="openProjectFromSidebar('${p.id}')" title="${p.name}">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20v18H2z"/><path d="M2 7h20"/><path d="m5 3 3 4"/><path d="m10 3 3 4"/><path d="m15 3 3 4"/></svg>
+      <span>${p.name}</span>
+    </div>
+  `).join('');
+}
+
+function openProjectFromSidebar(projectId) {
+  // Chuyển sang Studio render rồi mở project
+  executeSwitchView('studio');
+  if (typeof loadProject === 'function') {
+    setTimeout(() => loadProject(projectId), 80);
+  }
+}
+window.openProjectFromSidebar = openProjectFromSidebar;
+
+async function loadAppInfo() {
+  try {
+    // Fetch projects cho sidebar (nếu chưa có)
+    if (!currentProjectsList || currentProjectsList.length === 0) {
+      try {
+        const pr = await fetch('/api/projects');
+        if (pr.ok) {
+          const pd = await pr.json();
+          currentProjectsList = pd.projects || [];
+          renderSidebarRecentProjects();
+        }
+      } catch (_) {}
+    }
+
+    const res = await fetch('/api/app-info');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // --- Disk ---
+    const { usedByApp = 0, total = 0 } = data.disk || {};
+    const diskText = $('sidebar-disk-text');
+    const diskBar = $('sidebar-disk-bar');
+    if (diskText && diskBar) {
+      diskText.textContent = formatBytes(usedByApp) + ' / ' + formatBytes(total);
+      const pct = total > 0 ? Math.min(100, (usedByApp / total) * 100) : 0;
+      diskBar.style.width = pct + '%';
+      // Cảnh báo màu đỏ nếu gần đầy (>90%)
+      diskBar.style.background = pct > 90
+        ? 'linear-gradient(90deg,#ef4444,#f87171)'
+        : 'linear-gradient(90deg,var(--accent),var(--accent-2))';
+    }
+
+    // --- License / User ---
+    const lic = data.license || {};
+    const nameEl = $('sidebar-user-name');
+    const planEl = $('sidebar-user-plan');
+    const expiryEl = $('sidebar-user-expiry');
+    const avatarEl = $('sidebar-user-avatar');
+
+    if (lic.valid) {
+      const name = lic.customerName || 'Khách hàng';
+      const plan = lic.plan || 'Standard';
+      const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      if (avatarEl) avatarEl.textContent = initials;
+      if (nameEl) nameEl.textContent = name;
+      if (planEl) planEl.textContent = plan;
+      if (expiryEl) {
+        const days = lic.daysLeft;
+        if (days === null || days === undefined) {
+          expiryEl.textContent = 'Vĩnh viễn';
+          expiryEl.style.color = 'var(--accent)';
+        } else {
+          const dateStr = lic.expiresAt ? new Date(lic.expiresAt).toLocaleDateString('vi-VN') : '';
+          expiryEl.textContent = `Còn ${days} ngày (${dateStr})`;
+          expiryEl.style.color = days <= 7 ? 'var(--danger)' : days <= 30 ? 'var(--warn)' : 'var(--muted)';
+        }
+      }
+    } else {
+      if (avatarEl) avatarEl.textContent = '?';
+      if (nameEl) nameEl.textContent = 'Chưa kích hoạt';
+      if (planEl) planEl.textContent = '';
+      if (expiryEl) expiryEl.textContent = '';
+    }
+  } catch (e) {
+    console.warn('[AppInfo] Lỗi:', e.message);
+  }
+}
+
+function toggleSidebarSettings(e) {
+  e.stopPropagation();
+  const dropdown = $('sidebar-settings-dropdown');
+  const btn = $('sidebar-settings-btn');
+  if (!dropdown) return;
+  const isOpen = dropdown.classList.contains('open');
+  dropdown.classList.toggle('open', !isOpen);
+  if (btn) btn.classList.toggle('active', !isOpen);
+}
+window.toggleSidebarSettings = toggleSidebarSettings;
+
+// Đóng dropdown khi click ra ngoài
+document.addEventListener('click', (e) => {
+  const dropdown = $('sidebar-settings-dropdown');
+  const btn = $('sidebar-settings-btn');
+  if (!dropdown || !dropdown.classList.contains('open')) return;
+  if (!dropdown.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+    dropdown.classList.remove('open');
+    if (btn) btn.classList.remove('active');
+  }
+});
+
+// Gọi khi app khởi động
+document.addEventListener('DOMContentLoaded', () => {
+  loadAppInfo();
+  renderSidebarRecentProjects();
+  // Refresh mỗi 30 phút
+  setInterval(loadAppInfo, 30 * 60 * 1000);
 });
