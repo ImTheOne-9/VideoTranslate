@@ -6685,7 +6685,7 @@ function openStudioEditor() {
   const standardInfo = $('topbar-standard-info');
   const projectInfo = $('topbar-project-info');
   if (standardInfo) standardInfo.style.display = 'none';
-  if (projectInfo) projectInfo.style.display = 'flex';
+  if (projectInfo) projectInfo.style.display = 'grid';
 }
 
 async function backToStudioHome() {
