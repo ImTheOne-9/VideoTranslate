@@ -1154,12 +1154,22 @@ function updateSubtitleOverlayFromInputs() {
               const x = shape.x();
               const y = shape.y();
               const radius = Number(box.radius || 20);
+
+              const padding = Math.min(Math.max(radius, 20), Math.max(w, h));
+
+              const sx = Math.max(0, x - padding);
+              const sy = Math.max(0, y - padding);
+              const sw = w + padding * 2;
+              const sh = h + padding * 2;
+              const dx = -(x - sx);
+              const dy = -(y - sy);
+
               ctx.filter = `blur(${radius}px)`;
 
               ctx.drawImage(
                 mainVideo,
-                x, y, w, h,
-                0, 0, w, h
+                sx, sy, sw, sh,
+                dx, dy, sw, sh
               );
             } else {
               ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';

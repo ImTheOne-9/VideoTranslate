@@ -709,7 +709,7 @@ async function executeRenderTask(task) {
     const hasCUDA = process.platform === 'win32' && fs.existsSync('C:\\Windows\\System32\\nvcuda.dll');
     const outName = `studio_${timestamp}.mp4`;
     const outPath = path.join(shared.RENDERS_DIR, outName);
-    const args = hasCUDA ? ['-hwaccel', 'cuda', '-i', sourceVideo] : ['-i', sourceVideo];
+    const args = hasCUDA ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'yuv420p', '-i', sourceVideo] : ['-i', sourceVideo];
     const audioInputs = [];
 
     const voiceVolume = Math.max(0, Number(body.voiceVolume !== undefined ? body.voiceVolume : 1.0));
@@ -878,14 +878,22 @@ async function executeRenderTask(task) {
         let blurYPercent = blurYPercentVal;
         if (blurYPercent + blurHeightPercentVal > 1) blurYPercent = 1 - blurHeightPercentVal;
 
-        const cropW = videoWidth * blurWidthPercentVal;
-        const cropH = videoHeight * blurHeightPercentVal;
-        const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
-        const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+        const rawCropW = videoWidth * blurWidthPercentVal;
+        const rawCropH = videoHeight * blurHeightPercentVal;
+        const rawCropX = videoWidth * blurXPercent;
+        const rawCropY = videoHeight * blurYPercent;
+
+        const evenCropW = Math.max(2, Math.floor(rawCropW / 2) * 2);
+        const evenCropH = Math.max(2, Math.floor(rawCropH / 2) * 2);
+        const evenCropX = Math.max(0, Math.floor(rawCropX / 2) * 2);
+        const evenCropY = Math.max(0, Math.floor(rawCropY / 2) * 2);
+
+        const maxLumaR = Math.max(1, Math.floor(Math.min(evenCropW, evenCropH) / 2) - 1);
+        const maxChromaR = Math.max(1, Math.floor(Math.min(evenCropW / 2, evenCropH / 2) / 2) - 1);
         const safeLumaRadius = Math.min(blurRadius, maxLumaR);
         const safeChromaRadius = Math.min(blurRadius, maxChromaR);
 
-        blurFilterString = `[0:v]split[orig][copy];[copy]crop=iw*${blurWidthPercentVal}:ih*${blurHeightPercentVal}:iw*${blurXPercent}:ih*${blurYPercent},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[blurred];[orig][blurred]overlay=W*${blurXPercent}:H*${blurYPercent}[${baseVideoLabel}]`;
+        blurFilterString = `[0:v]split[orig][copy];[copy]crop=${evenCropW}:${evenCropH}:${evenCropX}:${evenCropY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius},format=yuv420p[blurred];[orig][blurred]overlay=${evenCropX}:${evenCropY}[${baseVideoLabel}]`;
       } else {
         let currentInputLabel = '0:v';
         const filters = [];
@@ -904,10 +912,18 @@ async function executeRenderTask(task) {
           let clampedY = yPercent;
           if (clampedY + heightPercent > 1) clampedY = 1 - heightPercent;
 
-          const cropW = videoWidth * widthPercent;
-          const cropH = videoHeight * heightPercent;
-          const maxLumaR = Math.max(1, Math.floor(Math.min(cropW, cropH) / 2) - 1);
-          const maxChromaR = Math.max(1, Math.floor(Math.min(cropW / 2, cropH / 2) / 2) - 1);
+          const rawCropW = videoWidth * widthPercent;
+          const rawCropH = videoHeight * heightPercent;
+          const rawCropX = videoWidth * clampedX;
+          const rawCropY = videoHeight * clampedY;
+
+          const evenCropW = Math.max(2, Math.floor(rawCropW / 2) * 2);
+          const evenCropH = Math.max(2, Math.floor(rawCropH / 2) * 2);
+          const evenCropX = Math.max(0, Math.floor(rawCropX / 2) * 2);
+          const evenCropY = Math.max(0, Math.floor(rawCropY / 2) * 2);
+
+          const maxLumaR = Math.max(1, Math.floor(Math.min(evenCropW, evenCropH) / 2) - 1);
+          const maxChromaR = Math.max(1, Math.floor(Math.min(evenCropW / 2, evenCropH / 2) / 2) - 1);
           const safeLumaRadius = Math.min(radius, maxLumaR);
           const safeChromaRadius = Math.min(radius, maxChromaR);
 
@@ -919,8 +935,8 @@ async function executeRenderTask(task) {
           const blurredLabel = `blurred_${index}`;
 
           filters.push(`[${currentInputLabel}]split[${origLabel}][${copyLabel}]`);
-          filters.push(`[${copyLabel}]crop=iw*${widthPercent}:ih*${heightPercent}:iw*${clampedX}:ih*${clampedY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius}[${blurredLabel}]`);
-          filters.push(`[${origLabel}][${blurredLabel}]overlay=W*${clampedX}:H*${clampedY}:enable='between(t,${start},${end})'[${outputLabel}]`);
+          filters.push(`[${copyLabel}]crop=${evenCropW}:${evenCropH}:${evenCropX}:${evenCropY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius},format=yuv420p[${blurredLabel}]`);
+          filters.push(`[${origLabel}][${blurredLabel}]overlay=${evenCropX}:${evenCropY}:enable='between(t,${start},${end})'[${outputLabel}]`);
           currentInputLabel = outputLabel;
         });
         blurFilterString = filters.join(';');
