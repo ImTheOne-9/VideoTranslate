@@ -6,7 +6,7 @@ const net = require('net');
 const axios = require('axios');
 
 const shared = require('./lib/shared-state');
-const { verifyLocalLicense } = require('./lib/license-manager');
+const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
 
 // --- Rate Limiting (chống flood API local) ---
 const rateLimitMap = new Map();
@@ -325,6 +325,95 @@ app.get('/api/license/hwid', systemController.getLicenseHwid);
 app.post('/api/license/activate', systemController.activateLicense);
 app.get('/api/update-status', systemController.getUpdateStatus);
 app.post('/api/quit-and-install', systemController.quitAndInstallUpdate);
+
+// Thông tin app: license + disk usage cho sidebar
+app.get('/api/app-info', async (req, res) => {
+  const result = { license: { valid: false }, disk: { usedByApp: 0, total: 0, free: 0 } };
+
+  // --- License info ---
+  try {
+    const local = verifyLocalLicense();
+    if (local.valid) {
+      const p = local.payload;
+      result.license = {
+        valid: true,
+        expiresAt: p.expiresAt,
+        keyMasked: p.key ? (p.key.slice(0, 4) + '****' + p.key.slice(-4)) : 'N/A',
+        customerName: null,
+        plan: null,
+        daysLeft: null
+      };
+      // Thử lấy thêm từ license server (customerName, plan, daysLeft)
+      try {
+        const resp = await axios.post(
+          `${LICENSE_SERVER_URL}/api/server/verify`,
+          { key: p.key, hwid: p.hwid },
+          { timeout: 3000 }
+        );
+        if (resp.data && resp.data.status === 'active') {
+          result.license.customerName = resp.data.customerName || null;
+          result.license.plan = resp.data.planType || resp.data.plan || null;
+          result.license.daysLeft = resp.data.daysLeft != null ? resp.data.daysLeft : null;
+        }
+      } catch (_) { /* offline — dùng local expiresAt */ }
+
+      // Tính daysLeft từ local nếu server không trả về
+      if (result.license.daysLeft == null && p.expiresAt) {
+        const diff = new Date(p.expiresAt) - new Date();
+        result.license.daysLeft = Math.max(0, Math.floor(diff / 86400000));
+      }
+    }
+  } catch (e) {
+    result.license = { valid: false, error: e.message };
+  }
+
+  // --- Disk info ---
+  try {
+    const { execSync } = require('child_process');
+    const licFile = getLicenseFilePath();
+    const drive = licFile.substring(0, 2).toUpperCase(); // e.g. "C:"
+    const wmicOut = execSync(
+      `wmic logicaldisk where "DeviceID='${drive}'" get Size,FreeSpace /value`,
+      { encoding: 'utf8', timeout: 3000 }
+    );
+    const freeMatch = wmicOut.match(/FreeSpace=(\d+)/);
+    const sizeMatch = wmicOut.match(/Size=(\d+)/);
+    if (freeMatch && sizeMatch) {
+      const total = parseInt(sizeMatch[1]);
+      const free = parseInt(freeMatch[1]);
+
+      // Tính dung lượng do app dùng: userData folder + downloads folder
+      function getDirSize(dir) {
+        if (!fs.existsSync(dir)) return 0;
+        let size = 0;
+        try {
+          for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, item.name);
+            try {
+              if (item.isDirectory()) size += getDirSize(full);
+              else size += fs.statSync(full).size;
+            } catch (_) {}
+          }
+        } catch (_) {}
+        return size;
+      }
+
+      const userDataDir = path.dirname(licFile);
+      const downloadsDir = shared.DOWNLOADS_DIR || path.join(userDataDir, 'downloads');
+      // Tránh tính trùng nếu DOWNLOADS_DIR nằm trong userDataDir
+      const usedByApp = downloadsDir.startsWith(userDataDir)
+        ? getDirSize(userDataDir)
+        : getDirSize(userDataDir) + getDirSize(downloadsDir);
+
+      result.disk = { total, free, usedByApp };
+    }
+  } catch (e) {
+    result.disk = { total: 0, free: 0, usedByApp: 0 };
+    console.error('[AppInfo] Disk error:', e.message);
+  }
+
+  res.json(result);
+});
 
 // Find free ports
 function findAvailablePort(startPort) {
