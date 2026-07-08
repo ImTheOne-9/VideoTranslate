@@ -112,7 +112,7 @@ function migrateOldDataLayout() {
       // Xóa thư mục renders cũ nếu rỗng
       const remaining = fs.readdirSync(oldRendersDir);
       if (remaining.length === 0) {
-        try { fs.rmdirSync(oldRendersDir); console.log('[Migrate] Đã xóa thư mục renders cũ rỗng'); } catch (e) {}
+        try { fs.rmdirSync(oldRendersDir); console.log('[Migrate] Đã xóa thư mục renders cũ rỗng'); } catch (e) { }
       }
     } catch (e) {
       console.error('[Migrate] Lỗi migrate renders:', e.message);
@@ -286,7 +286,7 @@ app.post('/api/ninerouter-models', async (req, res) => {
     }
     const response = await axios.get(`${resolvedBaseUrl}/models`, { headers });
     const models = response.data.data || [];
-    
+
     const formattedModels = models.map(m => {
       return {
         id: m.id,
@@ -367,18 +367,51 @@ app.get('/api/app-info', async (req, res) => {
   // --- Disk info ---
   try {
     const { execSync } = require('child_process');
+    const os = require('os');
     const licFile = getLicenseFilePath();
     const drive = licFile.substring(0, 2).toUpperCase(); // e.g. "C:"
-    const wmicOut = execSync(
-      `wmic logicaldisk where "DeviceID='${drive}'" get Size,FreeSpace /value`,
-      { encoding: 'utf8', timeout: 3000 }
-    );
-    const freeMatch = wmicOut.match(/FreeSpace=(\d+)/);
-    const sizeMatch = wmicOut.match(/Size=(\d+)/);
-    if (freeMatch && sizeMatch) {
-      const total = parseInt(sizeMatch[1]);
-      const free = parseInt(freeMatch[1]);
+    const driveLetter = drive[0]; // e.g. "C"
 
+    let total = 0, free = 0;
+
+    // Thử wmic trước (Windows 10 / Server)
+    try {
+      const wmicOut = execSync(
+        `wmic logicaldisk where "DeviceID='${drive}'" get Size,FreeSpace /value`,
+        { encoding: 'utf8', timeout: 3000 }
+      );
+      const freeMatch = wmicOut.match(/FreeSpace=(\d+)/);
+      const sizeMatch = wmicOut.match(/Size=(\d+)/);
+      if (freeMatch && sizeMatch) {
+        total = parseInt(sizeMatch[1]);
+        free  = parseInt(freeMatch[1]);
+      }
+    } catch (_) {
+      // wmic không có (Windows 11 22H2+) → dùng PowerShell
+    }
+
+    // Fallback: PowerShell qua temp .ps1 file (tránh quoting issues)
+    if (total === 0) {
+      const tmpFile = path.join(os.tmpdir(), `_vs_disk_${Date.now()}.ps1`);
+      try {
+        fs.writeFileSync(tmpFile,
+          `$d = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DeviceID -eq '${driveLetter}:' }\n` +
+          `if ($d) { Write-Output ($d.Size.ToString() + ',' + $d.FreeSpace.ToString()) } else { Write-Output '0,0' }\n`
+        );
+        const psOut = execSync(
+          `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`,
+          { encoding: 'utf8', timeout: 6000 }
+        ).trim();
+        const parts = psOut.split(',');
+        if (parts.length === 2) {
+          total = parseInt(parts[0]) || 0;
+          free  = parseInt(parts[1]) || 0;
+        }
+      } catch (_) { /* cả 2 đều lỗi, trả 0 */ }
+      try { fs.unlinkSync(tmpFile); } catch (_) { }
+    }
+
+    if (total > 0) {
       // Tính dung lượng do app dùng: userData folder + downloads folder
       function getDirSize(dir) {
         if (!fs.existsSync(dir)) return 0;
@@ -389,15 +422,14 @@ app.get('/api/app-info', async (req, res) => {
             try {
               if (item.isDirectory()) size += getDirSize(full);
               else size += fs.statSync(full).size;
-            } catch (_) {}
+            } catch (_) { }
           }
-        } catch (_) {}
+        } catch (_) { }
         return size;
       }
 
       const userDataDir = path.dirname(licFile);
       const downloadsDir = shared.DOWNLOADS_DIR || path.join(userDataDir, 'downloads');
-      // Tránh tính trùng nếu DOWNLOADS_DIR nằm trong userDataDir
       const usedByApp = downloadsDir.startsWith(userDataDir)
         ? getDirSize(userDataDir)
         : getDirSize(userDataDir) + getDirSize(downloadsDir);
@@ -435,8 +467,8 @@ function startServer(preferredPort = 3456) {
         console.log(`   http://127.0.0.1:${port}\n`);
         resolve({ server, port });
       });
-      
-      server.timeout = 0; 
+
+      server.timeout = 0;
       server.headersTimeout = 0;
       server.requestTimeout = 0;
       server.keepAliveTimeout = 5000;
