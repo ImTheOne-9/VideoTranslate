@@ -170,10 +170,14 @@ if (fs.existsSync(DEFAULT_VOICES_SRC)) {
 // Cấu hình CUDA DLLs và tools path
 if (process.platform === 'win32') {
   const toolsDir = shared.TOOLS_DIR;
+  const dataToolsDir = shared.DATA_TOOLS_DIR;
   const omnivoiceDir = path.join(shared.TOOLS_DIR, 'omnivoice');
+  const omnivoiceDataDir = path.join(shared.DATA_TOOLS_DIR, 'omnivoice');
   const pathParts = [];
   if (fs.existsSync(toolsDir)) pathParts.push(toolsDir);
+  if (fs.existsSync(dataToolsDir) && dataToolsDir !== toolsDir) pathParts.push(dataToolsDir);
   if (fs.existsSync(omnivoiceDir)) pathParts.push(omnivoiceDir);
+  if (fs.existsSync(omnivoiceDataDir) && omnivoiceDataDir !== omnivoiceDir) pathParts.push(omnivoiceDataDir);
   const cudaRoot = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA';
   if (fs.existsSync(cudaRoot)) {
     try {

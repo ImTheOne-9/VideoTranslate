@@ -1327,20 +1327,17 @@ function updateBlurBoxPreview() {
 function addBlurBox() {
   const newBox = {
     id: Date.now(),
-    x: x,
-    y: y,
-    width: width,
-    height: height,
-    radius: radius,
+    x: 10,
+    y: 10,
+    width: 80,
+    height: 20,
+    radius: 20,
     start: 0,
     end: 99999,
     _collapsed: false
   };
   blurBoxes.push(newBox);
   activeBlurBoxId = newBox.id;
-
-
-
   renderBlurBoxesList();
   updateSubtitleOverlayFromInputs();
 }
