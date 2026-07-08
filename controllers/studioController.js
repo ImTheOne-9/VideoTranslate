@@ -442,6 +442,14 @@ async function executeRenderTask(task) {
             if (gapMs > 1000 || endsWithPunctuation) {
               shouldSplit = true;
             }
+
+            // Tách group nếu tổng thời gian đã vượt quá 10s để tránh đọc quá sớm
+            if (!shouldSplit) {
+              const groupStartMs = srtTimeToMs(currentGroup[0].startTime);
+              if (currentEndMs - groupStartMs > 10000) {
+                shouldSplit = true;
+              }
+            }
           }
 
           if (shouldSplit) {
