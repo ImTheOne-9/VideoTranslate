@@ -5675,7 +5675,7 @@ function resetStudioConfig() {
   if (omiLanguage) omiLanguage.value = 'Vietnamese';
 
   const omiDevice = document.querySelector('select[name="omiDevice"]');
-  if (omiDevice) omiDevice.value = 'cpu';
+  if (omiDevice) omiDevice.value = 'vulkan:0';
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
@@ -6151,15 +6151,15 @@ window.startDependencyDownload = startDependencyDownload;
 let setupDownloadState = { cuda: false, whisper: false };
 
 function openSetupModal() {
-  const cudaMissing = !dependencyStatus.cuda;
+  const cudaMissing = false; // Vulkan thay thế CUDA cho OmniVoice
   const whisperMissing = !dependencyStatus.whisper;
-  if (!cudaMissing && !whisperMissing) return;
+  if (!whisperMissing) return;
 
   const cudaItem = $('setup-cuda-item');
   const whisperItem = $('setup-whisper-item');
 
   if (cudaItem) {
-    cudaItem.classList.toggle('hidden', !cudaMissing);
+    cudaItem.classList.add('hidden');
     resetSetupItemUI('cuda');
   }
   if (whisperItem) {

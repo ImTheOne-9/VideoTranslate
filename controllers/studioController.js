@@ -479,13 +479,15 @@ async function executeRenderTask(task) {
           const speed = Math.max(minSpeed, Math.min(2.0, naturalDuration / durationSec));
           const targetDuration = naturalDuration / speed;
 
+          const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
+
           const omnivoiceArgs = [
             '--model', shared.OMNIVOICE_MODEL_PATH,
             '--text', lineText,
             '--output', chunkPath,
             '--response-format', 'wav',
             '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
-            '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
+            '--device', usedDevice,
             '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
             '--speed', String(speed.toFixed(2)),
@@ -500,7 +502,7 @@ async function executeRenderTask(task) {
             omnivoiceArgs.push('--duration', String(targetDuration.toFixed(2)));
           }
 
-          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s)`);
+          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
           try {
             await shared.runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(shared.OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
             if (fs.existsSync(chunkPath)) {
@@ -662,13 +664,14 @@ async function executeRenderTask(task) {
 
         omiScript = omiScript.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
         voicePath = path.join(workDir, `omnivoice_${timestamp}.wav`);
+        const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
         const omnivoiceArgs = [
           '--model', shared.OMNIVOICE_MODEL_PATH,
           '--text', omiScript,
           '--output', voicePath,
           '--response-format', 'wav',
           '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
-          '--device', body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu',
+          '--device', usedDevice,
           '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
           '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
           '--position-temperature', '1.5'
@@ -684,7 +687,7 @@ async function executeRenderTask(task) {
         }
 
         console.log('\n======================================================================');
-        console.log(`[OmniVoice] Kịch bản đang đọc (${body.omiLanguage || 'vi'}):\n${omiScript}`);
+        console.log(`[OmniVoice] Kịch bản đang đọc (${body.omiLanguage || 'vi'}, Device: ${usedDevice}):\n${omiScript}`);
         console.log('======================================================================\n');
 
         const scriptOutName = `studio_${timestamp}.txt`;
@@ -709,7 +712,7 @@ async function executeRenderTask(task) {
     const hasCUDA = process.platform === 'win32' && fs.existsSync('C:\\Windows\\System32\\nvcuda.dll');
     const outName = `studio_${timestamp}.mp4`;
     const outPath = path.join(shared.RENDERS_DIR, outName);
-    const args = hasCUDA ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'yuv420p', '-i', sourceVideo] : ['-i', sourceVideo];
+    const args = ['-i', sourceVideo];
     const audioInputs = [];
 
     const voiceVolume = Math.max(0, Number(body.voiceVolume !== undefined ? body.voiceVolume : 1.0));
@@ -1037,7 +1040,28 @@ async function executeRenderTask(task) {
     args.push(...encoderArgs, '-movflags', '+faststart', '-shortest', '-y', outPath);
     shared.updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
     console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
-    await runFFmpegWithProgress(args, totalDuration);
+    try {
+      await runFFmpegWithProgress(args, totalDuration);
+    } catch (ffErr) {
+      if (hasCUDA && ffErr.message && ffErr.message.includes('nvenc')) {
+        console.log('[FFmpeg] NVENC không khả dụng, fallback sang libx264...');
+        const fallbackArgs = args.map(a => a);
+        const nvencIdx = fallbackArgs.indexOf('h264_nvenc');
+        if (nvencIdx !== -1) {
+          fallbackArgs.splice(nvencIdx, 1, 'libx264');
+          const presetsIdx = fallbackArgs.indexOf('p7');
+          if (presetsIdx !== -1) {
+            fallbackArgs.splice(presetsIdx, 1, 'veryfast');
+            fallbackArgs.splice(presetsIdx + 1, 2);
+          }
+          await runFFmpegWithProgress(fallbackArgs, totalDuration);
+        } else {
+          throw ffErr;
+        }
+      } else {
+        throw ffErr;
+      }
+    }
 
     if (subtitlePath && fs.existsSync(subtitlePath)) {
       try {
