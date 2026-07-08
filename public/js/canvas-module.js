@@ -1327,13 +1327,14 @@ function updateBlurBoxPreview() {
 function addBlurBox() {
   const newBox = {
     id: Date.now(),
-    x: 10,
-    y: 75,
-    width: 80,
-    height: 15,
-    radius: 20,
+    x: x,
+    y: y,
+    width: width,
+    height: height,
+    radius: radius,
     start: 0,
-    end: 99999
+    end: 99999,
+    _collapsed: false
   };
   blurBoxes.push(newBox);
   activeBlurBoxId = newBox.id;
@@ -1342,6 +1343,14 @@ function addBlurBox() {
 
   renderBlurBoxesList();
   updateSubtitleOverlayFromInputs();
+}
+
+function toggleBlurBoxCollapse(id) {
+  const box = blurBoxes.find(b => b.id === id);
+  if (box) {
+    box._collapsed = !box._collapsed;
+    renderBlurBoxesList();
+  }
 }
 
 function removeBlurBox(id) {
@@ -1415,39 +1424,47 @@ function renderBlurBoxesList() {
       }
     });
 
+    const isCollapsed = box._collapsed;
+    const collapseIcon = isCollapsed ? '▶' : '▼';
+
     item.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${isCollapsed ? '0' : '8'}px;">
+        <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;" onclick="event.stopPropagation(); toggleBlurBoxCollapse(${box.id})">
+          <span style="font-size: 10px; color: var(--muted); cursor: pointer; flex-shrink: 0;">${collapseIcon}</span>
+          <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+        </div>
         <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">Xóa</button>
       </div>
-      
-      <!-- Hidden coordinates to prevent JS code crash -->
-      <div style="display: none;">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="x" value="${box.x}">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="y" value="${box.y}">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="width" value="${box.width}">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="height" value="${box.height}">
-      </div>
 
-      <!-- Time bounds & blur slider settings -->
-      <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-        <div class="form-group" style="margin: 0;">
-          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Bắt đầu (s)</label>
-          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+      <div class="blur-box-details" style="display: ${isCollapsed ? 'none' : 'block'};">
+        <!-- Hidden coordinates to prevent JS code crash -->
+        <div style="display: none;">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="x" value="${box.x}">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="y" value="${box.y}">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="width" value="${box.width}">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="height" value="${box.height}">
         </div>
-        <div class="form-group" style="margin: 0;">
-          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Kết thúc (s)</label>
-          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+
+        <!-- Time bounds & blur slider settings -->
+        <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Bắt đầu (s)</label>
+            <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Kết thúc (s)</label>
+            <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+          </div>
         </div>
-      </div>
-      
-      <!-- Blur Radius Slider -->
-      <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
-          <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
+        
+        <!-- Blur Radius Slider -->
+        <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
+            <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
+          </div>
+          <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
         </div>
-        <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
       </div>
     `;
     container.appendChild(item);
