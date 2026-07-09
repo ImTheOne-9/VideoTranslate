@@ -25,12 +25,13 @@ function getVideoDurationInSeconds(videoPath) {
     }
     shared.execFile(shared.FFMPEG_PATH, ['-i', videoPath], (err, stdout, stderr) => {
       const output = stderr || '';
-      const match = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+      const match = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d+)/);
       if (match) {
         const hours = parseInt(match[1], 10);
         const minutes = parseInt(match[2], 10);
         const seconds = parseInt(match[3], 10);
-        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+        const centiseconds = parseInt(match[4].padEnd(3, '0').slice(0, 3), 10);
+        const totalSeconds = hours * 3600 + minutes * 60 + seconds + centiseconds / 1000;
         resolve(totalSeconds);
       } else {
         resolve(0);
@@ -193,7 +194,6 @@ function convertSrtToAss(srtPath, assPath, options) {
 async function executeRenderTask(task) {
   const tempFiles = [];
   const voiceChunks = [];
-  const timestamp = Date.now();
   const renderId = task.id;
 
   global.activeRenderRes = null;
@@ -542,7 +542,7 @@ async function executeRenderTask(task) {
             '--response-format', 'wav',
             '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
             '--device', usedDevice,
-            '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
             '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
             '--speed', String(speed.toFixed(2)),
             '--position-temperature', '1.0'
@@ -562,8 +562,21 @@ async function executeRenderTask(task) {
             if (fs.existsSync(chunkPath)) {
               try {
                 const stats = fs.statSync(chunkPath);
-                const pcmSize = stats.size - 44;
-                const actualDurationMs = Math.round(pcmSize / 48);
+          const pcmSize = stats.size - 44;
+          let actualDurationMs = Math.round(pcmSize / 48);
+          try {
+            const fd2 = fs.openSync(chunk.filePath, 'r');
+            const hdr = Buffer.alloc(44);
+            fs.readSync(fd2, hdr, 0, 44, 0);
+            fs.closeSync(fd2);
+            const sampleRate = hdr.readUInt32LE(24);
+            if (sampleRate !== 24000 && sampleRate > 0) {
+              const bitsPerSample = hdr.readUInt16LE(34);
+              const numChannels = hdr.readUInt16LE(22);
+              const bytesPerMs = (sampleRate * numChannels * (bitsPerSample / 8)) / 1000;
+              if (bytesPerMs > 0) actualDurationMs = Math.round(pcmSize / bytesPerMs);
+            }
+          } catch (e) { /* fallback to 24kHz assumption */ }
 
                 const subtitleDurationMs = endMs - startMs;
                 const maxAllowedDurationMs = Math.max(200, subtitleDurationMs - 50);
@@ -665,8 +678,14 @@ async function executeRenderTask(task) {
           }
 
           if (maxEndMs > 0) {
-            const combinedDataSize = maxEndMs * 48;
-            const combinedBuffer = Buffer.alloc(combinedDataSize);
+            const maxSafeMs = Math.min(maxEndMs, 7200000); // cap 2h (7.2M ms * 48 bytes = ~345MB)
+            const combinedDataSize = maxSafeMs * 48;
+            let combinedBuffer;
+            try {
+              combinedBuffer = Buffer.alloc(combinedDataSize);
+            } catch (e) {
+              throw new Error(`Không thể cấp phát bộ nhớ cho WAV gộp (${(combinedDataSize / 1024 / 1024).toFixed(0)}MB): ${e.message}`);
+            }
 
             for (const chunk of chunkDataList) {
               const targetOffset = chunk.startMs * 48;
@@ -688,6 +707,8 @@ async function executeRenderTask(task) {
             }
 
             const wavHeader = createWavHeader(combinedDataSize, 24000, 1, 16);
+            // Note: combinedDataSize may use capped maxSafeMs, update size in header
+            wavHeader.writeUInt32LE(combinedDataSize + 36, 4);
             voicePath = path.join(workDir, `combined_voice_${timestamp}.wav`);
             fs.writeFileSync(voicePath, Buffer.concat([wavHeader, combinedBuffer]));
             tempFiles.push(voicePath);
@@ -697,6 +718,8 @@ async function executeRenderTask(task) {
           }
         } catch (mergeErr) {
           console.error('[OmniVoice] Lỗi khi gộp các file chunk âm thanh:', mergeErr.message);
+          console.warn('[OmniVoice] Dùng các chunk riêng lẻ (adelay) với cảnh báo: chất lượng ghép nối có thể không mượt.');
+          // Không throw — để render tiếp với individual chunks (voiceChunks chưa bị clear)
         }
       } else {
         if (!omiScript && subtitlePath && fs.existsSync(subtitlePath)) {
@@ -726,7 +749,7 @@ async function executeRenderTask(task) {
           '--response-format', 'wav',
           '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
           '--device', usedDevice,
-          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
+          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
           '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
           '--position-temperature', '1.5'
         ];
@@ -1049,7 +1072,7 @@ async function executeRenderTask(task) {
 
     let hasAudioFilter = false;
     let originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
-    if (body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') {
+    if ((body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') && extractedBgmPath) {
       originalVolume = 0;
     }
     if (audioInputs.length > 0) {
