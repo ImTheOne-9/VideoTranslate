@@ -7524,10 +7524,11 @@ async function loadAppInfo() {
     const { usedByApp = 0, total = 0 } = data.disk || {};
     const diskText = $('sidebar-disk-text');
     const diskBar = $('sidebar-disk-bar');
-    const diskEl = $('sidebar-disk');
+    const diskTrack = $('sidebar-disk-track');
     if (diskText && diskBar) {
-      diskText.textContent = formatBytes(usedByApp) + ' / ' + formatBytes(total);
-      if (diskEl) diskEl.title = formatBytes(usedByApp) + ' / ' + formatBytes(total);
+      const txt = formatBytes(usedByApp) + ' / ' + formatBytes(total);
+      diskText.textContent = txt;
+      if (diskTrack) diskTrack.dataset.text = txt;
       const pct = total > 0 ? Math.min(100, (usedByApp / total) * 100) : 0;
       diskBar.style.width = pct + '%';
       // Cảnh báo màu đỏ nếu gần đầy (>90%)
