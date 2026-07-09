@@ -3450,6 +3450,66 @@ select option {
   margin: 0;
 }
 
+.app-shell.sidebar-collapsed .sidebar-section-label {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-recent-item span {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-recent-item {
+  justify-content: center;
+  padding: 6px 0;
+  width: 100%;
+}
+
+.app-shell.sidebar-collapsed .sidebar-recent-item svg {
+  width: 16px;
+  height: 16px;
+}
+
+.app-shell.sidebar-collapsed .sidebar-recent-empty {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-disk-header {
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-shell.sidebar-collapsed .sidebar-disk-header span:first-child {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-disk-header span:last-child {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.app-shell.sidebar-collapsed .sidebar-disk-track {
+  width: 56px;
+  margin: 0 auto;
+}
+
+.app-shell.sidebar-collapsed .sidebar-user {
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0 4px;
+  align-items: center;
+}
+
+.app-shell.sidebar-collapsed .sidebar-user-info {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-settings-btn {
+  margin: 0;
+}
+
 /* Dropdown actions menu in project list */
 .project-action-dropdown {
   position: relative;
