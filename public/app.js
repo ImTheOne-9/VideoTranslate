@@ -1260,7 +1260,12 @@ async function selectAndShowTask(taskId) {
       const data = await res.json();
       const task = data.queue.find(t => t.id === taskId);
       if (task && task.projectId && task.projectId !== currentProjectId) {
-        await loadProject(task.projectId);
+        await loadProject(task.projectId, true);
+        currentDisplayedTaskId = taskId;
+        switchToResultTab();
+        updateQueueStatus();
+        closeQueueModal();
+        return;
       }
     }
   } catch (e) {
@@ -6844,7 +6849,7 @@ function setupStudioFormAutoSave() {
   }
 }
 
-async function loadProject(id) {
+async function loadProject(id, skipSaveCheck) {
   try {
     if (currentProjectId && currentProjectId !== id) {
       const hasVideo = $('selected-video-file')?.value || $('video-upload')?.files.length;
@@ -6874,8 +6879,13 @@ async function loadProject(id) {
     window.__projectDirty = false;
 
     toast(`📂 Đã nạp dự án "${currentProjectName}" thành công!`, 'success');
-    switchView('studio');
-    openStudioEditor();
+    if (skipSaveCheck) {
+      executeSwitchView('studio');
+      openStudioEditor();
+    } else {
+      switchView('studio');
+      openStudioEditor();
+    }
   } catch (error) {
     console.error('Lỗi khi nạp dự án:', error);
     toast('Lỗi khi nạp dự án: ' + error.message, 'error');
