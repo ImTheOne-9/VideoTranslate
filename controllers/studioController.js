@@ -1051,7 +1051,8 @@ async function executeRenderTask(task) {
     try {
       await runFFmpegWithProgress(args, totalDuration);
     } catch (ffErr) {
-      if (hasCUDA && ffErr.message && ffErr.message.includes('nvenc')) {
+      const stderrMsg = (ffErr.stderr || ffErr.message || '').toLowerCase();
+      if (hasCUDA && stderrMsg.includes('nvenc')) {
         console.log('[FFmpeg] NVENC không khả dụng, fallback sang libx264...');
         const fallbackArgs = args.map(a => a);
         const nvencIdx = fallbackArgs.indexOf('h264_nvenc');
