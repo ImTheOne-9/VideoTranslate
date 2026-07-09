@@ -5622,7 +5622,7 @@ function resetStudioConfig() {
   if (boldSelect) boldSelect.value = 'true';
 
   const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
-  if (maxLinesSelect) maxLinesSelect.value = '0';
+  if (maxLinesSelect) maxLinesSelect.value = '1';
 
   const marginInput = document.querySelector('input[name="subtitleMargin"]');
   if (marginInput) marginInput.value = '28';
