@@ -562,8 +562,12 @@ function updateSubtitleOverlayFromInputs() {
         if (clickedNode.name() === 'blur' || clickedNode.name() === 'blur-box-shape') {
           if (clickedNode.name() === 'blur-box-shape') {
             const boxId = clickedNode.getAttr('boxId');
-            if (boxId && boxId !== activeBlurBoxId) {
-              selectBlurBox(boxId);
+            if (boxId) {
+              if (boxId === activeBlurBoxId) {
+                deselectBlurBox();
+              } else {
+                selectBlurBox(boxId);
+              }
             }
           }
           konvaTransformer.enabledAnchors([
@@ -1394,6 +1398,23 @@ function selectBlurBox(id) {
   updateSubtitleOverlayFromInputs();
 }
 
+function deselectBlurBox() {
+  activeBlurBoxId = null;
+  document.querySelectorAll('.blur-box-item').forEach(item => {
+    item.classList.remove('active');
+    item.style.background = '#10161d';
+    item.style.borderColor = 'var(--border)';
+    const titleSpan = item.querySelector('span');
+    if (titleSpan) {
+      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
+      if (match) titleSpan.textContent = `Vùng mờ #${match[1]}`;
+      titleSpan.style.color = 'var(--text)';
+    }
+  });
+  document.querySelectorAll('.timeline-block').forEach(block => block.classList.remove('active'));
+  updateSubtitleOverlayFromInputs();
+}
+
 function renderBlurBoxesList() {
   const container = $('blur-boxes-list');
   if (!container) return;
@@ -1611,15 +1632,17 @@ function renderTimeline() {
       
       block.addEventListener('click', (e) => {
         if (!block.dataset.dragging && !block.dataset.resizing) {
-          selectBlurBox(box.id);
+          if (activeBlurBoxId === box.id) {
+            deselectBlurBox();
+          } else {
+            selectBlurBox(box.id);
+          }
         }
       });
       
       block.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        
-        selectBlurBox(box.id);
         
         const initialClientX = e.clientX;
         const initialStart = box.start;
@@ -1631,7 +1654,6 @@ function renderTimeline() {
         
         if (isLeftResize) block.dataset.resizing = 'left';
         if (isRightResize) block.dataset.resizing = 'right';
-        if (isMove) block.dataset.dragging = 'true';
         
         let lastMoveEvent = null;
         let animationFrameId = null;
@@ -1648,6 +1670,7 @@ function renderTimeline() {
         
         const onMouseMove = (moveEvent) => {
           lastMoveEvent = moveEvent;
+          if (isMove && Math.abs(moveEvent.clientX - initialClientX) > 3) block.dataset.dragging = 'true';
           
           if (!animationFrameId) {
             animationFrameId = requestAnimationFrame(() => {
@@ -1769,6 +1792,14 @@ function initTimelineControls() {
   
   video.addEventListener('timeupdate', () => {
     syncPlayhead();
+    const now = Date.now();
+    if (!video._lastBlurUpdate || now - video._lastBlurUpdate > 100) {
+      video._lastBlurUpdate = now;
+      updateSubtitleOverlayFromInputs();
+    }
+  });
+  video.addEventListener('seeked', () => {
+    updateSubtitleOverlayFromInputs();
   });
   
   let lastScrubEvent = null;
