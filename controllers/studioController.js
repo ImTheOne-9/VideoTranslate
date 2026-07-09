@@ -258,6 +258,52 @@ async function executeRenderTask(task) {
     const totalDuration = await getVideoDurationInSeconds(sourceVideo);
     console.log(`[Studio Render] Kích thước video nguồn: ${videoWidth}x${videoHeight}, Thời lượng: ${totalDuration}s`);
 
+    let extractedBgmPath = null;
+    if (body.keepOriginalBgmAI === 'true') {
+      const separatorPath = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
+        ? shared.AUDIO_SEPARATOR_CLI_PATH
+        : (fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe')) ? path.join(shared.TOOLS_DIR, 'audio-separator.exe') : null);
+      if (separatorPath) {
+        shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (audio-separator)...');
+        const tempAudioToSeparate = path.join(workDir, `original_audio_${timestamp}.wav`);
+        try {
+          await new Promise((resolve, reject) => {
+            shared.execFile(shared.FFMPEG_PATH, [
+              '-i', sourceVideo,
+              '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+              '-y', tempAudioToSeparate
+            ], (err, stdout, stderr) => {
+              if (err) reject(new Error('Lỗi FFmpeg trích xuất audio gốc: ' + stderr));
+              else resolve();
+            });
+          });
+
+          console.log('[Studio Render] Bắt đầu gọi audio-separator...');
+          await shared.runExecFile(separatorPath, [
+            tempAudioToSeparate,
+            '--output_dir', workDir,
+            '--output_format', 'WAV',
+            '--single_stem', 'Instrumental',
+            '--model_file_dir', path.join(path.dirname(separatorPath), 'models')
+          ]);
+
+          const separatedFiles = fs.readdirSync(workDir).filter(f => f.includes('(Instrumental)'));
+          if (separatedFiles.length > 0) {
+            extractedBgmPath = path.join(workDir, separatedFiles[0]);
+            console.log('[Studio Render] Đã tách xong nhạc nền:', extractedBgmPath);
+            tempFiles.push(extractedBgmPath);
+          } else {
+            console.warn('[Studio Render] Không tìm thấy file (Instrumental) đầu ra từ audio-separator.');
+          }
+          tempFiles.push(tempAudioToSeparate);
+        } catch (err) {
+          console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
+        }
+      } else {
+        console.warn(`[Studio Render] Yêu cầu tách nhạc nền nhưng không tìm thấy audio-separator.exe`);
+      }
+    }
+
     let reactionVideoPath = null;
     const reactionMode = body.reactionMode || 'none';
     if (reactionMode === 'upload' && files.reactionUpload?.[0]) {
@@ -711,7 +757,9 @@ async function executeRenderTask(task) {
     shared.updateStudioProgress(80, 'Đang chuẩn bị các track nhạc nền và lồng tiếng...');
     let musicPath = null;
     const musicMode = body.musicMode || 'none';
-    if (musicMode === 'upload' && files.musicUpload?.[0]) {
+    if (extractedBgmPath) {
+      musicPath = extractedBgmPath;
+    } else if (musicMode === 'upload' && files.musicUpload?.[0]) {
       musicPath = shared.moveUploadedFile(files.musicUpload[0], shared.MUSIC_DIR, files.musicUpload[0].originalname);
     } else if (musicMode === 'saved') {
       musicPath = shared.resolveAssetPath('music', body.savedMusicFile);
@@ -1000,7 +1048,10 @@ async function executeRenderTask(task) {
     }
 
     let hasAudioFilter = false;
-    const originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
+    let originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
+    if (body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') {
+      originalVolume = 0;
+    }
     if (audioInputs.length > 0) {
       hasAudioFilter = true;
       const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];

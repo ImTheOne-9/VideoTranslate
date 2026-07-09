@@ -390,6 +390,8 @@ module.exports = {
     const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
     const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
 
+    const separatorCliOk = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH) || fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe'));
+
     res.json({
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
@@ -399,7 +401,9 @@ module.exports = {
       downloadedWhisperModels: downloadedWhisperModels,
       omnivoice: omnivoiceCliOk && omnivoiceModelOk,
       omnivoiceCli: omnivoiceCliOk,
-      omnivoiceModel: omnivoiceModelOk
+      omnivoiceModel: omnivoiceModelOk,
+      separator: separatorCliOk,
+      separatorCli: separatorCliOk
     });
   },
 
@@ -417,7 +421,7 @@ module.exports = {
 
   downloadDependency: async (req, res) => {
     const { type } = req.body;
-    if (!['cuda', 'whisper'].includes(type)) {
+    if (!['cuda', 'whisper', 'separator'].includes(type)) {
       return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
     }
 

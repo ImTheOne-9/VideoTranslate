@@ -1516,6 +1516,15 @@
                     <!-- Audio Mixer Board Section -->
                     <div class="audio-mixer-board">
                       <div class="mixer-title">BẢNG TRỘN ÂM THANH (AUDIO MIXER)</div>
+                      
+                      <div class="premium-switch-row" style="margin-bottom: 15px; padding: 0 10px;">
+                        <label class="premium-switch">
+                          <input type="checkbox" id="keep-bgm-ai" name="keepOriginalBgmAI" value="true">
+                          <span class="switch-slider"></span>
+                          <span class="switch-label">Giữ Nhạc Nền Gốc bằng AI (Cần tải audio-separator vào tools)</span>
+                        </label>
+                      </div>
+
                       <div class="mixer-channels">
                         <!-- Channel 1: Original Volume -->
                         <div class="mixer-strip">
@@ -2647,6 +2656,20 @@
             <div id="conn-whisper-action"></div>
           </div>
 
+          <!-- Audio Separator -->
+          <div class="connection-item"
+            style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="dot" id="conn-separator-dot"
+                style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
+              <div>
+                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền AI</div>
+                <div style="font-size: 11px; color: var(--muted);" id="conn-separator-desc">Đang kiểm tra...</div>
+              </div>
+            </div>
+            <div id="conn-separator-action"></div>
+          </div>
+
           <!-- OmniVoice -->
           <div class="connection-item"
             style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;">
@@ -2848,6 +2871,36 @@
             </div>
           </div>
           <div id="setup-whisper-error" class="hidden"
+            style="color: #ef4444; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px;">
+          </div>
+        </div>
+
+        <!-- Audio Separator item -->
+        <div id="setup-separator-item" class="hidden"
+          style="border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--panel-2);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+            <div style="flex: 1;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Công cụ tách nhạc nền AI
+                Audio-Separator</div>
+              <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
+                Tách nhạc nền khỏi giọng hát bằng AI, giúp giữ lại nhạc nền gốc khi render. Dung lượng ~XXMB.
+              </p>
+            </div>
+            <button type="button" id="setup-separator-btn" class="premium-render-btn"
+              style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: var(--accent); color: white;"
+              onclick="startSetupDownload('separator')">📥 Tải Audio-Separator</button>
+          </div>
+          <div id="setup-separator-progress-area" class="hidden" style="margin-top: 10px;">
+            <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
+              <div id="setup-separator-progress-bar"
+                style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+              <span id="setup-separator-progress-text" style="font-size: 11px; color: var(--muted);">0%</span>
+              <span id="setup-separator-status-text" style="font-size: 11px; color: var(--muted);">Đang tải...</span>
+            </div>
+          </div>
+          <div id="setup-separator-error" class="hidden"
             style="color: #ef4444; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px;">
           </div>
         </div>

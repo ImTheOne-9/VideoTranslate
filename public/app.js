@@ -234,8 +234,8 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
-  // Mở modal thiết lập nếu thiếu CUDA hoặc Whisper (chỉ 1 lần)
-  if (!window._setupModalShown && (!dependencyStatus.cuda || !dependencyStatus.whisper)) {
+  // Mở modal thiết lập nếu thiếu CUDA, Whisper hoặc Audio-Separator (chỉ 1 lần)
+  if (!window._setupModalShown && (!dependencyStatus.cuda || !dependencyStatus.whisper || !dependencyStatus.separator)) {
     window._setupModalShown = true;
     setTimeout(() => openSetupModal(), 500);
   }
@@ -891,6 +891,10 @@ async function renderStudio(event) {
   data.set('ninerouterApiKey', aiSettings.ninerouterApiKey || '');
   data.set('ninerouterModel', aiSettings.ninerouterModel || '');
   data.set('ninerouterBaseUrl', aiSettings.ninerouterBaseUrl || 'http://localhost:20128/v1');
+  
+  const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
+  if (keepBgmAi) data.set('keepOriginalBgmAI', 'true');
+
   // Map volumes logarithmically for FFmpeg
   const originalSlider = document.querySelector('input[name="originalVolume"]');
   const voiceSlider = document.querySelector('input[name="voiceVolume"]');
@@ -5218,7 +5222,7 @@ function closeConnectionStatusModal() {
 }
 
 async function checkSystemConnections() {
-  const tools = ['ffmpeg', 'ytdlp', 'whisper', 'omnivoice'];
+  const tools = ['ffmpeg', 'ytdlp', 'whisper', 'separator', 'omnivoice'];
   tools.forEach(tool => {
     const dot = $(`conn-${tool}-dot`);
     const desc = $(`conn-${tool}-desc`);
@@ -5301,7 +5305,26 @@ async function checkSystemConnections() {
       }
     }
 
-    // 4. OmniVoice
+    // 4. Audio Separator
+    const separatorDot = $('conn-separator-dot');
+    const separatorDesc = $('conn-separator-desc');
+    const separatorAction = $('conn-separator-action');
+    if (data.separator) {
+      separatorDot.className = 'dot ok';
+      separatorDot.style.background = 'var(--success)';
+      separatorDot.style.boxShadow = '0 0 8px var(--success)';
+      separatorDesc.textContent = 'Đã sẵn sàng';
+    } else {
+      separatorDot.className = 'dot error';
+      separatorDot.style.background = 'var(--danger)';
+      separatorDot.style.boxShadow = '0 0 8px var(--danger)';
+      separatorDesc.textContent = 'Thiếu công cụ tách nhạc nền (Chưa tải)';
+      if (separatorAction) {
+        separatorAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); showDependencyModal('separator');">Tải</button>`;
+      }
+    }
+
+    // 5. OmniVoice
     const omnivoiceDot = $('conn-omnivoice-dot');
     const omnivoiceDesc = $('conn-omnivoice-desc');
     const omnivoiceAction = $('conn-omnivoice-action');
@@ -6051,8 +6074,13 @@ function showDependencyModal(type, callback) {
     name.textContent = 'Công cụ nhận diện giọng nói Whisper';
     desc.textContent = 'Hệ thống cần tải công cụ Whisper ONNX Runtime (whisper_onnx.exe) để thực hiện nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng tải khoảng ~90MB.';
     sizeText.textContent = 'Dung lượng: ~90 MB';
+  } else if (type === 'separator') {
+    title.textContent = '📥 Tải xuống công cụ Audio-Separator';
+    icon.textContent = '🎵';
+    name.textContent = 'Công cụ tách nhạc nền AI';
+    desc.textContent = 'Hệ thống cần tải công cụ Audio-Separator để tách nhạc nền khỏi giọng hát, giúp giữ lại nhạc nền gốc khi render video.';
+    sizeText.textContent = 'Dung lượng: ~XX MB';
   }
-
   modal.classList.remove('hidden');
 }
 
@@ -6153,15 +6181,17 @@ window.startDependencyDownload = startDependencyDownload;
 // ==========================================
 // SETUP MODAL (gộp CUDA & Whisper khi lần đầu vào app)
 // ==========================================
-let setupDownloadState = { cuda: false, whisper: false };
+let setupDownloadState = { cuda: false, whisper: false, separator: false };
 
 function openSetupModal() {
   const cudaMissing = false; // Vulkan thay thế CUDA cho OmniVoice
   const whisperMissing = !dependencyStatus.whisper;
-  if (!whisperMissing) return;
+  const separatorMissing = !dependencyStatus.separator;
+  if (!whisperMissing && !separatorMissing) return;
 
   const cudaItem = $('setup-cuda-item');
   const whisperItem = $('setup-whisper-item');
+  const separatorItem = $('setup-separator-item');
 
   if (cudaItem) {
     cudaItem.classList.add('hidden');
@@ -6171,8 +6201,12 @@ function openSetupModal() {
     whisperItem.classList.toggle('hidden', !whisperMissing);
     resetSetupItemUI('whisper');
   }
+  if (separatorItem) {
+    separatorItem.classList.toggle('hidden', !separatorMissing);
+    resetSetupItemUI('separator');
+  }
 
-  setupDownloadState = { cuda: false, whisper: false };
+  setupDownloadState = { cuda: false, whisper: false, separator: false };
 
   const modal = $('setup-dependencies-modal');
   if (modal) modal.classList.remove('hidden');
@@ -6190,8 +6224,8 @@ function resetSetupItemUI(type) {
   if (progressArea) progressArea.classList.add('hidden');
   if (errorEl) errorEl.classList.add('hidden');
   if (btn) {
-    btn.disabled = false;
-    btn.textContent = type === 'cuda' ? '📥 Tải CUDA' : '📥 Tải Whisper';
+    const labels = { cuda: '📥 Tải CUDA', whisper: '📥 Tải Whisper', separator: '📥 Tải Audio-Separator' };
+    btn.textContent = labels[type] || '📥 Tải xuống';
     btn.style.background = 'var(--accent)';
   }
 }
@@ -6200,13 +6234,15 @@ async function startSetupDownload(type) {
   if (setupDownloadState[type]) return; // đang tải rồi
   setupDownloadState[type] = true;
 
-  // Vô hiệu hóa nút của item kia (chỉ tải 1 cái 1 lúc)
-  const setupOtherType = type === 'cuda' ? 'whisper' : 'cuda';
-  const otherBtn = $(`setup-${setupOtherType}-btn`);
-  if (otherBtn && !otherBtn.disabled) {
-    otherBtn.disabled = true;
-    otherBtn.style.opacity = '0.5';
-  }
+  // Vô hiệu hóa nút các item khác (chỉ tải 1 cái 1 lúc)
+  const setupOtherTypes = ['cuda', 'whisper', 'separator'].filter(t => t !== type);
+  setupOtherTypes.forEach(t => {
+    const b = $(`setup-${t}-btn`);
+    if (b && !b.disabled) {
+      b.disabled = true;
+      b.style.opacity = '0.5';
+    }
+  });
 
   const btn = $(`setup-${type}-btn`);
   const progressArea = $(`setup-${type}-progress-area`);
@@ -6245,18 +6281,21 @@ async function startSetupDownload(type) {
       btn.textContent = '📥 Thử lại';
       btn.style.background = 'var(--accent)';
     }
-    // Kích hoạt lại nút kia
-    const resetOtherBtn = $(`setup-${setupOtherType}-btn`);
-    if (resetOtherBtn && resetOtherBtn.disabled) {
-      resetOtherBtn.disabled = false;
-      resetOtherBtn.style.opacity = '1';
-    }
+    // Kích hoạt lại các nút khác
+    setupOtherTypes.forEach(t => {
+      const b = $(`setup-${t}-btn`);
+      if (b && b.disabled) {
+        b.disabled = false;
+        b.style.opacity = '1';
+      }
+    });
     if (statusText) statusText.textContent = 'Thất bại';
     setupDownloadState[type] = false;
   }
 }
 
 function pollSetupDownload(type) {
+  const setupOtherTypes = ['cuda', 'whisper', 'separator'].filter(t => t !== type);
   return new Promise((resolve) => {
     const interval = setInterval(async () => {
       try {
@@ -6289,9 +6328,9 @@ function pollSetupDownload(type) {
 
           setupDownloadState[type] = false;
 
-          // Nếu cả 2 đều xong thì đóng modal
-          if (!setupDownloadState.cuda && !setupDownloadState.whisper &&
-              dependencyStatus.cuda && dependencyStatus.whisper) {
+          // Nếu tất cả đều xong thì đóng modal
+          if (!setupDownloadState.cuda && !setupDownloadState.whisper && !setupDownloadState.separator &&
+              dependencyStatus.cuda && dependencyStatus.whisper && dependencyStatus.separator) {
             setTimeout(() => {
               closeSetupModal();
               toast('🎉 Đã tải xong tất cả tài nguyên hệ thống!', 'success');
@@ -6299,12 +6338,14 @@ function pollSetupDownload(type) {
           } else {
             // Chỉ disable nút tải của cái đã xong
             if (btn) btn.disabled = true;
-            // Kích hoạt lại nút kia nếu nó đang bị vô hiệu
-            const enableOtherBtn = $(`setup-${type === 'cuda' ? 'whisper' : 'cuda'}-btn`);
-            if (enableOtherBtn && enableOtherBtn.disabled) {
-              enableOtherBtn.disabled = false;
-              enableOtherBtn.style.opacity = '1';
-            }
+            // Kích hoạt lại các nút khác nếu đang bị vô hiệu
+            setupOtherTypes.forEach(t => {
+              const b = $(`setup-${t}-btn`);
+              if (b && b.disabled) {
+                b.disabled = false;
+                b.style.opacity = '1';
+              }
+            });
           }
           resolve(true);
         } else if (pData.status === 'error') {
