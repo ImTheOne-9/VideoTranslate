@@ -403,7 +403,8 @@ module.exports = {
       omnivoiceCli: omnivoiceCliOk,
       omnivoiceModel: omnivoiceModelOk,
       separator: separatorCliOk,
-      separatorCli: separatorCliOk
+      separatorCli: separatorCliOk,
+      separatorGpu: fs.existsSync(path.join(__dirname, '..', 'temp_env', 'Scripts', 'python.exe'))
     });
   },
 
@@ -421,7 +422,7 @@ module.exports = {
 
   downloadDependency: async (req, res) => {
     const { type } = req.body;
-    if (!['cuda', 'whisper', 'separator'].includes(type)) {
+    if (!['cuda', 'whisper', 'separator', 'separator-gpu'].includes(type)) {
       return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
     }
 
@@ -439,6 +440,31 @@ module.exports = {
           activeDependencyDownload.percent = Math.floor((downloaded / (total || 1)) * 100);
         }
       });
+
+      // Chạy post-setup cho GPU separator
+      if (type === 'separator-gpu') {
+        if (activeDependencyDownload) {
+          activeDependencyDownload.status = 'setup';
+          activeDependencyDownload.step = 'Đang cài GPU packages (Python, PyTorch)...';
+        }
+        const setupScript = path.join(shared.DATA_TOOLS_DIR, 'setup_gpu_separator.ps1');
+        if (fs.existsSync(setupScript)) {
+          const { execFile } = require('child_process');
+          await new Promise((resolve, reject) => {
+            const proc = execFile('powershell.exe', [
+              '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', setupScript
+            ], { maxBuffer: 1024 * 1024 * 10 }, (err, stdout) => {
+              if (err) reject(new Error(`Setup thất bại: ${err.message}\n${stdout}`));
+              else resolve();
+            });
+            if (global.registerChildProcess) {
+              global.registerChildProcess(proc);
+            }
+          });
+          console.log('[Dependency Downloader] GPU separator setup hoàn tất.');
+        }
+      }
+
       if (activeDependencyDownload) {
         activeDependencyDownload.status = 'success';
         activeDependencyDownload.percent = 100;

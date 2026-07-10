@@ -291,47 +291,64 @@ async function executeRenderTask(task) {
 
     let extractedBgmPath = null;
     if (body.keepOriginalBgmAI === 'true') {
-      const separatorPath = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
-        ? shared.AUDIO_SEPARATOR_CLI_PATH
-        : (fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe')) ? path.join(shared.TOOLS_DIR, 'audio-separator.exe') : null);
-      if (separatorPath) {
-        shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (audio-separator)...');
-        const tempAudioToSeparate = path.join(workDir, `original_audio_${timestamp}.wav`);
-        try {
-          await new Promise((resolve, reject) => {
-            shared.execFile(shared.FFMPEG_PATH, [
-              '-i', sourceVideo,
-              '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2',
-              '-y', tempAudioToSeparate
-            ], (err, stdout, stderr) => {
-              if (err) reject(new Error('Lỗi FFmpeg trích xuất audio gốc: ' + stderr));
-              else resolve();
-            });
+      const tempAudioToSeparate = path.join(workDir, `original_audio_${timestamp}.wav`);
+      try {
+        await new Promise((resolve, reject) => {
+          shared.execFile(shared.FFMPEG_PATH, [
+            '-i', sourceVideo,
+            '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+            '-y', tempAudioToSeparate
+          ], (err, stdout, stderr) => {
+            if (err) reject(new Error('Lỗi FFmpeg trích xuất audio gốc: ' + stderr));
+            else resolve();
           });
+        });
+        tempFiles.push(tempAudioToSeparate);
 
-          console.log('[Studio Render] Bắt đầu gọi audio-separator...');
-          await shared.runExecFile(separatorPath, [
+        // Ưu tiên GPU (venv Python + PyTorch CUDA), fallback CPU (audio-separator.exe)
+        const appDataRoot = path.resolve(shared.DATA_TOOLS_DIR, '..');
+        const pythonPath = path.join(appDataRoot, 'temp_env', 'Scripts', 'python.exe');
+        const scriptPath = path.join(shared.DATA_TOOLS_DIR, 'separate_audio.py');
+        const gpuAvailable = fs.existsSync(pythonPath) && fs.existsSync(scriptPath);
+
+        const exePath = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
+          ? shared.AUDIO_SEPARATOR_CLI_PATH
+          : (fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe'))
+            ? path.join(shared.TOOLS_DIR, 'audio-separator.exe') : null);
+
+        if (gpuAvailable) {
+          shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (GPU)...');
+          const modelDir = path.join(shared.DATA_TOOLS_DIR, 'models');
+          await shared.runExecFile(pythonPath, [
+            scriptPath,
+            tempAudioToSeparate,
+            '--output_dir', workDir,
+            '--model_dir', modelDir,
+            '--stem', 'Instrumental'
+          ]);
+        } else if (exePath) {
+          shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (CPU)...');
+          await shared.runExecFile(exePath, [
             tempAudioToSeparate,
             '--output_dir', workDir,
             '--output_format', 'WAV',
             '--single_stem', 'Instrumental',
-            '--model_file_dir', path.join(path.dirname(separatorPath), 'models')
+            '--model_file_dir', path.join(path.dirname(exePath), 'models')
           ]);
-
-          const separatedFiles = fs.readdirSync(workDir).filter(f => f.includes('(Instrumental)'));
-          if (separatedFiles.length > 0) {
-            extractedBgmPath = path.join(workDir, separatedFiles[0]);
-            console.log('[Studio Render] Đã tách xong nhạc nền:', extractedBgmPath);
-            tempFiles.push(extractedBgmPath);
-          } else {
-            console.warn('[Studio Render] Không tìm thấy file (Instrumental) đầu ra từ audio-separator.');
-          }
-          tempFiles.push(tempAudioToSeparate);
-        } catch (err) {
-          console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
+        } else {
+          throw new Error('Không tìm thấy công cụ tách nhạc (GPU hoặc CPU)');
         }
-      } else {
-        console.warn(`[Studio Render] Yêu cầu tách nhạc nền nhưng không tìm thấy audio-separator.exe`);
+
+        const separatedFiles = fs.readdirSync(workDir).filter(f => f.includes('(Instrumental)'));
+        if (separatedFiles.length > 0) {
+          extractedBgmPath = path.join(workDir, separatedFiles[0]);
+          console.log('[Studio Render] Đã tách xong nhạc nền:', extractedBgmPath);
+          tempFiles.push(extractedBgmPath);
+        } else {
+          console.warn('[Studio Render] Không tìm thấy file (Instrumental) đầu ra từ audio-separator.');
+        }
+      } catch (err) {
+        console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
       }
     }
 
@@ -676,17 +693,15 @@ async function executeRenderTask(task) {
             fs.readSync(fd, pcmBuffer, 0, dataSize, actualDataOffset);
             fs.closeSync(fd);
 
-            // Chỉ fade-in chunk đầu tiên, fade-out chunk cuối cùng, không fade kép
+            // Fade-in và fade-out tất cả chunk để tránh tiếng "tách" giữa các câu
             const totalSamples = dataSize / 2;
             const fadeSamples = Math.min(360, Math.floor(totalSamples / 2));
-            const isFirst = (ci === 0);
-            const isLast = (ci === voiceChunks.length - 1);
             for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
               const byteOffset = sampleIdx * 2;
               let val = pcmBuffer.readInt16LE(byteOffset);
-              if (isFirst && sampleIdx < fadeSamples) {
+              if (sampleIdx < fadeSamples) {
                 val = Math.round(val * (sampleIdx / fadeSamples));
-              } else if (isLast && sampleIdx >= totalSamples - fadeSamples) {
+              } else if (sampleIdx >= totalSamples - fadeSamples) {
                 const distFromEnd = totalSamples - 1 - sampleIdx;
                 val = Math.round(val * (distFromEnd / fadeSamples));
               }

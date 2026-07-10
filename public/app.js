@@ -234,8 +234,8 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
-  // Mở modal thiết lập nếu thiếu CUDA, Whisper hoặc Audio-Separator (chỉ 1 lần)
-  if (!window._setupModalShown && (!dependencyStatus.cuda || !dependencyStatus.whisper || !dependencyStatus.separator)) {
+  // Mở modal thiết lập nếu thiếu Whisper, Audio-Separator hoặc GPU Separator (chỉ 1 lần)
+  if (!window._setupModalShown && (!dependencyStatus.whisper || !dependencyStatus.separator || !dependencyStatus.separatorGpu)) {
     window._setupModalShown = true;
     setTimeout(() => openSetupModal(), 500);
   }
@@ -5305,7 +5305,7 @@ async function checkSystemConnections() {
       }
     }
 
-    // 4. Audio Separator
+    // 4. Audio Separator (CPU)
     const separatorDot = $('conn-separator-dot');
     const separatorDesc = $('conn-separator-desc');
     const separatorAction = $('conn-separator-action');
@@ -5318,9 +5318,28 @@ async function checkSystemConnections() {
       separatorDot.className = 'dot error';
       separatorDot.style.background = 'var(--danger)';
       separatorDot.style.boxShadow = '0 0 8px var(--danger)';
-      separatorDesc.textContent = 'Thiếu công cụ tách nhạc nền (Chưa tải)';
+      separatorDesc.textContent = 'Thiếu công cụ (Chưa tải)';
       if (separatorAction) {
         separatorAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); showDependencyModal('separator');">Tải</button>`;
+      }
+    }
+
+    // 4b. Audio Separator (GPU)
+    const separatorGpuDot = $('conn-separator-gpu-dot');
+    const separatorGpuDesc = $('conn-separator-gpu-desc');
+    const separatorGpuAction = $('conn-separator-gpu-action');
+    if (data.separatorGpu) {
+      separatorGpuDot.className = 'dot ok';
+      separatorGpuDot.style.background = 'var(--success)';
+      separatorGpuDot.style.boxShadow = '0 0 8px var(--success)';
+      separatorGpuDesc.textContent = 'Đã sẵn sàng (GPU)';
+    } else {
+      separatorGpuDot.className = 'dot error';
+      separatorGpuDot.style.background = 'var(--danger)';
+      separatorGpuDot.style.boxShadow = '0 0 8px var(--danger)';
+      separatorGpuDesc.textContent = 'Chưa cài (Khuyên dùng)';
+      if (separatorGpuAction) {
+        separatorGpuAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: #3b82f6;" onclick="closeConnectionStatusModal(); showDependencyModal('separator-gpu');">Tải GPU</button>`;
       }
     }
 
@@ -6075,11 +6094,17 @@ function showDependencyModal(type, callback) {
     desc.textContent = 'Hệ thống cần tải công cụ Whisper ONNX Runtime (whisper_onnx.exe) để thực hiện nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng tải khoảng ~90MB.';
     sizeText.textContent = 'Dung lượng: ~90 MB';
   } else if (type === 'separator') {
-    title.textContent = '📥 Tải xuống công cụ Audio-Separator';
+    title.textContent = '📥 Tải xuống Audio-Separator CPU';
     icon.textContent = '🎵';
-    name.textContent = 'Công cụ tách nhạc nền AI';
-    desc.textContent = 'Hệ thống cần tải công cụ Audio-Separator để tách nhạc nền khỏi giọng hát, giúp giữ lại nhạc nền gốc khi render video.';
-    sizeText.textContent = 'Dung lượng: ~XX MB';
+    name.textContent = 'Công cụ tách nhạc nền AI (CPU)';
+    desc.textContent = 'Tách nhạc nền khỏi giọng hát bằng CPU, dùng được trên mọi máy. Dung lượng ~1GB. Chậm hơn GPU.';
+    sizeText.textContent = 'Dung lượng: ~1 GB';
+  } else if (type === 'separator-gpu') {
+    title.textContent = '📥 Tải xuống Audio-Separator GPU';
+    icon.textContent = '🎵';
+    name.textContent = 'Công cụ tách nhạc nền AI (GPU)';
+    desc.textContent = 'Tách nhạc nền bằng GPU, nhanh gấp 5-10 lần CPU. Cần NVIDIA GPU. Script tự tải Python + PyTorch CUDA (~5GB).';
+    sizeText.textContent = 'Dung lượng: ~5 GB (tự động tải)';
   }
   modal.classList.remove('hidden');
 }
@@ -6181,17 +6206,19 @@ window.startDependencyDownload = startDependencyDownload;
 // ==========================================
 // SETUP MODAL (gộp CUDA & Whisper khi lần đầu vào app)
 // ==========================================
-let setupDownloadState = { cuda: false, whisper: false, separator: false };
+let setupDownloadState = { cuda: false, whisper: false, separator: false, 'separator-gpu': false };
 
 function openSetupModal() {
-  const cudaMissing = false; // Vulkan thay thế CUDA cho OmniVoice
+  const cudaMissing = false;
   const whisperMissing = !dependencyStatus.whisper;
   const separatorMissing = !dependencyStatus.separator;
-  if (!whisperMissing && !separatorMissing) return;
+  const separatorGpuMissing = !dependencyStatus.separatorGpu;
+  if (!whisperMissing && !separatorMissing && !separatorGpuMissing) return;
 
   const cudaItem = $('setup-cuda-item');
   const whisperItem = $('setup-whisper-item');
   const separatorItem = $('setup-separator-item');
+  const separatorGpuItem = $('setup-separator-gpu-item');
 
   if (cudaItem) {
     cudaItem.classList.add('hidden');
@@ -6201,12 +6228,16 @@ function openSetupModal() {
     whisperItem.classList.toggle('hidden', !whisperMissing);
     resetSetupItemUI('whisper');
   }
+  if (separatorGpuItem) {
+    separatorGpuItem.classList.toggle('hidden', !separatorGpuMissing);
+    resetSetupItemUI('separator-gpu');
+  }
   if (separatorItem) {
     separatorItem.classList.toggle('hidden', !separatorMissing);
     resetSetupItemUI('separator');
   }
 
-  setupDownloadState = { cuda: false, whisper: false, separator: false };
+  setupDownloadState = { cuda: false, whisper: false, separator: false, 'separator-gpu': false };
 
   const modal = $('setup-dependencies-modal');
   if (modal) modal.classList.remove('hidden');
@@ -6224,9 +6255,13 @@ function resetSetupItemUI(type) {
   if (progressArea) progressArea.classList.add('hidden');
   if (errorEl) errorEl.classList.add('hidden');
   if (btn) {
-    const labels = { cuda: '📥 Tải CUDA', whisper: '📥 Tải Whisper', separator: '📥 Tải Audio-Separator' };
+    const labels = { cuda: '📥 Tải CUDA', whisper: '📥 Tải Whisper', separator: '📥 Tải CPU', 'separator-gpu': '📥 Tải GPU' };
     btn.textContent = labels[type] || '📥 Tải xuống';
-    btn.style.background = 'var(--accent)';
+    if (type === 'separator-gpu') {
+      btn.style.background = '#3b82f6';
+    } else {
+      btn.style.background = 'var(--accent)';
+    }
   }
 }
 
@@ -6235,7 +6270,7 @@ async function startSetupDownload(type) {
   setupDownloadState[type] = true;
 
   // Vô hiệu hóa nút các item khác (chỉ tải 1 cái 1 lúc)
-  const setupOtherTypes = ['cuda', 'whisper', 'separator'].filter(t => t !== type);
+  const setupOtherTypes = ['cuda', 'whisper', 'separator', 'separator-gpu'].filter(t => t !== type);
   setupOtherTypes.forEach(t => {
     const b = $(`setup-${t}-btn`);
     if (b && !b.disabled) {
@@ -6295,7 +6330,7 @@ async function startSetupDownload(type) {
 }
 
 function pollSetupDownload(type) {
-  const setupOtherTypes = ['cuda', 'whisper', 'separator'].filter(t => t !== type);
+  const setupOtherTypes = ['cuda', 'whisper', 'separator', 'separator-gpu'].filter(t => t !== type);
   return new Promise((resolve) => {
     const interval = setInterval(async () => {
       try {
@@ -6313,6 +6348,9 @@ function pollSetupDownload(type) {
           const pct = pData.percent || 0;
           if (progressBar) progressBar.style.width = `${pct}%`;
           if (progressText) progressText.textContent = `${pct}%`;
+          if (statusText) statusText.textContent = `Đang tải... ${pct}%`;
+        } else if (pData.status === 'setup') {
+          if (statusText) statusText.textContent = pData.step || 'Đang cài đặt packages...';
         } else if (pData.status === 'success') {
           clearInterval(interval);
           if (progressBar) progressBar.style.width = '100%';
@@ -6329,8 +6367,9 @@ function pollSetupDownload(type) {
           setupDownloadState[type] = false;
 
           // Nếu tất cả đều xong thì đóng modal
-          if (!setupDownloadState.cuda && !setupDownloadState.whisper && !setupDownloadState.separator &&
-              dependencyStatus.cuda && dependencyStatus.whisper && dependencyStatus.separator) {
+          const allDone = !setupDownloadState.cuda && !setupDownloadState.whisper && !setupDownloadState.separator && !setupDownloadState['separator-gpu']
+            && dependencyStatus.whisper && dependencyStatus.separator && dependencyStatus.separatorGpu;
+          if (allDone) {
             setTimeout(() => {
               closeSetupModal();
               toast('🎉 Đã tải xong tất cả tài nguyên hệ thống!', 'success');
