@@ -1395,6 +1395,19 @@
                       <input type="hidden" id="voice-mode" name="voiceMode" value="none">
                     </div>
 
+                    <div id="output-language-wrapper" class="form-group" style="margin-top: 4px;">
+                      <label>Ngôn ngữ đầu ra</label>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <select id="global-output-lang" class="premium-select" onchange="updateOutputLangInfo()"
+                          style="flex: 1; margin: 0; height: 38px;">
+                          <option value="vi">Việt Nam</option>
+                          <option value="en">English</option>
+                          <option value="zh">Trung Quốc</option>
+                        </select>
+                      </div>
+                      <p id="output-lang-info" style="font-size: 11px; color: var(--muted); margin: 2px 0 0 0;"></p>
+                    </div>
+
                     <div id="voice-saved-wrapper" class="form-group hidden">
                       <label>Chọn giọng thuyết minh</label>
                       <select id="saved-voice-select" name="savedVoiceFile" class="premium-select"
@@ -1429,9 +1442,9 @@
                         <div class="form-group">
                           <label>Ngôn ngữ</label>
                           <select name="omiLanguage" class="premium-select">
-                            <option value="Vietnamese">Tiếng Việt</option>
-                            <option value="English">Tiếng Anh</option>
-                            <option value="Chinese">Tiếng Trung</option>
+                            <option value="vi">Việt Nam</option>
+                            <option value="en">English</option>
+                            <option value="zh">Trung Quốc</option>
                           </select>
                         </div>
                         <div class="form-group">
@@ -2478,6 +2491,8 @@
               <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ &amp; Không cần mạng)</option>
             </select>
           </div>
+
+
 
           <!-- Gemini Fields -->
           <div id="global-gemini-fields" class="hidden"

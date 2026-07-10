@@ -403,7 +403,9 @@ async function executeRenderTask(task) {
     const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * 0.5)));
 
     if (subtitlePath && body.translateVi === 'true') {
-      shared.updateStudioProgress(35, 'Đang dịch phụ đề sang tiếng Việt bằng AI...');
+      const targetLang = body.translateTargetLang || 'vi';
+      const langNames = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
+      shared.updateStudioProgress(35, `Đang dịch phụ đề sang ${langNames[targetLang] || 'Tiếng Việt'} bằng AI...`);
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
       await translateSubtitles(subtitlePath, translatedPath, {
         aiProvider: body.aiProvider,
@@ -413,7 +415,8 @@ async function executeRenderTask(task) {
         openRouterModel: body.openRouterModel,
         ninerouterApiKey: body.ninerouterApiKey,
         ninerouterModel: body.ninerouterModel,
-        ninerouterBaseUrl: body.ninerouterBaseUrl
+        ninerouterBaseUrl: body.ninerouterBaseUrl,
+        targetLang
       }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
@@ -588,7 +591,7 @@ async function executeRenderTask(task) {
             '--text', lineText,
             '--output', chunkPath,
             '--response-format', 'wav',
-            '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
+            '--language', ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
             '--device', usedDevice,
           '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
@@ -785,7 +788,7 @@ async function executeRenderTask(task) {
           '--text', omiScript,
           '--output', voicePath,
           '--response-format', 'wav',
-          '--language', body.omiLanguage === 'Vietnamese' ? 'vi' : (body.omiLanguage === 'English' ? 'en' : (body.omiLanguage === 'Chinese' ? 'zh' : (body.omiLanguage || 'vi'))),
+          '--language', ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
           '--device', usedDevice,
           '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
           '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),

@@ -883,6 +883,7 @@ async function renderStudio(event) {
   data.set('projectId', currentProjectId || '');
   data.set('projectName', currentProjectName || '');
 
+  data.set('translateTargetLang', document.getElementById('global-output-lang')?.value || 'vi');
   data.set('aiProvider', aiSettings.aiProvider);
   data.set('geminiApiKey', aiSettings.geminiApiKey);
   data.set('geminiModel', aiSettings.geminiModel || '');
@@ -2823,8 +2824,15 @@ function loadStudioTemplate(templateName) {
     $('saved-voice-select').value = template.savedVoiceFile;
   }
 
-  // Restore Omi settings
-  document.querySelector('select[name="omiLanguage"]').value = template.omiLanguage;
+    // Restore Omi settings
+  const omiLangSel = document.querySelector('select[name="omiLanguage"]');
+  if (omiLangSel) {
+    const langMap = { 'Vietnamese': 'vi', 'English': 'en', 'Chinese': 'zh' };
+    const langVal = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
+    omiLangSel.value = langVal;
+    const globalSel = document.getElementById('global-output-lang');
+    if (globalSel) globalSel.value = langVal;
+  }
   document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
@@ -3586,6 +3594,15 @@ function applyMixerVolumes() {
 document.addEventListener('change', (e) => {
   if (e.target.id === 'saved-voice-select' || e.target.id === 'saved-music-select') {
     updatePreviewAudioSources();
+  }
+  if (e.target.id === 'global-output-lang') {
+    updateOutputLangInfo();
+  }
+  if (e.target.name === 'omiLanguage') {
+    const globalSel = document.getElementById('global-output-lang');
+    const info = document.getElementById('output-lang-info');
+    if (globalSel) globalSel.value = e.target.value;
+    if (typeof updateOutputLangInfo === 'function') updateOutputLangInfo();
   }
 });
 ['voiceMode', 'musicMode'].forEach(name => {
@@ -4349,6 +4366,10 @@ function initFbPages() {
 }
 
 // Chạy khởi tạo ngay lập tức nếu DOM đã sẵn sàng, nếu không thì đợi sự kiện DOMContentLoaded
+function initOutputLang() {
+  updateOutputLangInfo();
+}
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     initFbPages();
@@ -4359,6 +4380,7 @@ if (document.readyState === 'loading') {
     initOpenRouterModelListeners();
     initNineRouterModelListeners();
     initActiveProject();
+    initOutputLang();
   });
 } else {
   initFbPages();
@@ -4369,6 +4391,7 @@ if (document.readyState === 'loading') {
   initOpenRouterModelListeners();
   initNineRouterModelListeners();
   initActiveProject();
+  initOutputLang();
 }
 
 /* ==========================================================================
@@ -5188,6 +5211,19 @@ function switchSettingsTab(tabName) {
   });
 }
 
+function updateOutputLangInfo() {
+  const sel = document.getElementById('global-output-lang');
+  const info = document.getElementById('output-lang-info');
+  if (!sel || !info) return;
+  const val = sel.value;
+  const names = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
+  info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
+  info.style.color = 'var(--muted)';
+  // Sync omiLanguage dropdown
+  const omiLang = document.querySelector('select[name="omiLanguage"]');
+  if (omiLang) omiLang.value = val;
+}
+
 window.openGlobalSettingsModal = openGlobalSettingsModal;
 window.closeGlobalSettingsModal = closeGlobalSettingsModal;
 window.toggleGlobalAiProviderFields = toggleGlobalAiProviderFields;
@@ -5202,6 +5238,7 @@ window.initNineRouterModelListeners = initNineRouterModelListeners;
 window.testGeminiConnection = testGeminiConnection;
 window.testOpenRouterConnection = testOpenRouterConnection;
 window.testNineRouterConnection = testNineRouterConnection;
+window.updateOutputLangInfo = updateOutputLangInfo;
 
 /* ==========================================================================
    CONNECTION STATUS MODAL & HELPERS
@@ -5719,7 +5756,11 @@ function resetStudioConfig() {
 
   // Reset Omi settings
   const omiLanguage = document.querySelector('select[name="omiLanguage"]');
-  if (omiLanguage) omiLanguage.value = 'Vietnamese';
+  if (omiLanguage) {
+    omiLanguage.value = 'vi';
+    const globalSel = document.getElementById('global-output-lang');
+    if (globalSel) globalSel.value = 'vi';
+  }
 
   const omiDevice = document.querySelector('select[name="omiDevice"]');
   if (omiDevice) omiDevice.value = 'vulkan:0';
