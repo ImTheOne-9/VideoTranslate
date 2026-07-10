@@ -2534,14 +2534,14 @@ function renderCurrentConfigSummary() {
 
   // 5. Cấu hình AI Cloner (nếu có thuyết minh cloner)
   if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') {
-    const omiLanguage = document.querySelector('select[name="omiLanguage"]');
+    const outputLang = document.getElementById('global-output-lang');
     const omiDevice = document.querySelector('select[name="omiDevice"]');
     const omiSteps = document.querySelector('input[name="omiSteps"]');
     const omiSeed = $('omi-seed-preset');
     const omiCustomSeed = $('omi-seed-input');
 
     let clonerParts = [];
-    if (omiLanguage) clonerParts.push(`Ngôn ngữ: ${getSelectedText(omiLanguage)}`);
+    if (outputLang) clonerParts.push(`Ngôn ngữ: ${outputLang.options[outputLang.selectedIndex].text}`);
     if (omiDevice) clonerParts.push(`Thiết bị: ${getSelectedText(omiDevice)}`);
     if (omiSteps) clonerParts.push(`Bước (Steps): ${omiSteps.value}`);
     if (omiSeed && omiSeed.value === 'custom' && omiCustomSeed) {
@@ -2587,7 +2587,7 @@ function submitSaveTemplate(event) {
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
     savedVoiceFile: $('saved-voice-select').value,
-    omiLanguage: document.querySelector('select[name="omiLanguage"]').value,
+    omiLanguage: document.getElementById('global-output-lang')?.value || 'vi',
     omiDevice: document.querySelector('select[name="omiDevice"]').value,
     omiSteps: document.querySelector('input[name="omiSteps"]').value,
     omiSeed: $('omi-seed-preset').value,
@@ -2825,13 +2825,10 @@ function loadStudioTemplate(templateName) {
   }
 
     // Restore Omi settings
-  const omiLangSel = document.querySelector('select[name="omiLanguage"]');
-  if (omiLangSel) {
+  const globalLangSel = document.getElementById('global-output-lang');
+  if (globalLangSel) {
     const langMap = { 'Vietnamese': 'vi', 'English': 'en', 'Chinese': 'zh' };
-    const langVal = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
-    omiLangSel.value = langVal;
-    const globalSel = document.getElementById('global-output-lang');
-    if (globalSel) globalSel.value = langVal;
+    globalLangSel.value = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
   }
   document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
 
@@ -3597,12 +3594,6 @@ document.addEventListener('change', (e) => {
   }
   if (e.target.id === 'global-output-lang') {
     updateOutputLangInfo();
-  }
-  if (e.target.name === 'omiLanguage') {
-    const globalSel = document.getElementById('global-output-lang');
-    const info = document.getElementById('output-lang-info');
-    if (globalSel) globalSel.value = e.target.value;
-    if (typeof updateOutputLangInfo === 'function') updateOutputLangInfo();
   }
 });
 ['voiceMode', 'musicMode'].forEach(name => {
@@ -5219,9 +5210,6 @@ function updateOutputLangInfo() {
   const names = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
   info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
   info.style.color = 'var(--muted)';
-  // Sync omiLanguage dropdown
-  const omiLang = document.querySelector('select[name="omiLanguage"]');
-  if (omiLang) omiLang.value = val;
 }
 
 window.openGlobalSettingsModal = openGlobalSettingsModal;
@@ -5755,12 +5743,8 @@ function resetStudioConfig() {
   renderQuickVoices();
 
   // Reset Omi settings
-  const omiLanguage = document.querySelector('select[name="omiLanguage"]');
-  if (omiLanguage) {
-    omiLanguage.value = 'vi';
-    const globalSel = document.getElementById('global-output-lang');
-    if (globalSel) globalSel.value = 'vi';
-  }
+  const globalLangSel = document.getElementById('global-output-lang');
+  if (globalLangSel) globalLangSel.value = 'vi';
 
   const omiDevice = document.querySelector('select[name="omiDevice"]');
   if (omiDevice) omiDevice.value = 'vulkan:0';

@@ -301,8 +301,10 @@ module.exports = {
         const downloadMarginH = Number(req.query.subtitleMarginH || 20);
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
-        const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: translateTargetLang || 'vi' }, downloadMaxLines, downloadMaxChars);
+        const dlTargetLang = translateTargetLang || 'vi';
+        const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
+        const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -525,8 +527,10 @@ module.exports = {
           const downloadMarginH = Number(subtitleMarginH || 20);
           const downloadWidth = 1080;
           const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
-          const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: translateTargetLang || 'vi' }, downloadMaxLines, downloadMaxChars);
+          const dlTargetLang = translateTargetLang || 'vi';
+          const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
+          const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
+          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
           let hasSubtitles = false;
           try {

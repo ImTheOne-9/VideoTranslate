@@ -400,10 +400,11 @@ async function executeRenderTask(task) {
     const studioMarginL = (body.subtitleMarginL !== undefined && body.subtitleMarginL !== '') ? Number(body.subtitleMarginL) : studioMarginH;
     const studioMarginR = (body.subtitleMarginR !== undefined && body.subtitleMarginR !== '') ? Number(body.subtitleMarginR) : studioMarginH;
     const studioBoxWidth = videoWidth - studioMarginL - studioMarginR;
-    const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * 0.5)));
+    const targetLang = body.translateTargetLang || 'vi';
+    const charWidthRatio = targetLang === 'zh' ? 1.0 : 0.5;
+    const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * charWidthRatio)));
 
     if (subtitlePath && body.translateVi === 'true') {
-      const targetLang = body.translateTargetLang || 'vi';
       const langNames = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
       shared.updateStudioProgress(35, `Đang dịch phụ đề sang ${langNames[targetLang] || 'Tiếng Việt'} bằng AI...`);
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
@@ -535,7 +536,7 @@ async function executeRenderTask(task) {
             const nextStartMs = srtTimeToMs(nextItem.startTime);
             const gapMs = nextStartMs - currentEndMs;
 
-            const endsWithPunctuation = /[.!?…]$/.test(item.text.trim());
+            const endsWithPunctuation = /[.!?…。]$/.test(item.text.trim());
             if (gapMs > 1000 || endsWithPunctuation) {
               shouldSplit = true;
             }
@@ -577,13 +578,6 @@ async function executeRenderTask(task) {
           const endMs = srtTimeToMs(group[group.length - 1].endTime);
           const durationSec = Math.max(0.5, (endMs - startMs) / 1000);
 
-          const syllableCount = lineText.split(/\s+/).filter(w => w.length > 0).length;
-          const naturalDuration = Math.max(0.6, syllableCount * 0.17);
-
-          const minSpeed = originalIsChinese ? 0.85 : 1.0;
-          const speed = Math.max(minSpeed, Math.min(2.0, naturalDuration / durationSec));
-          const targetDuration = naturalDuration / speed;
-
           const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
 
           const omnivoiceArgs = [
@@ -595,7 +589,6 @@ async function executeRenderTask(task) {
             '--device', usedDevice,
           '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
-            '--speed', String(speed.toFixed(2)),
             '--position-temperature', '1.0'
           ];
 
@@ -604,10 +597,9 @@ async function executeRenderTask(task) {
             omnivoiceArgs.push('--ref-text', refText);
           } else {
             omnivoiceArgs.push('--instruct', 'female');
-            omnivoiceArgs.push('--duration', String(targetDuration.toFixed(2)));
           }
 
-          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Tốc độ: ${speed.toFixed(2)}x, Thời lượng: ${targetDuration.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
+          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Thời lượng sub: ${durationSec.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
           try {
             await shared.runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(shared.OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
             if (fs.existsSync(chunkPath)) {
