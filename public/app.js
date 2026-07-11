@@ -5239,7 +5239,9 @@ async function loadCookieStatusList() {
       { id: 'facebook', label: 'Facebook', icon: '📘' },
       { id: 'instagram', label: 'Instagram', icon: '📷' },
       { id: 'xiaohongshu', label: 'Xiaohongshu', icon: '📕' },
-      { id: 'youku', label: 'Youku', icon: '🎬' }
+      { id: 'youku', label: 'Youku', icon: '🎬' },
+      { id: 'mgtv', label: 'MangoTV', icon: '🥭' },
+      { id: 'iq', label: 'iQIYI', icon: '🍿' }
     ];
     container.innerHTML = platforms.map(p => {
       const has = status[p.id];

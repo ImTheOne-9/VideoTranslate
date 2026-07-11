@@ -49,7 +49,7 @@ module.exports = {
 
       const formats = (info.formats || [])
         .filter(f => {
-          return f.vcodec && f.vcodec !== 'none' && f.height;
+          return (f.vcodec && f.vcodec !== 'none' || f.video_ext) && f.height;
         })
         .sort((a, b) => {
           if (a.height !== b.height) return b.height - a.height;

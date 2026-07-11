@@ -251,7 +251,7 @@ app.post('/api/upload-cookie', upload.single('cookieFile'), (req, res) => {
     if (!platform || !req.file) {
       return res.status(400).json({ error: 'Thiếu platform hoặc file cookies' });
     }
-    const validPlatforms = ['bilibili', 'douyin', 'tiktok', 'youtube', 'facebook', 'instagram', 'xiaohongshu', 'youku'];
+    const validPlatforms = ['bilibili', 'douyin', 'tiktok', 'youtube', 'facebook', 'instagram', 'xiaohongshu', 'youku', 'mgtv', 'iq'];
     if (!validPlatforms.includes(platform)) {
       return res.status(400).json({ error: 'Platform không hợp lệ' });
     }
