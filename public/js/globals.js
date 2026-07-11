@@ -17,6 +17,11 @@ const views = {
   }
 };
 
+views.antidupe = {
+  title: 'Băm cảnh',
+  desc: 'Cắt video dài thành các clip ngắn theo cảnh cho Reels/Shorts.'
+};
+
 let currentUrl = '';
 let currentHistoryPage = 1;
 const historyPerPage = 5;
@@ -37,6 +42,7 @@ let konvaLayer = null;
 let konvaSubtitle = null;
 let konvaReaction = null;
 let konvaBlur = null;
+let konvaWatermark = null;
 let konvaTransformer = null;
 let vGuideline = null;
 let hGuideline = null;

@@ -236,6 +236,7 @@ const downloadController = require('./controllers/downloadController');
 const studioController = require('./controllers/studioController');
 const voiceController = require('./controllers/voiceController');
 const systemController = require('./controllers/systemController');
+const antiDupeController = require('./controllers/antiDupeController');
 
 // 1. Download Routes
 app.get('/api/download', downloadController.download);
@@ -304,6 +305,18 @@ app.post('/api/render-studio', studioUpload.fields([
   { name: 'reactionUpload', maxCount: 1 }
 ]), studioController.renderStudio);
 
+// --- Anti-dupe: NÉ TRÙNG render + BĂM VIDEO THEO CẢNH ---
+app.post('/api/anti-dupe-render', studioUpload.fields([
+  { name: 'videoUpload', maxCount: 1 },
+  { name: 'logoUpload', maxCount: 1 }
+]), antiDupeController.renderAntiDupe);
+app.post('/api/anti-dupe-scene-split', studioUpload.fields([
+  { name: 'videoUpload', maxCount: 1 },
+  { name: 'logoUpload', maxCount: 1 }
+]), antiDupeController.renderSceneSplit);
+app.get('/api/anti-dupe-progress', antiDupeController.getProgress);
+app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
+
 // 4. Voice and asset routes
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
@@ -355,6 +368,7 @@ app.get('/api/douyin-info', downloadController.getDouyinInfo);
 app.post('/api/douyin-download', downloadController.downloadDouyin);
 
 app.get('/api/open-file-folder', systemController.openFileFolder);
+app.get('/api/serve-file', systemController.serveFile);
 app.post('/api/publish-facebook', systemController.publishFacebook);
 app.post('/api/verify-facebook-page', systemController.verifyFacebookPage);
 app.get('/api/check-dependencies', systemController.checkDependencies);

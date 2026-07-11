@@ -402,6 +402,15 @@ function updateSubtitleOverlayFromInputs() {
     konvaReaction.add(rxText);
     konvaLayer.add(konvaReaction);
 
+    // 3. Watermark
+    konvaWatermark = new Konva.Group({
+      name: 'watermark',
+      listening: false
+    });
+    const wmText = new Konva.Text({ id: 'wm-text', text: '', fontSize: 30, fontFamily: 'Arial', fill: 'white' });
+    konvaWatermark.add(wmText);
+    konvaLayer.add(konvaWatermark);
+
     // Vòng lặp vẽ lại liên tục khi video reaction chơi để cập nhật khung hình
     const rxAnim = new Konva.Animation(() => {}, konvaLayer);
     rxVideoElement.addEventListener('play', () => rxAnim.start());
@@ -1084,7 +1093,44 @@ function updateSubtitleOverlayFromInputs() {
     }
   }
 
-  // 3. Cập nhật các vùng làm mờ (Multiple Blur Boxes)
+  // 4. Cập nhật Watermark Preview
+  if (konvaWatermark) {
+    const adEnabled = $('antidupe-wm-enable')?.checked === true;
+    const wmText = $('antidupe-watermark')?.value?.trim() || '';
+    const visible = adEnabled && wmText.length > 0;
+    konvaWatermark.visible(visible);
+    if (visible) {
+      const wmNode = konvaWatermark.findOne('#wm-text');
+      if (wmNode) {
+        const fsize = parseInt($('antidupe-wm-size')?.value) || 30;
+        const color = $('antidupe-wm-color-input')?.value || '#FFFFFF';
+        const alpha = (parseFloat($('antidupe-wm-alpha')?.value) || 100) / 100;
+        const pos = $('antidupe-wm-pos')?.value || 'br';
+
+        wmNode.text(wmText);
+        wmNode.fontSize(fsize);
+        wmNode.fill(color);
+        wmNode.opacity(alpha);
+
+        const tw = wmNode.width();
+        const th = wmNode.height();
+        const pad = 14;
+        const stageW = konvaStage.width();
+        const stageH = konvaStage.height();
+
+        let wx, wy;
+        if (pos === 'br') { wx = stageW - tw - pad; wy = stageH - th - pad; }
+        else if (pos === 'bl') { wx = pad; wy = stageH - th - pad; }
+        else if (pos === 'tr') { wx = stageW - tw - pad; wy = pad; }
+        else if (pos === 'tl') { wx = pad; wy = pad; }
+        else { wx = (stageW - tw) / 2; wy = (stageH - th) / 2; }
+
+        konvaWatermark.position({ x: Math.max(0, wx), y: Math.max(0, wy) });
+      }
+    }
+  }
+
+  // 5. Cập nhật các vùng làm mờ (Multiple Blur Boxes)
   if (konvaBlur) {
     konvaBlur.visible(false); // Ẩn blur box đơn lẻ cũ
   }
@@ -1302,22 +1348,17 @@ function updateSubtitleOverlayFromInputs() {
     }
   }
 
-  // Đảm bảo thứ tự hiển thị (Z-Index): Blur box dưới cùng -> Reaction PIP -> Phụ đề -> Đường căn -> Transformer
+  // Z-Index: Blur -> Watermark -> Reaction -> Subtitle -> Guidelines -> Transformer
   if (konvaLayer) {
     konvaLayer.find('.blur-box-shape').forEach(shape => {
       shape.moveToBottom();
     });
-    if (konvaReaction) {
-      konvaReaction.moveToTop();
-    }
-    if (konvaSubtitle) {
-      konvaSubtitle.moveToTop();
-    }
+    if (konvaWatermark) konvaWatermark.moveToTop();
+    if (konvaReaction) konvaReaction.moveToTop();
+    if (konvaSubtitle) konvaSubtitle.moveToTop();
     if (vGuideline) vGuideline.moveToTop();
     if (hGuideline) hGuideline.moveToTop();
-    if (konvaTransformer) {
-      konvaTransformer.moveToTop();
-    }
+    if (konvaTransformer) konvaTransformer.moveToTop();
   }
 
   konvaLayer.draw();

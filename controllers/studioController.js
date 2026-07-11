@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const shared = require('../lib/shared-state');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
+const anti = require('../lib/anti-dupe');
 
 // Helpers for Studio rendering
 function escapeSubtitleForFilter(filePath) {
@@ -968,6 +969,10 @@ async function executeRenderTask(task) {
     let blurFilterString = '';
     const hasReaction = !!reactionVideoPath;
     const hasSubtitles = !!renderSubtitlePath;
+    const flipEnabled = anti.bool(body.antidupeFlip);
+    if (flipEnabled) {
+      baseVideoLabel = 'v_flipped';
+    }
 
     if (body.blurOriginalSub === 'true') {
       hasVideoFilter = true;
@@ -1098,8 +1103,21 @@ async function executeRenderTask(task) {
       videoFilter = blurFilterString;
     }
 
+    // Flip is applied at source level (before sub/reaction/blur) so it doesn't flip sub/reaction/watermark
+    if (flipEnabled && videoFilter) {
+      videoFilter = videoFilter.replace(/\[0:v\]/g, '[v_flipped]');
+    }
+
     const filterComplex = [];
-    if (hasVideoFilter && videoFilter) {
+    if (flipEnabled) {
+      if (videoFilter) {
+        filterComplex.push('[0:v]hflip[v_flipped]');
+        filterComplex.push(videoFilter);
+      } else {
+        hasVideoFilter = true;
+        filterComplex.push('[0:v]hflip[vout]');
+      }
+    } else if (videoFilter) {
       filterComplex.push(videoFilter);
     }
 
@@ -1131,6 +1149,50 @@ async function executeRenderTask(task) {
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
       filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
+    }
+
+    // ---- Anti-dupe filter (single pass) ----
+    // Flip is already pre-applied at source level, skip it here
+    const antidupeEnabled = body.antidupeEnabled === 'true';
+    if (antidupeEnabled) {
+      const trimWin = anti.resolveTrimWindow(body.antidupeStart, body.antidupeEnd, totalDuration);
+      const hasTrim = trimWin.start > 0 || trimWin.end !== null;
+      const hasAdWm = (body.antidupeWatermark || '').toString().trim().length > 0;
+      const hasAdVideo = hasTrim || hasAdWm;
+
+      const needsVideoRename = hasAdVideo; // trim or watermark
+      const needsAudioRename = hasTrim; // trim only
+
+      if (needsVideoRename || needsAudioRename) {
+        console.log('[AntiDupe] Received:', JSON.stringify({ start: body.antidupeStart, end: body.antidupeEnd, totalDuration }));
+        console.log('[AntiDupe] TrimWin:', JSON.stringify(trimWin));
+        for (let i = 0; i < filterComplex.length; i++) {
+          if (hasVideoFilter && needsVideoRename) filterComplex[i] = filterComplex[i].replace(/\[vout\]$/, '[v_ad_in]');
+          if (hasAudioFilter && needsAudioRename) filterComplex[i] = filterComplex[i].replace(/\[aout\]$/, '[a_ad_in]');
+        }
+      }
+
+      const adCfg = {
+        flip: false, // already pre-applied at source level
+        startSec: trimWin.start,
+        endSec: trimWin.end,
+        watermarkText: (body.antidupeWatermark || '').toString().trim(),
+        watermarkPos: (body.antidupeWmPos || 'br').toString().trim(),
+        watermarkSize: anti.num(body.antidupeWmSize, 30),
+        watermarkColor: (body.antidupeWmColor || 'white').toString().trim(),
+        watermarkAlpha: anti.num(body.antidupeWmAlpha, 0.85),
+      };
+
+      const built = anti.buildAntiDupeFilters(adCfg, {
+        inputVideoLabel: needsVideoRename ? 'v_ad_in' : '0:v',
+        inputAudioLabel: hasAudioFilter && needsAudioRename ? 'a_ad_in' : '0:a',
+        outputVideoLabel: 'vout',
+        outputAudioLabel: 'aout',
+        workDir
+      });
+      if (built.hasVideo || built.hasAudio) filterComplex.push(...built.segments);
+      if (built.hasVideo) hasVideoFilter = true;
+      if (built.hasAudio) hasAudioFilter = true;
     }
 
     if (filterComplex.length > 0) {
