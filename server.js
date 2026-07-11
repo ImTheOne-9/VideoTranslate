@@ -244,6 +244,43 @@ app.post('/api/playlist', downloadController.playlist);
 app.post('/api/download-local', downloadController.downloadLocal);
 app.get('/api/proxy-image', downloadController.proxyImage);
 
+// Cookie management routes
+app.post('/api/upload-cookie', upload.single('cookieFile'), (req, res) => {
+  try {
+    const platform = req.body.platform;
+    if (!platform || !req.file) {
+      return res.status(400).json({ error: 'Thiếu platform hoặc file cookies' });
+    }
+    const validPlatforms = ['bilibili', 'douyin', 'tiktok', 'youtube', 'facebook', 'instagram', 'xiaohongshu', 'youku'];
+    if (!validPlatforms.includes(platform)) {
+      return res.status(400).json({ error: 'Platform không hợp lệ' });
+    }
+    shared.saveCookieFile(platform, req.file.path);
+    res.json({ success: true, message: `Đã lưu cookies cho ${platform}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/cookie-status', (req, res) => {
+  try {
+    res.json(shared.getCookieStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/delete-cookie', (req, res) => {
+  try {
+    const platform = req.body.platform;
+    if (!platform) return res.status(400).json({ error: 'Thiếu platform' });
+    shared.deleteCookieFile(platform);
+    res.json({ success: true, message: `Đã xóa cookies cho ${platform}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2. Project Routes
 app.get('/api/projects', studioController.getProjects);
 app.get('/api/projects/:id', studioController.getProjectById);

@@ -128,6 +128,10 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Cài đặt AI
         </button>
+        <button class="ssd-item" onclick="openCookieModal()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5A10 10 0 0 0 12 2"/><path d="M8.5 8.5v.01"/><path d="M16 15v.01"/><path d="M11 16v.01"/></svg>
+          Cookies
+        </button>
       </div>
 
     </aside>
@@ -2601,6 +2605,74 @@
             onclick="closeGlobalSettingsModal()">Hủy</button>
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Cookies -->
+  <div id="cookie-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 900px; max-width: 95%;">
+      <div class="fb-modal-header"
+        style="background: rgba(245, 158, 11, 0.1); border-bottom-color: rgba(245, 158, 11, 0.2);">
+        <h3 style="color: #F59E0B; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px;">
+          🍪 Cookies
+        </h3>
+        <button class="fb-modal-close" onclick="closeCookieModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px;">
+        <div style="display: flex; gap: 16px; min-height: 360px;">
+          <!-- Cột trái: Upload cookie -->
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0;">
+            <p style="font-size: 12px; color: var(--muted); margin: 0;">
+              Dùng extension "Get cookies.txt" trên Chrome để export file cookies sau khi đăng nhập.
+            </p>
+
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 5px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">Nền tảng</label>
+              <select id="cookie-platform-select" class="premium-select" style="margin: 0; height: 38px;">
+                <option value="bilibili">📺 Bilibili</option>
+                <option value="douyin">🎵 Douyin</option>
+                <option value="tiktok">🎶 TikTok</option>
+                <option value="youtube">▶️ YouTube</option>
+                <option value="facebook">📘 Facebook</option>
+                <option value="instagram">📷 Instagram</option>
+                <option value="xiaohongshu">📕 Xiaohongshu</option>
+                <option value="youku">🎬 Youku</option>
+              </select>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="settings-tab-btn active" data-cookie-method="paste"
+                onclick="switchCookieMethod('paste')">📝 Nhập thủ công</button>
+              <button type="button" class="settings-tab-btn" data-cookie-method="file"
+                onclick="switchCookieMethod('file')">📁 Upload file</button>
+            </div>
+
+            <div id="cookie-paste-area" style="flex: 1; display: flex; flex-direction: column;">
+              <textarea id="cookie-text-input"
+                style="flex: 1; width: 100%; padding: 10px; font-size: 11px; font-family: monospace; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); resize: vertical; box-sizing: border-box; min-height: 200px;"
+                placeholder="Dán nội dung file cookies.txt vào đây..."></textarea>
+              <button type="button" class="premium-render-btn"
+                style="margin-top: 12px; padding: 8px 18px; font-size: 13px; height: auto; align-self: flex-start;"
+                onclick="saveCookiePaste()">💾 Lưu cookies</button>
+            </div>
+
+            <div id="cookie-file-area" class="hidden" style="flex: 1; display: flex; flex-direction: column;">
+              <input type="file" accept=".txt" id="cookie-file-input" style="margin-bottom: 6px;">
+              <button type="button" class="premium-render-btn"
+                style="margin: 6px 0 0 0; padding: 6px 14px; font-size: 12px; height: auto;"
+                onclick="saveCookieFile()">📤 Upload</button>
+            </div>
+          </div>
+
+          <!-- Cột phải: Trạng thái cookie -->
+          <div style="flex: 1; min-width: 0; border-left: 1px solid var(--border); padding-left: 16px; display: flex; flex-direction: column; gap: 8px; align-self: stretch;">
+            <label style="font-size: 12px; font-weight: 600; color: var(--muted);">Trạng thái cookies</label>
+            <div id="cookie-status-list" style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+              <!-- Generated by JS -->
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

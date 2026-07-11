@@ -42,3 +42,6 @@ license.json
 *.jsc
 
 temp/
+
+
+cookies/

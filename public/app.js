@@ -6,6 +6,13 @@ function toast(message, type = 'info') {
   setTimeout(() => el.classList.remove('show'), 3600);
 }
 
+document.addEventListener('click', function (e) {
+  const modal = document.getElementById('cookie-modal');
+  if (modal && !modal.classList.contains('hidden') && e.target === modal) {
+    closeCookieModal();
+  }
+});
+
 // Global error handlers for UI debugging
 window.onerror = function (message, source, lineno, colno, error) {
   toast(`Lỗi UI: ${message} (dòng ${lineno})`, 'error');
@@ -5187,12 +5194,9 @@ function saveGlobalSettings() {
 }
 
 function switchSettingsTab(tabName) {
-  // Toggle tab buttons active class
   document.querySelectorAll('.settings-tab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.settingsTab === tabName);
   });
-
-  // Toggle tab content visibility
   document.querySelectorAll('.settings-tab-content').forEach(content => {
     if (content.id === `settings-tab-${tabName}`) {
       content.classList.remove('hidden');
@@ -5200,6 +5204,123 @@ function switchSettingsTab(tabName) {
       content.classList.add('hidden');
     }
   });
+}
+
+// Cookie management
+function openCookieModal() {
+  document.getElementById('cookie-modal').classList.remove('hidden');
+  loadCookieStatusList();
+  switchCookieMethod('paste');
+}
+
+function closeCookieModal() {
+  document.getElementById('cookie-modal').classList.add('hidden');
+}
+
+function switchCookieMethod(method) {
+  document.querySelectorAll('[data-cookie-method]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cookieMethod === method);
+  });
+  document.getElementById('cookie-paste-area').classList.toggle('hidden', method !== 'paste');
+  document.getElementById('cookie-file-area').classList.toggle('hidden', method !== 'file');
+}
+
+async function loadCookieStatusList() {
+  try {
+    const res = await fetch('/api/cookie-status');
+    const status = await res.json();
+    const container = document.getElementById('cookie-status-list');
+    if (!container) return;
+    const platforms = [
+      { id: 'bilibili', label: 'Bilibili', icon: '📺' },
+      { id: 'douyin', label: 'Douyin', icon: '🎵' },
+      { id: 'tiktok', label: 'TikTok', icon: '🎶' },
+      { id: 'youtube', label: 'YouTube', icon: '▶️' },
+      { id: 'facebook', label: 'Facebook', icon: '📘' },
+      { id: 'instagram', label: 'Instagram', icon: '📷' },
+      { id: 'xiaohongshu', label: 'Xiaohongshu', icon: '📕' },
+      { id: 'youku', label: 'Youku', icon: '🎬' }
+    ];
+    container.innerHTML = platforms.map(p => {
+      const has = status[p.id];
+      return `
+        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+          <span style="font-size: 14px;">${p.icon}</span>
+          <span style="flex: 1; font-size: 12px;">${p.label}</span>
+          <span style="font-size: 11px; padding: 1px 6px; border-radius: 3px; background: ${has ? 'rgba(76,175,80,0.15)' : 'rgba(255,82,82,0.15)'}; color: ${has ? '#4CAF50' : '#FF5252'};">
+            ${has ? 'Đã có' : 'Chưa có'}
+          </span>
+          ${has ? `<button style="margin:0; padding:0 6px; font-size:10px; height:20px; line-height:20px; border:none; border-radius:3px; background:rgba(255,82,82,0.15); color:#FF5252; cursor:pointer; white-space:nowrap;" onclick="deleteCookieStatus('${p.id}')">Xóa</button>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Lỗi tải trạng thái cookies:', err);
+  }
+}
+
+async function saveCookiePaste() {
+  const platform = document.getElementById('cookie-platform-select').value;
+  const text = document.getElementById('cookie-text-input').value.trim();
+  if (!text) { toast('Vui lòng dán nội dung cookies', 'error'); return; }
+
+  const blob = new Blob([text], { type: 'text/plain' });
+  const file = new File([blob], `${platform}.txt`, { type: 'text/plain' });
+  const formData = new FormData();
+  formData.append('cookieFile', file);
+  formData.append('platform', platform);
+
+  try {
+    const res = await fetch('/api/upload-cookie', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.success) {
+      toast(`Đã lưu cookies cho ${platform}`, 'success');
+      loadCookieStatusList();
+    } else {
+      toast(data.error || 'Lỗi lưu cookies', 'error');
+    }
+  } catch (err) {
+    toast('Lỗi kết nối', 'error');
+  }
+}
+
+async function saveCookieFile() {
+  const platform = document.getElementById('cookie-platform-select').value;
+  const input = document.getElementById('cookie-file-input');
+  const file = input?.files?.[0];
+  if (!file) { toast('Vui lòng chọn file', 'error'); return; }
+
+  const formData = new FormData();
+  formData.append('cookieFile', file);
+  formData.append('platform', platform);
+
+  try {
+    const res = await fetch('/api/upload-cookie', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.success) {
+      toast(`Đã lưu cookies cho ${platform}`, 'success');
+      input.value = '';
+      loadCookieStatusList();
+    } else {
+      toast(data.error || 'Lỗi upload cookies', 'error');
+    }
+  } catch (err) {
+    toast('Lỗi kết nối', 'error');
+  }
+}
+
+async function deleteCookieStatus(platform) {
+  if (!confirm(`Xóa cookies cho ${platform}?`)) return;
+  try {
+    const res = await fetch('/api/delete-cookie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform }) });
+    const data = await res.json();
+    if (data.success) {
+      toast(`Đã xóa cookies cho ${platform}`, 'success');
+      loadCookieStatusList();
+    }
+  } catch (err) {
+    toast('Lỗi kết nối', 'error');
+  }
 }
 
 function updateOutputLangInfo() {
