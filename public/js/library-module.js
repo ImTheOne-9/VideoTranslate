@@ -341,59 +341,178 @@ document.addEventListener('click', (e) => {
   }
 });
 
-function openVbeeGenerateVoiceModal() {
-  const modal = $('vbee-generate-voice-modal');
-  if (modal) {
-    modal.classList.remove('hidden');
+// ==========================================
+// Omni Cloner Voice Generator
+// ==========================================
+let clonerPollInterval = null;
+
+function previewClonerRefAudio(input) {
+  const preview = $('cloner-ref-preview');
+  const player = $('cloner-ref-audio-player');
+  if (input.files && input.files[0]) {
+    player.src = URL.createObjectURL(input.files[0]);
+    preview.classList.remove('hidden');
+  } else {
+    player.src = '';
+    preview.classList.add('hidden');
   }
 }
 
-function closeVbeeGenerateVoiceModal() {
-  const modal = $('vbee-generate-voice-modal');
-  if (modal) {
-    modal.classList.add('hidden');
-    $('vbee-generate-voice-form').reset();
+function openOmniClonerModal() {
+  const statusEl = $('cloner-omi-status');
+  if (statusEl) {
+    if (assets.omiConfigured) {
+      statusEl.textContent = '✅ OmniVoice đã sẵn sàng';
+      statusEl.style.color = '#22c55e';
+    } else {
+      statusEl.textContent = '⚠️ OmniVoice chưa được cài đặt. Vào Cài đặt hệ thống để tải.';
+      statusEl.style.color = '#f59e0b';
+    }
   }
+  const modal = $('omni-cloner-modal');
+  if (modal) modal.classList.remove('hidden');
+  $('cloner-generate-btn').classList.remove('hidden');
+  $('cloner-cancel-btn').classList.add('hidden');
+  $('cloner-result-area').classList.add('hidden');
+  $('cloner-ref-preview').classList.add('hidden');
 }
 
-async function generateVbeeVoice(event) {
+function closeOmniClonerModal() {
+  if (clonerPollInterval) {
+    clearInterval(clonerPollInterval);
+    clonerPollInterval = null;
+  }
+  const modal = $('omni-cloner-modal');
+  if (modal) modal.classList.add('hidden');
+  const form = $('omni-cloner-form');
+  if (form) form.reset();
+  const deviceSelect = $('cloner-device');
+  if (deviceSelect) deviceSelect.value = 'cpu';
+  $('cloner-progress-area').classList.add('hidden');
+  $('cloner-error').classList.add('hidden');
+  $('cloner-result-area').classList.add('hidden');
+  $('cloner-ref-preview').classList.add('hidden');
+  $('cloner-generate-btn').classList.remove('hidden');
+  $('cloner-cancel-btn').classList.add('hidden');
+}
+
+async function generateOmniClonerVoice(event) {
   event.preventDefault();
-  const voiceName = $('vbee-voice-name').value.trim();
-  const voiceCode = $('vbee-voice-code').value;
-  const text = $('vbee-text').value.trim();
 
-  if (!voiceName || !voiceCode || !text) {
+  const voiceName = $('cloner-voice-name').value.trim();
+  const refAudio = $('cloner-ref-audio').files[0];
+  const refText = $('cloner-ref-text').value.trim();
+  const script = $('cloner-script').value.trim();
+  const btn = $('cloner-generate-btn');
+  const cancelBtn = $('cloner-cancel-btn');
+  const progressArea = $('cloner-progress-area');
+  const progressBar = $('cloner-progress-bar');
+  const progressText = $('cloner-progress-text');
+  const progressPct = $('cloner-progress-pct');
+  const errorEl = $('cloner-error');
+
+  if (!voiceName || !refAudio || !refText || !script) {
     toast('❌ Vui lòng nhập đầy đủ thông tin!', 'error');
     return;
   }
 
-  const btn = $('vbee-generate-btn');
-  setBusy(btn, true, 'Đang tạo giọng...');
+  if (!assets.omiConfigured) {
+    toast('❌ OmniVoice chưa được cài đặt. Vui lòng tải OmniVoice trước.', 'error');
+    return;
+  }
+
+  btn.classList.add('hidden');
+  cancelBtn.classList.remove('hidden');
+  errorEl.classList.add('hidden');
+  progressArea.classList.remove('hidden');
+  progressBar.style.width = '0%';
+  progressText.textContent = 'Đang khởi tạo...';
+  progressPct.textContent = '0%';
+
+  const formData = new FormData();
+  formData.append('voiceName', voiceName);
+  formData.append('refAudio', refAudio);
+  formData.append('refText', refText);
+  formData.append('script', script);
+  formData.append('device', $('cloner-device').value);
+
+  // Bắt đầu polling tiến trình
+  clonerPollInterval = setInterval(async () => {
+    try {
+      const pRes = await fetch('/api/cloner-voice-progress');
+      const pData = await pRes.json();
+      if (pData.active || pData.percent < 100) {
+        progressBar.style.width = `${pData.percent}%`;
+        progressText.textContent = pData.stage || 'Đang xử lý...';
+        progressPct.textContent = `${pData.percent}%`;
+      }
+    } catch (e) {}
+  }, 500);
 
   try {
-    const res = await fetch('/api/generate-vbee-voice', {
+    const res = await fetch('/api/generate-cloner-voice', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ voiceName, voiceCode, text })
+      body: formData
     });
 
-    const result = await res.json();
-    if (!res.ok) {
-      throw new Error(result.error || 'Lỗi khi kết nối với Vbee AI');
+    const data = await res.json();
+
+    if (clonerPollInterval) {
+      clearInterval(clonerPollInterval);
+      clonerPollInterval = null;
     }
 
-    toast('🎉 ' + (result.message || 'Tạo giọng mẫu thành công!'), 'success');
-    closeVbeeGenerateVoiceModal();
+    if (data.cancelled) {
+      toast('⏹ Đã hủy tạo giọng', 'info');
+      btn.classList.remove('hidden');
+      cancelBtn.classList.add('hidden');
+      progressArea.classList.add('hidden');
+      return;
+    }
+
+    if (!res.ok) throw new Error(data.error || 'Lỗi tạo giọng');
+
+    progressBar.style.width = '100%';
+    progressText.textContent = '✅ Hoàn tất!';
+    progressPct.textContent = '100%';
+    cancelBtn.classList.add('hidden');
+
+    // Hiển thị kết quả để nghe
+    const resultArea = $('cloner-result-area');
+    const resultAudio = $('cloner-result-audio');
+    resultArea.classList.remove('hidden');
+    resultAudio.src = `/voices/${encodeURIComponent(data.filename)}`;
+    resultAudio.play().catch(() => {});
+
+    toast('🎉 ' + (data.message || 'Tạo giọng mẫu thành công!'), 'success');
     await loadAssets();
   } catch (err) {
-    toast('❌ Lỗi tạo giọng: ' + err.message, 'error');
-  } finally {
-    setBusy(btn, false);
+    console.error('Lỗi tạo giọng Omni Cloner:', err);
+    if (clonerPollInterval) {
+      clearInterval(clonerPollInterval);
+      clonerPollInterval = null;
+    }
+    errorEl.textContent = `Lỗi: ${err.message}`;
+    errorEl.classList.remove('hidden');
+    btn.classList.remove('hidden');
+    cancelBtn.classList.add('hidden');
+    toast('❌ ' + err.message, 'error');
   }
 }
 
+async function cancelClonerVoice() {
+  try {
+    await fetch('/api/cancel-cloner-voice', { method: 'POST' });
+  } catch (e) {}
+}
+
+window.previewClonerRefAudio = previewClonerRefAudio;
+window.openOmniClonerModal = openOmniClonerModal;
+window.closeOmniClonerModal = closeOmniClonerModal;
+window.generateOmniClonerVoice = generateOmniClonerVoice;
+window.cancelClonerVoice = cancelClonerVoice;
+
+// ==========================================
 function renderVoicesList(searchFilter = '') {
   const tbody = $('voice-list-tbody');
   const countBadge = $('voice-count-badge');
@@ -422,7 +541,7 @@ function renderVoicesList(searchFilter = '') {
           <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
             <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchFilter ? 'Không tìm thấy giọng mẫu nào phù hợp' : 'Chưa có giọng mẫu nào'}</div>
-            <div style="font-size: 11px;">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Thêm giọng nói từ Vbee AI hoặc tải file ghi âm lên để lồng tiếng'}</div>
+            <div style="font-size: 11px;">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Tải lên file ghi âm (.mp3, .wav, .m4a, .aac, .ogg, .mp4) để làm giọng mẫu'}</div>
           </div>
         </td>
       </tr>

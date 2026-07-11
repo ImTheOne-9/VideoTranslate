@@ -1,3 +1,6 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -170,10 +173,14 @@ if (fs.existsSync(DEFAULT_VOICES_SRC)) {
 // Cấu hình CUDA DLLs và tools path
 if (process.platform === 'win32') {
   const toolsDir = shared.TOOLS_DIR;
+  const dataToolsDir = shared.DATA_TOOLS_DIR;
   const omnivoiceDir = path.join(shared.TOOLS_DIR, 'omnivoice');
+  const omnivoiceDataDir = path.join(shared.DATA_TOOLS_DIR, 'omnivoice');
   const pathParts = [];
   if (fs.existsSync(toolsDir)) pathParts.push(toolsDir);
+  if (fs.existsSync(dataToolsDir) && dataToolsDir !== toolsDir) pathParts.push(dataToolsDir);
   if (fs.existsSync(omnivoiceDir)) pathParts.push(omnivoiceDir);
+  if (fs.existsSync(omnivoiceDataDir) && omnivoiceDataDir !== omnivoiceDir) pathParts.push(omnivoiceDataDir);
   const cudaRoot = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA';
   if (fs.existsSync(cudaRoot)) {
     try {
@@ -237,6 +244,43 @@ app.post('/api/playlist', downloadController.playlist);
 app.post('/api/download-local', downloadController.downloadLocal);
 app.get('/api/proxy-image', downloadController.proxyImage);
 
+// Cookie management routes
+app.post('/api/upload-cookie', upload.single('cookieFile'), (req, res) => {
+  try {
+    const platform = req.body.platform;
+    if (!platform || !req.file) {
+      return res.status(400).json({ error: 'Thiếu platform hoặc file cookies' });
+    }
+    const validPlatforms = ['bilibili', 'douyin', 'tiktok', 'youtube', 'facebook', 'instagram', 'xiaohongshu', 'youku'];
+    if (!validPlatforms.includes(platform)) {
+      return res.status(400).json({ error: 'Platform không hợp lệ' });
+    }
+    shared.saveCookieFile(platform, req.file.path);
+    res.json({ success: true, message: `Đã lưu cookies cho ${platform}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/cookie-status', (req, res) => {
+  try {
+    res.json(shared.getCookieStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/delete-cookie', (req, res) => {
+  try {
+    const platform = req.body.platform;
+    if (!platform) return res.status(400).json({ error: 'Thiếu platform' });
+    shared.deleteCookieFile(platform);
+    res.json({ success: true, message: `Đã xóa cookies cho ${platform}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2. Project Routes
 app.get('/api/projects', studioController.getProjects);
 app.get('/api/projects/:id', studioController.getProjectById);
@@ -261,7 +305,9 @@ app.post('/api/render-studio', studioUpload.fields([
 ]), studioController.renderStudio);
 
 // 4. Voice and asset routes
-app.post('/api/generate-vbee-voice', voiceController.generateVbeeVoice);
+app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
+app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
+app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);
 app.post('/api/save-voice', studioUpload.single('voice'), voiceController.saveVoice);
 app.post('/api/save-music', studioUpload.single('music'), voiceController.saveMusic);
 app.post('/api/save-video', studioUpload.single('video'), voiceController.saveVideo);
@@ -302,6 +348,7 @@ app.post('/api/ninerouter-models', async (req, res) => {
     res.status(500).json({ error: `Lỗi kết nối tới 9Router: ${errorMsg}` });
   }
 });
+app.get('/api/select-save-path', systemController.selectSavePath);
 app.get('/api/open-folder', systemController.openFolder);
 // Douyin: extract + download qua BrowserWindow ẩn (không cần yt-dlp/cookies)
 app.get('/api/douyin-info', downloadController.getDouyinInfo);

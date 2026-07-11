@@ -562,8 +562,12 @@ function updateSubtitleOverlayFromInputs() {
         if (clickedNode.name() === 'blur' || clickedNode.name() === 'blur-box-shape') {
           if (clickedNode.name() === 'blur-box-shape') {
             const boxId = clickedNode.getAttr('boxId');
-            if (boxId && boxId !== activeBlurBoxId) {
-              selectBlurBox(boxId);
+            if (boxId) {
+              if (boxId === activeBlurBoxId) {
+                deselectBlurBox();
+              } else {
+                selectBlurBox(boxId);
+              }
             }
           }
           konvaTransformer.enabledAnchors([
@@ -1154,12 +1158,22 @@ function updateSubtitleOverlayFromInputs() {
               const x = shape.x();
               const y = shape.y();
               const radius = Number(box.radius || 20);
+
+              const padding = Math.min(Math.max(radius, 20), Math.max(w, h));
+
+              const sx = Math.max(0, x - padding);
+              const sy = Math.max(0, y - padding);
+              const sw = w + padding * 2;
+              const sh = h + padding * 2;
+              const dx = -(x - sx);
+              const dy = -(y - sy);
+
               ctx.filter = `blur(${radius}px)`;
 
               ctx.drawImage(
                 mainVideo,
-                x, y, w, h,
-                0, 0, w, h
+                sx, sy, sw, sh,
+                dx, dy, sw, sh
               );
             } else {
               ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
@@ -1318,20 +1332,26 @@ function addBlurBox() {
   const newBox = {
     id: Date.now(),
     x: 10,
-    y: 75,
+    y: 10,
     width: 80,
-    height: 15,
+    height: 20,
     radius: 20,
     start: 0,
-    end: 99999
+    end: 99999,
+    _collapsed: false
   };
   blurBoxes.push(newBox);
   activeBlurBoxId = newBox.id;
-
-
-
   renderBlurBoxesList();
   updateSubtitleOverlayFromInputs();
+}
+
+function toggleBlurBoxCollapse(id) {
+  const box = blurBoxes.find(b => b.id === id);
+  if (box) {
+    box._collapsed = !box._collapsed;
+    renderBlurBoxesList();
+  }
 }
 
 function removeBlurBox(id) {
@@ -1378,6 +1398,23 @@ function selectBlurBox(id) {
   updateSubtitleOverlayFromInputs();
 }
 
+function deselectBlurBox() {
+  activeBlurBoxId = null;
+  document.querySelectorAll('.blur-box-item').forEach(item => {
+    item.classList.remove('active');
+    item.style.background = '#10161d';
+    item.style.borderColor = 'var(--border)';
+    const titleSpan = item.querySelector('span');
+    if (titleSpan) {
+      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
+      if (match) titleSpan.textContent = `Vùng mờ #${match[1]}`;
+      titleSpan.style.color = 'var(--text)';
+    }
+  });
+  document.querySelectorAll('.timeline-block').forEach(block => block.classList.remove('active'));
+  updateSubtitleOverlayFromInputs();
+}
+
 function renderBlurBoxesList() {
   const container = $('blur-boxes-list');
   if (!container) return;
@@ -1405,39 +1442,47 @@ function renderBlurBoxesList() {
       }
     });
 
+    const isCollapsed = box._collapsed;
+    const collapseIcon = isCollapsed ? '▶' : '▼';
+
     item.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${isCollapsed ? '0' : '8'}px;">
+        <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;" onclick="event.stopPropagation(); toggleBlurBoxCollapse(${box.id})">
+          <span style="font-size: 10px; color: var(--muted); cursor: pointer; flex-shrink: 0;">${collapseIcon}</span>
+          <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+        </div>
         <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">Xóa</button>
       </div>
-      
-      <!-- Hidden coordinates to prevent JS code crash -->
-      <div style="display: none;">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="x" value="${box.x}">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="y" value="${box.y}">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="width" value="${box.width}">
-        <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="height" value="${box.height}">
-      </div>
 
-      <!-- Time bounds & blur slider settings -->
-      <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-        <div class="form-group" style="margin: 0;">
-          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Bắt đầu (s)</label>
-          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+      <div class="blur-box-details" style="display: ${isCollapsed ? 'none' : 'block'};">
+        <!-- Hidden coordinates to prevent JS code crash -->
+        <div style="display: none;">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="x" value="${box.x}">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="y" value="${box.y}">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="width" value="${box.width}">
+          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="height" value="${box.height}">
         </div>
-        <div class="form-group" style="margin: 0;">
-          <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Kết thúc (s)</label>
-          <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+
+        <!-- Time bounds & blur slider settings -->
+        <div class="sub-settings-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Bắt đầu (s)</label>
+            <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="start" value="${box.start}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 10px; margin: 0 0 2px 0; font-weight: 600;">Kết thúc (s)</label>
+            <input type="number" class="premium-input blur-input" data-id="${box.id}" data-field="end" value="${box.end}" min="0" step="any" style="padding: 4px 6px; height: 32px;">
+          </div>
         </div>
-      </div>
-      
-      <!-- Blur Radius Slider -->
-      <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
-          <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
+        
+        <!-- Blur Radius Slider -->
+        <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
+            <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
+          </div>
+          <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
         </div>
-        <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
       </div>
     `;
     container.appendChild(item);
@@ -1587,15 +1632,17 @@ function renderTimeline() {
       
       block.addEventListener('click', (e) => {
         if (!block.dataset.dragging && !block.dataset.resizing) {
-          selectBlurBox(box.id);
+          if (activeBlurBoxId === box.id) {
+            deselectBlurBox();
+          } else {
+            selectBlurBox(box.id);
+          }
         }
       });
       
       block.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        
-        selectBlurBox(box.id);
         
         const initialClientX = e.clientX;
         const initialStart = box.start;
@@ -1607,7 +1654,6 @@ function renderTimeline() {
         
         if (isLeftResize) block.dataset.resizing = 'left';
         if (isRightResize) block.dataset.resizing = 'right';
-        if (isMove) block.dataset.dragging = 'true';
         
         let lastMoveEvent = null;
         let animationFrameId = null;
@@ -1624,6 +1670,7 @@ function renderTimeline() {
         
         const onMouseMove = (moveEvent) => {
           lastMoveEvent = moveEvent;
+          if (isMove && Math.abs(moveEvent.clientX - initialClientX) > 3) block.dataset.dragging = 'true';
           
           if (!animationFrameId) {
             animationFrameId = requestAnimationFrame(() => {
@@ -1732,19 +1779,27 @@ function initTimelineControls() {
   
   video.addEventListener('play', () => {
     if (playBtn) {
-      playBtn.textContent = 'Tạm dừng';
+      playBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
       playBtn.classList.add('playing');
     }
   });
   video.addEventListener('pause', () => {
     if (playBtn) {
-      playBtn.textContent = 'Phát';
+      playBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
       playBtn.classList.remove('playing');
     }
   });
   
   video.addEventListener('timeupdate', () => {
     syncPlayhead();
+    const now = Date.now();
+    if (!video._lastBlurUpdate || now - video._lastBlurUpdate > 100) {
+      video._lastBlurUpdate = now;
+      updateSubtitleOverlayFromInputs();
+    }
+  });
+  video.addEventListener('seeked', () => {
+    updateSubtitleOverlayFromInputs();
   });
   
   let lastScrubEvent = null;

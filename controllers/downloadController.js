@@ -55,7 +55,8 @@ module.exports = {
 
     const cdnUrl = values.src;
     const safeName = shared.removeVietnameseTones(values.filename).replace(/[<>:\"/\\|?*]/g, '_').substring(0, 150);
-    const outPath = path.join(shared.DOWNLOADS_DIR, `${safeName}.mp4`);
+    const downloadDir = req.body.outputDir || shared.DOWNLOADS_DIR;
+    const outPath = path.join(downloadDir, `${safeName}.mp4`);
 
     try {
       console.log(`[Douyin] Đang tải từ CDN: ${cdnUrl.substring(0, 80)}...`);
@@ -110,7 +111,7 @@ module.exports = {
         responseType: 'stream',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('xiaohongshu') ? 'https://www.xiaohongshu.com/' : 'https://www.google.com/')
+          'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('xiaohongshu') ? 'https://www.xiaohongshu.com/' : (url.includes('hdslb.com') || url.includes('.bilibili.com')) ? 'https://www.bilibili.com/' : 'https://www.google.com/')
         },
         timeout: 10000
       });
@@ -247,7 +248,7 @@ module.exports = {
     });
 
     try {
-      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl } = req.query;
+      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, translateTargetLang } = req.query;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
       if (!shared.isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -300,8 +301,10 @@ module.exports = {
         const downloadMarginH = Number(req.query.subtitleMarginH || 20);
         const downloadWidth = 1080;
         const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
-        const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl }, downloadMaxLines, downloadMaxChars);
+        const dlTargetLang = translateTargetLang || 'vi';
+        const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
+        const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -460,7 +463,7 @@ module.exports = {
     });
 
     try {
-      let { url, format_id, customFilename, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH } = req.body;
+      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH, translateTargetLang } = req.body;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -490,7 +493,8 @@ module.exports = {
 
         const videoPathPattern = path.join(tempDir, `video.%(ext)s`);
         const subPathPattern = path.join(tempDir, `sub.%(ext)s`);
-        const finalVideoPath = path.join(shared.DOWNLOADS_DIR, `${safeTitle}_Vietsub.mp4`);
+        const videoDir = outputDir || shared.DOWNLOADS_DIR;
+        const finalVideoPath = path.join(videoDir, `${safeTitle}_Vietsub.mp4`);
         const translatedSubPath = path.join(tempDir, `translated.srt`);
 
         const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...shared.getCustomExtractorArgs(url)];
@@ -523,8 +527,10 @@ module.exports = {
           const downloadMarginH = Number(subtitleMarginH || 20);
           const downloadWidth = 1080;
           const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
-          const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * 0.5)));
-          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl }, downloadMaxLines, downloadMaxChars);
+          const dlTargetLang = translateTargetLang || 'vi';
+          const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
+          const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
+          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
           let hasSubtitles = false;
           try {
@@ -563,7 +569,8 @@ module.exports = {
         res.json({ success: true, message: 'Đã tải thành công video Vietsub', filename: `${safeTitle}_Vietsub.mp4` });
 
       } else {
-        const finalVideoPath = path.join(shared.DOWNLOADS_DIR, `${safeTitle}.mp4`);
+        const videoDir = outputDir || shared.DOWNLOADS_DIR;
+        const finalVideoPath = path.join(videoDir, `${safeTitle}.mp4`);
         
         const args = [
           '--no-warnings',

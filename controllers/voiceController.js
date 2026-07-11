@@ -1,15 +1,40 @@
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
+const { spawn } = require('child_process');
 const shared = require('../lib/shared-state');
-const { VBEE_APP_ID, VBEE_TOKEN } = require('../lib/secrets');
+
+// Trạng thái tiến trình cloner voice
+const clonerState = {
+  active: false,
+  process: null,
+  stage: '',
+  percent: 0,
+  error: null,
+  tempFiles: [],
+  voiceFilename: null
+};
+
+function resetClonerState() {
+  clonerState.active = false;
+  clonerState.process = null;
+  clonerState.stage = '';
+  clonerState.percent = 0;
+  clonerState.error = null;
+  clonerState.tempFiles = [];
+  clonerState.voiceFilename = null;
+}
 
 module.exports = {
-  generateVbeeVoice: async (req, res) => {
-    const { voiceCode, text, voiceName } = req.body;
-    
-    if (!voiceCode || !text || !voiceName) {
-      return res.status(400).json({ error: 'Thiếu thông tin yêu cầu: voiceCode, text hoặc voiceName' });
+  generateClonerVoice: async (req, res) => {
+    const { voiceName, refText, script, device } = req.body;
+    const refAudio = req.file;
+
+    if (!voiceName || !refAudio || !refText || !script) {
+      return res.status(400).json({ error: 'Thiếu thông tin: voiceName, refAudio, refText hoặc script' });
+    }
+
+    if (clonerState.active) {
+      return res.status(400).json({ error: 'Đang có tiến trình tạo giọng khác, vui lòng đợi hoặc hủy trước.' });
     }
 
     const baseName = shared.safeFileName(voiceName);
@@ -17,142 +42,164 @@ module.exports = {
       return res.status(400).json({ error: 'Tên giọng mẫu không hợp lệ' });
     }
 
-    const audioPath = path.join(shared.VOICES_DIR, `${baseName}.wav`);
+    const voicePath = path.join(shared.VOICES_DIR, `${baseName}.wav`);
     const txtPath = path.join(shared.VOICES_DIR, `${baseName}.txt`);
 
-    if (fs.existsSync(audioPath) || fs.existsSync(txtPath)) {
+    if (fs.existsSync(voicePath) || fs.existsSync(txtPath)) {
       return res.status(400).json({ error: 'Giọng mẫu với tên này đã tồn tại, vui lòng chọn tên khác.' });
     }
 
+    const tempFiles = [];
+    resetClonerState();
+    clonerState.active = true;
+    clonerState.stage = 'Đang chuẩn bị...';
+    clonerState.percent = 0;
+
     try {
-      const isFemale = voiceCode.includes('female');
-      let success = false;
+      // Multer file gốc
+      const refOrigPath = refAudio.path;
+      tempFiles.push(refOrigPath);
+      const refWavPath = refOrigPath + '_converted.wav';
+      tempFiles.push(refWavPath);
 
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${VBEE_TOKEN}`,
-        'App-Id': VBEE_APP_ID
-      };
-
-      const callVbeeSync = async () => {
-        console.log(`[Vbee API Sync] Requesting ${baseName} (${voiceCode})...`);
-        const response = await axios.post('https://api.vbee.vn/v1/tts', {
-          text: text,
-          voiceCode: voiceCode,
-          outputFormat: 'wav',
-          speed: 1.0,
-          mode: 'sync'
-        }, {
-          headers,
-          responseType: 'arraybuffer',
-          timeout: 30000
+      clonerState.stage = 'Đang chuyển đổi file âm thanh (FFmpeg)...';
+      await new Promise((resolve, reject) => {
+        shared.execFile(shared.FFMPEG_PATH, [
+          '-i', refOrigPath,
+          '-acodec', 'pcm_s16le',
+          '-ar', '16000',
+          '-ac', '1',
+          '-y', refWavPath
+        ], (err, stdout, stderr) => {
+          if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
+          else resolve();
         });
-        fs.writeFileSync(audioPath, response.data);
-        fs.writeFileSync(txtPath, text, 'utf8');
-        console.log(`[Vbee API Sync] Saved to ${audioPath}`);
-        return true;
-      };
+      });
 
-      const callVbeeAsync = async () => {
-        console.log(`[Vbee API Async] Requesting ${baseName} (${voiceCode})...`);
-        const response = await axios.post('https://api.vbee.vn/v1/tts', {
-          text: text,
-          voiceCode: voiceCode,
-          outputFormat: 'wav',
-          speed: 1.0,
-          mode: 'async',
-          bitrate: 128,
-          webhookUrl: 'https://example.com/callback'
-        }, {
-          headers,
-          timeout: 30000
+      clonerState.stage = 'Đang tải model AI...';
+      clonerState.percent = 10;
+
+      // Chạy OmniVoice CLI và capture output để parse stage
+      const omnivoiceArgs = [
+        '--model', shared.OMNIVOICE_MODEL_PATH,
+        '--text', script.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim(),
+        '--output', voicePath,
+        '--response-format', 'wav',
+        '--language', 'vi',
+        '--device', device || process.env.OMNIVOICE_DEVICE || 'cpu',
+        '--num-step', process.env.OMNIVOICE_STEPS || '16',
+        '--seed', String(Math.floor(Math.random() * 9999999)),
+        '--ref-audio', refWavPath,
+        '--ref-text', refText,
+        '--position-temperature', '1.5'
+      ];
+
+      console.log(`[OmniCloner] Đang tạo giọng "${baseName}"...`);
+
+      const cliPath = shared.OMNIVOICE_CLI_PATH;
+      const child = spawn(cliPath, omnivoiceArgs, {
+        cwd: path.dirname(cliPath),
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      clonerState.process = child;
+
+      child.stdout.on('data', (data) => {
+        const line = data.toString();
+        if (line.includes('model_load done')) {
+          clonerState.stage = 'Đã tải model, đang xử lý giọng mẫu...';
+          clonerState.percent = 30;
+        } else if (line.includes('reference_encode') || line.includes('reference_read')) {
+          clonerState.stage = 'Đang phân tích giọng mẫu...';
+          clonerState.percent = 50;
+        } else if (line.includes('generate')) {
+          clonerState.stage = 'Đang tạo giọng nói AI...';
+          clonerState.percent = 70;
+        }
+      });
+
+      child.stderr.on('data', (data) => {
+        const line = data.toString();
+        if (line.includes('generate')) {
+          clonerState.stage = 'Đang tạo giọng nói AI...';
+          clonerState.percent = 70;
+        } else if (line.includes('model_load')) {
+          clonerState.stage = 'Đang tải model AI...';
+          clonerState.percent = 10;
+        }
+      });
+
+      const exitCode = await new Promise((resolve, reject) => {
+        child.on('exit', (code) => {
+          if (code === 0 || code === null) resolve(code);
+          else reject(new Error(`OmniVoice CLI thoát với mã lỗi ${code}`));
         });
+        child.on('error', reject);
+      });
 
-        const requestId = response.data?.requestId;
-        if (!requestId) {
-          throw new Error(response.data?.message || 'Không nhận được requestId từ Vbee.');
-        }
-
-        console.log(`[Vbee API Async] Request ID: ${requestId}. Bắt đầu polling...`);
-        let status = 'PROCESSING';
-        let audioLink = null;
-        const maxAttempts = 30;
-        let attempts = 0;
-
-        while (status === 'PROCESSING' && attempts < maxAttempts) {
-          attempts++;
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          const pollRes = await axios.get(`https://api.vbee.vn/v1/tts/requests/${requestId}`, {
-            headers,
-            timeout: 10000
-          });
-
-          status = pollRes.data?.status;
-          console.log(`[Vbee Polling] Lần ${attempts}/${maxAttempts} - Trạng thái: ${status}`);
-
-          if (status === 'COMPLETED') {
-            audioLink = pollRes.data?.audioLink;
-            break;
-          } else if (status === 'FAILED') {
-            throw new Error('Yêu cầu xử lý giọng nói bị lỗi trên Vbee.');
-          }
-        }
-
-        if (!audioLink) {
-          throw new Error('Vbee xử lý quá thời gian chờ (timeout) hoặc không tìm thấy liên kết âm thanh.');
-        }
-
-        console.log(`[Vbee Downloading] Đang tải audio từ: ${audioLink}`);
-        const audioRes = await axios.get(audioLink, {
-          responseType: 'arraybuffer',
-          timeout: 30000
-        });
-
-        fs.writeFileSync(audioPath, audioRes.data);
-        fs.writeFileSync(txtPath, text, 'utf8');
-        console.log(`[Vbee API Async] Saved to ${audioPath}`);
-        return true;
-      };
-
-      if (isFemale) {
-        try {
-          success = await callVbeeSync();
-        } catch (syncErr) {
-          console.warn(`[Vbee Sync Warning] Sync failed: ${syncErr.message}. Thử lại bằng Async...`);
-          success = await callVbeeAsync();
-        }
-      } else {
-        success = await callVbeeAsync();
+      if (!clonerState.active) {
+        throw new Error('Đã hủy');
       }
 
-      if (success) {
-        return res.json({ success: true, message: 'Tạo giọng mẫu thành công!' });
-      } else {
-        throw new Error('Không thể sinh file hoặc lưu file.');
-      }
+      clonerState.stage = 'Đang lưu kết quả...';
+      clonerState.percent = 90;
+
+      fs.writeFileSync(txtPath, script, 'utf8');
+      clonerState.voiceFilename = `${baseName}.wav`;
+      console.log(`[OmniCloner] Đã lưu giọng tại ${voicePath}`);
+
+      clonerState.stage = 'Hoàn tất!';
+      clonerState.percent = 100;
+
+      res.json({
+        success: true,
+        message: 'Tạo giọng mẫu bằng Omni Cloner thành công!',
+        filename: `${baseName}.wav`
+      });
 
     } catch (err) {
-      console.error('Error generating Vbee voice:', err.message);
-      let detailedError = err.message;
-      if (err.response?.data) {
-        try {
-          const errorData = err.response.data;
-          const errorBody = Buffer.isBuffer(errorData) 
-            ? JSON.parse(errorData.toString('utf8'))
-            : (typeof errorData === 'object' ? errorData : JSON.parse(errorData));
-          if (errorBody.message) detailedError = errorBody.message;
-          else if (errorBody.error) detailedError = errorBody.error;
-        } catch (parseErr) {}
+      console.error('Error generating Omni Cloner voice:', err.message);
+      if (err.message !== 'Đã hủy') {
+        try { if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath); } catch (e) {}
+        try { if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath); } catch (e) {}
+        clonerState.error = err.message;
+        res.status(500).json({ error: `Lỗi Omni Cloner: ${err.message}` });
+      } else {
+        try { if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath); } catch (e) {}
+        try { if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath); } catch (e) {}
+        res.json({ success: false, cancelled: true, message: 'Đã hủy tạo giọng' });
       }
-      
-      try {
-        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-        if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath);
-      } catch (cleanupErr) {}
-
-      res.status(500).json({ error: `Lỗi gọi API Vbee AI: ${detailedError}` });
+    } finally {
+      for (const f of tempFiles) {
+        try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) {}
+      }
+      setTimeout(() => {
+        if (!clonerState.active) resetClonerState();
+      }, 3000);
     }
+  },
+
+  getClonerProgress: async (req, res) => {
+    res.json({
+      active: clonerState.active,
+      stage: clonerState.stage,
+      percent: clonerState.percent,
+      error: clonerState.error,
+      voiceFilename: clonerState.voiceFilename
+    });
+  },
+
+  cancelClonerVoice: async (req, res) => {
+    if (clonerState.process) {
+      try {
+        clonerState.process.kill('SIGTERM');
+        setTimeout(() => {
+          try { if (clonerState.process) clonerState.process.kill('SIGKILL'); } catch (e) {}
+        }, 2000);
+      } catch (e) {}
+    }
+    clonerState.active = false;
+    clonerState.stage = 'Đã hủy';
+    res.json({ success: true, message: 'Đã hủy tạo giọng' });
   },
 
   saveVoice: async (req, res) => {

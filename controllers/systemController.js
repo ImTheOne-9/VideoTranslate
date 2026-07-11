@@ -10,9 +10,11 @@ const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
 
 let electronShell = null;
+let electronDialog = null;
 try {
   const electron = require('electron');
   electronShell = electron.shell;
+  electronDialog = electron.dialog;
 } catch (e) {}
 
 let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
@@ -208,6 +210,40 @@ module.exports = {
     }
   },
 
+  selectSavePath: async (req, res) => {
+    try {
+      const { defaultFilename, mode } = req.query;
+      const { BrowserWindow } = require('electron');
+      const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+
+      if (mode === 'folder') {
+        const result = await electronDialog.showOpenDialog(win, {
+          defaultPath: shared.DOWNLOADS_DIR,
+          properties: ['openDirectory', 'createDirectory']
+        });
+        if (result.canceled) return res.json({ canceled: true });
+        return res.json({ canceled: false, dir: result.filePaths[0] });
+      }
+
+      const defaultPath = defaultFilename
+        ? path.join(shared.DOWNLOADS_DIR, defaultFilename)
+        : shared.DOWNLOADS_DIR;
+      const result = await electronDialog.showSaveDialog(win, {
+        defaultPath,
+        filters: [{ name: 'Video files', extensions: ['mp4'] }]
+      });
+      if (result.canceled) return res.json({ canceled: true });
+      return res.json({
+        canceled: false,
+        dir: path.dirname(result.filePath),
+        filename: path.basename(result.filePath)
+      });
+    } catch (err) {
+      console.error('selectSavePath error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   openFolder: async (req, res) => {
     if (electronShell) {
       try {
@@ -354,6 +390,8 @@ module.exports = {
     const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
     const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
 
+    const separatorCliOk = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH) || fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe'));
+
     res.json({
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
@@ -363,7 +401,10 @@ module.exports = {
       downloadedWhisperModels: downloadedWhisperModels,
       omnivoice: omnivoiceCliOk && omnivoiceModelOk,
       omnivoiceCli: omnivoiceCliOk,
-      omnivoiceModel: omnivoiceModelOk
+      omnivoiceModel: omnivoiceModelOk,
+      separator: separatorCliOk,
+      separatorCli: separatorCliOk,
+      separatorGpu: fs.existsSync(path.join(__dirname, '..', 'temp_env', 'Scripts', 'python.exe'))
     });
   },
 
@@ -381,7 +422,7 @@ module.exports = {
 
   downloadDependency: async (req, res) => {
     const { type } = req.body;
-    if (!['cuda', 'whisper'].includes(type)) {
+    if (!['cuda', 'whisper', 'separator', 'separator-gpu'].includes(type)) {
       return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
     }
 
@@ -399,6 +440,31 @@ module.exports = {
           activeDependencyDownload.percent = Math.floor((downloaded / (total || 1)) * 100);
         }
       });
+
+      // Chạy post-setup cho GPU separator
+      if (type === 'separator-gpu') {
+        if (activeDependencyDownload) {
+          activeDependencyDownload.status = 'setup';
+          activeDependencyDownload.step = 'Đang cài GPU packages (Python, PyTorch)...';
+        }
+        const setupScript = path.join(shared.DATA_TOOLS_DIR, 'setup_gpu_separator.ps1');
+        if (fs.existsSync(setupScript)) {
+          const { execFile } = require('child_process');
+          await new Promise((resolve, reject) => {
+            const proc = execFile('powershell.exe', [
+              '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', setupScript
+            ], { maxBuffer: 1024 * 1024 * 10 }, (err, stdout) => {
+              if (err) reject(new Error(`Setup thất bại: ${err.message}\n${stdout}`));
+              else resolve();
+            });
+            if (global.registerChildProcess) {
+              global.registerChildProcess(proc);
+            }
+          });
+          console.log('[Dependency Downloader] GPU separator setup hoàn tất.');
+        }
+      }
+
       if (activeDependencyDownload) {
         activeDependencyDownload.status = 'success';
         activeDependencyDownload.percent = 100;
