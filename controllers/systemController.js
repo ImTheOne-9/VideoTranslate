@@ -465,6 +465,44 @@ module.exports = {
         }
         const setupScript = path.join(shared.DATA_TOOLS_DIR, 'setup_gpu_separator.ps1');
         if (fs.existsSync(setupScript)) {
+          // Patch lỗi script gốc: xóa Out-Null, sửa CUDA check bị PowerShell parse lỗi
+          let psContent = fs.readFileSync(setupScript, 'utf8');
+          if (psContent.includes('| Out-Null') || psContent.includes("cuda.get_device_name(0) if")) {
+            psContent = psContent.replace(/\| Out-Null/g, '');
+            psContent = psContent.replace(/\$result = & \$venvPython -c "[^"]*torch\.cuda[^"]*" 2>&1/g, '# CUDA check handled via check_cuda.py below');
+            // Chèn block CUDA check mới dùng file riêng
+            const checkPy = path.join(shared.DATA_TOOLS_DIR, 'check_cuda.py');
+            if (!fs.existsSync(checkPy)) {
+              fs.writeFileSync(checkPy, `import torch\nprint('CUDA: ' + str(torch.cuda.is_available()) + ' | Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A') + ' | PyTorch: ' + torch.__version__)\n`, 'utf8');
+            }
+            const marker = '# ── Bước 5: Kiểm tra ──';
+            const idx = psContent.indexOf(marker);
+            if (idx >= 0) {
+              const blockEnd = psContent.indexOf('# ── Bước 6:', idx);
+              const oldBlock = blockEnd >= 0 ? psContent.substring(idx, blockEnd) : psContent.substring(idx);
+              const newBlock = `# ── Bước 5: Kiểm tra ──
+Write-Step "Đang kiểm tra CUDA availability..."
+try {
+    # Kiểm tra CUDA
+    $checkScript = Join-Path $ToolsDir "check_cuda.py"
+    if (Test-Path $checkScript) {
+        $result = & $venvPython $checkScript 2>&1
+        Write-OK $result
+    }
+    # Kiểm tra import audio-separator
+    & $venvPython -c "from audio_separator.separator import Separator; print('audio-separator OK')" 2>&1
+    Write-OK "audio-separator import OK"
+} catch {
+    Write-Warn "Kiểm tra thất bại: $_"
+    throw
+}
+`;
+              psContent = psContent.replace(oldBlock, newBlock);
+            }
+            fs.writeFileSync(setupScript, psContent, 'utf8');
+            console.log('[Dependency Downloader] Đã patch setup_gpu_separator.ps1 (fix Out-Null + CUDA check).');
+          }
+
           const { execFile } = require('child_process');
           await new Promise((resolve, reject) => {
             const proc = execFile('powershell.exe', [
@@ -477,6 +515,15 @@ module.exports = {
               global.registerChildProcess(proc);
             }
           });
+
+          // Kiểm tra venv đã được tạo chưa (script hay nuốt lỗi vì Out-Null)
+          const venvRoot = path.resolve(shared.DATA_TOOLS_DIR, '..');
+          const venvPython = path.join(venvRoot, 'temp_env', 'Scripts', 'python.exe');
+          if (!fs.existsSync(venvPython)) {
+            console.error('[Dependency Downloader] GPU separator setup script chạy xong nhưng không tạo được venv.');
+            throw new Error('Script setup chạy xong nhưng không tạo được Python venv. Hãy kiểm tra log chi tiết.');
+          }
+
           console.log('[Dependency Downloader] GPU separator setup hoàn tất.');
         }
       }
