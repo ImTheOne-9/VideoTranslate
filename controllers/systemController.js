@@ -49,7 +49,7 @@ module.exports = {
 
       const formats = (info.formats || [])
         .filter(f => {
-          return f.vcodec && f.vcodec !== 'none' && f.height;
+          return (f.vcodec && f.vcodec !== 'none' || f.video_ext) && f.height;
         })
         .sort((a, b) => {
           if (a.height !== b.height) return b.height - a.height;
@@ -323,6 +323,22 @@ module.exports = {
     } catch (error) {
       console.error('Open file folder error:', error.message);
       res.status(500).json({ error: 'Lỗi mở thư mục' });
+    }
+  },
+
+  serveFile: async (req, res) => {
+    try {
+      const filePath = req.query.path;
+      if (!filePath) return res.status(400).json({ error: 'Thiếu path' });
+      // Validate: chỉ cho phép file .mp4 từ thư mục tùy chỉnh
+      const resolved = path.resolve(filePath);
+      if (!resolved.endsWith('.mp4') && !resolved.endsWith('.webm')) {
+        return res.status(403).json({ error: 'Định dạng không được hỗ trợ' });
+      }
+      if (!fs.existsSync(resolved)) return res.status(404).json({ error: 'File không tồn tại' });
+      res.sendFile(resolved);
+    } catch (e) {
+      res.status(500).json({ error: 'Lỗi serve file: ' + e.message });
     }
   },
 

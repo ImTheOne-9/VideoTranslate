@@ -30,7 +30,7 @@ window.volumeToSlider = function (v) {
 
 // Kiểm tra URL có phải link video hỗ trợ (YouTube, TikTok, Douyin, FB, IG, XHS)
 window.isValidVideoUrl = function (url) {
-  return /(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|v\.douyin\.com\/|iesdouyin\.com\/|instagram\.com\/|instagr\.am\/|bilibili\.com\/|b23\.tv\/|youku\.com\/)/.test(url);
+  return /(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/|xiaohongshu\.com\/|xhslink\.com\/|facebook\.com\/|fb\.watch\/|fb\.com\/|tiktok\.com\/|douyin\.com\/|v\.douyin\.com\/|iesdouyin\.com\/|instagram\.com\/|instagr\.am\/|bilibili\.com\/|b23\.tv\/|youku\.com\/|mgtv\.com\/|iq\.com\/)/.test(url);
 };
 
 // Định dạng giây → "M:SS" (ví dụ 125 → "2:05")

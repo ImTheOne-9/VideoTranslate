@@ -911,6 +911,21 @@ async function renderStudio(event) {
   if (voiceSlider) data.set('voiceVolume', sliderToVolume(voiceSlider.value));
   if (musicSlider) data.set('musicVolume', sliderToVolume(musicSlider.value));
 
+  const flipOn = $('antidupe-flip')?.checked === true;
+  const trimOn = $('antidupe-enable')?.checked === true;
+  const wmOn = $('antidupe-wm-enable')?.checked === true;
+  data.set('antidupeEnabled', (flipOn || trimOn || wmOn) ? 'true' : 'false');
+  if (!trimOn) {
+    data.set('antidupeStart', '0');
+    data.set('antidupeEnd', '');
+  }
+  if (!wmOn) {
+    data.set('antidupeWatermark', '');
+  }
+  // Convert độ mờ từ % → decimal cho backend
+  const wmAlphaEl = $('antidupe-wm-alpha');
+  if (wmAlphaEl) data.set('antidupeWmAlpha', (parseFloat(wmAlphaEl.value) / 100).toFixed(4));
+
   setBusy(btn, true, 'Đang render...');
   if (status) status.textContent = 'Đang xếp hàng kết xuất...';
 
@@ -3307,6 +3322,15 @@ subtitleInputs.forEach(name => {
   }
 });
 
+// Anti-dupe + watermark fields → realtime preview update
+['antidupe-watermark', 'antidupe-wm-pos', 'antidupe-wm-size', 'antidupe-wm-color-input', 'antidupe-wm-alpha', 'antidupe-start', 'antidupe-end'].forEach(id => {
+  const el = $(id);
+  if (el) {
+    el.addEventListener('input', () => updateSubtitleOverlayFromInputs());
+    el.addEventListener('change', () => updateSubtitleOverlayFromInputs());
+  }
+});
+
 // Khi user chỉnh marginH bằng tay → đồng bộ marginL = marginR = marginH (đối xứng)
 const marginHSyncEl = document.querySelector('input[name="subtitleMarginH"]');
 if (marginHSyncEl) {
@@ -3353,6 +3377,23 @@ if (colorSwatches) {
       if (input) {
         input.value = color;
         // Dispatch event manually
+        input.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+}
+
+// Color swatches for watermark
+const wmColorSwatches = $('wm-color-swatches');
+if (wmColorSwatches) {
+  wmColorSwatches.querySelectorAll('.color-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      wmColorSwatches.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      swatch.classList.add('active');
+      const input = $('antidupe-wm-color-input');
+      if (input) {
+        input.value = swatch.dataset.color;
+        input.dispatchEvent(new Event('input'));
         input.dispatchEvent(new Event('change'));
       }
     });
@@ -5239,7 +5280,9 @@ async function loadCookieStatusList() {
       { id: 'facebook', label: 'Facebook', icon: '📘' },
       { id: 'instagram', label: 'Instagram', icon: '📷' },
       { id: 'xiaohongshu', label: 'Xiaohongshu', icon: '📕' },
-      { id: 'youku', label: 'Youku', icon: '🎬' }
+      { id: 'youku', label: 'Youku', icon: '🎬' },
+      { id: 'mgtv', label: 'MangoTV', icon: '🥭' },
+      { id: 'iq', label: 'iQIYI', icon: '🍿' }
     ];
     container.innerHTML = platforms.map(p => {
       const has = status[p.id];
@@ -6726,7 +6769,7 @@ function deserializeStudioForm(obj) {
     const input = form.elements[key];
     if (input) {
       if (input.type === 'checkbox') {
-        input.checked = (val === 'true' || val === true);
+        input.checked = (val === 'true' || val === true || val === 'on');
       } else if (input.type === 'radio') {
         if (input.forEach) {
           input.forEach(radio => {
@@ -6794,6 +6837,12 @@ function deserializeStudioForm(obj) {
 
   // Cập nhật lại các trường phụ đề
   updateConditionalFields();
+
+  // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark
+  ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
+    const el = $(id);
+    if (el) el.dispatchEvent(new Event('change'));
+  });
 
   // Khôi phục danh sách vùng làm mờ
   if (obj.blurBoxes) {
@@ -7149,11 +7198,17 @@ async function loadProjectQuietly(id) {
             const input = form.elements[key];
             if (input) {
               if (input.type === 'checkbox') {
-                input.checked = (val === 'true' || val === true);
+                input.checked = (val === 'true' || val === true || val === 'on');
               } else {
                 input.value = val;
               }
             }
+          });
+
+          // Cập nhật giao diện toggle switches sau khi restore backup
+          ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
+            const el = $(id);
+            if (el) el.dispatchEvent(new Event('change'));
           });
         }
         console.log('[Project] Đã merge backup localStorage.');
@@ -7838,4 +7893,54 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSidebarRecentProjects();
   // Refresh mỗi 30 phút
   setInterval(loadAppInfo, 30 * 60 * 1000);
+
+  // Collapsible sections
+  function toggleCollapse(headerId, fieldsId, iconId) {
+    const header = $(headerId);
+    const fields = $(fieldsId);
+    const icon = $(iconId);
+    if (header && fields && icon) {
+      header.addEventListener('click', (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        const isOpen = fields.style.display !== 'none';
+        fields.style.display = isOpen ? 'none' : 'block';
+        icon.textContent = isOpen ? '▶' : '▼';
+        updateSubtitleOverlayFromInputs();
+      });
+    }
+  }
+  // Toggle switch for flip
+  const setupToggleSwitch = (id, fieldsId) => {
+    const cb = $(id);
+    const track = $(`${id}-track`);
+    const knob = $(`${id}-knob`);
+    const fields = $(fieldsId);
+    if (cb && track && knob) {
+      const update = () => {
+        const on = cb.checked;
+        track.style.background = on ? 'var(--accent, #3B82F6)' : '#444';
+        knob.style.transform = on ? 'translateX(20px)' : 'translateX(0)';
+        knob.style.background = on ? '#fff' : '#ccc';
+        if (fields) fields.style.display = on ? 'block' : 'none';
+        updateSubtitleOverlayFromInputs();
+      };
+      cb.addEventListener('change', update);
+      update();
+    }
+  };
+  setupToggleSwitch('antidupe-enable', 'antidupe-fields');
+  setupToggleSwitch('antidupe-wm-enable', 'antidupe-wm-fields');
+  const flipCheckbox = $('antidupe-flip');
+  const flipTrack = $('antidupe-flip-track');
+  const flipKnob = $('antidupe-flip-knob');
+  if (flipCheckbox && flipTrack && flipKnob) {
+    const updateFlip = () => {
+      const on = flipCheckbox.checked;
+      flipTrack.style.background = on ? 'var(--accent, #3B82F6)' : '#444';
+      flipKnob.style.transform = on ? 'translateX(20px)' : 'translateX(0)';
+      flipKnob.style.background = on ? '#fff' : '#ccc';
+    };
+    flipCheckbox.addEventListener('change', () => { updateFlip(); updateSubtitleOverlayFromInputs(); });
+    updateFlip();
+  }
 });
