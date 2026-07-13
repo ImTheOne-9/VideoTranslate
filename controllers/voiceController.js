@@ -97,44 +97,63 @@ module.exports = {
       console.log(`[OmniCloner] Đang tạo giọng "${baseName}"...`);
 
       const cliPath = shared.OMNIVOICE_CLI_PATH;
-      const child = spawn(cliPath, omnivoiceArgs, {
-        cwd: path.dirname(cliPath),
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
-      clonerState.process = child;
 
-      child.stdout.on('data', (data) => {
-        const line = data.toString();
-        if (line.includes('model_load done')) {
-          clonerState.stage = 'Đã tải model, đang xử lý giọng mẫu...';
-          clonerState.percent = 30;
-        } else if (line.includes('reference_encode') || line.includes('reference_read')) {
-          clonerState.stage = 'Đang phân tích giọng mẫu...';
-          clonerState.percent = 50;
-        } else if (line.includes('generate')) {
-          clonerState.stage = 'Đang tạo giọng nói AI...';
-          clonerState.percent = 70;
-        }
-      });
+      async function spawnOmniVoice(args) {
+        return new Promise((resolve, reject) => {
+          const child = spawn(cliPath, args, {
+            cwd: path.dirname(cliPath),
+            stdio: ['ignore', 'pipe', 'pipe']
+          });
+          clonerState.process = child;
 
-      child.stderr.on('data', (data) => {
-        const line = data.toString();
-        if (line.includes('generate')) {
-          clonerState.stage = 'Đang tạo giọng nói AI...';
-          clonerState.percent = 70;
-        } else if (line.includes('model_load')) {
-          clonerState.stage = 'Đang tải model AI...';
-          clonerState.percent = 10;
-        }
-      });
+          let stdoutLog = '';
+          child.stdout.on('data', (data) => {
+            const line = data.toString();
+            stdoutLog += line;
+            if (line.includes('model_load done')) {
+              clonerState.stage = 'Đã tải model, đang xử lý giọng mẫu...';
+              clonerState.percent = 30;
+            } else if (line.includes('reference_encode') || line.includes('reference_read')) {
+              clonerState.stage = 'Đang phân tích giọng mẫu...';
+              clonerState.percent = 50;
+            } else if (line.includes('generate')) {
+              clonerState.stage = 'Đang tạo giọng nói AI...';
+              clonerState.percent = 70;
+            }
+          });
 
-      const exitCode = await new Promise((resolve, reject) => {
-        child.on('exit', (code) => {
-          if (code === 0 || code === null) resolve(code);
-          else reject(new Error(`OmniVoice CLI thoát với mã lỗi ${code}`));
+          child.stderr.on('data', (data) => {
+            const line = data.toString();
+            if (line.includes('generate')) {
+              clonerState.stage = 'Đang tạo giọng nói AI...';
+              clonerState.percent = 70;
+            } else if (line.includes('model_load')) {
+              clonerState.stage = 'Đang tải model AI...';
+              clonerState.percent = 10;
+            }
+          });
+
+          child.on('exit', (code) => {
+            if (code === 0 || code === null) resolve();
+            else reject(new Error(`OmniVoice CLI thoát với mã lỗi ${code}`));
+          });
+          child.on('error', reject);
         });
-        child.on('error', reject);
-      });
+      }
+
+      try {
+        await spawnOmniVoice(omnivoiceArgs);
+      } catch (err) {
+        if (device && device !== 'cpu') {
+          console.warn(`[OmniCloner] Chạy bằng ${device} thất bại (${err.message}), thử lại với CPU...`);
+          clonerState.stage = 'Đang thử lại với CPU...';
+          clonerState.percent = 5;
+          omnivoiceArgs[omnivoiceArgs.indexOf('--device') + 1] = 'cpu';
+          await spawnOmniVoice(omnivoiceArgs);
+        } else {
+          throw err;
+        }
+      }
 
       if (!clonerState.active) {
         throw new Error('Đã hủy');
