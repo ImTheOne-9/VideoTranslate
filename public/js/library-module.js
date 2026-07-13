@@ -514,12 +514,12 @@ window.cancelClonerVoice = cancelClonerVoice;
 
 // ==========================================
 function renderVoicesList(searchFilter = '') {
-  const tbody = $('voice-list-tbody');
+  const container = $('voice-list-tbody');
   const countBadge = $('voice-count-badge');
-  if (!tbody) return;
+  if (!container) return;
 
   const voicesList = assets.voices || [];
-  const filtered = voicesList.filter(v => 
+  const filtered = voicesList.filter(v =>
     v.filename.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
@@ -527,7 +527,7 @@ function renderVoicesList(searchFilter = '') {
     countBadge.textContent = `${filtered.length} Giọng`;
   }
 
-  tbody.innerHTML = '';
+  container.innerHTML = '';
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / voicesPerPage));
   if (currentVoicePage > totalPages) {
@@ -535,16 +535,16 @@ function renderVoicesList(searchFilter = '') {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="4" style="text-align: center; padding: 40px 16px; border-bottom: none;">
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-            <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchFilter ? 'Không tìm thấy giọng mẫu nào phù hợp' : 'Chưa có giọng mẫu nào'}</div>
-            <div style="font-size: 11px;">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Tải lên file ghi âm (.mp3, .wav, .m4a, .aac, .ogg, .mp4) để làm giọng mẫu'}</div>
-          </div>
-        </td>
-      </tr>
+    container.innerHTML = `
+      <div class="audio-gallery-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+          <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+        </svg>
+        <div class="audio-gallery-empty-title">${searchFilter ? 'Không tìm thấy giọng mẫu nào phù hợp' : 'Chưa có giọng mẫu nào'}</div>
+        <div class="audio-gallery-empty-sub">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Tải lên file ghi âm (.mp3, .wav, .m4a...) để làm giọng mẫu'}</div>
+      </div>
     `;
     const pagContainer = $('voice-pagination');
     if (pagContainer) pagContainer.innerHTML = '';
@@ -554,46 +554,76 @@ function renderVoicesList(searchFilter = '') {
   const startIndex = (currentVoicePage - 1) * voicesPerPage;
   const pageItems = filtered.slice(startIndex, startIndex + voicesPerPage);
 
+  // Generate hue color from filename for avatar
+  function getVoiceHue(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return h;
+  }
+
   pageItems.forEach(voice => {
-    // Dung lượng
     let sizeStr = 'Không rõ';
     if (voice.size) {
-      if (voice.size > 1024 * 1024) {
-        sizeStr = `${(voice.size / (1024 * 1024)).toFixed(1)} MB`;
-      } else {
-        sizeStr = `${(voice.size / 1024).toFixed(0)} KB`;
-      }
+      sizeStr = voice.size > 1024 * 1024
+        ? `${(voice.size / (1024 * 1024)).toFixed(1)} MB`
+        : `${(voice.size / 1024).toFixed(0)} KB`;
     }
 
-    // Ngày sửa đổi
     let dateStr = 'Không rõ';
     if (voice.modified) {
       const d = new Date(voice.modified);
       dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
 
-    const tr = document.createElement('tr');
-    tr.style.borderBottom = '1px solid var(--border)';
     const voiceUrl = `/voices/${encodeURIComponent(voice.filename)}`;
     const isPlaying = currentAudio && currentAudioUrl === voiceUrl && !currentAudio.paused;
-    const playBtnText = isPlaying ? 'Dừng' : 'Nghe';
+    const nameNoExt = voice.filename.replace(/\.[^.]+$/, '');
+    const initials = nameNoExt.slice(0, 2).toUpperCase();
+    const hue = getVoiceHue(voice.filename);
 
-    tr.innerHTML = `
-      <td style="padding: 12px 8px; font-weight: 500; word-break: break-all;">${voice.filename}</td>
-      <td style="padding: 12px 8px; color: var(--muted);">${sizeStr}</td>
-      <td style="padding: 12px 8px; color: var(--muted);">${dateStr}</td>
-      <td style="padding: 12px 8px;">
-        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
-          <button type="button" class="rendered-card-btn rendered-btn-play" style="padding: 4px 8px; margin: 0;" onclick="togglePlayAudio(this, '${voiceUrl.replace(/'/g, "\\'")}')">
-            ${playBtnText}
-          </button>
-          <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; margin: 0;" onclick="confirmDeleteVoice('${voice.filename.replace(/'/g, "\\'")}')">
-            Xóa
-          </button>
+    const card = document.createElement('div');
+    card.className = 'audio-gallery-card';
+    card.innerHTML = `
+      <div class="agc-header">
+        <div class="agc-avatar" style="--hue: ${hue}deg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+          </svg>
+          <span class="agc-initials">${initials}</span>
         </div>
-      </td>
+        <div class="agc-info">
+          <div class="agc-name" title="${voice.filename.replace(/"/g, '&quot;')}">${nameNoExt}</div>
+          <div class="agc-meta">
+            <span>${sizeStr}</span>
+            <span class="agc-dot">•</span>
+            <span>${dateStr}</span>
+          </div>
+        </div>
+      </div>
+      <div class="agc-waveform">
+        ${Array.from({length: 20}, (_, i) => `<span class="agc-bar" style="--h: ${30 + Math.abs(Math.sin(i * 1.3 + hue * 0.02) * 50)}%"></span>`).join('')}
+      </div>
+      <div class="agc-actions">
+        <button type="button" class="agc-btn agc-btn-play ${isPlaying ? 'playing' : ''}" onclick="togglePlayAudio(this, '${voiceUrl.replace(/'/g, "\\'")}')"
+          data-audio-url="${voiceUrl.replace(/"/g, '&quot;')}">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+            <polygon points="5,3 19,12 5,21"/>
+          </svg>
+          ${isPlaying ? 'Dừng' : 'Nghe'}
+        </button>
+        <button type="button" class="agc-btn agc-btn-delete" onclick="confirmDeleteVoice('${voice.filename.replace(/'/g, "\\'")}')"
+          title="Xóa giọng mẫu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+            <polyline points="3,6 5,6 21,6"/>
+            <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/>
+          </svg>
+          Xóa
+        </button>
+      </div>
     `;
-    tbody.appendChild(tr);
+    container.appendChild(card);
   });
 
   renderPaginationControls('voice-pagination', currentVoicePage, totalPages, (newPage) => {
@@ -666,12 +696,12 @@ function closeMusicModal() {
 }
 
 function renderMusicList(searchFilter = '') {
-  const tbody = $('music-list-tbody');
+  const container = $('music-list-tbody');
   const countBadge = $('music-count-badge');
-  if (!tbody) return;
+  if (!container) return;
 
   const musicList = assets.music || [];
-  const filtered = musicList.filter(v => 
+  const filtered = musicList.filter(v =>
     v.filename.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
@@ -679,7 +709,7 @@ function renderMusicList(searchFilter = '') {
     countBadge.textContent = `${filtered.length} Nhạc`;
   }
 
-  tbody.innerHTML = '';
+  container.innerHTML = '';
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / musicPerPage));
   if (currentMusicPage > totalPages) {
@@ -687,16 +717,16 @@ function renderMusicList(searchFilter = '') {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="4" style="text-align: center; padding: 40px 16px; border-bottom: none;">
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6;"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-            <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">${searchFilter ? 'Không tìm thấy nhạc nền nào phù hợp' : 'Chưa có nhạc nền nào'}</div>
-            <div style="font-size: 11px;">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "THÊM NHẠC MỚI" để tải nhạc nền srt/mp3 từ máy của bạn'}</div>
-          </div>
-        </td>
-      </tr>
+    container.innerHTML = `
+      <div class="audio-gallery-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"/>
+          <circle cx="6" cy="18" r="3"/>
+          <circle cx="18" cy="16" r="3"/>
+        </svg>
+        <div class="audio-gallery-empty-title">${searchFilter ? 'Không tìm thấy nhạc nền nào phù hợp' : 'Chưa có nhạc nền nào'}</div>
+        <div class="audio-gallery-empty-sub">${searchFilter ? 'Thử tìm kiếm với từ khóa khác' : 'Nhấn "THÊM NHẠC MỚI" để tải nhạc nền từ máy của bạn'}</div>
+      </div>
     `;
     const pagContainer = $('music-pagination');
     if (pagContainer) pagContainer.innerHTML = '';
@@ -706,46 +736,75 @@ function renderMusicList(searchFilter = '') {
   const startIndex = (currentMusicPage - 1) * musicPerPage;
   const pageItems = filtered.slice(startIndex, startIndex + musicPerPage);
 
+  function getMusicHue(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return (h + 180) % 360;
+  }
+
   pageItems.forEach(music => {
-    // Dung lượng
     let sizeStr = 'Không rõ';
     if (music.size) {
-      if (music.size > 1024 * 1024) {
-        sizeStr = `${(music.size / (1024 * 1024)).toFixed(1)} MB`;
-      } else {
-        sizeStr = `${(music.size / 1024).toFixed(0)} KB`;
-      }
+      sizeStr = music.size > 1024 * 1024
+        ? `${(music.size / (1024 * 1024)).toFixed(1)} MB`
+        : `${(music.size / 1024).toFixed(0)} KB`;
     }
 
-    // Ngày sửa đổi
     let dateStr = 'Không rõ';
     if (music.modified) {
       const d = new Date(music.modified);
       dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
 
-    const tr = document.createElement('tr');
-    tr.style.borderBottom = '1px solid var(--border)';
     const musicUrl = `/music/${encodeURIComponent(music.filename)}`;
     const isPlaying = currentAudio && currentAudioUrl === musicUrl && !currentAudio.paused;
-    const playBtnText = isPlaying ? 'Dừng' : 'Nghe';
+    const nameNoExt = music.filename.replace(/\.[^.]+$/, '');
+    const initials = nameNoExt.slice(0, 2).toUpperCase();
+    const hue = getMusicHue(music.filename);
 
-    tr.innerHTML = `
-      <td style="padding: 12px 8px; font-weight: 500; word-break: break-all;">${music.filename}</td>
-      <td style="padding: 12px 8px; color: var(--muted);">${sizeStr}</td>
-      <td style="padding: 12px 8px; color: var(--muted);">${dateStr}</td>
-      <td style="padding: 12px 8px;">
-        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
-          <button type="button" class="rendered-card-btn rendered-btn-play" style="padding: 4px 8px; margin: 0;" onclick="togglePlayAudio(this, '${musicUrl.replace(/'/g, "\\'")}')">
-            ${playBtnText}
-          </button>
-          <button type="button" class="rendered-card-btn rendered-btn-delete" style="padding: 4px 8px; margin: 0;" onclick="confirmDeleteMusic('${music.filename.replace(/'/g, "\\'")}')">
-            Xóa
-          </button>
+    const card = document.createElement('div');
+    card.className = 'audio-gallery-card music-card';
+    card.innerHTML = `
+      <div class="agc-header">
+        <div class="agc-avatar agc-avatar-music" style="--hue: ${hue}deg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"/>
+            <circle cx="6" cy="18" r="3"/>
+            <circle cx="18" cy="16" r="3"/>
+          </svg>
+          <span class="agc-initials">${initials}</span>
         </div>
-      </td>
+        <div class="agc-info">
+          <div class="agc-name" title="${music.filename.replace(/"/g, '&quot;')}">${nameNoExt}</div>
+          <div class="agc-meta">
+            <span>${sizeStr}</span>
+            <span class="agc-dot">•</span>
+            <span>${dateStr}</span>
+          </div>
+        </div>
+      </div>
+      <div class="agc-waveform agc-waveform-music">
+        ${Array.from({length: 20}, (_, i) => `<span class="agc-bar" style="--h: ${25 + Math.abs(Math.cos(i * 0.9 + hue * 0.03) * 55)}%"></span>`).join('')}
+      </div>
+      <div class="agc-actions">
+        <button type="button" class="agc-btn agc-btn-play agc-btn-play-music ${isPlaying ? 'playing' : ''}" onclick="togglePlayAudio(this, '${musicUrl.replace(/'/g, "\\'")}')"
+          data-audio-url="${musicUrl.replace(/"/g, '&quot;')}">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+            <polygon points="5,3 19,12 5,21"/>
+          </svg>
+          ${isPlaying ? 'Dừng' : 'Nghe'}
+        </button>
+        <button type="button" class="agc-btn agc-btn-delete" onclick="confirmDeleteMusic('${music.filename.replace(/'/g, "\\'")}')"
+          title="Xóa nhạc nền">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+            <polyline points="3,6 5,6 21,6"/>
+            <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/>
+          </svg>
+          Xóa
+        </button>
+      </div>
     `;
-    tbody.appendChild(tr);
+    container.appendChild(card);
   });
 
   renderPaginationControls('music-pagination', currentMusicPage, totalPages, (newPage) => {
