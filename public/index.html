@@ -1796,20 +1796,9 @@
           <div class="panel">
             <div id="voice-list-container"
               style="max-height: calc(100vh - 415px); overflow-y: auto; padding-right: 4px;">
-              <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                <thead>
-                  <tr
-                    style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                    <th style="padding: 12px 8px; font-weight: 700;">Tên Giọng mẫu</th>
-                    <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
-                    <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
-                    <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
-                  </tr>
-                </thead>
-                <tbody id="voice-list-tbody">
-                  <!-- Danh sách giọng mẫu sẽ được render bằng JS -->
-                </tbody>
-              </table>
+              <div id="voice-list-tbody" class="audio-gallery-grid">
+                <!-- Danh sách giọng mẫu sẽ được render bằng JS -->
+              </div>
             </div>
             <div id="voice-pagination"
               style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
@@ -1837,20 +1826,9 @@
           <div class="panel">
             <div id="music-list-container"
               style="max-height: calc(100vh - 415px); overflow-y: auto; padding-right: 4px;">
-              <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                <thead>
-                  <tr
-                    style="border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                    <th style="padding: 12px 8px; font-weight: 700;">Tên File Nhạc</th>
-                    <th style="padding: 12px 8px; font-weight: 700; width: 150px;">Dung lượng</th>
-                    <th style="padding: 12px 8px; font-weight: 700; width: 180px;">Ngày cập nhật</th>
-                    <th style="padding: 12px 8px; font-weight: 700; text-align: right; width: 160px;">Hành động</th>
-                  </tr>
-                </thead>
-                <tbody id="music-list-tbody">
-                  <!-- Danh sách nhạc sẽ được render bằng JS -->
-                </tbody>
-              </table>
+              <div id="music-list-tbody" class="audio-gallery-grid">
+                <!-- Danh sách nhạc sẽ được render bằng JS -->
+              </div>
             </div>
             <div id="music-pagination"
               style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
