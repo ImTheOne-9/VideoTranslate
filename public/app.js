@@ -4114,6 +4114,7 @@ function renderFbPages(filter = '') {
         <div class="page-card-avatar">${initials}</div>
         <div class="page-card-info">
           <div class="page-card-name" title="${page.name}">${page.name}</div>
+          ${page.pageName && page.pageName !== page.name ? `<div style="font-size: 11px; color: var(--accent-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Tên Facebook: ${page.pageName}">📘 ${page.pageName}</div>` : ''}
           <div class="page-card-id">ID: ${page.id}</div>
         </div>
       </div>
@@ -4190,6 +4191,9 @@ function openPageModal() {
     $('page-form-title').textContent = 'Thêm Page mới';
     $('save-page-btn').textContent = 'Thêm Page';
     $('cancel-edit-btn').classList.add('hidden');
+    // Ẩn preview tên page
+    const preview = $('page-name-preview');
+    if (preview) preview.style.display = 'none';
 
     modal.classList.remove('hidden');
   }
@@ -4199,6 +4203,78 @@ function closePageModal() {
   const modal = $('page-modal');
   if (modal) {
     modal.classList.add('hidden');
+    // Ẩn preview tên page khi đóng
+    const preview = $('page-name-preview');
+    if (preview) preview.style.display = 'none';
+  }
+}
+
+async function lookupPageNameFromId() {
+  const idInput = $('page-input-id');
+  const tokenInput = $('page-input-token');
+  const preview = $('page-name-preview');
+  const previewText = $('page-name-preview-text');
+  const reloadBtn = $('reload-page-name-btn');
+  const icon = $('reload-page-icon');
+
+  const id = idInput ? idInput.value.trim() : '';
+  const token = tokenInput ? tokenInput.value.trim() : '';
+
+  if (!id) {
+    toast('Vui lòng nhập Page ID trước!', 'error');
+    return;
+  }
+  if (!token) {
+    toast('Vui lòng nhập Access Token để tra tên Page!', 'error');
+    return;
+  }
+
+  // Hiệu ứng xoay icon
+  if (icon) icon.style.animation = 'spin 1s linear infinite';
+  if (reloadBtn) reloadBtn.disabled = true;
+
+  // Thêm keyframe spin nếu chưa có
+  if (!document.getElementById('spin-keyframe-style')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'spin-keyframe-style';
+    styleEl.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+    document.head.appendChild(styleEl);
+  }
+
+  try {
+    const res = await fetch('/api/verify-facebook-page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageId: id, pageToken: token })
+    });
+    const contentType = res.headers.get('content-type');
+    let result;
+    if (contentType && contentType.includes('application/json')) {
+      result = await res.json();
+    } else {
+      throw new Error('Lỗi kết nối server');
+    }
+    if (!res.ok) throw new Error(result.error || 'Không thể lấy tên Page');
+
+    // Hiển thị tên page tìm được
+    if (previewText) previewText.textContent = result.name;
+    if (preview) {
+      preview.style.display = 'flex';
+    }
+
+    // Tự động điền vào ô Tên gợi nhớ nếu đang trống
+    const nameInput = $('page-input-name');
+    if (nameInput && !nameInput.value.trim()) {
+      nameInput.value = result.name;
+    }
+
+    toast(`✅ Tìm thấy Page: ${result.name}`, 'success');
+  } catch (error) {
+    toast('❌ Không lấy được tên Page: ' + error.message, 'error');
+    if (preview) preview.style.display = 'none';
+  } finally {
+    if (icon) icon.style.animation = '';
+    if (reloadBtn) reloadBtn.disabled = false;
   }
 }
 
@@ -4253,11 +4329,11 @@ async function saveFbPage() {
 
     if (editIndex >= 0 && editIndex < fbPages.length) {
       // Cập nhật
-      fbPages[editIndex] = { name, id, token };
+      fbPages[editIndex] = { name, id, token, pageName: result.name };
       toast(`🎉 Đã cập nhật thành công Page: ${result.name}!`, 'success');
     } else {
       // Thêm mới
-      fbPages.push({ name, id, token });
+      fbPages.push({ name, id, token, pageName: result.name });
       toast(`🎉 Đã thêm thành công Page: ${result.name}!`, 'success');
     }
 
@@ -4279,6 +4355,18 @@ function editFbPage(index) {
   $('page-input-id').value = page.id;
   $('page-input-token').value = page.token;
   $('edit-page-index').value = index;
+
+  // Hiện preview tên Facebook nếu đã có
+  const preview = $('page-name-preview');
+  const previewText = $('page-name-preview-text');
+  if (preview && previewText) {
+    if (page.pageName) {
+      previewText.textContent = page.pageName;
+      preview.style.display = 'flex';
+    } else {
+      preview.style.display = 'none';
+    }
+  }
 
   $('page-form-title').textContent = 'Cập nhật Page';
   $('save-page-btn').textContent = 'Cập nhật';
