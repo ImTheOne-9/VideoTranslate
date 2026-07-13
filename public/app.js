@@ -5548,10 +5548,21 @@ window.checkSystemConnections = checkSystemConnections;
 function updatePlayButtonsState(url, isPlaying) {
   const filename = url.substring(url.lastIndexOf('/') + 1);
   const decodedFilename = decodeURIComponent(filename);
+  // Handle old-style table play buttons
   document.querySelectorAll('.voice-item-play-btn, .rendered-btn-play').forEach(btn => {
     const html = btn.outerHTML;
     if (html.includes(filename) || html.includes(decodedFilename)) {
       btn.innerHTML = isPlaying ? '⏸ Dừng' : '🔊 Nghe';
+      btn.classList.toggle('playing', isPlaying);
+    }
+  });
+  // Handle new gallery card play buttons
+  document.querySelectorAll('.agc-btn-play').forEach(btn => {
+    const btnUrl = btn.getAttribute('data-audio-url') || '';
+    if (btnUrl === url || decodeURIComponent(btnUrl) === decodeURIComponent(url)) {
+      const playIcon = `<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><polygon points="5,3 19,12 5,21"/></svg>`;
+      const pauseIcon = `<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
+      btn.innerHTML = isPlaying ? `${pauseIcon} Dừng` : `${playIcon} Nghe`;
       btn.classList.toggle('playing', isPlaying);
     }
   });
