@@ -383,7 +383,7 @@ async function executeRenderTask(task) {
     } else if (subtitleMode === 'generate') {
       shared.updateStudioProgress(12, 'Đang chuẩn bị tạo phụ đề tự động bằng AI (Whisper)...');
       const { extractAudioAndTranscribe } = require('../lib/whisper-helper');
-      subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, shared.FFMPEG_PATH, body.whisperModel || 'base');
+      subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, shared.FFMPEG_PATH, body.whisperModel || 'base', totalDuration * 1000);
     }
 
     let originalIsChinese = false;

@@ -394,11 +394,12 @@ module.exports = {
   checkDependencies: async (req, res) => {
     const ffmpegOk = fs.existsSync(shared.FFMPEG_PATH);
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
-    // Whisper CLI: ưu tiên DATA_TOOLS_DIR (bản mới), fallback TOOLS_DIR (bản cũ)
-    const whisperCliOk = fs.existsSync(shared.WHISPER_ONNX_PATH) || fs.existsSync(shared.TOOLS_DIR + '/whisper_onnx.exe');
+    // Whisper CLI: ưu tiên whisper.cpp, fallback ONNX cũ
+    const whisperCliOk = fs.existsSync(shared.WHISPER_CLI_PATH) || fs.existsSync(shared.WHISPER_ONNX_PATH) || fs.existsSync(path.join(shared.TOOLS_DIR, 'whisper_onnx.exe'));
 
     const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
-    const downloadedWhisperModels = whisperModels.filter(model => 
+    const downloadedWhisperModels = whisperModels.filter(model =>
+      fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', `ggml-${model}`, `ggml-${model}.bin`)) ||
       fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', model, 'model.bin'))
     );
     const whisperModelOk = downloadedWhisperModels.length > 0;
