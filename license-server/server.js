@@ -180,13 +180,31 @@ const planSchema = new mongoose.Schema({
 });
 const PlanModel = mongoose.model('Plan', planSchema);
 
+// Schema lưu lịch sử giao dịch thanh toán từ SePay/webhook
+const paymentTransactionSchema = new mongoose.Schema({
+  transactionId:  { type: String, unique: true, required: true }, // mã id/code từ SePay
+  amount:         { type: Number, required: true },               // số tiền chuyển khoản
+  content:        { type: String, default: '' },                  // nội dung chuyển khoản
+  transferCode:   { type: String, default: '' },                  // mã SePay (field code)
+  licenseKey:     { type: String, default: null },                // key bản quyền liên quan
+  userEmail:      { type: String, default: null },
+  customerName:   { type: String, default: null },
+  phoneNumber:    { type: String, default: null },
+  planType:       { type: String, default: null },
+  status:         { type: String, enum: ['confirm', 'pending'], default: 'pending' }, // confirm = kích hoạt OK, pending = lỗi/chờ
+  gateway:        { type: String, default: 'sepay' },             // sepay | casso | generic
+  rawBody:        { type: mongoose.Schema.Types.Mixed, default: {} },
+  paidAt:         { type: Date, default: Date.now }
+});
+const PaymentTransactionModel = mongoose.model('PaymentTransaction', paymentTransactionSchema);
+
 const DB_FILE = path.join(__dirname, 'database.json');
 let useMongo = false;
 
 // Fallback JSON-DB Helpers with Write Queue to prevent race conditions
 function readJSON() {
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ licenses: [], users: [], plans: [] }, null, 2), 'utf8');
+    fs.writeFileSync(DB_FILE, JSON.stringify({ licenses: [], users: [], plans: [], paymentTransactions: [] }, null, 2), 'utf8');
   }
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
@@ -194,10 +212,11 @@ function readJSON() {
     if (!data.licenses) data.licenses = [];
     if (!data.users) data.users = [];
     if (!data.plans) data.plans = [];
+    if (!data.paymentTransactions) data.paymentTransactions = [];
     return data;
   } catch (err) {
     console.error('[License Server] Đọc file database.json thất bại, sử dụng cấu trúc rỗng:', err.message);
-    return { licenses: [], users: [], plans: [] };
+    return { licenses: [], users: [], plans: [], paymentTransactions: [] };
   }
 }
 
@@ -753,6 +772,85 @@ const DB = {
         db.plans = db.plans.filter(p => p.id !== query.id);
         await writeJSON(db);
         return { deletedCount: initialCount - db.plans.length };
+      }
+    }
+  },
+
+  paymentTransactions: {
+    async find(query = {}, opts = {}) {
+      if (useMongo) {
+        let q = PaymentTransactionModel.find(query).sort({ paidAt: -1 });
+        if (opts.skip) q = q.skip(opts.skip);
+        if (opts.limit) q = q.limit(opts.limit);
+        return await q;
+      } else {
+        const db = readJSON();
+        let results = [...(db.paymentTransactions || [])];
+        // Filter by status
+        if (query.status) results = results.filter(t => t.status === query.status);
+        // Filter by search
+        if (query.$search) {
+          const s = query.$search.toLowerCase();
+          results = results.filter(t =>
+            (t.userEmail || '').toLowerCase().includes(s) ||
+            (t.customerName || '').toLowerCase().includes(s) ||
+            (t.content || '').toLowerCase().includes(s) ||
+            (t.transferCode || '').toLowerCase().includes(s) ||
+            (t.licenseKey || '').toLowerCase().includes(s)
+          );
+        }
+        results.sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+        const total = results.length;
+        if (opts.skip) results = results.slice(opts.skip);
+        if (opts.limit) results = results.slice(0, opts.limit);
+        return { results, total };
+      }
+    },
+
+    async countDocuments(query = {}) {
+      if (useMongo) {
+        return await PaymentTransactionModel.countDocuments(query);
+      } else {
+        const db = readJSON();
+        let results = db.paymentTransactions || [];
+        if (query.status) results = results.filter(t => t.status === query.status);
+        return results.length;
+      }
+    },
+
+    async create(data) {
+      if (useMongo) {
+        try {
+          const tx = new PaymentTransactionModel(data);
+          return await tx.save();
+        } catch (e) {
+          // Bỏ qua duplicate key (giao dịch đã lưu)
+          if (e.code === 11000) return null;
+          throw e;
+        }
+      } else {
+        const db = readJSON();
+        if (!db.paymentTransactions) db.paymentTransactions = [];
+        // Tránh duplicate
+        if (db.paymentTransactions.find(t => t.transactionId === data.transactionId)) return null;
+        const newTx = {
+          transactionId: data.transactionId,
+          amount: data.amount,
+          content: data.content || '',
+          transferCode: data.transferCode || '',
+          licenseKey: data.licenseKey || null,
+          userEmail: data.userEmail || null,
+          customerName: data.customerName || null,
+          phoneNumber: data.phoneNumber || null,
+          planType: data.planType || null,
+          status: data.status || 'pending',
+          gateway: data.gateway || 'sepay',
+          rawBody: data.rawBody || {},
+          paidAt: data.paidAt || new Date().toISOString()
+        };
+        db.paymentTransactions.push(newTx);
+        await writeJSON(db);
+        return newTx;
       }
     }
   }
@@ -2342,6 +2440,11 @@ app.post('/api/payment/webhook', async (req, res) => {
   }
 
   try {
+    // Xác định gateway
+    let gateway = 'generic';
+    if (req.body.content && req.body.transferAmount !== undefined) gateway = 'sepay';
+    else if (req.body.data && Array.isArray(req.body.data)) gateway = 'casso';
+
     let transactions = [];
 
     // Casso Format: { error: 0, data: [...] }
@@ -2349,7 +2452,8 @@ app.post('/api/payment/webhook', async (req, res) => {
       transactions = req.body.data.map(item => ({
         amount: Number(item.amount),
         content: item.description || '',
-        transactionId: item.tid || item.id
+        transactionId: String(item.tid || item.id),
+        transferCode: String(item.tid || item.id)
       }));
     }
     // SePay Format: { content: "...", transferAmount: 199000, ... }
@@ -2357,7 +2461,8 @@ app.post('/api/payment/webhook', async (req, res) => {
       transactions = [{
         amount: Number(req.body.transferAmount),
         content: req.body.content,
-        transactionId: req.body.code || req.body.id
+        transactionId: String(req.body.id || req.body.code || Date.now()),
+        transferCode: String(req.body.code || '')
       }];
     }
     // Generic Format: { content: "...", amount: 199000 }
@@ -2365,7 +2470,8 @@ app.post('/api/payment/webhook', async (req, res) => {
       transactions = [{
         amount: Number(req.body.amount),
         content: req.body.content,
-        transactionId: req.body.id
+        transactionId: String(req.body.id || Date.now()),
+        transferCode: String(req.body.code || '')
       }];
     } else {
       console.warn('[Payment Webhook] Định dạng dữ liệu không được hỗ trợ:', req.body);
@@ -2376,13 +2482,23 @@ app.post('/api/payment/webhook', async (req, res) => {
     let activatedKeys = [];
 
     for (const tx of transactions) {
-      const { amount, content, transactionId } = tx;
+      const { amount, content, transactionId, transferCode } = tx;
       console.log(`[Payment Webhook] Xử lý giao dịch #${transactionId}: Số tiền=${amount}, Nội dung="${content}"`);
 
       // Trích xuất mã keyRef từ nội dung chuyển khoản (Ví dụ: "VST A9B8C7D6" -> "A9B8C7D6")
       const match = content.match(/vst\s+([a-z0-9]+)/i);
       if (!match) {
         console.log(`[Payment Webhook] Giao dịch #${transactionId} bỏ qua: Không tìm thấy cú pháp 'VST <mã_key>'`);
+        // Lưu lại giao dịch với trạng thái pending (không khớp key)
+        await DB.paymentTransactions.create({
+          transactionId,
+          amount,
+          content,
+          transferCode: transferCode || '',
+          status: 'pending',
+          gateway,
+          rawBody: req.body
+        }).catch(() => {});
         continue;
       }
 
@@ -2415,12 +2531,34 @@ app.post('/api/payment/webhook', async (req, res) => {
 
         if (!license) {
           console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Không tìm thấy License tương ứng với mã "${keyRef}" trong database.`);
+          // Lưu pending: không tìm thấy key
+          await DB.paymentTransactions.create({
+            transactionId, amount, content,
+            transferCode: transferCode || '',
+            status: 'pending', gateway,
+            rawBody: req.body
+          }).catch(() => {});
           continue;
         }
 
         if (license.paymentStatus === 'active') {
           console.log(`[Payment Webhook] Giao dịch #${transactionId}: License "${license.key}" đã kích hoạt từ trước.`);
           processedCount++;
+          // Vẫn lưu confirm vì đã thanh toán thành công (dù key đã active)
+          try {
+            const u = await DB.users.findOne({ email: license.userEmail });
+            await DB.paymentTransactions.create({
+              transactionId, amount, content,
+              transferCode: transferCode || '',
+              licenseKey: license.key,
+              userEmail: license.userEmail,
+              customerName: license.customerName || (u ? u.fullName : null),
+              phoneNumber: u ? u.phoneNumber : null,
+              planType: license.planType,
+              status: 'confirm', gateway,
+              rawBody: req.body
+            }).catch(() => {});
+          } catch(e) {}
           continue;
         }
 
@@ -2431,6 +2569,21 @@ app.post('/api/payment/webhook', async (req, res) => {
 
         if (amount < requiredAmount) {
           console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Số tiền chuyển khoản (${amount}) nhỏ hơn số tiền yêu cầu (${requiredAmount}) cho gói ${license.planType}.`);
+          // Lưu pending: số tiền không đủ
+          try {
+            const u = await DB.users.findOne({ email: license.userEmail });
+            await DB.paymentTransactions.create({
+              transactionId, amount, content,
+              transferCode: transferCode || '',
+              licenseKey: license.key,
+              userEmail: license.userEmail,
+              customerName: license.customerName || (u ? u.fullName : null),
+              phoneNumber: u ? u.phoneNumber : null,
+              planType: license.planType,
+              status: 'pending', gateway,
+              rawBody: req.body
+            }).catch(() => {});
+          } catch(e) {}
           continue;
         }
 
@@ -2449,6 +2602,25 @@ app.post('/api/payment/webhook', async (req, res) => {
         console.log(`[Payment Webhook] 🎉 Kích hoạt thành công License Key: ${license.key}. Hạn dùng mới: ${expiresAt.toISOString()}`);
         activatedKeys.push(license.key);
         processedCount++;
+
+        // Lưu giao dịch vào DB với trạng thái confirm
+        try {
+          const u = await DB.users.findOne({ email: license.userEmail });
+          await DB.paymentTransactions.create({
+            transactionId,
+            amount,
+            content,
+            transferCode: transferCode || '',
+            licenseKey: license.key,
+            userEmail: license.userEmail,
+            customerName: license.customerName || (u ? u.fullName : null),
+            phoneNumber: u ? u.phoneNumber : null,
+            planType: license.planType,
+            status: 'confirm',
+            gateway,
+            rawBody: req.body
+          }).catch(() => {});
+        } catch(e) {}
 
         // Gửi email báo kích hoạt thành công (nếu key có email liên kết)
         if (license.userEmail) {
@@ -2976,6 +3148,101 @@ app.delete('/api/admin/plans/:id', adminAuth, async (req, res) => {
     res.json({ success: true, message: 'Xóa gói dịch vụ thành công!' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi xóa gói dịch vụ: ' + err.message });
+  }
+});
+
+// API lấy danh sách giao dịch thanh toán (Admin)
+app.get('/api/admin/payment-transactions', adminAuth, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const search = (req.query.search || '').trim();
+    const statusFilter = req.query.status || 'all';
+
+    const skip = (page - 1) * limit;
+
+    let totalItems = 0;
+    let totalConfirmed = 0;
+    let totalPending = 0;
+    let totalAmount = 0;
+    let transactions = [];
+
+    if (useMongo) {
+      // Build query
+      let query = {};
+      if (statusFilter !== 'all') query.status = statusFilter;
+      if (search) {
+        const re = new RegExp(search, 'i');
+        query.$or = [
+          { userEmail: re },
+          { customerName: re },
+          { content: re },
+          { transferCode: re },
+          { licenseKey: re }
+        ];
+      }
+
+      totalItems = await PaymentTransactionModel.countDocuments(query);
+      totalConfirmed = await PaymentTransactionModel.countDocuments({ ...(!search ? query : {}), status: 'confirm' });
+      totalPending = await PaymentTransactionModel.countDocuments({ ...(!search ? query : {}), status: 'pending' });
+
+      // Tổng tiền confirm
+      const amountAgg = await PaymentTransactionModel.aggregate([
+        { $match: { status: 'confirm' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      totalAmount = amountAgg.length > 0 ? amountAgg[0].total : 0;
+
+      transactions = await PaymentTransactionModel.find(query)
+        .sort({ paidAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+    } else {
+      // JSON fallback
+      const db = readJSON();
+      let all = db.paymentTransactions || [];
+
+      // Tính tổng tất cả
+      totalConfirmed = all.filter(t => t.status === 'confirm').length;
+      totalPending = all.filter(t => t.status === 'pending').length;
+      totalAmount = all.filter(t => t.status === 'confirm').reduce((s, t) => s + (t.amount || 0), 0);
+
+      // Filter
+      if (statusFilter !== 'all') all = all.filter(t => t.status === statusFilter);
+      if (search) {
+        const s = search.toLowerCase();
+        all = all.filter(t =>
+          (t.userEmail || '').toLowerCase().includes(s) ||
+          (t.customerName || '').toLowerCase().includes(s) ||
+          (t.content || '').toLowerCase().includes(s) ||
+          (t.transferCode || '').toLowerCase().includes(s) ||
+          (t.licenseKey || '').toLowerCase().includes(s)
+        );
+      }
+      all.sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+      totalItems = all.length;
+      transactions = all.slice(skip, skip + limit);
+    }
+
+    const totalPages = Math.ceil(totalItems / limit) || 1;
+
+    res.json({
+      success: true,
+      transactions,
+      totalItems,
+      totalPages,
+      currentPage: page,
+      stats: {
+        total: totalConfirmed + totalPending,
+        confirmed: totalConfirmed,
+        pending: totalPending,
+        totalAmount
+      }
+    });
+  } catch (err) {
+    console.error('[Admin] Lỗi lấy danh sách giao dịch thanh toán:', err);
+    res.status(500).json({ error: 'Lỗi server: ' + err.message });
   }
 });
 
