@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2 } from 'lucide-react';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp } from 'lucide-react';
 
 export default function Admin({ showToast }) {
   const [adminUser, setAdminUser] = useState(null);
@@ -82,6 +82,16 @@ export default function Admin({ showToast }) {
   const [editHwid, setEditHwid] = useState('');
   const [editDeviceHwid, setEditDeviceHwid] = useState('');
   const [savingUser, setSavingUser] = useState(false);
+
+  // Payment Transactions states
+  const [payments, setPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [totalPaymentPages, setTotalPaymentPages] = useState(1);
+  const [totalPaymentItems, setTotalPaymentItems] = useState(0);
+  const [paymentSearchText, setPaymentSearchText] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
+  const [paymentStats, setPaymentStats] = useState({ total: 0, confirmed: 0, pending: 0, totalAmount: 0 });
 
   const getPageNumbers = (curr, total) => {
     const pages = [];
@@ -178,6 +188,41 @@ export default function Admin({ showToast }) {
       loadPlans();
     }
   }, [adminUser]);
+
+  // Fetch Payments khi chuyển sang tab payments
+  useEffect(() => {
+    if (adminUser && activeMainTab === 'payments') {
+      loadPayments();
+    }
+  }, [adminUser, paymentPage, paymentStatusFilter, activeMainTab]);
+
+  useEffect(() => {
+    if (adminUser && activeMainTab === 'payments') {
+      if (paymentPage === 1) loadPayments();
+      else setPaymentPage(1);
+    }
+  }, [paymentSearchText]);
+
+  const loadPayments = async () => {
+    setLoadingPayments(true);
+    try {
+      const params = new URLSearchParams({ page: paymentPage, limit: 15, search: paymentSearchText, status: paymentStatusFilter });
+      const res = await apiFetch(`/api/admin/payment-transactions?${params}`);
+      const data = await res.json();
+      if (data.success) {
+        setPayments(data.transactions || []);
+        setTotalPaymentPages(data.totalPages || 1);
+        setTotalPaymentItems(data.totalItems || 0);
+        if (data.stats) setPaymentStats(data.stats);
+      } else {
+        showToast(data.error || 'Lỗi khi tải giao dịch!', 'error');
+      }
+    } catch (err) {
+      if (!err.sessionExpired) showToast('Lỗi kết nối: ' + err.message, 'error');
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
 
   const loadPlans = async () => {
     setLoadingPlans(true);
@@ -750,6 +795,15 @@ export default function Admin({ showToast }) {
           >
             <Users className="h-4 w-4" />
             <span>Quản lý Thành viên</span>
+          </button>
+          <button 
+            onClick={() => setActiveMainTab('payments')}
+            className={`pb-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+              activeMainTab === 'payments' ? 'border-indigo-500 text-white' : 'border-transparent text-zinc-400 hover:text-white'
+            }`}
+          >
+            <CreditCard className="h-4 w-4" />
+            <span>Quản lý Thanh Toán</span>
           </button>
           <button 
             onClick={() => setActiveMainTab('plans')}
@@ -1468,10 +1522,202 @@ export default function Admin({ showToast }) {
           </div>
         )}
 
+        {activeMainTab === 'payments' && (
+          <div className="space-y-6">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Tổng Giao Dịch</p>
+                  <h3 className="text-2xl font-bold mt-1 text-white">{paymentStats.total}</h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400">
+                  <CreditCard className="h-5 w-5" />
+                </div>
+              </div>
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Tổng Tiền Nhận</p>
+                  <h3 className="text-xl font-bold mt-1 text-emerald-400">{paymentStats.totalAmount.toLocaleString('vi-VN')}đ</h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                  <Banknote className="h-5 w-5" />
+                </div>
+              </div>
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Đã Xác Nhận</p>
+                  <h3 className="text-2xl font-bold mt-1 text-emerald-500">{paymentStats.confirmed}</h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                  <CheckCircle className="h-5 w-5" />
+                </div>
+              </div>
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Đang Chờ</p>
+                  <h3 className="text-2xl font-bold mt-1 text-amber-500">{paymentStats.pending}</h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+                  <Clock className="h-5 w-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Controls Bar */}
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-zinc-500" />
+                <input
+                  type="text"
+                  value={paymentSearchText}
+                  onChange={(e) => setPaymentSearchText(e.target.value)}
+                  placeholder="Tìm theo email, tên khách, nội dung chuyển khoản, mã SePay..."
+                  className="w-full rounded-lg bg-zinc-900 border border-zinc-800 pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex rounded-lg bg-zinc-900 p-1 border border-zinc-800 self-start sm:self-auto text-xs font-semibold">
+                {[['all', 'Tất cả'], ['confirm', 'Xác nhận'], ['pending', 'Chờ xử lý']].map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => { setPaymentStatusFilter(val); setPaymentPage(1); }}
+                    className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                      paymentStatusFilter === val ? 'bg-indigo-500 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={loadPayments}
+                disabled={loadingPayments}
+                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                {loadingPayments ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}
+                <span>Làm mới</span>
+              </button>
+            </div>
+
+            {/* Transactions Table */}
+            <div className="overflow-x-auto rounded-xl border border-zinc-900 bg-zinc-900/30">
+              <table className="min-w-full divide-y divide-zinc-900 text-left text-sm text-zinc-300">
+                <thead className="bg-zinc-900/80 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  <tr>
+                    <th scope="col" className="px-4 py-4 w-8">#</th>
+                    <th scope="col" className="px-4 py-4">Khách Hàng</th>
+                    <th scope="col" className="px-4 py-4">Email</th>
+                    <th scope="col" className="px-4 py-4">SĐT</th>
+                    <th scope="col" className="px-4 py-4">Gói DV</th>
+                    <th scope="col" className="px-4 py-4 text-right">Số Tiền</th>
+                    <th scope="col" className="px-5 py-4">Nội Dung CK</th>
+                    <th scope="col" className="px-4 py-4">Mã SePay</th>
+                    <th scope="col" className="px-4 py-4">Thời Gian</th>
+                    <th scope="col" className="px-4 py-4 text-center">Trạng Thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900/50 bg-transparent">
+                  {loadingPayments ? (
+                    <tr>
+                      <td colSpan="10" className="px-6 py-12 text-center text-zinc-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+                          <span>Đang tải danh sách giao dịch...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : payments.length === 0 ? (
+                    <tr>
+                      <td colSpan="10" className="px-6 py-16 text-center">
+                        <div className="flex flex-col items-center gap-3 text-zinc-500">
+                          <CreditCard className="h-10 w-10 text-zinc-700" />
+                          <p className="text-sm">Chưa có giao dịch nào được ghi nhận</p>
+                          <p className="text-xs text-zinc-600">Giao dịch xuất hiện khi SePay postback về sau khi khách chuyển khoản</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    payments.map((tx, idx) => {
+                      const paidDate = tx.paidAt ? new Date(tx.paidAt) : null;
+                      const dateStr = paidDate ? paidDate.toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
+                      const timeStr = paidDate ? paidDate.toLocaleTimeString('vi-VN', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '';
+                      const isConfirm = tx.status === 'confirm';
+                      return (
+                        <tr key={tx._id || tx.transactionId || idx} className="hover:bg-zinc-900/40 transition-colors">
+                          <td className="px-4 py-4 text-xs text-zinc-600">{(paymentPage - 1) * 15 + idx + 1}</td>
+                          <td className="px-4 py-4">
+                            <span className="font-medium text-white text-xs">{tx.customerName || <span className="italic text-zinc-600">Ẩn danh</span>}</span>
+                            {tx.licenseKey && (
+                              <p className="text-[10px] font-mono text-zinc-600 truncate max-w-[130px]" title={tx.licenseKey}>{tx.licenseKey}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-xs text-zinc-400">{tx.userEmail || <span className="italic text-zinc-700">—</span>}</td>
+                          <td className="px-4 py-4 text-xs font-mono text-zinc-400">{tx.phoneNumber || <span className="italic text-zinc-700">—</span>}</td>
+                          <td className="px-4 py-4">
+                            {tx.planType ? (
+                              <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                {tx.planType}
+                              </span>
+                            ) : <span className="text-zinc-700 italic text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-4 text-right">
+                            <span className={`font-mono font-bold text-sm ${isConfirm ? 'text-emerald-400' : 'text-zinc-300'}`}>
+                              {tx.amount.toLocaleString('vi-VN')}đ
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 max-w-[200px]">
+                            <p className="text-xs text-zinc-400 truncate" title={tx.content}>{tx.content || '—'}</p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <span className="text-xs font-mono text-zinc-500">{tx.transferCode || tx.transactionId || '—'}</span>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <p className="text-xs text-zinc-300">{dateStr}</p>
+                            <p className="text-[10px] text-zinc-600">{timeStr}</p>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            {isConfirm ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-900/30">
+                                <CheckCircle className="h-3 w-3" />
+                                Confirm
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-900/30">
+                                <Clock className="h-3 w-3" />
+                                Pending
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPaymentPages > 1 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">
+                  Hiển thị {Math.min((paymentPage - 1) * 15 + 1, totalPaymentItems)}–{Math.min(paymentPage * 15, totalPaymentItems)} / {totalPaymentItems} giao dịch
+                </span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setPaymentPage(p => Math.max(1, p - 1))} disabled={paymentPage === 1} className="px-3 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors">←</button>
+                  {getPageNumbers(paymentPage, totalPaymentPages).map(p => (
+                    <button key={p} onClick={() => setPaymentPage(p)} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${p === paymentPage ? 'bg-indigo-500 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'}`}>{p}</button>
+                  ))}
+                  <button onClick={() => setPaymentPage(p => Math.min(totalPaymentPages, p + 1))} disabled={paymentPage === totalPaymentPages} className="px-3 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors">→</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer Info */}
         <div className="text-center text-xs text-zinc-650 pt-4 flex items-center justify-center gap-2">
           <ShieldCheck className="h-4 w-4 text-zinc-600" />
-          <span>Hệ thống bảo vệ bản quyền nâng cao Ed25519 & Local verification engine.</span>
+          <span>Hệ thống bảo vệ bản quyền nâng cao Ed25519 &amp; Local verification engine.</span>
         </div>
 
       </main>
