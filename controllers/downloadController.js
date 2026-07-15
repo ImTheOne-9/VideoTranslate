@@ -321,7 +321,7 @@ module.exports = {
 
           const ffmpegArgs = [
             '-i', actualVideoPath,
-            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
             '-c:a', 'copy',
             '-y', finalVideoPath
           ];
@@ -543,7 +543,7 @@ module.exports = {
             const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
             const ffmpegArgs = [
               '-i', actualVideoPath,
-              '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+              '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
               '-c:a', 'copy',
               '-y', finalVideoPath
             ];

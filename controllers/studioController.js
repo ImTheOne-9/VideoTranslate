@@ -199,7 +199,12 @@ function convertSrtToAss(srtPath, assPath, options) {
   assLines.push('ScriptType: v4.00+');
   assLines.push(`PlayResX: ${videoWidth}`);
   assLines.push(`PlayResY: ${videoHeight}`);
-  assLines.push('WrapStyle: 0');
+  // WrapStyle: 0 = libass TỰ ĐỘNG xuống dòng khi text dài (smart wrap) -> dùng cho 2/3 dòng & tự động
+  //            2 = KHÔNG xuống dòng, ép phụ đề nằm trên 1 dòng duy nhất (có thể tràn mép nếu quá dài)
+  // Khi người dùng chọn "tối đa 1 dòng" (maxLines===1) bắt buộc phải dùng WrapStyle 2,
+  // nếu không libass sẽ tự ngắt dòng dài thành 2-3 dòng khi render (dù text SRT không có \n).
+  const wrapStyle = (Number(options.maxLines) === 1) ? 2 : 0;
+  assLines.push(`WrapStyle: ${wrapStyle}`);
   assLines.push('');
   assLines.push('[V4+ Styles]');
   assLines.push('Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, Strikeout, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding');
@@ -956,7 +961,7 @@ async function executeRenderTask(task) {
         convertSrtToAss(subtitlePath, assPath, {
           videoWidth, videoHeight, fontName, fontSize,
           assColor: finalAssColor, isBold, borderStyle, outline, shadow,
-          outlineColor, backColor, alignment, marginV, marginL, marginR, theme
+          outlineColor, backColor, alignment, marginV, marginL, marginR, theme, maxLines: Number(body.subtitleMaxLines || 0)
         });
         renderSubtitlePath = assPath;
       } catch (err) {
