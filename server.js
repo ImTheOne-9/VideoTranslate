@@ -74,6 +74,7 @@ function cleanupTempOnStartup() {
 
 // Đảm bảo toàn bộ thư mục dữ liệu tồn tại TRƯỚC khi thao tác file (fix ENOENT)
 shared.ensureDataDirectories();
+if (shared.seedBundledWhisperModels) shared.seedBundledWhisperModels();
 
 // === MIGRATE dữ liệu từ cấu trúc cũ sang cấu trúc mới (chạy 1 lần khi update) ===
 // 1. Di chuyển file render từ downloads/renders/ cũ sang renders/ mới (riêng biệt)
@@ -142,6 +143,28 @@ function migrateOldDataLayout() {
     }
     if (depMoved > 0) {
       console.log(`[Migrate] ✅ Đã copy ${depMoved} file dependency (whisper/CUDA) sang DATA_TOOLS_DIR`);
+    }
+  }
+
+  // --- 3. Dọn tàn dư ONNX (sau khi chuyển sang whisper.cpp/ggml) ---
+  // 3a. Xoá whisper_onnx.exe (đã thay bằng whisper-cli.exe bundle)
+  const onnxExe = path.join(shared.DATA_TOOLS_DIR, 'whisper_onnx.exe');
+  if (fs.existsSync(onnxExe)) {
+    try { fs.unlinkSync(onnxExe); console.log('[Migrate] ✅ Đã xoá whisper_onnx.exe (tàn dư ONNX)'); } catch (e) {}
+  }
+  // 3b. Xoá các thư mục model ONNX (whisper/{tiny,small,medium,large-v3} chứa model.bin)
+  //     Chỉ xoá nếu có model.bin (chữ ký ONNX) — bảo vệ ggml-small/vad không bị xoá nhầm
+  const wDir = path.join(shared.MODELS_DIR, 'whisper');
+  const onnxFolders = ['tiny', 'small', 'medium', 'large-v3'];
+  for (const f of onnxFolders) {
+    const dir = path.join(wDir, f);
+    if (!fs.existsSync(dir)) continue;
+    if (!fs.existsSync(path.join(dir, 'model.bin'))) continue;
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      console.log('[Migrate] ✅ Đã xoá thư mục model ONNX: whisper/' + f);
+    } catch (e) {
+      console.error('[Migrate] Lỗi xoá whisper/' + f + ': ' + e.message);
     }
   }
 

@@ -394,13 +394,13 @@ module.exports = {
   checkDependencies: async (req, res) => {
     const ffmpegOk = fs.existsSync(shared.FFMPEG_PATH);
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
-    // Whisper CLI: ưu tiên whisper.cpp, fallback ONNX cũ
-    const whisperCliOk = fs.existsSync(shared.WHISPER_CLI_PATH) || fs.existsSync(shared.WHISPER_ONNX_PATH) || fs.existsSync(path.join(shared.TOOLS_DIR, 'whisper_onnx.exe'));
+    // Whisper CLI: whisper.cpp (ggml) — đã thay thế hoàn toàn ONNX
+    const whisperCliOk = fs.existsSync(shared.WHISPER_CLI_PATH);
 
     const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
     const downloadedWhisperModels = whisperModels.filter(model =>
-      fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', `ggml-${model}`, `ggml-${model}.bin`)) ||
-      fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', model, 'model.bin'))
+      fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', `ggml-${model}`, `ggml-${model}.bin`))
+      // [Da bo] check ONNX model.bin (da chuyen sang ggml)
     );
     const whisperModelOk = downloadedWhisperModels.length > 0;
 
@@ -586,25 +586,9 @@ try {
 
   getWhisperModelStatus: async (req, res) => {
     const model = req.query.model || 'base';
-    if (model === 'base') {
-      return res.json({ exists: true, downloading: false, percent: 100 });
-    }
+    const modelFile = path.join(shared.MODELS_DIR, 'whisper', 'ggml-' + model, 'ggml-' + model + '.bin');
+    const exists = fs.existsSync(modelFile) && fs.statSync(modelFile).size > 0;
 
-    const { WHISPER_MODELS_CONFIG } = require('../lib/model-downloader');
-    const modelConfig = WHISPER_MODELS_CONFIG[model];
-    let exists = false;
-
-    if (modelConfig) {
-      const whisperDir = path.join(shared.MODELS_DIR, 'whisper', model);
-      exists = modelConfig.files.every(file => {
-        const filePath = path.join(whisperDir, file.name);
-        return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
-      });
-    } else {
-      const modelPath = path.join(shared.MODELS_DIR, 'whisper', model, 'model.bin');
-      exists = fs.existsSync(modelPath);
-    }
-    
     const status = whisperDownloadStatus[model] || { downloading: false, percent: 0, error: null };
     res.json({
       exists: exists,
