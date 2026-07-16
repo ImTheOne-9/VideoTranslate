@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -57,7 +57,7 @@
       {
         "from": "tools/whisper.cpp/Release",
         "to": "tools/whisper.cpp/Release",
-        "filter": ["whisper-cli.exe", "whisper.dll", "ggml*.dll", "SDL2.dll"]
+        "filter": ["whisper-cli.exe", "whisper.dll", "ggml*.dll", "SDL2.dll", "lib*.dll"]
       },
       {
         "from": "tools/whisper.cpp/seed-models",
