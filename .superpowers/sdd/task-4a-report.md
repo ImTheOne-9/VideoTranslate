@@ -132,3 +132,33 @@ No blocking or known correctness concerns remain. The default HTTPS tests use de
 - All public singleton exports and wrapper return contracts are covered without a production test backdoor.
 
 No blocking or known correctness concerns remain after the review fixes.
+
+## Final Cancellation Rollback Fix Evidence
+
+### RED
+
+- `node --test --test-name-pattern="cancellation with failed backup restore" test/ocr-component-manager.test.js`: 0 passed, 1 failed.
+- Failure: `TypeError: Cannot read properties of undefined (reading 'length')` at the assertion for `error.rollbackErrors`, proving `performDownload()` replaced the rollback-decorated install error with clean `signal.reason`.
+
+### GREEN
+
+- `node --test --test-name-pattern="cancellation with failed backup restore" test/ocr-component-manager.test.js`: 1 passed, 0 failed.
+- The original download rejection retains the `restore-backup` rollback detail and injected cause.
+- `cancelOcrComponentDownload()`, component status, and download progress all report `error` when cancellation rollback fails.
+- Existing successful install-window and download-stream cancellations remain `cancelled` in the focused suite.
+
+### Mutation Evidence
+
+- Temporarily changed `if (cancelled && !rollbackFailed)` back to `if (cancelled)`.
+- The regression returned to 0 passed, 1 failed with the same missing-`rollbackErrors` failure.
+- Restored the guard and reran the regression: 1 passed, 0 failed.
+
+### Final Verification
+
+- `node --test test/ocr-component-manager.test.js`: 35 passed, 0 failed.
+- `npm test`: 62 passed, 0 failed.
+- `node --check lib/ocr-component-manager.js`: passed.
+- `node --check test/ocr-component-manager.test.js`: passed.
+- `git diff --check`: passed; only Git's informational LF-to-CRLF warnings were printed.
+
+No blocking or known correctness concerns remain after the final cancellation rollback fix.

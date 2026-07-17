@@ -1154,6 +1154,59 @@ test('cancellation after metadata write rolls back instead of finishing ready', 
   assertNoScratchArtifacts(dataToolsDir);
 });
 
+test('cancellation with failed backup restore exposes rollback error and reports error state', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const archive = await createZip(root);
+  const oldManifest = createManifest({ version: '1.0.0' });
+  const componentDir = await writeInstalledComponent(dataToolsDir, oldManifest, {
+    'vse-cli.exe': 'old executable'
+  });
+  const manifest = createManifest({
+    version: '2.0.0',
+    archiveSize: archive.archiveSize,
+    installedSize: archive.installedSize,
+    sha256: archive.sha256
+  });
+  const restoreError = new Error('injected backup restore failure during cancellation');
+  let restoreAttempted = false;
+  let cancelPromise = null;
+  let manager;
+  manager = createManager(dataToolsDir, manifest, {
+    downloadFile: createCopyDownloader(archive.archivePath),
+    writeFile: async (...args) => {
+      await fs.promises.writeFile(...args);
+      cancelPromise = manager.cancelOcrComponentDownload();
+    },
+    rename: async (source, destination) => {
+      if (path.basename(source).startsWith('.backup-') && destination === componentDir) {
+        restoreAttempted = true;
+        throw restoreError;
+      }
+      await fs.promises.rename(source, destination);
+    }
+  });
+
+  let downloadError = null;
+  const rejectedDownload = assert.rejects(manager.downloadOcrComponent(), (error) => {
+    downloadError = error;
+    assert.match(error.message, /cancelled/i);
+    assert.equal(error.rollbackErrors.length, 1);
+    assert.equal(error.rollbackErrors[0].operation, 'restore-backup');
+    assert.strictEqual(error.rollbackErrors[0].cause, restoreError);
+    return true;
+  });
+  await rejectedDownload;
+  const cancelStatus = await cancelPromise;
+
+  assert.equal(restoreAttempted, true);
+  assert.equal(downloadError.name, 'AbortError');
+  assert.equal(cancelStatus.status, 'error');
+  assert.equal(manager.getOcrComponentStatus().status, 'error');
+  assert.equal(manager.getOcrDownloadProgress().status, 'error');
+  assert.equal(manager.getOcrDownloadProgress().step, 'error');
+  assert.match(manager.getOcrDownloadProgress().error, /cancelled/i);
+});
+
 test('cancellation during final verification rolls back instead of finishing ready', async (t) => {
   const { root, dataToolsDir } = await createTempToolsDir(t);
   const archive = await createZip(root);
