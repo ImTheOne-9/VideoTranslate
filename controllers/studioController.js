@@ -303,12 +303,15 @@ function createAutomaticSubtitleProgressHandler(updateStudioProgress = shared.up
 function createAutomaticSubtitleResolver(dependencies = {}) {
   const resolveSubtitle = dependencies.resolveAutomaticSubtitle || resolveAutomaticSubtitle;
   const updateStudioProgress = dependencies.updateStudioProgress || shared.updateStudioProgress;
+  const logger = dependencies.logger || console;
 
   return async function resolveRenderAutomaticSubtitle(options) {
     const body = options.body || {};
-    const forceWhisper = body.forceWhisper === true
-      || body.forceWhisper === 'true'
-      || options.isVoiceOnlySub === true;
+    const forceWhisper = options.forceWhisper === true;
+    logger.log(
+      `[Auto Subtitle] route=${forceWhisper ? 'whisper_manual_fallback' : 'ocr_first'} `
+      + `language=${body.ocrLanguage || 'unset'} voiceOnly=${options.isVoiceOnlySub === true}`
+    );
     const result = await resolveSubtitle({
       videoPath: options.sourceVideo,
       workDir: options.workDir,
@@ -320,6 +323,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       forceWhisper,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)
     });
+    logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
     return result.path;
   };
 }
@@ -424,6 +428,7 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
     error: null,
     actionRequired: null,
     sourceVideoPath: null,
+    forceWhisper: false,
     createdAt,
     body,
     files,
@@ -583,6 +588,7 @@ async function executeRenderTask(task) {
         workDir,
         totalDuration,
         isVoiceOnlySub,
+        forceWhisper: task.forceWhisper === true,
         ffmpegPath: shared.FFMPEG_PATH
       });
     }
@@ -1580,8 +1586,7 @@ function createRenderQueueHandlers(dependencies = {}) {
         return res.status(409).json({ error: errorMessage });
       }
 
-      task.body = task.body || {};
-      task.body.forceWhisper = true;
+      task.forceWhisper = true;
       task.status = 'pending';
       task.error = null;
       task.actionRequired = null;

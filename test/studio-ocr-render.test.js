@@ -194,7 +194,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   );
 });
 
-test('Omi voice-only subtitle generation forces Whisper', async () => {
+test('Omi voice-only subtitle generation still tries OCR first', async () => {
   requireFunction(createAutomaticSubtitleResolver, 'createAutomaticSubtitleResolver');
   let receivedOptions;
   const resolveSubtitle = createAutomaticSubtitleResolver({
@@ -214,10 +214,10 @@ test('Omi voice-only subtitle generation forces Whisper', async () => {
     ffmpegPath: 'ffmpeg.exe'
   });
 
-  assert.equal(receivedOptions.forceWhisper, true);
+  assert.equal(receivedOptions.forceWhisper, false);
 });
 
-test('explicit boolean and string resume flags force Whisper through coordinator options', async () => {
+test('only the trusted task resume flag forces Whisper through coordinator options', async () => {
   requireFunction(createAutomaticSubtitleResolver, 'createAutomaticSubtitleResolver');
   const receivedFlags = [];
   const resolveSubtitle = createAutomaticSubtitleResolver({
@@ -228,18 +228,25 @@ test('explicit boolean and string resume flags force Whisper through coordinator
     updateStudioProgress: () => {}
   });
 
-  for (const forceWhisper of [true, 'true']) {
-    await resolveSubtitle({
-      body: { forceWhisper },
-      sourceVideo: 'source.mp4',
-      workDir: 'work',
-      totalDuration: 3,
-      isVoiceOnlySub: false,
-      ffmpegPath: 'ffmpeg.exe'
-    });
-  }
+  await resolveSubtitle({
+    body: { forceWhisper: true },
+    sourceVideo: 'source.mp4',
+    workDir: 'work',
+    totalDuration: 3,
+    isVoiceOnlySub: false,
+    ffmpegPath: 'ffmpeg.exe'
+  });
+  await resolveSubtitle({
+    body: {},
+    sourceVideo: 'source.mp4',
+    workDir: 'work',
+    totalDuration: 3,
+    isVoiceOnlySub: false,
+    forceWhisper: true,
+    ffmpegPath: 'ffmpeg.exe'
+  });
 
-  assert.deepEqual(receivedFlags, [true, true]);
+  assert.deepEqual(receivedFlags, [false, true]);
 });
 
 test('coordinator progress stays below translation and callback failures are observational', () => {
@@ -413,7 +420,8 @@ test('valid resume prepares the task and triggers queue processing exactly once'
   await handlers.useWhisperForRenderTask({ body: { taskId: task.id } }, response);
 
   assert.deepEqual(response.jsonCalls, [{ success: true, taskId: task.id }]);
-  assert.equal(task.body.forceWhisper, true);
+  assert.equal(task.forceWhisper, true);
+  assert.equal(task.body.forceWhisper, undefined);
   assert.equal(task.status, 'pending');
   assert.equal(task.error, null);
   assert.equal(task.actionRequired, null);
@@ -496,6 +504,7 @@ test('new render queue tasks start with resumable OCR fields', () => {
 
   assert.equal(task.actionRequired, null);
   assert.equal(task.sourceVideoPath, null);
+  assert.equal(task.forceWhisper, false);
 });
 
 test('render attempt work directory cleanup has valid function scope and removes directories', async () => {

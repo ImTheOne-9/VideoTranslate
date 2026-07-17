@@ -72,9 +72,9 @@ test('runs the exact executable with unchanged video and output arguments', asyn
       options.executablePath,
       [
         '--video', options.videoPath,
-        '--language', options.language,
+        '--lang', options.language,
         '--mode', 'fast',
-        '--region', options.region,
+        '--sub_area', options.region,
         '--device', options.device,
         '--output', options.outputPath
       ],
@@ -118,9 +118,48 @@ test('returns no_subtitles when VSE exits with code 2', async () => {
     const fake = createFakeSpawn();
     const pending = runVse(baseOptions(directory, fake.spawn));
 
+    fake.child.stdout.write('{"stage":"result","cues":0,"srt":"empty.srt"}\n');
     closeChild(fake.child, 2);
 
     assert.deepEqual(await pending, { kind: 'no_subtitles' });
+  });
+});
+
+test('treats argparse exit code 2 as a technical error instead of no subtitles', async () => {
+  await withTempDirectory(async (directory) => {
+    const fake = createFakeSpawn();
+    const pending = runVse(baseOptions(directory, fake.spawn));
+
+    fake.child.stderr.write('vse-cli.exe: error: unrecognized arguments: --language ch\n');
+    closeChild(fake.child, 2);
+
+    await assert.rejects(pending, (error) => {
+      assert.equal(error instanceof OcrTechnicalError, true);
+      assert.match(error.message, /unrecognized arguments/i);
+      return true;
+    });
+  });
+});
+
+test('forwards native VSE stage progress using normalized percent', async () => {
+  await withTempDirectory(async (directory) => {
+    const fake = createFakeSpawn();
+    const progress = [];
+    const options = baseOptions(directory, fake.spawn);
+    options.onProgress = (event) => progress.push(event);
+    await fs.mkdir(path.dirname(options.outputPath), { recursive: true });
+    await fs.writeFile(options.outputPath, 'subtitle');
+
+    const pending = runVse(options);
+    fake.child.stdout.write('{"stage":"extract","pct":42}\n');
+    fake.child.stdout.write('{"stage":"result","cues":3,"srt":"result.srt"}\n');
+    closeChild(fake.child, 0);
+
+    assert.deepEqual(await pending, {
+      kind: 'success',
+      result: { stage: 'result', cues: 3, srt: 'result.srt' }
+    });
+    assert.deepEqual(progress, [{ kind: 'progress', percent: 42, stage: 'extract', pct: 42 }]);
   });
 });
 
