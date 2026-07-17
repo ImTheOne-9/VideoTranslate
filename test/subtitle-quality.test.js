@@ -140,6 +140,113 @@ test('removes repeated fixed lines while retaining changing dialogue lines', asy
   });
 });
 
+test('removes a repeated line in exactly three of five valid cues', async () => {
+  await withTempDir('subtitle-quality-', async (directory) => {
+    const inputPath = await writeSrt(directory, 'input.srt', [
+      '1',
+      '00:00:00,000 --> 00:00:01,000',
+      'Watermark',
+      'First changing line',
+      '',
+      '2',
+      '00:00:01,000 --> 00:00:02,000',
+      'watermark!',
+      'Second changing line',
+      '',
+      '3',
+      '00:00:02,000 --> 00:00:03,000',
+      ' WATERMARK ',
+      'Third changing line',
+      '',
+      '4',
+      '00:00:03,000 --> 00:00:04,000',
+      'Fourth changing line',
+      '',
+      '5',
+      '00:00:04,000 --> 00:00:05,000',
+      'Fifth changing line',
+      ''
+    ].join('\n'));
+    const outputPath = path.join(directory, 'cleaned.srt');
+
+    const result = await evaluateAndCleanSrt(inputPath, outputPath);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.cueCount, 5);
+    assert.equal(result.distinctCueCount, 5);
+    assert.deepEqual(result.removedRepeatedLines, ['Watermark']);
+    assert.equal(result.reason, 'accepted');
+    const cleaned = await fs.readFile(outputPath, 'utf8');
+    assert.doesNotMatch(cleaned, /Watermark|watermark|WATERMARK/);
+  });
+});
+
+test('retains a line occurring in only two of five valid cues', async () => {
+  await withTempDir('subtitle-quality-', async (directory) => {
+    const inputPath = await writeSrt(directory, 'input.srt', [
+      '1',
+      '00:00:00,000 --> 00:00:01,000',
+      'Watermark',
+      'First changing line',
+      '',
+      '2',
+      '00:00:01,000 --> 00:00:02,000',
+      'watermark!',
+      'Second changing line',
+      '',
+      '3',
+      '00:00:02,000 --> 00:00:03,000',
+      'Third changing line',
+      '',
+      '4',
+      '00:00:03,000 --> 00:00:04,000',
+      'Fourth changing line',
+      '',
+      '5',
+      '00:00:04,000 --> 00:00:05,000',
+      'Fifth changing line',
+      ''
+    ].join('\n'));
+    const outputPath = path.join(directory, 'cleaned.srt');
+
+    const result = await evaluateAndCleanSrt(inputPath, outputPath);
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.removedRepeatedLines, []);
+    const cleaned = await fs.readFile(outputPath, 'utf8');
+    assert.match(cleaned, /Watermark/);
+    assert.match(cleaned, /watermark!/);
+  });
+});
+
+test('rejects cue texts that normalize to one distinct cue', async () => {
+  await withTempDir('subtitle-quality-', async (directory) => {
+    const inputPath = await writeSrt(directory, 'input.srt', [
+      '1',
+      '00:00:00,000 --> 00:00:02,000',
+      'Hello,   WORLD!',
+      '',
+      '2',
+      '00:00:02,000 --> 00:00:04,000',
+      ' hello world ',
+      ''
+    ].join('\n'));
+    const outputPath = path.join(directory, 'cleaned.srt');
+
+    const result = await evaluateAndCleanSrt(inputPath, outputPath);
+
+    assert.deepEqual(result, {
+      accepted: false,
+      path: null,
+      cueCount: 2,
+      distinctCueCount: 1,
+      removedRepeatedLines: [],
+      reason: 'too_few_distinct_cues'
+    });
+    await assertMissing(outputPath);
+  });
+});
+
 test('rejects malformed and non-positive-duration cues when no valid timing remains', async () => {
   await withTempDir('subtitle-quality-', async (directory) => {
     const inputPath = await writeSrt(directory, 'input.srt', [
