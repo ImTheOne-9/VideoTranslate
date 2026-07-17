@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const https = require('node:https');
@@ -178,6 +179,93 @@ function mockHttpsRoutes(t, routes) {
   return requests;
 }
 
+test('public singleton exports delegate with documented callable contracts', async (t) => {
+  const { dataToolsDir } = await createTempToolsDir(t);
+  const managerPath = require.resolve('../lib/ocr-component-manager');
+  const sharedPath = require.resolve('../lib/shared-state');
+  const script = `
+    const assert = require('node:assert/strict');
+    const { EventEmitter } = require('node:events');
+    const https = require('node:https');
+    const managerPath = ${JSON.stringify(managerPath)};
+    const sharedPath = ${JSON.stringify(sharedPath)};
+    require.cache[sharedPath] = {
+      id: sharedPath,
+      filename: sharedPath,
+      loaded: true,
+      exports: { DATA_TOOLS_DIR: process.env.OCR_SINGLETON_TEST_DIR }
+    };
+    https.get = () => {
+      const request = new EventEmitter();
+      request.destroy = (error) => {
+        if (error) queueMicrotask(() => request.emit('error', error));
+      };
+      queueMicrotask(() => request.emit('error', new Error('offline singleton fixture')));
+      return request;
+    };
+
+    (async () => {
+      const api = require(managerPath);
+      assert.deepEqual(Object.keys(api).sort(), [
+        'OCR_COMPONENT_MANIFEST_URL',
+        'cancelOcrComponentDownload',
+        'createOcrComponentManager',
+        'downloadOcrComponent',
+        'getOcrComponentStatus',
+        'getOcrDownloadProgress',
+        'getOcrExecutablePath',
+        'refreshOcrComponentStatus'
+      ]);
+      for (const name of Object.keys(api).filter((name) => name !== 'OCR_COMPONENT_MANIFEST_URL')) {
+        assert.equal(typeof api[name], 'function', name);
+        assert.equal(api[name].length, 0, name);
+      }
+
+      assert.deepEqual(api.getOcrComponentStatus(), {
+        status: 'not_installed',
+        version: null,
+        supportedLanguages: [],
+        error: null
+      });
+      assert.equal(api.getOcrExecutablePath(), null);
+      assert.deepEqual(api.getOcrDownloadProgress(), {
+        status: 'not_installed',
+        percent: 0,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        step: 'checking',
+        error: null
+      });
+
+      const refreshPromise = api.refreshOcrComponentStatus();
+      assert.equal(refreshPromise instanceof Promise, true);
+      assert.equal((await refreshPromise).status, 'error');
+
+      const downloadPromise = api.downloadOcrComponent();
+      assert.equal(downloadPromise instanceof Promise, true);
+      await assert.rejects(downloadPromise, /offline singleton fixture/i);
+
+      const cancelPromise = api.cancelOcrComponentDownload();
+      assert.equal(cancelPromise instanceof Promise, true);
+      assert.equal((await cancelPromise).status, 'error');
+    })().catch((error) => {
+      console.error(error.stack || error);
+      process.exitCode = 1;
+    });
+  `;
+
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      OCR_SINGLETON_TEST_DIR: dataToolsDir
+    }
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test('missing executable reports not_installed', async (t) => {
   const { dataToolsDir } = await createTempToolsDir(t);
   const manifest = createManifest();
@@ -221,6 +309,19 @@ test('local readiness rejects a required file reached through an external juncti
   await fs.promises.writeFile(path.join(externalRuntimeDir, 'runtime.dll'), 'external runtime');
   await fs.promises.rm(runtimeDir, { recursive: true });
   await fs.promises.symlink(externalRuntimeDir, runtimeDir, 'junction');
+  const manager = createManager(dataToolsDir, manifest);
+
+  assert.equal(manager.getOcrComponentStatus().status, 'not_installed');
+  assert.equal(manager.getOcrExecutablePath(), null);
+});
+
+test('local readiness rejects a component root junction outside data tools', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const manifest = createManifest();
+  const externalToolsDir = path.join(root, 'external-tools');
+  const externalComponentDir = await writeInstalledComponent(externalToolsDir, manifest);
+  const componentDir = path.join(dataToolsDir, 'vse-cli');
+  await fs.promises.symlink(externalComponentDir, componentDir, 'junction');
   const manager = createManager(dataToolsDir, manifest);
 
   assert.equal(manager.getOcrComponentStatus().status, 'not_installed');
@@ -387,6 +488,95 @@ test('default HTTPS adapter rejects a redirect downgrade', async (t) => {
 
   await assert.rejects(manager.downloadOcrComponent(), /refusing non-HTTPS URL/i);
   assert.deepEqual(requests, [manifestUrl]);
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
+test('default manifest stream aborts when cancellation wins the response handoff', async (t) => {
+  const { dataToolsDir } = await createTempToolsDir(t);
+  const manifestUrl = 'https://manifest-race.test/manifest.json';
+  let manifestResponse = null;
+  let cancelPromise = null;
+  let notifyHeadersReceived;
+  const headersReceived = new Promise((resolve) => {
+    notifyHeadersReceived = resolve;
+  });
+  let manager;
+  mockHttpsRoutes(t, new Map([
+    [manifestUrl, {
+      onResponse(response) {
+        manifestResponse = response;
+        cancelPromise = manager.cancelOcrComponentDownload();
+        notifyHeadersReceived();
+      }
+    }]
+  ]));
+  manager = createOcrComponentManager({
+    dataToolsDir,
+    manifestUrl,
+    getFreeSpace: async () => Number.MAX_SAFE_INTEGER
+  });
+
+  const rejectedDownload = assert.rejects(manager.downloadOcrComponent(), /cancelled/i);
+  await headersReceived;
+  await new Promise((resolve) => setImmediate(resolve));
+  const destroyedImmediately = manifestResponse.destroyed;
+  if (!destroyedImmediately) {
+    manifestResponse.destroy(new Error('test cleanup for missed manifest abort'));
+  }
+  await rejectedDownload;
+  await cancelPromise;
+
+  assert.equal(destroyedImmediately, true);
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
+test('default downloader aborts before opening output when cancellation wins the response handoff', async (t) => {
+  const { dataToolsDir } = await createTempToolsDir(t);
+  const manifestUrl = 'https://download-race.test/manifest.json';
+  const archiveUrl = 'https://download-race.test/vse-cli.zip';
+  const manifest = createManifest({ archiveUrl });
+  let archiveResponse = null;
+  let cancelPromise = null;
+  let outputCreations = 0;
+  let notifyHeadersReceived;
+  const headersReceived = new Promise((resolve) => {
+    notifyHeadersReceived = resolve;
+  });
+  const createWriteStream = fs.createWriteStream;
+  t.mock.method(fs, 'createWriteStream', (...args) => {
+    outputCreations += 1;
+    return createWriteStream(...args);
+  });
+  let manager;
+  mockHttpsRoutes(t, new Map([
+    [manifestUrl, { body: Buffer.from(JSON.stringify(manifest)) }],
+    [archiveUrl, {
+      headers: { 'content-length': String(manifest.archiveSize) },
+      onResponse(response) {
+        archiveResponse = response;
+        cancelPromise = manager.cancelOcrComponentDownload();
+        notifyHeadersReceived();
+      }
+    }]
+  ]));
+  manager = createOcrComponentManager({
+    dataToolsDir,
+    manifestUrl,
+    getFreeSpace: async () => Number.MAX_SAFE_INTEGER
+  });
+
+  const rejectedDownload = assert.rejects(manager.downloadOcrComponent(), /cancelled/i);
+  await headersReceived;
+  await new Promise((resolve) => setImmediate(resolve));
+  const destroyedImmediately = archiveResponse.destroyed;
+  if (!destroyedImmediately) {
+    archiveResponse.destroy(new Error('test cleanup for missed download abort'));
+  }
+  await rejectedDownload;
+  await cancelPromise;
+
+  assert.equal(destroyedImmediately, true);
+  assert.equal(outputCreations, 0);
   assertNoScratchArtifacts(dataToolsDir);
 });
 
@@ -596,6 +786,73 @@ for (const integrityFailure of ['size', 'sha256']) {
   });
 }
 
+test('scratch cleanup attempts every path without masking the primary download error', async (t) => {
+  const { dataToolsDir } = await createTempToolsDir(t);
+  const manifest = createManifest();
+  const primaryError = new Error('injected primary download failure');
+  const cleanupAttempts = [];
+  const manager = createManager(dataToolsDir, manifest, {
+    downloadFile: async () => {
+      throw primaryError;
+    },
+    remove: async (targetPath) => {
+      cleanupAttempts.push(targetPath);
+      throw new Error(`injected cleanup failure: ${path.basename(targetPath)}`);
+    }
+  });
+
+  await assert.rejects(manager.downloadOcrComponent(), (error) => {
+    assert.strictEqual(error, primaryError);
+    assert.equal(error.message, 'injected primary download failure');
+    assert.equal(error.cleanupErrors.length, 2);
+    assert.deepEqual(
+      error.cleanupErrors.map((cleanupError) => cleanupError.operation),
+      ['remove-partial', 'remove-staging']
+    );
+    return true;
+  });
+  assert.equal(cleanupAttempts.length, 2);
+  assert.equal(cleanupAttempts.some((targetPath) => targetPath.endsWith('.partial')), true);
+  assert.equal(cleanupAttempts.some((targetPath) => path.basename(targetPath).startsWith('.staging-')), true);
+  assert.equal(manager.getOcrDownloadProgress().error, primaryError.message);
+});
+
+test('scratch cleanup failures do not replace the primary cancellation error', async (t) => {
+  const { dataToolsDir } = await createTempToolsDir(t);
+  const manifest = createManifest();
+  const cleanupAttempts = [];
+  let notifyStarted;
+  const started = new Promise((resolve) => {
+    notifyStarted = resolve;
+  });
+  const manager = createManager(dataToolsDir, manifest, {
+    downloadFile: async ({ signal }) => {
+      notifyStarted();
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+    remove: async (targetPath) => {
+      cleanupAttempts.push(targetPath);
+      throw new Error(`injected cleanup failure: ${path.basename(targetPath)}`);
+    }
+  });
+
+  const downloadPromise = manager.downloadOcrComponent();
+  const rejectedDownload = assert.rejects(downloadPromise, (error) => {
+    assert.equal(error.name, 'AbortError');
+    assert.match(error.message, /cancelled/i);
+    assert.equal(error.cleanupErrors.length, 2);
+    return true;
+  });
+  await started;
+  const cancelledStatus = await manager.cancelOcrComponentDownload();
+  await rejectedDownload;
+
+  assert.equal(cancelledStatus.status, 'cancelled');
+  assert.equal(cleanupAttempts.length, 2);
+});
+
 test('ZIP traversal is rejected before extraction writes outside staging', async (t) => {
   const { root, dataToolsDir } = await createTempToolsDir(t);
   const archive = await createTraversalZip(root);
@@ -761,6 +1018,192 @@ test('injected swap failure restores the old install', async (t) => {
       'utf8'
     )).version,
     oldManifest.version
+  );
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
+test('metadata write failure after staged-to-final rename restores the old install', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const archive = await createZip(root);
+  const oldManifest = createManifest({ version: '1.0.0' });
+  const componentDir = await writeInstalledComponent(dataToolsDir, oldManifest, {
+    'vse-cli.exe': 'old executable'
+  });
+  const manifest = createManifest({
+    version: '2.0.0',
+    archiveSize: archive.archiveSize,
+    installedSize: archive.installedSize,
+    sha256: archive.sha256
+  });
+  const metadataError = new Error('injected metadata write failure');
+  let stagedMovedToFinal = false;
+  const manager = createManager(dataToolsDir, manifest, {
+    downloadFile: createCopyDownloader(archive.archivePath),
+    rename: async (source, destination) => {
+      if (source.includes('.staging-') && destination === componentDir) {
+        stagedMovedToFinal = true;
+      }
+      await fs.promises.rename(source, destination);
+    },
+    writeFile: async () => {
+      throw metadataError;
+    }
+  });
+
+  await assert.rejects(manager.downloadOcrComponent(), (error) => {
+    assert.strictEqual(error, metadataError);
+    return true;
+  });
+  assert.equal(stagedMovedToFinal, true);
+  assert.equal(
+    await fs.promises.readFile(path.join(componentDir, 'vse-cli.exe'), 'utf8'),
+    'old executable'
+  );
+  assert.equal(
+    JSON.parse(await fs.promises.readFile(path.join(componentDir, 'installed.json'), 'utf8')).version,
+    oldManifest.version
+  );
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
+test('failed incomplete-final removal is exposed while rollback restores the old install', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const archive = await createZip(root);
+  const oldManifest = createManifest({ version: '1.0.0' });
+  const componentDir = await writeInstalledComponent(dataToolsDir, oldManifest, {
+    'vse-cli.exe': 'old executable'
+  });
+  const manifest = createManifest({
+    version: '2.0.0',
+    archiveSize: archive.archiveSize,
+    installedSize: archive.installedSize,
+    sha256: archive.sha256
+  });
+  const metadataError = new Error('injected metadata write failure');
+  const removalError = new Error('injected incomplete-final removal failure');
+  let failedFinalRemoval = false;
+  let backupRestored = false;
+  const manager = createManager(dataToolsDir, manifest, {
+    downloadFile: createCopyDownloader(archive.archivePath),
+    writeFile: async () => {
+      throw metadataError;
+    },
+    remove: async (targetPath) => {
+      if (!failedFinalRemoval && targetPath === componentDir) {
+        failedFinalRemoval = true;
+        throw removalError;
+      }
+      await fs.promises.rm(targetPath, { recursive: true, force: true });
+    },
+    rename: async (source, destination) => {
+      if (path.basename(source).startsWith('.backup-') && destination === componentDir) {
+        backupRestored = true;
+      }
+      await fs.promises.rename(source, destination);
+    }
+  });
+
+  await assert.rejects(manager.downloadOcrComponent(), (error) => {
+    assert.strictEqual(error, metadataError);
+    assert.equal(error.rollbackErrors.length, 1);
+    assert.equal(error.rollbackErrors[0].operation, 'remove-incomplete-final');
+    assert.strictEqual(error.rollbackErrors[0].cause, removalError);
+    return true;
+  });
+  assert.equal(failedFinalRemoval, true);
+  assert.equal(backupRestored, true);
+  assert.equal(
+    await fs.promises.readFile(path.join(componentDir, 'vse-cli.exe'), 'utf8'),
+    'old executable'
+  );
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
+test('cancellation after metadata write rolls back instead of finishing ready', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const archive = await createZip(root);
+  const oldManifest = createManifest({ version: '1.0.0' });
+  const componentDir = await writeInstalledComponent(dataToolsDir, oldManifest, {
+    'vse-cli.exe': 'old executable'
+  });
+  const manifest = createManifest({
+    version: '2.0.0',
+    archiveSize: archive.archiveSize,
+    installedSize: archive.installedSize,
+    sha256: archive.sha256
+  });
+  let cancelPromise = null;
+  let manager;
+  manager = createManager(dataToolsDir, manifest, {
+    downloadFile: createCopyDownloader(archive.archivePath),
+    writeFile: async (...args) => {
+      await fs.promises.writeFile(...args);
+      cancelPromise = manager.cancelOcrComponentDownload();
+    }
+  });
+
+  const rejectedDownload = assert.rejects(manager.downloadOcrComponent(), /cancelled/i);
+  await rejectedDownload;
+  await cancelPromise;
+
+  assert.equal(manager.getOcrComponentStatus().status, 'cancelled');
+  assert.equal(
+    await fs.promises.readFile(path.join(componentDir, 'vse-cli.exe'), 'utf8'),
+    'old executable'
+  );
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
+test('cancellation during final verification rolls back instead of finishing ready', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const archive = await createZip(root);
+  const oldManifest = createManifest({ version: '1.0.0' });
+  const componentDir = await writeInstalledComponent(dataToolsDir, oldManifest, {
+    'vse-cli.exe': 'old executable'
+  });
+  const manifest = createManifest({
+    version: '2.0.0',
+    archiveSize: archive.archiveSize,
+    installedSize: archive.installedSize,
+    sha256: archive.sha256
+  });
+  const metadataPath = path.join(componentDir, 'installed.json');
+  const readFileSync = fs.readFileSync;
+  let stagedMovedToFinal = false;
+  let cancellationTriggered = false;
+  let cancelPromise = null;
+  let manager;
+  t.mock.method(fs, 'readFileSync', (...args) => {
+    const contents = readFileSync(...args);
+    if (
+      stagedMovedToFinal &&
+      !cancellationTriggered &&
+      path.resolve(args[0]) === path.resolve(metadataPath)
+    ) {
+      cancellationTriggered = true;
+      cancelPromise = manager.cancelOcrComponentDownload();
+    }
+    return contents;
+  });
+  manager = createManager(dataToolsDir, manifest, {
+    downloadFile: createCopyDownloader(archive.archivePath),
+    rename: async (source, destination) => {
+      if (source.includes('.staging-') && destination === componentDir) {
+        stagedMovedToFinal = true;
+      }
+      await fs.promises.rename(source, destination);
+    }
+  });
+
+  const rejectedDownload = assert.rejects(manager.downloadOcrComponent(), /cancelled/i);
+  await rejectedDownload;
+  await cancelPromise;
+
+  assert.equal(cancellationTriggered, true);
+  assert.equal(manager.getOcrComponentStatus().status, 'cancelled');
+  assert.equal(
+    await fs.promises.readFile(path.join(componentDir, 'vse-cli.exe'), 'utf8'),
+    'old executable'
   );
   assertNoScratchArtifacts(dataToolsDir);
 });
