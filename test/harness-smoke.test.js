@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
-test('node test harness discovers smoke tests', () => {
-  assert.equal(true, true);
+const { findTestFiles } = require('./run-tests');
+
+test('the harness discovers this smoke test', () => {
+  const testFiles = findTestFiles();
+
+  assert.ok(testFiles.includes(path.join(__dirname, 'harness-smoke.test.js')));
 });
