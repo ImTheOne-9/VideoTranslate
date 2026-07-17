@@ -43,9 +43,9 @@ async function withTempDirectory(callback) {
 
 function baseOptions(directory, spawnImpl) {
   return {
-    executablePath: 'C:\\OCR Tools\\vse-cli.exe',
-    videoPath: 'D:\\Video co dau\\nguoi dep.mp4',
-    outputPath: path.join(directory, 'phu de', 'ket qua.srt'),
+    executablePath: 'C:\\Công cụ OCR\\vse-cli.exe',
+    videoPath: 'D:\\Video có dấu\\Người đẹp.mp4',
+    outputPath: path.join(directory, 'Phụ đề tiếng Việt', 'Kết quả cuối.srt'),
     language: 'vi',
     region: '0.70,0.98,0.05,0.95',
     device: 'gpu',
@@ -64,7 +64,11 @@ test('runs the exact executable with unchanged video and output arguments', asyn
     const pending = runVse(options);
 
     assert.equal(shared.state.activeProcesses.has(fake.child), true);
-    assert.deepEqual(fake.calls, [[
+    const spawnCall = fake.calls;
+    closeChild(fake.child, 0);
+    const outcome = await pending;
+
+    assert.deepEqual(spawnCall, [[
       options.executablePath,
       [
         '--video', options.videoPath,
@@ -81,9 +85,7 @@ test('runs the exact executable with unchanged video and output arguments', asyn
         stdio: ['ignore', 'pipe', 'pipe']
       }
     ]]);
-
-    closeChild(fake.child, 0);
-    assert.deepEqual(await pending, { kind: 'success', result: null });
+    assert.deepEqual(outcome, { kind: 'success', result: null });
   });
 });
 
@@ -164,6 +166,47 @@ test('throws a typed error when spawning VSE emits an error', async () => {
   });
 });
 
+test('throws a typed error when spawnImpl throws synchronously', async () => {
+  await withTempDirectory(async (directory) => {
+    const spawnError = new Error('synchronous executable failure');
+
+    await assert.rejects(
+      runVse({
+        ...baseOptions(directory, () => {
+          throw spawnError;
+        })
+      }),
+      (error) => {
+        assert.equal(error instanceof OcrTechnicalError, true);
+        assert.equal(error.code, 'OCR_TECHNICAL_ERROR');
+        assert.match(error.message, /synchronous executable failure/);
+        return true;
+      }
+    );
+  });
+});
+
+test('retains only the most recent 4096 diagnostic characters', async () => {
+  await withTempDirectory(async (directory) => {
+    const fake = createFakeSpawn();
+    const discardedDiagnostic = 'a'.repeat(64);
+    const retainedDiagnostic = 'b'.repeat(4096);
+    const pending = runVse(baseOptions(directory, fake.spawn));
+
+    fake.child.stderr.write(`${discardedDiagnostic}${retainedDiagnostic}`);
+    closeChild(fake.child, 1);
+
+    await assert.rejects(pending, (error) => {
+      assert.equal(
+        error.message,
+        `VSE OCR exited with code 1: ${retainedDiagnostic}`
+      );
+      assert.equal(error.message.includes(discardedDiagnostic), false);
+      return true;
+    });
+  });
+});
+
 test('terminates the registered process tree and rejects when VSE times out', async () => {
   await withTempDirectory(async (directory) => {
     const fake = createFakeSpawn();
@@ -233,9 +276,19 @@ test('marks only known CUDA diagnostics as retryable on CPU', async () => {
       });
     }
 
+    const cudaThenNoise = createFakeSpawn();
+    const cudaThenNoiseRun = runVse(baseOptions(directory, cudaThenNoise.spawn));
+    cudaThenNoise.child.stderr.write(`CUDA initialization failed\n${'noise '.repeat(1024)}`);
+    closeChild(cudaThenNoise.child, 1);
+
+    await assert.rejects(cudaThenNoiseRun, (error) => {
+      assert.equal(error.retryableOnCpu, true);
+      return true;
+    });
+
     const arbitraryFailure = createFakeSpawn();
     const pending = runVse(baseOptions(directory, arbitraryFailure.spawn));
-    arbitraryFailure.child.stderr.write('input stream ended unexpectedly\n');
+    arbitraryFailure.child.stderr.write(`input stream ended unexpectedly\n${'noise '.repeat(1024)}`);
     closeChild(arbitraryFailure.child, 1);
 
     await assert.rejects(pending, (error) => {
