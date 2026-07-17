@@ -64,8 +64,16 @@ function createOcrComponentHandlers(manager, logger = console) {
 
 const ocrComponentHandlers = createOcrComponentHandlers(ocrComponentManager);
 
+function registerOcrComponentRoutes(app, handlers) {
+  app.get('/api/ocr-component/status', handlers.getOcrComponentStatus);
+  app.post('/api/ocr-component/download', handlers.startOcrComponentDownload);
+  app.get('/api/ocr-component/download-status', handlers.getOcrComponentDownloadStatus);
+  app.post('/api/ocr-component/cancel', handlers.cancelOcrComponentDownload);
+}
+
 module.exports = {
   createOcrComponentHandlers,
+  registerOcrComponentRoutes,
   ...ocrComponentHandlers,
   getVideoInfo: async (req, res) => {
     try {

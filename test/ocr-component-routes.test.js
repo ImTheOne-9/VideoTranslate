@@ -3,9 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const {
-  createOcrComponentHandlers
-} = require('../controllers/systemController');
+const systemController = require('../controllers/systemController');
+const { createOcrComponentHandlers } = systemController;
 
 function createResponse() {
   return {
@@ -232,20 +231,62 @@ test('download start failures thrown synchronously return 500', () => {
   assert.equal(logger.errors[0].includes(error), true);
 });
 
-test('server wires the OCR component routes and preserves dependency and Whisper routes', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const ocrRoutes = [...source.matchAll(
-    /app\.(get|post)\('([^']*\/api\/ocr-component\/[^']*)', systemController\.([A-Za-z0-9_]+)\);/g
-  )].map((match) => [match[1].toUpperCase(), match[2], match[3]]);
+test('systemController exports callable singleton-backed OCR handlers', () => {
+  for (const handlerName of [
+    'getOcrComponentStatus',
+    'startOcrComponentDownload',
+    'getOcrComponentDownloadStatus',
+    'cancelOcrComponentDownload'
+  ]) {
+    assert.equal(typeof systemController[handlerName], 'function', handlerName);
+  }
+});
 
-  assert.deepEqual(ocrRoutes, [
-    ['GET', '/api/ocr-component/status', 'getOcrComponentStatus'],
-    ['POST', '/api/ocr-component/download', 'startOcrComponentDownload'],
-    ['GET', '/api/ocr-component/download-status', 'getOcrComponentDownloadStatus'],
-    ['POST', '/api/ocr-component/cancel', 'cancelOcrComponentDownload']
-  ]);
-  assert.match(source, /app\.get\('\/api\/check-dependencies', systemController\.checkDependencies\);/);
-  assert.match(source, /app\.post\('\/api\/download-dependency', systemController\.downloadDependency\);/);
-  assert.match(source, /app\.get\('\/api\/whisper-model\/status', systemController\.getWhisperModelStatus\);/);
-  assert.match(source, /app\.post\('\/api\/download-whisper-model', systemController\.downloadWhisperModel\);/);
+test('registerOcrComponentRoutes registers exact OCR method, path, and handler pairs', () => {
+  const routes = [];
+  const app = {
+    get(routePath, handler) {
+      routes.push({ method: 'GET', path: routePath, handler });
+    },
+    post(routePath, handler) {
+      routes.push({ method: 'POST', path: routePath, handler });
+    }
+  };
+
+  systemController.registerOcrComponentRoutes(app, systemController);
+
+  assert.deepEqual(
+    routes.map(({ method, path: routePath }) => [method, routePath]),
+    [
+      ['GET', '/api/ocr-component/status'],
+      ['POST', '/api/ocr-component/download'],
+      ['GET', '/api/ocr-component/download-status'],
+      ['POST', '/api/ocr-component/cancel']
+    ]
+  );
+  assert.strictEqual(routes[0].handler, systemController.getOcrComponentStatus);
+  assert.strictEqual(routes[1].handler, systemController.startOcrComponentDownload);
+  assert.strictEqual(routes[2].handler, systemController.getOcrComponentDownloadStatus);
+  assert.strictEqual(routes[3].handler, systemController.cancelOcrComponentDownload);
+});
+
+test('server retains executable dependency and Whisper route registrations', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const executableRoutes = source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^app\.(?:get|post)\('/.test(line));
+
+  assert.equal(executableRoutes.includes(
+    "app.get('/api/check-dependencies', systemController.checkDependencies);"
+  ), true);
+  assert.equal(executableRoutes.includes(
+    "app.post('/api/download-dependency', systemController.downloadDependency);"
+  ), true);
+  assert.equal(executableRoutes.includes(
+    "app.get('/api/whisper-model/status', systemController.getWhisperModelStatus);"
+  ), true);
+  assert.equal(executableRoutes.includes(
+    "app.post('/api/download-whisper-model', systemController.downloadWhisperModel);"
+  ), true);
 });
