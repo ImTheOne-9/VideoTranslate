@@ -71,6 +71,7 @@
       await request('/api/ocr-component/download', { method: 'POST' });
       while (!cancelled) {
         const progress = await request('/api/ocr-component/download-status');
+        if (cancelled) return { cancelled: true };
         onProgress(progress);
         if (progress.status === 'ready') return { ...progress, ready: true };
         if (progress.status === 'error') throw new Error(progress.error || 'Không thể tải bộ OCR.');

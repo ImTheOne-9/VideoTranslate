@@ -938,7 +938,7 @@ async function startOcrComponentDownload() {
 
 async function cancelOcrComponentDownload() {
   try {
-    if (ocrDownloadActive) await ocrComponentFlow.cancel();
+    await ocrComponentFlow.cancel();
   } catch (error) {
     console.error('Lỗi khi hủy tải OCR:', error);
   } finally {
@@ -1258,12 +1258,15 @@ function updateMainResultUI(queue, currentActiveId) {
   } else if (targetTask.status === 'waiting_input') {
     const fallback = window.OcrUi.getOcrFallbackAction(targetTask);
     const fallbackMessage = window.OcrUi.escapeHtml(fallback.message || targetTask.error || 'OCR gặp lỗi kỹ thuật.');
+    const whisperAction = fallback.visible
+      ? `<button type="button" class="premium-render-btn" onclick="useWhisperForTask('${targetTask.id}', event)">Dùng Whisper thay thế</button>`
+      : '';
     html = `
       <div class="render-loading-state ocr-waiting-state">
         <h3>OCR cần bạn xác nhận</h3>
         <p>${fallbackMessage}</p>
         <div class="ocr-fallback-actions">
-          <button type="button" class="premium-render-btn" onclick="useWhisperForTask('${targetTask.id}', event)">Dùng Whisper thay thế</button>
+          ${whisperAction}
           <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
         </div>
       </div>`;
@@ -1410,8 +1413,13 @@ function renderQueueModalUI(queue, currentActiveId) {
     }
 
     let actionHtml = '';
+    let waitingMessageHtml = '';
     if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
-      actionHtml = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="useWhisperForTask('${task.id}', event)">Dùng Whisper</button>`;
+      const waitingMessage = window.OcrUi.escapeHtml(window.OcrUi.getOcrFallbackAction(task).message);
+      waitingMessageHtml = `<div class="queue-ocr-error">${waitingMessage}</div>`;
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="useWhisperForTask('${task.id}', event)">Dùng Whisper</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
     } else if (isPending) {
       actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy chờ</button>`;
     } else if (isRunning) {
@@ -1439,6 +1447,7 @@ function renderQueueModalUI(queue, currentActiveId) {
             ${actionHtml}
           </div>
         </div>
+        ${waitingMessageHtml}
         <!-- Progress Bar -->
         <div style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 4px; border-radius: 2px; overflow: hidden; position: relative;">
           <div style="width: ${progressBarPercent}%; height: 100%; background: ${progressBarColor}; transition: width 0.3s ease-out;"></div>

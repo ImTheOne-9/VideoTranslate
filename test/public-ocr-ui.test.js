@@ -97,6 +97,34 @@ test('component flow cancellation stops polling and calls cancel endpoint', asyn
   assert.equal(calls.filter(([url]) => url.endsWith('/download-status')).length, 1);
 });
 
+test('component flow cancellation wins when an in-flight poll returns ready', async () => {
+  let resolvePoll;
+  let pollStartedResolve;
+  const pollStarted = new Promise(resolve => { pollStartedResolve = resolve; });
+  const pollResult = new Promise(resolve => { resolvePoll = resolve; });
+  const calls = [];
+  const flow = createOcrComponentFlow({
+    request: async (url, options) => {
+      calls.push([url, options?.method]);
+      if (url.endsWith('/download-status')) {
+        pollStartedResolve();
+        return pollResult;
+      }
+      return { success: true };
+    },
+    wait: async () => {}
+  });
+
+  const downloading = flow.download();
+  await pollStarted;
+  const cancelling = flow.cancel();
+  resolvePoll({ status: 'ready', percent: 100 });
+  await cancelling;
+
+  assert.deepEqual(await downloading, { cancelled: true });
+  assert.equal(calls.filter(([url]) => url.endsWith('/cancel')).length, 1);
+});
+
 test('only OCR technical waiting tasks expose the Whisper fallback action', () => {
   assert.deepEqual(getOcrFallbackAction({
     status: 'waiting_input',
@@ -145,4 +173,16 @@ test('studio client wires OCR preflight and Whisper fallback endpoint', () => {
   const voiceTabs = source.slice(source.indexOf('// Setup voice mode tabs'), source.indexOf('// Setup sub mode tabs'));
   assert.match(subtitleTabs, /ocr-settings-container/);
   assert.doesNotMatch(voiceTabs, /ocr-settings-container/);
+
+  const cancelDownload = source.slice(source.indexOf('async function cancelOcrComponentDownload'), source.indexOf('function syncOcrRegion'));
+  assert.match(cancelDownload, /await ocrComponentFlow\.cancel\(\)/);
+  assert.doesNotMatch(cancelDownload, /if \(ocrDownloadActive\)/);
+
+  const mainWaiting = source.slice(source.indexOf("targetTask.status === 'waiting_input'"), source.indexOf("targetTask.status === 'success'"));
+  assert.match(mainWaiting, /fallback\.visible/);
+
+  const queueWaitingStart = source.indexOf('if (isWaiting &&');
+  const queueWaiting = source.slice(queueWaitingStart, source.indexOf('} else if (isPending)', queueWaitingStart));
+  assert.match(queueWaiting, /cancelQueueTask/);
+  assert.match(queueWaiting, /escapeHtml/);
 });

@@ -3120,6 +3120,7 @@ select option {
 .ocr-download-actions { display: flex; gap: 10px; }
 .ocr-download-actions .premium-render-btn { flex: 1; margin: 0; }
 .ocr-fallback-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
+.queue-ocr-error { color: var(--danger); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 
 @media (max-width: 520px) {
   .ocr-download-actions { flex-direction: column; }
