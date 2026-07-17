@@ -935,6 +935,29 @@ test('missing required runtime files after extraction is rejected', async (t) =>
   assertNoScratchArtifacts(dataToolsDir);
 });
 
+test('archive extraction streams from disk instead of reading the whole ZIP into memory', async (t) => {
+  const { root, dataToolsDir } = await createTempToolsDir(t);
+  const archive = await createZip(root);
+  const manifest = createManifest({
+    archiveSize: archive.archiveSize,
+    installedSize: archive.installedSize,
+    sha256: archive.sha256
+  });
+  const readFileSync = fs.readFileSync;
+  t.mock.method(fs, 'readFileSync', (...args) => {
+    if (String(args[0]).endsWith('.partial')) {
+      throw new Error('whole archive read is forbidden');
+    }
+    return readFileSync(...args);
+  });
+  const manager = createManager(dataToolsDir, manifest, {
+    downloadFile: createCopyDownloader(archive.archivePath)
+  });
+
+  assert.equal((await manager.downloadOcrComponent()).status, 'ready');
+  assertNoScratchArtifacts(dataToolsDir);
+});
+
 test('successful upgrade writes installed metadata and removes backup and scratch paths', async (t) => {
   const { root, dataToolsDir } = await createTempToolsDir(t);
   const archive = await createZip(root);
