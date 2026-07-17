@@ -317,6 +317,7 @@ app.post('/api/render-reaction', upload.single('reactionVideo'), studioControlle
 app.get('/api/studio-assets', studioController.getStudioAssets);
 app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
+app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
 app.post('/api/cancel-queue-task', studioController.cancelQueueTask);
 app.post('/api/clear-queue', studioController.clearQueue);
 app.post('/api/cancel-render', studioController.cancelRender);
@@ -398,6 +399,7 @@ app.get('/api/check-dependencies', systemController.checkDependencies);
 app.get('/api/check-dependencies-status', systemController.checkDependenciesStatus);
 app.post('/api/download-dependency', systemController.downloadDependency);
 app.get('/api/download-dependency-progress', systemController.getDependencyDownloadProgress);
+systemController.registerOcrComponentRoutes(app, systemController);
 app.post('/api/download-model', systemController.downloadModel);
 app.get('/api/download-model/status', systemController.getModelStatus);
 app.get('/api/whisper-model/status', systemController.getWhisperModelStatus);

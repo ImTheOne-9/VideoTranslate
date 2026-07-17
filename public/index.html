@@ -1041,6 +1041,33 @@
                       </label>
                     </div>
 
+                    <div id="ocr-settings-container" class="ocr-settings hidden">
+                      <div class="form-group">
+                        <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
+                        <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
+                          <option value="">Chọn ngôn ngữ...</option>
+                          <option value="ch">Trung</option>
+                          <option value="vi">Việt</option>
+                          <option value="en">Anh</option>
+                          <option value="japan">Nhật</option>
+                          <option value="korean">Hàn</option>
+                        </select>
+                      </div>
+                      <details class="ocr-region-details">
+                        <summary>Vùng nhận dạng nâng cao</summary>
+                        <div class="ocr-region-grid">
+                          <label>Trên<input id="ocr-region-top" type="number" value="0.70" min="0" max="1" step="0.01"></label>
+                          <label>Dưới<input id="ocr-region-bottom" type="number" value="0.98" min="0" max="1" step="0.01"></label>
+                          <label>Trái<input id="ocr-region-left" type="number" value="0.05" min="0" max="1" step="0.01"></label>
+                          <label>Phải<input id="ocr-region-right" type="number" value="0.95" min="0" max="1" step="0.01"></label>
+                        </div>
+                        <button type="button" id="ocr-region-reset-btn" class="ocr-icon-btn" title="Đặt lại vùng OCR" aria-label="Đặt lại vùng OCR">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                        </button>
+                      </details>
+                      <input type="hidden" id="ocr-region-value" name="ocrRegion" value="0.70,0.98,0.05,0.95">
+                    </div>
+
 
                     <div id="blur-settings-container"
                       style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
@@ -3243,6 +3270,30 @@
   </div>
 
   <!-- Modal Hàng đợi Render -->
+  <div id="ocr-component-modal" class="fb-modal-overlay hidden" style="z-index: 10008;">
+    <div class="fb-modal-content ocr-download-dialog">
+      <div class="fb-modal-header">
+        <h3>Bộ nhận dạng phụ đề OCR</h3>
+      </div>
+      <div class="fb-modal-body ocr-download-body">
+        <p id="ocr-download-description">Cần tải bộ OCR ở lần sử dụng đầu tiên.</p>
+        <div class="ocr-download-track" aria-hidden="true">
+          <div id="ocr-download-progress-bar"></div>
+        </div>
+        <div class="ocr-download-meta">
+          <span id="ocr-download-status">Sẵn sàng tải</span>
+          <span id="ocr-download-percent">0%</span>
+        </div>
+        <p id="ocr-download-error" class="ocr-download-error hidden"></p>
+        <div class="ocr-download-actions">
+          <button type="button" id="ocr-download-btn" class="premium-render-btn">Tải OCR</button>
+          <button type="button" id="ocr-download-cancel-btn" class="premium-render-btn ghost-btn">Hủy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Hàng đợi Render -->
   <div id="render-queue-modal" class="fb-modal-overlay hidden" style="z-index: 10002;">
     <div class="fb-modal-content" style="width: 600px; max-width: 95%;">
       <div class="fb-modal-header"
@@ -3321,6 +3372,7 @@
   <script src="js/drag-drop-module.js"></script>
   <script src="js/ui-utils.js"></script>
   <script src="js/anti-dupe-module.js"></script>
+  <script src="js/ocr-ui.js"></script>
 <script src="app.js"></script>
 </body>
 

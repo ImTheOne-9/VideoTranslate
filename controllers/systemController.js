@@ -6,6 +6,7 @@ const axios = require('axios');
 const shared = require('../lib/shared-state');
 const { getCompositeHWID, saveLicenseLocal, verifyLocalLicense, LICENSE_SERVER_URL } = require('../lib/license-manager');
 const { checkDependencyStatus, downloadAndExtract } = require('../lib/dependency-downloader');
+const ocrComponentManager = require('../lib/ocr-component-manager');
 const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
 
@@ -21,7 +22,59 @@ let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloa
 let whisperDownloadStatus = {};
 let activeDependencyDownload = null;
 
+function createOcrComponentHandlers(manager, logger = console) {
+  return {
+    getOcrComponentStatus: async (req, res) => {
+      try {
+        const status = await manager.refreshOcrComponentStatus();
+        return res.json(status);
+      } catch (error) {
+        logger.error('OCR component status refresh failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    },
+
+    startOcrComponentDownload: (req, res) => {
+      try {
+        Promise.resolve(manager.downloadOcrComponent()).catch((error) => {
+          logger.error('OCR component download failed:', error);
+        });
+        return res.status(202).json({ success: true, message: 'Bắt đầu tải OCR' });
+      } catch (error) {
+        logger.error('OCR component download start failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    },
+
+    getOcrComponentDownloadStatus: (req, res) => {
+      return res.json(manager.getOcrDownloadProgress());
+    },
+
+    cancelOcrComponentDownload: async (req, res) => {
+      try {
+        const status = await manager.cancelOcrComponentDownload();
+        return res.json({ success: true, status });
+      } catch (error) {
+        logger.error('OCR component download cancel failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    }
+  };
+}
+
+const ocrComponentHandlers = createOcrComponentHandlers(ocrComponentManager);
+
+function registerOcrComponentRoutes(app, handlers) {
+  app.get('/api/ocr-component/status', handlers.getOcrComponentStatus);
+  app.post('/api/ocr-component/download', handlers.startOcrComponentDownload);
+  app.get('/api/ocr-component/download-status', handlers.getOcrComponentDownloadStatus);
+  app.post('/api/ocr-component/cancel', handlers.cancelOcrComponentDownload);
+}
+
 module.exports = {
+  createOcrComponentHandlers,
+  registerOcrComponentRoutes,
+  ...ocrComponentHandlers,
   getVideoInfo: async (req, res) => {
     try {
       // Validation tập trung qua validate helper

@@ -829,6 +829,139 @@ async function saveMusic(event) {
   }
 }
 
+const OCR_DEFAULT_REGION = ['0.70', '0.98', '0.05', '0.95'];
+let ocrReadyPromise = null;
+let resolveOcrReady = null;
+let ocrDownloadActive = false;
+let currentOcrSupportedLanguages = [];
+
+async function requestOcrJson(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Không thể kết nối bộ OCR.');
+  return data;
+}
+
+const ocrComponentFlow = window.OcrUi?.createOcrComponentFlow({
+  request: requestOcrJson,
+  onProgress: updateOcrDownloadProgress
+});
+
+function updateOcrLanguages(languages) {
+  const select = $('ocr-language-select');
+  if (!select || !languages?.length) return;
+  const previous = select.value;
+  const normalized = window.OcrUi.normalizeSupportedLanguages(languages);
+  currentOcrSupportedLanguages = normalized.map(language => language.id);
+  select.innerHTML = '<option value="">Chọn ngôn ngữ...</option>';
+  normalized.forEach(language => {
+    const option = document.createElement('option');
+    option.value = language.id;
+    option.textContent = language.label;
+    select.appendChild(option);
+  });
+  if (normalized.some(language => language.id === previous)) select.value = previous;
+}
+
+async function refreshOcrComponentStatusForUi() {
+  if (!ocrComponentFlow) return;
+  try {
+    const status = await ocrComponentFlow.check();
+    updateOcrLanguages(status.supportedLanguages);
+  } catch (error) {
+    console.error('Lỗi khi kiểm tra trạng thái OCR:', error);
+  }
+}
+
+function updateOcrDownloadProgress(progress = {}) {
+  const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+  const labels = {
+    checking: 'Đang kiểm tra...',
+    downloading: 'Đang tải...',
+    verifying: 'Đang xác minh...',
+    extracting: 'Đang giải nén...',
+    installing: 'Đang cài đặt...',
+    ready: 'OCR đã sẵn sàng',
+    cancelled: 'Đã hủy'
+  };
+  if ($('ocr-download-progress-bar')) $('ocr-download-progress-bar').style.width = `${percent}%`;
+  if ($('ocr-download-percent')) $('ocr-download-percent').textContent = `${percent}%`;
+  if ($('ocr-download-status')) $('ocr-download-status').textContent = labels[progress.step] || labels[progress.status] || 'Đang xử lý...';
+}
+
+function finishOcrPreflight(ready) {
+  $('ocr-component-modal')?.classList.add('hidden');
+  const resolve = resolveOcrReady;
+  resolveOcrReady = null;
+  ocrReadyPromise = null;
+  if (resolve) resolve(ready);
+}
+
+async function ensureOcrComponentReady() {
+  if (!ocrComponentFlow) throw new Error('Không thể khởi tạo giao diện OCR.');
+  const status = await ocrComponentFlow.check();
+  updateOcrLanguages(status.supportedLanguages);
+  if (status.ready) return true;
+  if (ocrReadyPromise) return ocrReadyPromise;
+
+  $('ocr-download-error')?.classList.add('hidden');
+  updateOcrDownloadProgress({ status: 'not_installed', percent: 0 });
+  $('ocr-component-modal')?.classList.remove('hidden');
+  ocrReadyPromise = new Promise(resolve => { resolveOcrReady = resolve; });
+  return ocrReadyPromise;
+}
+
+async function startOcrComponentDownload() {
+  if (ocrDownloadActive) return;
+  const button = $('ocr-download-btn');
+  const error = $('ocr-download-error');
+  ocrDownloadActive = true;
+  setBusy(button, true, 'Đang tải...');
+  error?.classList.add('hidden');
+  try {
+    const result = await ocrComponentFlow.download();
+    if (result.ready) {
+      const status = await ocrComponentFlow.check();
+      updateOcrLanguages(status.supportedLanguages);
+      finishOcrPreflight(true);
+    }
+  } catch (downloadError) {
+    if (error) {
+      error.textContent = downloadError.message;
+      error.classList.remove('hidden');
+    }
+  } finally {
+    ocrDownloadActive = false;
+    setBusy(button, false);
+  }
+}
+
+async function cancelOcrComponentDownload() {
+  try {
+    await ocrComponentFlow.cancel();
+  } catch (error) {
+    console.error('Lỗi khi hủy tải OCR:', error);
+  } finally {
+    finishOcrPreflight(false);
+  }
+}
+
+function syncOcrRegion() {
+  const inputs = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
+  const region = window.OcrUi.normalizeOcrRegion(inputs.map(id => $(id)?.value));
+  $('ocr-region-value').value = region;
+  return region;
+}
+
+$('ocr-download-btn')?.addEventListener('click', startOcrComponentDownload);
+$('ocr-download-cancel-btn')?.addEventListener('click', cancelOcrComponentDownload);
+$('ocr-region-reset-btn')?.addEventListener('click', () => {
+  ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'].forEach((id, index) => {
+    if ($(id)) $(id).value = OCR_DEFAULT_REGION[index];
+  });
+  syncOcrRegion();
+});
+
 async function renderStudio(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -839,6 +972,25 @@ async function renderStudio(event) {
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
   const omiDevice = data.get('omiDevice');
+
+  if (subMode === 'generate') {
+    if (!data.get('ocrLanguage')) {
+      toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
+      return;
+    }
+    try {
+      data.set('ocrRegion', syncOcrRegion());
+      const ready = await ensureOcrComponentReady();
+      if (!ready) return;
+      if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
+        toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
+        return;
+      }
+    } catch (error) {
+      toast(error.message, 'error');
+      return;
+    }
+  }
 
   // Kiểm tra Whisper
   if (subMode === 'generate' && !dependencyStatus.whisper) {
@@ -995,11 +1147,11 @@ async function updateQueueStatus() {
     updateMainResultUI(data.queue, data.currentActiveId);
 
     // Kiểm tra xem còn tác vụ nào đang chạy hoặc chờ không để tiếp tục polling
-    const hasActiveOrPending = data.queue.some(t => t.status === 'rendering' || t.status === 'pending');
+    const hasActiveOrPending = data.queue.some(t => ['rendering', 'pending', 'waiting_input'].includes(t.status));
     const statusText = $('render-status');
 
     // Cập nhật số lượng trên badge (chỉ đếm các task đang chạy hoặc đang chờ)
-    const activeOrPendingCount = data.queue.filter(t => t.status === 'rendering' || t.status === 'pending').length;
+    const activeOrPendingCount = data.queue.filter(t => ['rendering', 'pending', 'waiting_input'].includes(t.status)).length;
     const badgeElement = $('queue-badge');
     if (badgeElement) {
       if (activeOrPendingCount > 0) {
@@ -1103,6 +1255,21 @@ function updateMainResultUI(queue, currentActiveId) {
         <button style="margin-top: 20px; background: transparent; border: 1px solid rgba(239, 68, 68, 0.4); color: var(--danger); padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.15s;" onclick="cancelQueueTask('${targetTask.id}', event)" onmouseover="this.style.background='rgba(239, 68, 68, 0.06)'; this.style.borderColor='var(--danger)';" onmouseout="this.style.background='transparent'; this.style.borderColor='rgba(239, 68, 68, 0.4)';">Hủy Chờ</button>
       </div>
     `;
+  } else if (targetTask.status === 'waiting_input') {
+    const fallback = window.OcrUi.getOcrFallbackAction(targetTask);
+    const fallbackMessage = window.OcrUi.escapeHtml(fallback.message || targetTask.error || 'OCR gặp lỗi kỹ thuật.');
+    const whisperAction = fallback.visible
+      ? `<button type="button" class="premium-render-btn" onclick="useWhisperForTask('${targetTask.id}', event)">Dùng Whisper thay thế</button>`
+      : '';
+    html = `
+      <div class="render-loading-state ocr-waiting-state">
+        <h3>OCR cần bạn xác nhận</h3>
+        <p>${fallbackMessage}</p>
+        <div class="ocr-fallback-actions">
+          ${whisperAction}
+          <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+        </div>
+      </div>`;
   } else if (targetTask.status === 'success' && targetTask.result) {
     // 3. Giao diện Render thành công (Video Player full-size như cũ)
     html = `
@@ -1215,6 +1382,7 @@ function renderQueueModalUI(queue, currentActiveId) {
   sortedQueue.forEach((task) => {
     const isRunning = task.status === 'rendering';
     const isPending = task.status === 'pending';
+    const isWaiting = task.status === 'waiting_input';
     const isSuccess = task.status === 'success';
     const isFailed = task.status === 'failed' || task.status === 'error';
 
@@ -1230,6 +1398,10 @@ function renderQueueModalUI(queue, currentActiveId) {
       statusBadge = `<span style="color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Chờ render</span>`;
       progressBarPercent = 0;
       progressBarColor = 'rgba(255, 255, 255, 0.05)';
+    } else if (isWaiting) {
+      statusBadge = `<span style="color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Cần xác nhận</span>`;
+      progressBarPercent = task.percent || 0;
+      progressBarColor = '#f59e0b';
     } else if (isSuccess) {
       statusBadge = `<span style="color: #22c55e; background: rgba(34, 197, 94, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Hoàn tất</span>`;
       progressBarPercent = 100;
@@ -1241,7 +1413,14 @@ function renderQueueModalUI(queue, currentActiveId) {
     }
 
     let actionHtml = '';
-    if (isPending) {
+    let waitingMessageHtml = '';
+    if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
+      const waitingMessage = window.OcrUi.escapeHtml(window.OcrUi.getOcrFallbackAction(task).message);
+      waitingMessageHtml = `<div class="queue-ocr-error">${waitingMessage}</div>`;
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="useWhisperForTask('${task.id}', event)">Dùng Whisper</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if (isPending) {
       actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy chờ</button>`;
     } else if (isRunning) {
       actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy render</button>`;
@@ -1268,6 +1447,7 @@ function renderQueueModalUI(queue, currentActiveId) {
             ${actionHtml}
           </div>
         </div>
+        ${waitingMessageHtml}
         <!-- Progress Bar -->
         <div style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 4px; border-radius: 2px; overflow: hidden; position: relative;">
           <div style="width: ${progressBarPercent}%; height: 100%; background: ${progressBarColor}; transition: width 0.3s ease-out;"></div>
@@ -1405,6 +1585,27 @@ async function cancelQueueTask(taskId, event) {
 }
 window.cancelQueueTask = cancelQueueTask;
 
+async function useWhisperForTask(taskId, event) {
+  const button = event?.currentTarget || event?.target;
+  setBusy(button, true, 'Đang chuyển...');
+  try {
+    const response = await fetch('/api/render-use-whisper', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Không thể chuyển sang Whisper.');
+    toast('Đã chuyển tác vụ sang Whisper.', 'success');
+    startQueuePolling();
+    await updateQueueStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+    setBusy(button, false);
+  }
+}
+window.useWhisperForTask = useWhisperForTask;
+
 async function cancelRenderVideo() {
   const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
   if (!confirmCancel) return;
@@ -1436,7 +1637,7 @@ async function checkActiveRenderProgress() {
     const pRes = await fetch('/api/render-queue-status');
     if (!pRes.ok) return;
     const data = await pRes.json();
-    const hasActiveOrPending = data.queue.some(t => t.status === 'rendering' || t.status === 'pending');
+    const hasActiveOrPending = data.queue.some(t => ['rendering', 'pending', 'waiting_input'].includes(t.status));
     if (hasActiveOrPending || data.queue.length > 0) {
       startQueuePolling();
     }
@@ -3789,6 +3990,7 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
     const input = $('voice-mode');
     if (input) {
       input.value = mode;
+
       input.dispatchEvent(new Event('change'));
     }
   });
@@ -3803,9 +4005,8 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
     if (input) {
       const mode = btn.dataset.subMode;
       input.value = mode;
-
-
-
+      $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
+      if (mode === 'generate') refreshOcrComponentStatusForUi();
       // Automatically center subtitle overlay when any active subtitle mode is selected
       if (e && e.isTrusted && mode !== 'none') {
         const alignInput = $('subtitle-alignment-input');
