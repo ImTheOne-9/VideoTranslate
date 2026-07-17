@@ -3058,6 +3058,74 @@ select option {
   overflow-y: auto !important;
 }
 
+.ocr-settings {
+  margin: 10px 0 15px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(8, 12, 16, 0.4);
+}
+
+.ocr-region-details summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ocr-region-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ocr-region-grid label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ocr-region-grid input {
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.ocr-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ocr-download-dialog { width: 460px; max-width: 92%; }
+.ocr-download-body { display: flex; flex-direction: column; gap: 14px; padding: 20px; }
+.ocr-download-body p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.ocr-download-track { height: 8px; overflow: hidden; border-radius: 4px; background: rgba(255, 255, 255, 0.06); }
+#ocr-download-progress-bar { width: 0; height: 100%; background: var(--accent); transition: width 0.2s ease; }
+.ocr-download-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+.ocr-download-error { padding: 9px 10px; border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 4px; background: rgba(239, 68, 68, 0.08); color: var(--danger) !important; }
+.ocr-download-actions { display: flex; gap: 10px; }
+.ocr-download-actions .premium-render-btn { flex: 1; margin: 0; }
+.ocr-fallback-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
+
+@media (max-width: 520px) {
+  .ocr-download-actions { flex-direction: column; }
+  .ocr-region-grid { grid-template-columns: 1fr; }
+}
+
 #panel-source-video,
 #panel-reaction {
   overflow: hidden !important;
