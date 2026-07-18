@@ -43,6 +43,31 @@
     return numbers.map(value => value.toFixed(2)).join(',');
   }
 
+  function transformOcrRegion(values, interaction, deltaX, deltaY, minSize = 0.03) {
+    const [initialTop, initialBottom, initialLeft, initialRight] = values.map(Number);
+    const round = value => Math.round(value * 10000) / 10000;
+    let top = initialTop;
+    let bottom = initialBottom;
+    let left = initialLeft;
+    let right = initialRight;
+
+    if (interaction === 'move') {
+      const width = right - left;
+      const height = bottom - top;
+      left = Math.max(0, Math.min(1 - width, left + deltaX));
+      top = Math.max(0, Math.min(1 - height, top + deltaY));
+      right = left + width;
+      bottom = top + height;
+    } else {
+      if (interaction.includes('n')) top = Math.max(0, Math.min(bottom - minSize, top + deltaY));
+      if (interaction.includes('s')) bottom = Math.min(1, Math.max(top + minSize, bottom + deltaY));
+      if (interaction.includes('w')) left = Math.max(0, Math.min(right - minSize, left + deltaX));
+      if (interaction.includes('e')) right = Math.min(1, Math.max(left + minSize, right + deltaX));
+    }
+
+    return [top, bottom, left, right].map(round);
+  }
+
   function getOcrFallbackAction(task) {
     const action = task?.actionRequired;
     const actionType = typeof action === 'string' ? action : action?.type;
@@ -94,6 +119,7 @@
     escapeHtml,
     getOcrFallbackAction,
     normalizeOcrRegion,
-    normalizeSupportedLanguages
+    normalizeSupportedLanguages,
+    transformOcrRegion
   };
 }));

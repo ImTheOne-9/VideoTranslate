@@ -946,21 +946,145 @@ async function cancelOcrComponentDownload() {
   }
 }
 
-function syncOcrRegion() {
-  const inputs = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
-  const region = window.OcrUi.normalizeOcrRegion(inputs.map(id => $(id)?.value));
+const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
+
+function getOcrRegionValues() {
+  return OCR_REGION_INPUT_IDS.map(id => Number($(id)?.value));
+}
+
+function getOcrPreviewBounds() {
+  const wrapper = $('video-preview-wrapper');
+  const video = $('studio-video-preview');
+  if (!wrapper || !video) return null;
+
+  const width = wrapper.clientWidth;
+  const height = wrapper.clientHeight;
+  if (!width || !height) return null;
+
+  const videoWidth = video.videoWidth || (wrapper.classList.contains('aspect-16-9') ? 16 : 9);
+  const videoHeight = video.videoHeight || (wrapper.classList.contains('aspect-16-9') ? 9 : 16);
+  const videoRatio = videoWidth / videoHeight;
+  const wrapperRatio = width / height;
+
+  if (videoRatio > wrapperRatio) {
+    const actualHeight = width / videoRatio;
+    return { left: 0, top: (height - actualHeight) / 2, width, height: actualHeight };
+  }
+
+  const actualWidth = height * videoRatio;
+  return { left: (width - actualWidth) / 2, top: 0, width: actualWidth, height };
+}
+
+function updateOcrRegionOverlay() {
+  const overlay = $('ocr-region-overlay');
+  const wrapper = $('video-preview-wrapper');
+  const shouldShow = $('subtitle-mode')?.value === 'generate'
+    && wrapper
+    && !wrapper.classList.contains('hidden');
+  if (!overlay || !shouldShow) {
+    overlay?.classList.add('hidden');
+    return;
+  }
+
+  const bounds = getOcrPreviewBounds();
+  const [top, bottom, left, right] = getOcrRegionValues();
+  if (!bounds || [top, bottom, left, right].some(value => !Number.isFinite(value))) return;
+
+  overlay.style.left = `${bounds.left + left * bounds.width}px`;
+  overlay.style.top = `${bounds.top + top * bounds.height}px`;
+  overlay.style.width = `${(right - left) * bounds.width}px`;
+  overlay.style.height = `${(bottom - top) * bounds.height}px`;
+  overlay.classList.remove('hidden');
+}
+
+function setOcrRegionValues(values) {
+  OCR_REGION_INPUT_IDS.forEach((id, index) => {
+    if ($(id)) $(id).value = values[index].toFixed(2);
+  });
+  syncOcrRegion(false);
+  updateOcrRegionOverlay();
+}
+
+function syncOcrRegion(updateOverlay = true) {
+  const region = window.OcrUi.normalizeOcrRegion(getOcrRegionValues());
   $('ocr-region-value').value = region;
+  if (updateOverlay) updateOcrRegionOverlay();
   return region;
+}
+
+function initOcrRegionOverlay() {
+  const overlay = $('ocr-region-overlay');
+  const wrapper = $('video-preview-wrapper');
+  const video = $('studio-video-preview');
+  if (!overlay || !wrapper || !video) return;
+
+  let dragState = null;
+  overlay.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const bounds = getOcrPreviewBounds();
+    if (!bounds) return;
+    dragState = {
+      pointerId: event.pointerId,
+      interaction: event.target.dataset.ocrHandle || 'move',
+      startX: event.clientX,
+      startY: event.clientY,
+      values: getOcrRegionValues(),
+      bounds
+    };
+    overlay.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  overlay.addEventListener('pointermove', event => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const deltaX = (event.clientX - dragState.startX) / dragState.bounds.width;
+    const deltaY = (event.clientY - dragState.startY) / dragState.bounds.height;
+    const values = window.OcrUi.transformOcrRegion(
+      dragState.values,
+      dragState.interaction,
+      deltaX,
+      deltaY
+    );
+    setOcrRegionValues(values);
+    event.preventDefault();
+  });
+
+  const endDrag = event => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    if (overlay.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    dragState = null;
+  };
+  overlay.addEventListener('pointerup', endDrag);
+  overlay.addEventListener('pointercancel', endDrag);
+
+  OCR_REGION_INPUT_IDS.forEach(id => {
+    $(id)?.addEventListener('input', () => {
+      try { syncOcrRegion(); } catch { /* Wait until the typed bounds are valid. */ }
+    });
+    $(id)?.addEventListener('change', () => {
+      try { syncOcrRegion(); } catch (error) { toast(error.message, 'error'); }
+    });
+  });
+
+  video.addEventListener('loadedmetadata', updateOcrRegionOverlay);
+  $('preview-aspect-select')?.addEventListener('change', () => requestAnimationFrame(updateOcrRegionOverlay));
+  window.addEventListener('resize', updateOcrRegionOverlay);
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(updateOcrRegionOverlay).observe(wrapper);
+  }
+  updateOcrRegionOverlay();
 }
 
 $('ocr-download-btn')?.addEventListener('click', startOcrComponentDownload);
 $('ocr-download-cancel-btn')?.addEventListener('click', cancelOcrComponentDownload);
 $('ocr-region-reset-btn')?.addEventListener('click', () => {
-  ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'].forEach((id, index) => {
+  OCR_REGION_INPUT_IDS.forEach((id, index) => {
     if ($(id)) $(id).value = OCR_DEFAULT_REGION[index];
   });
   syncOcrRegion();
 });
+
+initOcrRegionOverlay();
 
 async function renderStudio(event) {
   event.preventDefault();
@@ -2347,6 +2471,7 @@ function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
   $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
   $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
+  updateOcrRegionOverlay();
 
   const whisperModelWrapper = $('whisper-model-wrapper');
   if (whisperModelWrapper) {
@@ -4006,6 +4131,7 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
       const mode = btn.dataset.subMode;
       input.value = mode;
       $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
+      updateOcrRegionOverlay();
       if (mode === 'generate') refreshOcrComponentStatusForUi();
       // Automatically center subtitle overlay when any active subtitle mode is selected
       if (e && e.isTrusted && mode !== 'none') {

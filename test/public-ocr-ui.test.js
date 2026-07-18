@@ -8,7 +8,8 @@ const {
   escapeHtml,
   getOcrFallbackAction,
   normalizeOcrRegion,
-  normalizeSupportedLanguages
+  normalizeSupportedLanguages,
+  transformOcrRegion
 } = require('../public/js/ocr-ui');
 
 test('escapes OCR status text before inserting it into queue markup', () => {
@@ -28,6 +29,21 @@ test('normalizes OCR region and rejects inverted bounds', () => {
   assert.equal(normalizeOcrRegion(['0.70', '0.98', '0.05', '0.95']), '0.70,0.98,0.05,0.95');
   assert.throws(() => normalizeOcrRegion(['0.9', '0.7', '0.05', '0.95']), /trên.*dưới/i);
   assert.throws(() => normalizeOcrRegion(['0.7', '0.98', '-0.1', '0.95']), /0 đến 1/i);
+});
+
+test('moves and resizes OCR regions while keeping them inside the video', () => {
+  assert.deepEqual(
+    transformOcrRegion([0.70, 0.98, 0.05, 0.95], 'move', 0.20, 0.20),
+    [0.72, 1, 0.1, 1]
+  );
+  assert.deepEqual(
+    transformOcrRegion([0.70, 0.98, 0.05, 0.95], 'nw', 0.10, -0.10),
+    [0.6, 0.98, 0.15, 0.95]
+  );
+  assert.deepEqual(
+    transformOcrRegion([0.70, 0.98, 0.05, 0.95], 'se', -1, -1),
+    [0.7, 0.73, 0.05, 0.08]
+  );
 });
 
 test('component flow returns immediately when OCR is ready', async () => {
@@ -149,6 +165,7 @@ test('studio markup exposes language, advanced region, and first-use download co
     'ocr-region-left',
     'ocr-region-right',
     'ocr-region-value',
+    'ocr-region-overlay',
     'ocr-component-modal',
     'ocr-download-btn',
     'ocr-download-cancel-btn'
