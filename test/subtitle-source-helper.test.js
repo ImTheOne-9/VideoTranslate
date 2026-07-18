@@ -26,6 +26,7 @@ function createOptions(directory, overrides = {}) {
     ffmpegPath: 'C:\\Cong cu\\ffmpeg.exe',
     durationMs: 12_345,
     whisperModel: 'small',
+    whisperOnnxVariant: 'q8',
     ocrLanguage: 'vi',
     ocrMode: 'auto',
     ...overrides
@@ -94,7 +95,9 @@ test('force Whisper skips every OCR dependency and preserves exact Whisper argum
       options.workDir,
       options.ffmpegPath,
       options.whisperModel,
-      options.durationMs
+      options.durationMs,
+      options.ocrLanguage,
+      options.whisperOnnxVariant
     ]]);
     assert.deepEqual(result, {
       path: path.join(options.workDir, 'whisper.srt'),
@@ -346,7 +349,9 @@ test('VSE no-subtitles result falls back to Whisper', async () => {
       options.workDir,
       options.ffmpegPath,
       options.whisperModel,
-      options.durationMs
+      options.durationMs,
+      options.ocrLanguage,
+      options.whisperOnnxVariant
     ]]);
     assert.deepEqual(result, {
       path: path.join(options.workDir, 'fallback.srt'),
@@ -356,6 +361,24 @@ test('VSE no-subtitles result falls back to Whisper', async () => {
       removedWatermarks: 0,
       reason: 'no_hardsub'
     });
+  });
+});
+
+test('OCR-only mode never falls back to Whisper when no subtitles are found', async () => {
+  await withTempDirectory(async (directory) => {
+    let whisperCalled = false;
+    const dependencies = createDependencies({
+      runVse: async () => ({ kind: 'no_subtitles' }),
+      extractAudioAndTranscribe: async () => {
+        whisperCalled = true;
+      }
+    });
+
+    await assert.rejects(
+      resolveAutomaticSubtitle(createOptions(directory, { ocrOnly: true }), dependencies),
+      (error) => error?.code === 'OCR_NO_SUBTITLES'
+    );
+    assert.equal(whisperCalled, false);
   });
 });
 
@@ -379,6 +402,24 @@ test('rejected OCR quality falls back to Whisper', async () => {
     assert.equal(result.path, path.join(options.workDir, 'quality-fallback.srt'));
     assert.equal(result.cueCount, 0);
     assert.equal(result.removedWatermarks, 0);
+  });
+});
+
+test('OCR-only mode rejects low-quality OCR without invoking Whisper', async () => {
+  await withTempDirectory(async (directory) => {
+    let whisperCalled = false;
+    const dependencies = createDependencies({
+      evaluateAndCleanSrt: async () => ({ accepted: false, cueCount: 1 }),
+      extractAudioAndTranscribe: async () => {
+        whisperCalled = true;
+      }
+    });
+
+    await assert.rejects(
+      resolveAutomaticSubtitle(createOptions(directory, { ocrOnly: true }), dependencies),
+      (error) => error?.code === 'OCR_NO_SUBTITLES'
+    );
+    assert.equal(whisperCalled, false);
   });
 });
 

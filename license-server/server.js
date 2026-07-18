@@ -441,6 +441,23 @@ const DB = {
           }
         };
       }
+    },
+
+    async deleteOne(query) {
+      if (useMongo) {
+        return await LicenseModel.deleteOne(query);
+      } else {
+        const db = readJSON();
+        if (query.key) {
+          const idx = db.licenses.findIndex(l => l.key === query.key);
+          if (idx !== -1) {
+            db.licenses.splice(idx, 1);
+            await writeJSON(db);
+            return { deletedCount: 1 };
+          }
+        }
+        return { deletedCount: 0 };
+      }
     }
   },
 
@@ -1915,9 +1932,8 @@ app.post('/api/user/keys/cancel', userAuth, async (req, res) => {
       return res.status(400).json({ error: 'Chỉ có thể hủy key ở trạng thái chờ thanh toán!' });
     }
 
-    // Đổi trạng thái sang expired thay vì xóa cứng để tránh mất dấu vết nếu webhook đến trễ
-    license.paymentStatus = 'expired';
-    await license.save();
+    // Xóa cứng key khỏi database theo yêu cầu
+    await DB.licenses.deleteOne({ key });
 
     res.json({ success: true, message: 'Đã hủy đơn đăng ký gói thành công!' });
   } catch (err) {
@@ -1994,16 +2010,18 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
       createdAt: new Date().toISOString()
     });
 
-    // 3. Gửi Email thông báo (hoặc ghi log fallback)
-    await sendLicenseEmail({
-      toEmail: req.user.email,
-      fullName: req.user.fullName,
-      key,
-      planType: plan.id,
-      expiresAt: expiresStr,
-      status: paymentStatus,
-      price: plan.price
-    });
+    // 3. Gửi Email thông báo (Chỉ gửi nếu đã kích hoạt thanh toán ngay - vd gói dùng thử 0đ)
+    if (paymentStatus === 'active') {
+      await sendLicenseEmail({
+        toEmail: req.user.email,
+        fullName: req.user.fullName,
+        key,
+        planType: plan.id,
+        expiresAt: expiresStr,
+        status: paymentStatus,
+        price: plan.price
+      });
+    }
 
     res.json({
       success: true,

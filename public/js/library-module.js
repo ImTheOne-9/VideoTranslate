@@ -1098,25 +1098,30 @@ function startStatusPolling() {
 // Whisper Model Management & Downloading
 let whisperDownloadInterval = null;
 let isDownloadingWhisper = false;
+let activeWhisperOnnxVariant = 'q8';
 
-function openWhisperDownloadModal() {
+function normalizeWhisperOnnxVariant(value) {
+  return String(value || '').toLowerCase() === 'fp32' ? 'fp32' : 'q8';
+}
+
+function openWhisperDownloadModal(requestedVariant) {
   const modal = $('whisper-download-modal');
   if (modal) modal.classList.remove('hidden');
   
   const modelSelect = $('whisper-model-select');
-  const model = modelSelect ? modelSelect.value : 'base';
+  activeWhisperOnnxVariant = normalizeWhisperOnnxVariant(requestedVariant || modelSelect?.value);
   
   const modelNameEl = $('whisper-download-model-name');
   if (modelNameEl) {
-    modelNameEl.textContent = model.toUpperCase();
+    modelNameEl.textContent = `SMALL ${activeWhisperOnnxVariant.toUpperCase()}`;
   }
   
-  fetch(`/api/whisper-model/status?model=${model}`)
+  fetch(`/api/whisper-model/status?variant=${activeWhisperOnnxVariant}`)
     .then(res => res.json())
     .then(status => {
-      updateWhisperDownloadUI(status, model);
+      updateWhisperDownloadUI(status, activeWhisperOnnxVariant);
       if (status.downloading) {
-        startWhisperStatusPolling(model);
+        startWhisperStatusPolling(activeWhisperOnnxVariant);
       }
     })
     .catch(err => console.error(err));
@@ -1131,7 +1136,7 @@ function closeWhisperDownloadModal() {
   if (modal) modal.classList.add('hidden');
 }
 
-function updateWhisperDownloadUI(status, model) {
+function updateWhisperDownloadUI(status, variant) {
   const statusLabel = $('whisper-download-status-label');
   const percentLabel = $('whisper-download-percent-label');
   const progressBar = $('whisper-download-progress-bar');
@@ -1142,13 +1147,10 @@ function updateWhisperDownloadUI(status, model) {
   const closeBtn = $('whisper-download-close');
 
   const whisperSizes = {
-    tiny: '75 MB',
-    base: '140 MB',
-    small: '460 MB',
-    medium: '1.5 GB',
-    'large-v3': '3.0 GB'
+    q8: '252 MB',
+    fp32: '971 MB'
   };
-  const targetSize = whisperSizes[model] || '...';
+  const targetSize = whisperSizes[variant] || '...';
   if (sizeLabel) sizeLabel.textContent = `Kích thước: ~${targetSize}`;
 
   if (status.downloading) {
@@ -1236,19 +1238,18 @@ function updateWhisperDownloadUI(status, model) {
 }
 
 function startWhisperDownload() {
-  const modelSelect = $('whisper-model-select');
-  const model = modelSelect ? modelSelect.value : 'base';
+  const variant = activeWhisperOnnxVariant;
   
   fetch('/api/download-whisper-model', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model })
+    body: JSON.stringify({ variant })
   })
     .then(res => res.json())
     .then(data => {
       if (data.success) {
         toast('🚀 Bắt đầu tải bộ nhận diện giọng nói AI...', 'info');
-        startWhisperStatusPolling(model);
+        startWhisperStatusPolling(variant);
       }
     })
     .catch(err => {
@@ -1256,18 +1257,18 @@ function startWhisperDownload() {
     });
 }
 
-function startWhisperStatusPolling(model) {
+function startWhisperStatusPolling(variant) {
   if (whisperDownloadInterval) clearInterval(whisperDownloadInterval);
   
   whisperDownloadInterval = setInterval(() => {
-    fetch(`/api/whisper-model/status?model=${model}`)
+    fetch(`/api/whisper-model/status?variant=${variant}`)
       .then(res => res.json())
       .then(status => {
-        updateWhisperDownloadUI(status, model);
+        updateWhisperDownloadUI(status, variant);
         if (!status.downloading) {
           clearInterval(whisperDownloadInterval);
           if (status.exists) {
-            toast(`🎉 Tải xuống model AI ${model.toUpperCase()} thành công!`, 'success');
+            toast(`🎉 Tải xuống model AI SMALL ${variant.toUpperCase()} thành công!`, 'success');
             checkWhisperModelStatus();
           } else if (status.error) {
             toast('❌ Lỗi khi tải model AI: ' + status.error, 'error');
@@ -1284,12 +1285,12 @@ function startWhisperStatusPolling(model) {
 async function checkWhisperModelStatus() {
   const modelSelect = $('whisper-model-select');
   if (!modelSelect) return;
-  const model = modelSelect.value;
+  const variant = normalizeWhisperOnnxVariant(modelSelect.value);
   const statusLabel = $('whisper-model-status');
   const downloadBtn = $('whisper-model-download-btn');
 
   try {
-    const res = await fetch(`/api/whisper-model/status?model=${model}`);
+    const res = await fetch(`/api/whisper-model/status?variant=${variant}`);
     if (!res.ok) throw new Error('Không thể kiểm tra trạng thái model');
     const status = await res.json();
     
@@ -1312,7 +1313,7 @@ async function checkWhisperModelStatus() {
           downloadBtn.textContent = '⏳ Đang tải...';
           downloadBtn.disabled = true;
         }
-        startWhisperStatusPolling(model);
+        startWhisperStatusPolling(variant);
       } else {
         if (statusLabel) {
           statusLabel.textContent = 'Chưa tải';
@@ -1337,15 +1338,68 @@ async function checkWhisperModelStatus() {
 // Global state for download configuration modal callback
 let currentDlConfirmCallback = null;
 
-function openDownloadTranslateModal(videoTitle, thumbnailUrl, onConfirm) {
+function openDownloadTranslateModal(videoTitle, thumbnailUrl, onConfirm, formats = [], previewVideoUrl = null) {
   currentDlConfirmCallback = onConfirm;
+
+  const previewFrame = document.querySelector('.dl-preview-frame');
+  if (previewFrame) {
+    previewFrame.style.aspectRatio = '16/9';
+    previewFrame.style.height = '';
+    previewFrame.style.width = '100%';
+  }
 
   const titleEl = document.getElementById('dl-preview-video-title');
   if (titleEl) titleEl.textContent = videoTitle || 'Đang tải video...';
 
   const thumbEl = document.getElementById('dl-preview-thumbnail');
-  if (thumbEl) {
-    thumbEl.src = thumbnailUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='%23111'/></svg>";
+  const videoEl = document.getElementById('dl-preview-video');
+
+  if (previewVideoUrl) {
+    if (videoEl) {
+      videoEl.src = previewVideoUrl;
+      videoEl.load();
+      videoEl.classList.remove('hidden');
+      videoEl.play().catch(e => {
+        console.warn('Không thể tự động phát video xem trước:', e);
+      });
+    }
+    if (thumbEl) thumbEl.classList.add('hidden');
+  } else {
+    if (videoEl) {
+      videoEl.src = '';
+      videoEl.classList.add('hidden');
+    }
+    if (thumbEl) {
+      thumbEl.src = thumbnailUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='%23111'/></svg>";
+      thumbEl.classList.remove('hidden');
+    }
+  }
+
+  // Populate output video quality dropdown
+  const qualitySelect = document.getElementById('dl-video-quality');
+  if (qualitySelect) {
+    qualitySelect.innerHTML = '';
+    
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = 'vietsub';
+    defaultOpt.textContent = 'Tải bản chất lượng tốt nhất tự động (Mặc định)';
+    qualitySelect.appendChild(defaultOpt);
+
+    if (previewVideoUrl) {
+      const fastOpt = document.createElement('option');
+      fastOpt.value = 'temp_preview';
+      fastOpt.textContent = '⚡ Sử dụng video xem trước sẵn có (Không tải lại - Rất nhanh)';
+      qualitySelect.appendChild(fastOpt);
+    }
+
+    if (formats && formats.length > 0) {
+      formats.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.format_id;
+        opt.textContent = `${f.quality} · ${f.size}`;
+        qualitySelect.appendChild(opt);
+      });
+    }
   }
 
   // Load defaults from localStorage
@@ -1413,53 +1467,89 @@ function onDlAiProviderChange() {
     keyInput.value = localStorage.getItem('global_gemini_key') || '';
     keyInput.placeholder = 'Nhập Gemini API Key...';
     
-    const geminiModels = [
-      { value: 'models/gemini-2.5-flash', label: 'gemini-2.5-flash' },
-      { value: 'models/gemini-1.5-flash', label: 'gemini-1.5-flash' },
-      { value: 'models/gemini-1.5-pro', label: 'gemini-1.5-pro' }
-    ];
-    geminiModels.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.value;
-      opt.textContent = m.label;
-      modelSelect.appendChild(opt);
-    });
-    const savedModel = localStorage.getItem('global_gemini_model') || 'models/gemini-2.5-flash';
-    modelSelect.value = savedModel.startsWith('models/') ? savedModel : 'models/' + savedModel;
+    const globalSelect = document.getElementById('global-gemini-model');
+    if (globalSelect && globalSelect.options.length > 0 && !globalSelect.options[0].textContent.includes('Đang tải') && !globalSelect.options[0].textContent.includes('Vui lòng')) {
+      for (let i = 0; i < globalSelect.options.length; i++) {
+        const opt = globalSelect.options[i];
+        const newOpt = document.createElement('option');
+        newOpt.value = opt.value;
+        newOpt.textContent = opt.textContent;
+        modelSelect.appendChild(newOpt);
+      }
+      modelSelect.value = localStorage.getItem('global_gemini_model') || '';
+    } else {
+      const geminiModels = [
+        { value: 'models/gemini-2.5-flash', label: 'gemini-2.5-flash' },
+        { value: 'models/gemini-1.5-flash', label: 'gemini-1.5-flash' },
+        { value: 'models/gemini-1.5-pro', label: 'gemini-1.5-pro' }
+      ];
+      geminiModels.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.value;
+        opt.textContent = m.label;
+        modelSelect.appendChild(opt);
+      });
+      const savedModel = localStorage.getItem('global_gemini_model') || 'models/gemini-2.5-flash';
+      modelSelect.value = savedModel.startsWith('models/') ? savedModel : 'models/' + savedModel;
+    }
 
   } else if (provider === 'openrouter') {
     keyInput.value = localStorage.getItem('global_openrouter_key') || '';
     keyInput.placeholder = 'Nhập OpenRouter API Key...';
     
-    const orModels = [
-      { value: 'openrouter/owl-alpha', label: 'Owl Alpha (Chuyên dịch)' },
-      { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-      { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' },
-      { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' }
-    ];
-    orModels.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.value;
-      opt.textContent = m.label;
-      modelSelect.appendChild(opt);
-    });
-    modelSelect.value = localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha';
+    const globalSelect = document.getElementById('global-openrouter-model');
+    if (globalSelect && globalSelect.options.length > 0 && !globalSelect.options[0].textContent.includes('Đang tải') && !globalSelect.options[0].textContent.includes('Vui lòng')) {
+      for (let i = 0; i < globalSelect.options.length; i++) {
+        const opt = globalSelect.options[i];
+        const newOpt = document.createElement('option');
+        newOpt.value = opt.value;
+        newOpt.textContent = opt.textContent;
+        modelSelect.appendChild(newOpt);
+      }
+      modelSelect.value = localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha';
+    } else {
+      const orModels = [
+        { value: 'openrouter/owl-alpha', label: 'Owl Alpha (Chuyên dịch)' },
+        { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+        { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' },
+        { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' }
+      ];
+      orModels.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.value;
+        opt.textContent = m.label;
+        modelSelect.appendChild(opt);
+      });
+      modelSelect.value = localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha';
+    }
 
   } else if (provider === '9router') {
     keyInput.value = localStorage.getItem('global_ninerouter_key') || '';
     keyInput.placeholder = 'Nhập 9Router API Key (nếu có)...';
     
-    const nineModels = [
-      { value: 'google/gemini-1.5-flash', label: 'Gemini 1.5 Flash (Proxy)' },
-      { value: 'meta-llama/llama-3-8b-instruct', label: 'Llama 3 8B (Proxy)' }
-    ];
-    nineModels.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.value;
-      opt.textContent = m.label;
-      modelSelect.appendChild(opt);
-    });
-    modelSelect.value = localStorage.getItem('global_ninerouter_model') || 'google/gemini-1.5-flash';
+    const globalSelect = document.getElementById('global-ninerouter-model');
+    if (globalSelect && globalSelect.options.length > 0 && !globalSelect.options[0].textContent.includes('Đang tải') && !globalSelect.options[0].textContent.includes('Vui lòng')) {
+      for (let i = 0; i < globalSelect.options.length; i++) {
+        const opt = globalSelect.options[i];
+        const newOpt = document.createElement('option');
+        newOpt.value = opt.value;
+        newOpt.textContent = opt.textContent;
+        modelSelect.appendChild(newOpt);
+      }
+      modelSelect.value = localStorage.getItem('global_ninerouter_model') || 'google/gemini-1.5-flash';
+    } else {
+      const nineModels = [
+        { value: 'google/gemini-1.5-flash', label: 'Gemini 1.5 Flash (Proxy)' },
+        { value: 'meta-llama/llama-3-8b-instruct', label: 'Llama 3 8B (Proxy)' }
+      ];
+      nineModels.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.value;
+        opt.textContent = m.label;
+        modelSelect.appendChild(opt);
+      });
+      modelSelect.value = localStorage.getItem('global_ninerouter_model') || 'google/gemini-1.5-flash';
+    }
   }
 }
 
@@ -1516,6 +1606,10 @@ document.addEventListener('DOMContentLoaded', () => {
           apiKey = keyInput.value;
         }
 
+        const formatSelect = document.getElementById('dl-video-quality');
+        const formatId = formatSelect ? formatSelect.value : 'vietsub';
+        const useExistingPreview = (formatId === 'temp_preview');
+
         currentDlConfirmCallback({
           aiProvider,
           targetLang,
@@ -1524,11 +1618,41 @@ document.addEventListener('DOMContentLoaded', () => {
           subtitleMarginV,
           subtitleMaxLines,
           model,
-          apiKey
+          apiKey,
+          formatId,
+          useExistingPreview
         });
       }
       closeDownloadTranslateModal();
     };
+  }
+
+  // Auto aspect ratio for vertical video preview
+  const previewVideo = document.getElementById('dl-preview-video');
+  if (previewVideo) {
+    previewVideo.addEventListener('loadedmetadata', () => {
+      const width = previewVideo.videoWidth;
+      const height = previewVideo.videoHeight;
+      if (width && height) {
+        const ratio = width / height;
+        const previewFrame = document.querySelector('.dl-preview-frame');
+        if (previewFrame) {
+          if (ratio < 1) {
+            // Vertical video (9:16)
+            previewFrame.style.aspectRatio = '9/16';
+            previewFrame.style.height = '280px';
+            previewFrame.style.width = 'auto';
+          } else {
+            // Horizontal video (16:9)
+            previewFrame.style.aspectRatio = '16/9';
+            previewFrame.style.height = 'auto';
+            previewFrame.style.width = '100%';
+          }
+          // Recalculate subtitle preview scaling since width changed
+          updateLiveSubPreview();
+        }
+      }
+    });
   }
 });
 

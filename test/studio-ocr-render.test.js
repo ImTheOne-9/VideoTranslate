@@ -164,6 +164,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   });
   const body = {
     whisperModel: 'small',
+    whisperOnnxVariant: 'fp32',
     ocrLanguage: 'zh',
     ocrMode: 'accurate',
     ocrRegion: '0.6,0.95,0.1,0.9'
@@ -187,10 +188,12 @@ test('generate resolver wires coordinator options and returns result.path downst
       ffmpegPath: 'tools/ffmpeg.exe',
       durationMs: 12500,
       whisperModel: 'small',
+      whisperOnnxVariant: 'fp32',
       ocrLanguage: 'zh',
       ocrMode: 'accurate',
       ocrRegion: '0.6,0.95,0.1,0.9',
       forceWhisper: false,
+      ocrOnly: false,
       onProgress: 'function'
     }
   );
@@ -217,6 +220,60 @@ test('Omi voice-only subtitle generation still tries OCR first', async () => {
   });
 
   assert.equal(receivedOptions.forceWhisper, false);
+  assert.equal(receivedOptions.ocrOnly, false);
+});
+
+test('user-selected Whisper bypasses OCR while user-selected OCR disables fallback', async () => {
+  const received = [];
+  const resolveSubtitle = createAutomaticSubtitleResolver({
+    resolveAutomaticSubtitle: async (options) => {
+      received.push(options);
+      return { path: 'selected.srt' };
+    },
+    updateStudioProgress: () => {}
+  });
+
+  for (const subtitleEngine of ['whisper', 'ocr']) {
+    await resolveSubtitle({
+      body: { subtitleEngine, whisperOnnxVariant: 'fp32' },
+      sourceVideo: 'source.mp4',
+      workDir: 'work',
+      totalDuration: 3,
+      ffmpegPath: 'ffmpeg.exe'
+    });
+  }
+
+  assert.deepEqual(
+    received.map(({ forceWhisper, ocrOnly }) => ({ forceWhisper, ocrOnly })),
+    [
+      { forceWhisper: true, ocrOnly: false },
+      { forceWhisper: false, ocrOnly: true }
+    ]
+  );
+  assert.deepEqual(received.map(({ whisperOnnxVariant }) => whisperOnnxVariant), ['fp32', 'fp32']);
+});
+
+test('invalid or missing ONNX variants fall back to Q8', async () => {
+  const received = [];
+  const resolveSubtitle = createAutomaticSubtitleResolver({
+    resolveAutomaticSubtitle: async (options) => {
+      received.push(options.whisperOnnxVariant);
+      return { path: 'selected.srt' };
+    },
+    updateStudioProgress: () => {}
+  });
+
+  for (const whisperOnnxVariant of [undefined, 'unknown']) {
+    await resolveSubtitle({
+      body: { subtitleEngine: 'whisper', whisperOnnxVariant },
+      sourceVideo: 'source.mp4',
+      workDir: 'work',
+      totalDuration: 3,
+      ffmpegPath: 'ffmpeg.exe'
+    });
+  }
+
+  assert.deepEqual(received, ['q8', 'q8']);
 });
 
 test('only the trusted task resume flag forces Whisper through coordinator options', async () => {

@@ -1055,6 +1055,23 @@
 
                     <div id="ocr-settings-container" class="ocr-settings hidden">
                       <div class="form-group">
+                        <label>Nguồn nhận dạng</label>
+                        <div class="ocr-mode-segmented" role="group" aria-label="Nguồn nhận dạng phụ đề">
+                          <button type="button" class="subtitle-engine-btn active" data-subtitle-engine="auto">Tự động</button>
+                          <button type="button" class="subtitle-engine-btn" data-subtitle-engine="ocr">OCR</button>
+                          <button type="button" class="subtitle-engine-btn" data-subtitle-engine="whisper">Whisper</button>
+                        </div>
+                        <input type="hidden" id="subtitle-engine-value" name="subtitleEngine" value="auto">
+                      </div>
+                      <div class="form-group whisper-engine-settings">
+                        <label>Model Whisper</label>
+                        <div class="ocr-mode-segmented" role="group" aria-label="Model Whisper ONNX">
+                          <button type="button" class="whisper-onnx-variant-btn active" data-whisper-onnx-variant="q8" title="Nhẹ, nhanh và phù hợp CPU">Small Q8</button>
+                          <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="fp32" title="Trọng số đầy đủ, tốn nhiều RAM hơn">Small FP32</button>
+                        </div>
+                        <input type="hidden" id="whisper-onnx-variant-value" name="whisperOnnxVariant" value="q8">
+                      </div>
+                      <div class="form-group ocr-engine-settings">
                         <label>Chế độ nhận dạng</label>
                         <div class="ocr-mode-segmented" role="group" aria-label="Chế độ nhận dạng OCR">
                           <button type="button" class="ocr-mode-btn" data-ocr-mode="fast" title="Nhanh, dùng model nhẹ">Fast</button>
@@ -1074,7 +1091,7 @@
                           <option value="korean">Hàn</option>
                         </select>
                       </div>
-                      <details class="ocr-region-details">
+                      <details class="ocr-region-details ocr-engine-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
                         <div class="ocr-region-grid">
                           <label>Trên<input id="ocr-region-top" type="number" value="0.70" min="0" max="1" step="0.01"></label>
@@ -2467,7 +2484,7 @@
 
   <!-- Download & Translate Configuration Modal -->
   <div id="download-translate-modal" class="fb-modal-overlay hidden">
-    <div class="fb-modal-content" style="width: 800px; max-width: 95%;">
+    <div class="fb-modal-content" style="width: 1050px; max-width: 95%;">
       <div class="fb-modal-header" style="background: rgba(34, 197, 94, 0.1); border-bottom-color: rgba(34, 197, 94, 0.2);">
         <h3 style="color: #22c55e; display: flex; align-items: center; gap: 8px; margin: 0;">
           📥 Cấu hình Tải & Dịch Vietsub
@@ -2482,6 +2499,7 @@
             <div id="dl-preview-video-title" class="dl-preview-title">Đang tải tiêu đề video...</div>
             <div class="dl-preview-frame">
               <img id="dl-preview-thumbnail" class="dl-preview-bg" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='%23111'/></svg>" alt="Preview BG">
+              <video id="dl-preview-video" class="dl-preview-bg hidden" autoplay muted loop playsinline></video>
               <div id="dl-preview-sub-box" class="dl-preview-sub-box">
                 <span id="dl-preview-sub-text" class="dl-preview-sub-text">Đây là dòng phụ đề Vietsub mẫu sẽ hiển thị trên video của bạn</span>
               </div>
@@ -2502,6 +2520,14 @@
                 <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
                 <option value="openrouter">🦉 OpenRouter AI (Dịch chất lượng cao - Yêu cầu Key)</option>
                 <option value="9router">🤖 9Router Local AI Proxy (Miễn phí qua proxy nội bộ)</option>
+              </select>
+            </div>
+
+            <!-- Chất lượng video xuất ra -->
+            <div class="dl-config-group">
+              <label>Chất lượng video xuất ra (Video Resolution)</label>
+              <select id="dl-video-quality" class="premium-select">
+                <option value="vietsub">Tải chất lượng tốt nhất tự động (Mặc định)</option>
               </select>
             </div>
 
@@ -2959,11 +2985,8 @@
             </label>
             <div style="display: flex; gap: 8px;">
               <select id="whisper-model-select" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
-                <option value="base" selected>🎙️ Bản tiêu chuẩn (Base - 140MB - Khuyên dùng)</option>
-                <option value="tiny">⚡ Bản siêu nhẹ (Tiny - 75MB - Nhận diện nhanh)</option>
-                <option value="small">📢 Bản nâng cao (Small - 460MB - Khá tốt)</option>
-                <option value="medium">🎯 Bản chuyên nghiệp (Medium - 1.5GB - Rất chính xác)</option>
-                <option value="large-v3">🏆 Bản cao cấp nhất (Large-V3 - 3.0GB - Tốt nhất)</option>
+                <option value="q8" selected>Whisper Small Q8 (ONNX - 252 MB)</option>
+                <option value="fp32">Whisper Small FP32 (ONNX - 971 MB)</option>
               </select>
               <button type="button" id="whisper-model-download-btn" class="premium-render-btn"
                 style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;"

@@ -307,7 +307,14 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
 
   return async function resolveRenderAutomaticSubtitle(options) {
     const body = options.body || {};
-    const forceWhisper = options.forceWhisper === true;
+    const subtitleEngine = ['auto', 'ocr', 'whisper'].includes(body.subtitleEngine)
+      ? body.subtitleEngine
+      : 'auto';
+    const forceWhisper = options.forceWhisper === true || subtitleEngine === 'whisper';
+    const ocrOnly = subtitleEngine === 'ocr';
+    const whisperOnnxVariant = ['q8', 'fp32'].includes(body.whisperOnnxVariant)
+      ? body.whisperOnnxVariant
+      : 'q8';
     logger.log(
       `[Auto Subtitle] route=${forceWhisper ? 'whisper_manual_fallback' : 'ocr_first'} `
       + `language=${body.ocrLanguage || 'unset'} voiceOnly=${options.isVoiceOnlySub === true}`
@@ -317,11 +324,13 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       workDir: options.workDir,
       ffmpegPath: options.ffmpegPath,
       durationMs: options.totalDuration * 1000,
-      whisperModel: body.whisperModel || 'base',
+      whisperModel: body.whisperModel || 'small',
+      whisperOnnxVariant,
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
       forceWhisper,
+      ocrOnly,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)
     });
     logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
@@ -678,7 +687,14 @@ async function executeRenderTask(task) {
             shared.updateStudioProgress(42, 'Đang trích xuất câu thoại từ giọng mẫu (AI Whisper)...');
             const { transcribeVoice } = require('../lib/whisper-helper');
             console.log('Đang tự động nhận diện câu thoại trong giọng mẫu...');
-            refText = await transcribeVoice(refAudioPath, workDir, shared.FFMPEG_PATH, body.whisperModel || 'base');
+            refText = await transcribeVoice(
+              refAudioPath,
+              workDir,
+              shared.FFMPEG_PATH,
+              body.whisperModel || 'small',
+              body.ocrLanguage,
+              ['q8', 'fp32'].includes(body.whisperOnnxVariant) ? body.whisperOnnxVariant : 'q8'
+            );
             console.log('Đã tự động trích xuất Ref-text:', refText);
           } catch (err) {
             console.error('Lỗi tự động nhận dạng giọng mẫu:', err.message);

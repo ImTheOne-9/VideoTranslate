@@ -12,7 +12,6 @@ document.addEventListener('click', function (e) {
     closeCookieModal();
   }
 });
-
 // Global error handlers for UI debugging
 window.onerror = function (message, source, lineno, colno, error) {
   toast(`Lỗi UI: ${message} (dòng ${lineno})`, 'error');
@@ -241,7 +240,7 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
-  // Mở modal thiết lập nếu thiếu Whisper, Audio-Separator hoặc GPU Separator (chỉ 1 lần)
+  // Mở modal thiết lập nếu thiếu Whisper ONNX, Audio-Separator hoặc GPU Separator (chỉ 1 lần)
   if (!window._setupModalShown && (!dependencyStatus.whisper || !dependencyStatus.separator || !dependencyStatus.separatorGpu)) {
     window._setupModalShown = true;
     setTimeout(() => openSetupModal(), 500);
@@ -417,7 +416,7 @@ async function fetchDouyinInfo(url, btn, loadingIndicator, extractedTitle) {
     } else {
       const vs = document.createElement('button');
       vs.className = 'quality-btn green'; vs.type = 'button';
-      vs.onclick = (e) => startDownload(e.target, data.formats[0].src, title, data.thumbnail, 'vietsub');
+      vs.onclick = (e) => startDownload(e.target, data.formats[0].src, title, data.thumbnail, 'vietsub', null, data.formats);
       vs.textContent = 'Tải + dịch Vietsub';
       grid.appendChild(vs);
       for (const fmt of data.formats) {
@@ -500,7 +499,7 @@ function renderVideoInfo(data) {
     const vietsub = document.createElement('button');
     vietsub.className = 'quality-btn green';
     vietsub.type = 'button';
-    vietsub.onclick = (e) => startDownload(e.target, currentUrl, data.title, data.thumbnail, 'vietsub');
+    vietsub.onclick = (e) => startDownload(e.target, currentUrl, data.title, data.thumbnail, 'vietsub', null, data.formats);
     vietsub.textContent = 'Tải + dịch Vietsub';
     grid.appendChild(vietsub);
 
@@ -726,15 +725,38 @@ function renderDownloadHistory() {
   });
 }
 
-async function startDownload(btn, url, videoTitle, thumbnail, formatId, overrideOptions = null) {
+async function startDownload(btn, url, videoTitle, thumbnail, formatId, overrideOptions = null, formats = []) {
   if (btn.disabled) return;
 
-  const isVietsub = formatId === 'vietsub';
+  let isVietsub = formatId === 'vietsub';
+  if (overrideOptions) {
+    isVietsub = true;
+  }
 
   if (isVietsub && !overrideOptions) {
-    openDownloadTranslateModal(videoTitle, thumbnail, (opts) => {
-      startDownload(btn, url, videoTitle, thumbnail, formatId, opts);
-    });
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Chuẩn bị xem trước...';
+    try {
+      const previewRes = await fetch('/api/download-raw-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const previewData = await previewRes.json();
+      if (!previewRes.ok) throw new Error(previewData.error || 'Lỗi chuẩn bị video xem trước');
+
+      btn.disabled = false;
+      btn.textContent = originalText;
+
+      openDownloadTranslateModal(videoTitle, thumbnail, (opts) => {
+        startDownload(btn, url, videoTitle, thumbnail, opts.formatId, opts, formats);
+      }, formats, previewData.previewUrl ? `${previewData.previewUrl}?t=${Date.now()}` : null);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
     return;
   }
 
@@ -756,8 +778,17 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId, override
     let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
     let aiSettings = getGlobalAiSettings();
     let translateTargetLang = 'vi';
+    let finalFormatId = formatId;
+    let useExistingPreview = false;
 
     if (overrideOptions) {
+      if (overrideOptions.formatId) {
+        finalFormatId = overrideOptions.formatId;
+      }
+      if (finalFormatId === 'temp_preview') {
+        finalFormatId = 'vietsub';
+        useExistingPreview = true;
+      }
       aiSettings.aiProvider = overrideOptions.aiProvider;
       if (overrideOptions.aiProvider === 'gemini') {
         aiSettings.geminiApiKey = overrideOptions.apiKey;
@@ -781,7 +812,7 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId, override
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url,
-        format_id: formatId,
+        format_id: finalFormatId,
         customFilename,
         outputDir,
         ...aiSettings,
@@ -789,7 +820,9 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId, override
         subtitleSize,
         subtitleMarginH,
         subtitleMarginV,
-        translateTargetLang
+        translateTargetLang,
+        useExistingPreview,
+        isVietsub
       })
     });
     const data = await res.json();
@@ -976,7 +1009,55 @@ async function cancelOcrComponentDownload() {
   }
 }
 
+const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
+const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
+const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32']);
 const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
+
+function updateOcrModeButtons() {
+  const input = $('ocr-mode-value');
+  if (!input) return;
+  const mode = OCR_MODES.has(input.value) ? input.value : 'auto';
+  input.value = mode;
+  document.querySelectorAll('.ocr-mode-btn').forEach(button => {
+    const active = button.dataset.ocrMode === mode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function updateSubtitleEngineUi() {
+  const input = $('subtitle-engine-value');
+  if (!input) return 'auto';
+  const engine = SUBTITLE_ENGINES.has(input.value) ? input.value : 'auto';
+  input.value = engine;
+  document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
+    const active = button.dataset.subtitleEngine === engine;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  document.querySelectorAll('.ocr-engine-settings').forEach(element => {
+    element.classList.toggle('hidden', engine === 'whisper');
+  });
+  document.querySelectorAll('.whisper-engine-settings').forEach(element => {
+    element.classList.toggle('hidden', engine === 'ocr');
+  });
+  updateOcrRegionOverlay();
+  return engine;
+}
+
+function updateWhisperOnnxVariantButtons() {
+  const input = $('whisper-onnx-variant-value');
+  if (!input) return 'q8';
+  const variant = WHISPER_ONNX_VARIANTS.has(input.value) ? input.value : 'q8';
+  input.value = variant;
+  document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
+    const active = button.dataset.whisperOnnxVariant === variant;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  return variant;
+}
 
 function getOcrRegionValues() {
   return OCR_REGION_INPUT_IDS.map(id => Number($(id)?.value));
@@ -1009,6 +1090,7 @@ function updateOcrRegionOverlay() {
   const overlay = $('ocr-region-overlay');
   const wrapper = $('video-preview-wrapper');
   const shouldShow = $('subtitle-mode')?.value === 'generate'
+    && $('subtitle-engine-value')?.value !== 'whisper'
     && wrapper
     && !wrapper.classList.contains('hidden');
   if (!overlay || !shouldShow) {
@@ -1107,6 +1189,33 @@ function initOcrRegionOverlay() {
 
 $('ocr-download-btn')?.addEventListener('click', startOcrComponentDownload);
 $('ocr-download-cancel-btn')?.addEventListener('click', cancelOcrComponentDownload);
+document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = $('subtitle-engine-value');
+    if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
+    input.value = button.dataset.subtitleEngine;
+    const engine = updateSubtitleEngineUi();
+    if (engine !== 'whisper' && $('subtitle-mode')?.value === 'generate') {
+      refreshOcrComponentStatusForUi();
+    }
+  });
+});
+document.querySelectorAll('.ocr-mode-btn').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = $('ocr-mode-value');
+    if (!input || !OCR_MODES.has(button.dataset.ocrMode)) return;
+    input.value = button.dataset.ocrMode;
+    updateOcrModeButtons();
+  });
+});
+document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = $('whisper-onnx-variant-value');
+    if (!input || !WHISPER_ONNX_VARIANTS.has(button.dataset.whisperOnnxVariant)) return;
+    input.value = button.dataset.whisperOnnxVariant;
+    updateWhisperOnnxVariantButtons();
+  });
+});
 $('ocr-region-reset-btn')?.addEventListener('click', () => {
   OCR_REGION_INPUT_IDS.forEach((id, index) => {
     if ($(id)) $(id).value = OCR_DEFAULT_REGION[index];
@@ -1126,33 +1235,47 @@ async function renderStudio(event) {
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
   const omiDevice = data.get('omiDevice');
+  const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
+  const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(data.get('whisperOnnxVariant'))
+    ? data.get('whisperOnnxVariant')
+    : 'q8';
+  data.set('subtitleEngine', subtitleEngine);
+  data.set('whisperOnnxVariant', whisperOnnxVariant);
 
   if (subMode === 'generate') {
     if (!data.get('ocrLanguage')) {
       toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
       return;
     }
-    try {
-      data.set('ocrRegion', syncOcrRegion());
-      const ready = await ensureOcrComponentReady();
-      if (!ready) return;
-      if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
-        toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
+    if (subtitleEngine !== 'whisper') {
+      try {
+        data.set('ocrRegion', syncOcrRegion());
+        const ready = await ensureOcrComponentReady();
+        if (!ready) return;
+        if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
+          toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
+          return;
+        }
+      } catch (error) {
+        toast(error.message, 'error');
         return;
       }
-    } catch (error) {
-      toast(error.message, 'error');
-      return;
     }
-  }
-
-  // Kiểm tra Whisper
-  if (subMode === 'generate' && !dependencyStatus.whisper) {
-    showDependencyModal('whisper', () => {
-      const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-      form.dispatchEvent(submitEvent);
-    });
-    return;
+    if (subtitleEngine !== 'ocr') {
+      try {
+        const checkRes = await fetch(`/api/whisper-model/status?variant=${whisperOnnxVariant}`);
+        const checkStatus = await checkRes.json();
+        if (!checkRes.ok) throw new Error(checkStatus.error || 'Không thể kiểm tra model Whisper');
+        if (!checkStatus.exists) {
+          toast(`Thiếu model Whisper Small ${whisperOnnxVariant.toUpperCase()}. Hãy tải model trước khi render.`, 'warn');
+          if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal(whisperOnnxVariant);
+          return;
+        }
+      } catch (error) {
+        toast(error.message, 'error');
+        return;
+      }
+    }
   }
 
   // Kiểm tra CUDA
@@ -1171,23 +1294,8 @@ async function renderStudio(event) {
 
   // Load global AI settings and set whisperModel
   const aiSettings = getGlobalAiSettings();
-  const whisperModel = aiSettings.whisperModel || 'base';
+  const whisperModel = aiSettings.whisperModel || 'small';
   data.set('whisperModel', whisperModel);
-
-  // Check if selected Whisper model is ready
-  if (subMode === 'generate' && whisperModel !== 'base') {
-    try {
-      const checkRes = await fetch(`/api/whisper-model/status?model=${whisperModel}`);
-      const checkStatus = await checkRes.json();
-      if (!checkStatus.exists) {
-        toast(`⚠️ Thiếu file Model AI ${whisperModel.toUpperCase()}. Vui lòng tải xuống trong Cài đặt AI!`, 'warn');
-        openGlobalSettingsModal();
-        return;
-      }
-    } catch (e) {
-      console.error('Lỗi khi kiểm tra model AI trước khi render:', e);
-    }
-  }
 
   data.set('translateVi', 'true');
   data.set('burnSub', 'true');
@@ -2170,9 +2278,44 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
   const isVietsub = val === 'vietsub';
 
   if (isVietsub && !overrideOptions) {
-    openDownloadTranslateModal(video.title, video.thumbnail, (opts) => {
-      downloadSingleBulkVideo(btn, index, opts);
-    });
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ ...';
+    const card = btn.closest('.bulk-video-card');
+    const statusLabel = card ? card.querySelector('.bulk-video-status') : null;
+    if (statusLabel) {
+      statusLabel.textContent = 'Chuẩn bị xem trước...';
+      statusLabel.style.color = 'var(--accent)';
+    }
+
+    try {
+      const previewRes = await fetch('/api/download-raw-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: video.url })
+      });
+      const previewData = await previewRes.json();
+      if (!previewRes.ok) throw new Error(previewData.error || 'Lỗi chuẩn bị video xem trước');
+
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (statusLabel) {
+        statusLabel.textContent = 'Đã sẵn sàng';
+        statusLabel.style.color = 'var(--text)';
+      }
+
+      openDownloadTranslateModal(video.title, video.thumbnail, (opts) => {
+        downloadSingleBulkVideo(btn, index, opts);
+      }, video.formats, previewData.previewUrl ? `${previewData.previewUrl}?t=${Date.now()}` : null);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (statusLabel) {
+        statusLabel.textContent = 'Lỗi preview';
+        statusLabel.style.color = 'var(--danger)';
+      }
+    }
     return;
   }
 
@@ -2205,8 +2348,17 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
     let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
     let aiSettings = getGlobalAiSettings();
     let translateTargetLang = 'vi';
+    let finalFormatId = val;
+    let useExistingPreview = false;
 
     if (overrideOptions) {
+      if (overrideOptions.formatId) {
+        finalFormatId = overrideOptions.formatId;
+      }
+      if (finalFormatId === 'temp_preview') {
+        finalFormatId = 'vietsub';
+        useExistingPreview = true;
+      }
       aiSettings.aiProvider = overrideOptions.aiProvider;
       if (overrideOptions.aiProvider === 'gemini') {
         aiSettings.geminiApiKey = overrideOptions.apiKey;
@@ -2230,7 +2382,7 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: video.url,
-        format_id: val,
+        format_id: finalFormatId,
         customFilename,
         outputDir,
         ...aiSettings,
@@ -2238,7 +2390,9 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
         subtitleSize,
         subtitleMarginH,
         subtitleMarginV,
-        translateTargetLang
+        translateTargetLang,
+        useExistingPreview,
+        isVietsub: true
       })
     });
     const data = await res.json();
@@ -2567,7 +2721,9 @@ function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
   $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
   $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
-  updateOcrRegionOverlay();
+  updateOcrModeButtons();
+  updateSubtitleEngineUi();
+  updateWhisperOnnxVariantButtons();
 
   const whisperModelWrapper = $('whisper-model-wrapper');
   if (whisperModelWrapper) {
@@ -4228,7 +4384,9 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
       input.value = mode;
       $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
       updateOcrRegionOverlay();
-      if (mode === 'generate') refreshOcrComponentStatusForUi();
+      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper') {
+        refreshOcrComponentStatusForUi();
+      }
       // Automatically center subtitle overlay when any active subtitle mode is selected
       if (e && e.isTrusted && mode !== 'none') {
         const alignInput = $('subtitle-alignment-input');
@@ -5270,13 +5428,14 @@ function getGlobalAiSettings() {
     ninerouterApiKey: localStorage.getItem('global_ninerouter_key') || '',
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
-    whisperModel: localStorage.getItem('global_whisper_model') || 'base'
+    whisperModel: 'small',
+    whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'q8'
   };
 }
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -5581,7 +5740,7 @@ function openGlobalSettingsModal() {
     loadNineRouterModels(settings.ninerouterApiKey, settings.ninerouterBaseUrl);
   }
   if (whisperModelSelect) {
-    whisperModelSelect.value = settings.whisperModel;
+    whisperModelSelect.value = settings.whisperOnnxVariant;
     checkWhisperModelStatus();
   }
 
@@ -5651,7 +5810,7 @@ function saveGlobalSettings() {
   if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
-  if (whisperModelSelect) localStorage.setItem('global_whisper_model', whisperModelSelect.value);
+  if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
 
   toast('Đã lưu cài đặt AI toàn cục thành công!', 'success');
   closeGlobalSettingsModal();
@@ -5898,22 +6057,12 @@ async function checkSystemConnections() {
       whisperDot.style.boxShadow = '0 0 8px var(--success)';
       whisperDesc.textContent = 'Đã sẵn sàng';
     } else {
-      if (!data.whisperCli) {
-        whisperDot.className = 'dot error';
-        whisperDot.style.background = 'var(--danger)';
-        whisperDot.style.boxShadow = '0 0 8px var(--danger)';
-        whisperDesc.textContent = 'Thiếu công cụ nhận diện giọng nói (Chưa tải)';
-        if (whisperAction) {
-          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); showDependencyModal('whisper');">Tải</button>`;
-        }
-      } else {
-        whisperDot.className = 'dot warn';
-        whisperDot.style.background = 'var(--warn)';
-        whisperDot.style.boxShadow = '0 0 8px var(--warn)';
-        whisperDesc.textContent = 'Thiếu tệp dữ liệu AI';
-        if (whisperAction) {
-          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">Tải</button>`;
-        }
+      whisperDot.className = 'dot warn';
+      whisperDot.style.background = 'var(--warn)';
+      whisperDot.style.boxShadow = '0 0 8px var(--warn)';
+      whisperDesc.textContent = 'Thiếu model Whisper ONNX Q8';
+      if (whisperAction) {
+        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal('q8');">Tải</button>`;
       }
     }
 
@@ -6917,10 +7066,12 @@ async function startSetupDownload(type) {
   if (statusText) statusText.textContent = 'Đang tải...';
 
   try {
-    const res = await fetch('/api/download-dependency', {
+    const downloadUrl = type === 'whisper' ? '/api/download-whisper-model' : '/api/download-dependency';
+    const requestBody = type === 'whisper' ? { variant: 'q8' } : { type };
+    const res = await fetch(downloadUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type })
+      body: JSON.stringify(requestBody)
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Yêu cầu tải thất bại');
@@ -6957,9 +7108,24 @@ function pollSetupDownload(type) {
   return new Promise((resolve) => {
     const interval = setInterval(async () => {
       try {
-        const pRes = await fetch('/api/download-dependency-progress');
+        const progressUrl = type === 'whisper'
+          ? '/api/whisper-model/status?variant=q8'
+          : '/api/download-dependency-progress';
+        const pRes = await fetch(progressUrl);
         if (!pRes.ok) return;
-        const pData = await pRes.json();
+        const rawProgress = await pRes.json();
+        const pData = type === 'whisper'
+          ? {
+              ...rawProgress,
+              status: rawProgress.downloading
+                ? 'downloading'
+                : rawProgress.exists
+                  ? 'success'
+                  : rawProgress.error
+                    ? 'error'
+                    : 'idle'
+            }
+          : rawProgress;
 
         const progressBar = $(`setup-${type}-progress-bar`);
         const progressText = $(`setup-${type}-progress-text`);

@@ -3080,7 +3080,9 @@ select option {
   background: rgba(3, 8, 14, 0.5);
 }
 
-.ocr-mode-btn {
+.ocr-mode-btn,
+.subtitle-engine-btn,
+.whisper-onnx-variant-btn {
   min-width: 0;
   height: 32px;
   padding: 0 6px;
@@ -3093,12 +3095,16 @@ select option {
   font-weight: 700;
 }
 
-.ocr-mode-btn:hover {
+.ocr-mode-btn:hover,
+.subtitle-engine-btn:hover,
+.whisper-onnx-variant-btn:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.05);
 }
 
-.ocr-mode-btn.active {
+.ocr-mode-btn.active,
+.subtitle-engine-btn.active,
+.whisper-onnx-variant-btn.active {
   color: #fff;
   background: var(--accent);
 }
@@ -4074,12 +4080,13 @@ select option {
   background: #000;
   border-radius: var(--radius);
   aspect-ratio: 16/9;
-  min-height: 180px;
+  min-height: 260px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-2);
+  margin: 0 auto;
 }
 
 .dl-preview-bg {

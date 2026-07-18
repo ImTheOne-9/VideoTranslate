@@ -7,12 +7,13 @@
     "start": "node server.js",
     "dev": "node server.js",
     "electron-dev": "electron .",
-    "electron-dist": "node scripts/fetch-whisper-seed.js && electron-builder build --win --x64",
-    "build-obfuscate": "node scripts/fetch-whisper-seed.js && node obfuscate.js --build",
+    "electron-dist": "electron-builder build --win --x64",
+    "build-obfuscate": "node obfuscate.js --build",
     "test": "node test/run-tests.js"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.1",
+    "@huggingface/transformers": "^3.8.1",
     "@vitalets/google-translate-api": "^9.2.1",
     "adm-zip": "^0.5.17",
     "axios": "^1.18.0",
@@ -26,7 +27,8 @@
     "multer": "^2.1.1",
     "node-machine-id": "^1.1.12",
     "srt-parser-2": "^1.2.3",
-    "unzipper": "^0.12.3"
+    "unzipper": "^0.12.3",
+    "wavefile": "^11.0.0"
   },
   "devDependencies": {
     "electron": "^42.4.1",
@@ -44,6 +46,9 @@
       "output": "D:/BuildApp"
     },
     "asar": true,
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**/*"
+    ],
     "files": [
       "public/**/*",
       "lib/**/*.jsc",
@@ -55,15 +60,6 @@
       "package.json"
     ],
     "extraResources": [
-      {
-        "from": "tools/whisper.cpp/Release",
-        "to": "tools/whisper.cpp/Release",
-        "filter": ["whisper-cli.exe", "whisper.dll", "ggml*.dll", "SDL2.dll", "lib*.dll"]
-      },
-      {
-        "from": "tools/whisper.cpp/seed-models",
-        "to": "tools/whisper.cpp/seed-models"
-      },
       {
         "from": "tools/",
         "to": "tools/",

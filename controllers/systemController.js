@@ -20,6 +20,29 @@ try {
 
 let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
 let whisperDownloadStatus = {};
+
+function normalizeWhisperOnnxVariant(value) {
+  const variant = String(value || 'q8').trim().toLowerCase();
+  if (['small', 'base', 'tiny', 'medium', 'large-v3'].includes(variant)) return 'q8';
+  if (!['q8', 'fp32'].includes(variant)) {
+    throw new Error(`Biến thể Whisper ONNX không hợp lệ: ${value}`);
+  }
+  return variant;
+}
+
+function getWhisperOnnxReadiness(variant) {
+  const { getWhisperOnnxConfig } = require('../lib/model-downloader');
+  const config = getWhisperOnnxConfig(variant);
+  const modelDir = path.join(shared.MODELS_DIR, 'whisper', config.folder);
+  return {
+    config,
+    modelDir,
+    exists: config.files.every((file) => {
+      const filePath = path.join(modelDir, ...file.name.split('/'));
+      return fs.existsSync(filePath) && fs.statSync(filePath).size === file.size;
+    })
+  };
+}
 let activeDependencyDownload = null;
 
 function createOcrComponentHandlers(manager, logger = console) {
@@ -124,6 +147,7 @@ module.exports = {
           hasAudio: true, 
           container: 'mp4',
           format_note: f.format_note || '',
+          url: f.url || '',
         }))
         .reduce((acc, f) => {
           const key = `${f.quality}-${f.fps}`;
@@ -447,15 +471,12 @@ module.exports = {
   checkDependencies: async (req, res) => {
     const ffmpegOk = fs.existsSync(shared.FFMPEG_PATH);
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
-    // Whisper CLI: whisper.cpp (ggml) — đã thay thế hoàn toàn ONNX
-    const whisperCliOk = fs.existsSync(shared.WHISPER_CLI_PATH);
-
-    const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
-    const downloadedWhisperModels = whisperModels.filter(model =>
-      fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', `ggml-${model}`, `ggml-${model}.bin`))
-      // [Da bo] check ONNX model.bin (da chuyen sang ggml)
-    );
-    const whisperModelOk = downloadedWhisperModels.length > 0;
+    const whisperVariants = {
+      q8: getWhisperOnnxReadiness('q8').exists,
+      fp32: getWhisperOnnxReadiness('fp32').exists
+    };
+    const whisperModelOk = whisperVariants.q8;
+    const downloadedWhisperModels = whisperModelOk ? ['small'] : [];
 
     const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
     const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
@@ -465,9 +486,9 @@ module.exports = {
     res.json({
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
-      whisper: whisperCliOk && whisperModelOk,
-      whisperCli: whisperCliOk,
+      whisper: whisperModelOk,
       whisperModel: whisperModelOk,
+      whisperVariants,
       downloadedWhisperModels: downloadedWhisperModels,
       omnivoice: omnivoiceCliOk && omnivoiceModelOk,
       omnivoiceCli: omnivoiceCliOk,
@@ -492,7 +513,7 @@ module.exports = {
 
   downloadDependency: async (req, res) => {
     const { type } = req.body;
-    if (!['cuda', 'whisper', 'separator', 'separator-gpu'].includes(type)) {
+    if (!['cuda', 'separator', 'separator-gpu'].includes(type)) {
       return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
     }
 
@@ -638,44 +659,54 @@ try {
   },
 
   getWhisperModelStatus: async (req, res) => {
-    const model = req.query.model || 'base';
-    const modelFile = path.join(shared.MODELS_DIR, 'whisper', 'ggml-' + model, 'ggml-' + model + '.bin');
-    const exists = fs.existsSync(modelFile) && fs.statSync(modelFile).size > 0;
+    let variant;
+    try {
+      variant = normalizeWhisperOnnxVariant(req.query?.variant || req.query?.model);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    const { config, exists } = getWhisperOnnxReadiness(variant);
+    const totalBytes = config.files.reduce((sum, file) => sum + file.size, 0);
 
-    const status = whisperDownloadStatus[model] || { downloading: false, percent: 0, error: null };
+    const status = whisperDownloadStatus[variant] || { downloading: false, percent: 0, error: null };
     res.json({
-      exists: exists,
+      variant,
+      exists,
       downloading: status.downloading,
       percent: status.percent,
       error: status.error,
       downloadedBytes: status.downloadedBytes,
-      totalBytes: status.totalBytes
+      totalBytes: status.totalBytes || totalBytes
     });
   },
 
   downloadWhisperModel: async (req, res) => {
-    const { model } = req.body;
-    if (!model) return res.status(400).json({ error: 'Thiếu tham số model' });
+    let variant;
+    try {
+      variant = normalizeWhisperOnnxVariant(req.body?.variant || req.body?.model);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
-    if (whisperDownloadStatus[model] && whisperDownloadStatus[model].downloading) {
+    if (whisperDownloadStatus[variant] && whisperDownloadStatus[variant].downloading) {
       return res.json({ success: true, message: 'Đang tải rồi' });
     }
-    const { ensureWhisperModelExist } = require('../lib/model-downloader');
-    whisperDownloadStatus[model] = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
+    const { ensureWhisperOnnxModelExist } = require('../lib/model-downloader');
+    whisperDownloadStatus[variant] = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
     res.json({ success: true, message: 'Bắt đầu tải model Whisper' });
 
     try {
-      await ensureWhisperModelExist(shared.MODELS_DIR, model, (progress) => {
-        whisperDownloadStatus[model].percent = progress.percent;
-        whisperDownloadStatus[model].downloadedBytes = progress.downloadedBytes;
-        whisperDownloadStatus[model].totalBytes = progress.totalBytes;
+      await ensureWhisperOnnxModelExist(shared.MODELS_DIR, variant, (progress) => {
+        whisperDownloadStatus[variant].percent = progress.percent;
+        whisperDownloadStatus[variant].downloadedBytes = progress.downloadedBytes;
+        whisperDownloadStatus[variant].totalBytes = progress.totalBytes;
       });
-      whisperDownloadStatus[model].downloading = false;
-      whisperDownloadStatus[model].percent = 100;
+      whisperDownloadStatus[variant].downloading = false;
+      whisperDownloadStatus[variant].percent = 100;
     } catch (err) {
-      console.error(`Lỗi tải model Whisper ${model} qua API:`, err.message);
-      whisperDownloadStatus[model].downloading = false;
-      whisperDownloadStatus[model].error = err.message;
+      console.error(`Lỗi tải model Whisper ${variant} qua API:`, err.message);
+      whisperDownloadStatus[variant].downloading = false;
+      whisperDownloadStatus[variant].error = err.message;
     }
   },
 
