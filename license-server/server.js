@@ -3290,14 +3290,10 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
         query.hwid = { $ne: null };
       } else if (status === 'inactive') {
         query.status = 'active';
-        query.paymentStatus = { $ne: 'pending' };
         query.$or = [{ hwid: null }, { hwid: '' }];
       } else if (status === 'expired') {
         query.status = { $ne: 'suspended' };
         query.expiresAt = { $lt: now };
-      } else if (status === 'pending_payment') {
-        query.paymentStatus = 'pending';
-        query.status = { $ne: 'suspended' };
       }
 
       if (search) {
@@ -3337,11 +3333,9 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
       } else if (status === 'active') {
         filtered = filtered.filter(k => k.status === 'active' && new Date(k.expiresAt) >= now && k.hwid);
       } else if (status === 'inactive') {
-        filtered = filtered.filter(k => k.status === 'active' && !k.hwid && k.paymentStatus !== 'pending');
+        filtered = filtered.filter(k => k.status === 'active' && !k.hwid);
       } else if (status === 'expired') {
         filtered = filtered.filter(k => k.status !== 'suspended' && new Date(k.expiresAt) < now);
-      } else if (status === 'pending_payment') {
-        filtered = filtered.filter(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
       }
 
       if (search) {
@@ -3358,24 +3352,10 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
       keys = filtered.slice((page - 1) * limit, page * limit);
     }
 
-    // Enrich keys with user phone via userEmail lookup
-    const keysWithDaysLeft = await Promise.all(keys.map(async (k) => {
+    const keysWithDaysLeft = keys.map(k => {
       const obj = useMongo ? (k.toObject ? k.toObject() : k) : k;
-      let userPhone = null;
-      if (obj.userEmail) {
-        try {
-          if (useMongo) {
-            const user = await UserModel.findOne({ email: obj.userEmail }, 'phone').lean();
-            userPhone = user ? user.phone : null;
-          } else {
-            const db = readJSON();
-            const user = (db.users || []).find(u => u.email === obj.userEmail);
-            userPhone = user ? user.phone : null;
-          }
-        } catch (_) {}
-      }
-      return { ...obj, daysLeft: computeDaysLeft(obj.expiresAt), userPhone };
-    }));
+      return { ...obj, daysLeft: computeDaysLeft(obj.expiresAt) };
+    });
 
     res.json({
       success: true,

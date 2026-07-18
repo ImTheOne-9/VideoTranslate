@@ -749,7 +749,7 @@ export default function Admin({ showToast }) {
       
       {/* Header */}
       <header className="border-b border-zinc-900 bg-zinc-900/50 backdrop-blur-lg sticky top-0 z-30">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-md">
@@ -780,7 +780,7 @@ export default function Admin({ showToast }) {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-3 lg:p-4 space-y-4">
+      <main className="flex-1 max-w-screen-2xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
         
         {/* Main Tab Controls */}
         <div className="flex border-b border-zinc-900 gap-6 text-sm font-semibold mb-6">
@@ -892,14 +892,13 @@ export default function Admin({ showToast }) {
                 </div>
                 
                 {/* Filter Tabs */}
-                <div className="flex flex-wrap rounded-lg bg-zinc-900 p-1 border border-zinc-850 self-start sm:self-auto text-xs font-semibold gap-0.5">
-                  {['all', 'active', 'inactive', 'pending_payment', 'suspended', 'expired'].map((tab) => {
+                <div className="flex rounded-lg bg-zinc-900 p-1 border border-zinc-850 self-start sm:self-auto text-xs font-semibold">
+                  {['all', 'active', 'inactive', 'suspended', 'expired'].map((tab) => {
                     const isSelected = currentFilterTab === tab;
                     const tabNames = {
                       all: 'Tất cả',
                       active: 'Hoạt động',
                       inactive: 'Chờ kích hoạt',
-                      pending_payment: 'Chờ thanh toán',
                       suspended: 'Bị khóa',
                       expired: 'Hết hạn'
                     };
@@ -908,11 +907,7 @@ export default function Admin({ showToast }) {
                         key={tab}
                         onClick={() => setCurrentFilterTab(tab)}
                         className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                          isSelected
-                            ? tab === 'pending_payment'
-                              ? 'bg-yellow-500 text-black shadow-sm'
-                              : 'bg-indigo-500 text-white shadow-sm'
-                            : 'text-zinc-400 hover:text-white'
+                          isSelected ? 'bg-indigo-500 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
                         }`}
                       >
                         {tabNames[tab]}
@@ -977,15 +972,7 @@ export default function Admin({ showToast }) {
 
                       return (
                         <tr key={k.key} className="hover:bg-zinc-900/20 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="font-semibold text-white">{k.customerName || 'Khách lẻ'}</div>
-                            {k.userEmail && (
-                              <div className="text-xs text-zinc-500 mt-0.5">{k.userEmail}</div>
-                            )}
-                            {k.userPhone && (
-                              <div className="text-xs text-zinc-500">{k.userPhone}</div>
-                            )}
-                          </td>
+                          <td className="px-6 py-4 font-semibold text-white">{k.customerName || 'Khách lẻ'}</td>
                           <td className="px-6 py-4 text-center">
                             {(() => {
                               const isPerm = !k.expiresAt || new Date(k.expiresAt).getFullYear() >= 9999;
