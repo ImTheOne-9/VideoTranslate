@@ -511,6 +511,8 @@ function renderUserKeys(keys) {
       badge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-955/80 text-rose-400 border border-rose-900/30">Bị Khóa</span>';
     } else if (k.paymentStatus === 'pending') {
       badge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-955/80 text-amber-400 border border-amber-900/30">Chờ Thanh Toán</span>';
+    } else if (k.paymentStatus === 'expired') {
+      badge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-900 text-zinc-500 border border-zinc-800">Đã Hủy</span>';
     } else if (isExpired) {
       badge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-900 text-zinc-500 border border-zinc-800">Hết Hạn</span>';
     } else if (k.hwid) {
@@ -529,7 +531,7 @@ function renderUserKeys(keys) {
     let quotaText = '';
     let disableReset = false;
     
-    if (k.status === 'suspended' || k.paymentStatus === 'pending' || isExpired || !k.hwid) {
+    if (k.status === 'suspended' || k.paymentStatus === 'pending' || k.paymentStatus === 'expired' || isExpired || !k.hwid) {
       disableReset = true;
     }
 
@@ -541,7 +543,7 @@ function renderUserKeys(keys) {
     }
     
     const remainingResets = Math.max(0, 2 - activeResets);
-    quotaText = `<div class="text-[9px] text-zinc-500 mt-1">Còn ${remainingResets} lần đổi máy/năm</div>`;
+    quotaText = !disableReset ? `<div class="text-[9px] text-zinc-500 mt-1">Còn ${remainingResets} lần đổi máy/năm</div>` : '';
 
     let actionBtnMarkup = '';
     let quotaMarkup = '';
