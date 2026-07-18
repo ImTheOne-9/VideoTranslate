@@ -704,6 +704,12 @@ export default function Admin({ showToast }) {
           Chờ Thanh Toán
         </span>
       );
+    } else if (k.paymentStatus === 'expired') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-900/30">
+          Đã Hủy
+        </span>
+      );
     } else if (isExpired) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-900/30">
@@ -962,6 +968,7 @@ export default function Admin({ showToast }) {
                       const formattedExpires = isPermanent ? 'Vĩnh viễn' : new Date(k.expiresAt).toLocaleDateString('vi-VN', {
                         year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                       });
+                      const isExpired = (k.expiresAt && new Date(k.expiresAt) < new Date()) || k.paymentStatus === 'expired';
 
                       return (
                         <tr key={k.key} className="hover:bg-zinc-900/20 transition-colors">
@@ -1008,9 +1015,9 @@ export default function Admin({ showToast }) {
                           <td className="px-6 py-4 text-right space-x-1.5 whitespace-nowrap">
                             <button 
                               onClick={() => handleResetHwid(k.key)}
-                              disabled={!k.hwid}
+                              disabled={!k.hwid || isExpired}
                               className={`px-2.5 py-1 text-xs rounded font-medium transition-colors border ${
-                                !k.hwid 
+                                (!k.hwid || isExpired)
                                   ? 'bg-zinc-950 border-zinc-900 text-zinc-650 cursor-not-allowed opacity-30'
                                   : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300 cursor-pointer'
                               }`}
@@ -1019,10 +1026,13 @@ export default function Admin({ showToast }) {
                             </button>
                             <button 
                               onClick={() => handleToggleKeyStatus(k.key, k.status)}
-                              className={`px-2.5 py-1 text-xs font-semibold rounded transition-colors cursor-pointer border ${
-                                k.status === 'suspended'
-                                  ? 'bg-emerald-600 border-emerald-700 hover:bg-emerald-500 text-white'
-                                  : 'bg-rose-950/40 border-rose-900/40 hover:bg-rose-900/40 text-rose-400'
+                              disabled={isExpired}
+                              className={`px-2.5 py-1 text-xs font-semibold rounded transition-colors border ${
+                                isExpired 
+                                  ? 'bg-zinc-950 border-zinc-900 text-zinc-650 cursor-not-allowed opacity-30'
+                                  : k.status === 'suspended'
+                                    ? 'bg-emerald-600 border-emerald-700 hover:bg-emerald-500 text-white cursor-pointer'
+                                    : 'bg-rose-950/40 border-rose-900/40 hover:bg-rose-900/60 text-rose-400 cursor-pointer'
                               }`}
                             >
                               {k.status === 'suspended' ? 'Mở khóa' : 'Khóa'}
@@ -1042,6 +1052,14 @@ export default function Admin({ showToast }) {
                 </div>
                 {totalPages > 1 && (
                   <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <button 
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(1)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                      title="Về trang đầu"
+                    >
+                      Đầu
+                    </button>
                     <button 
                       disabled={currentPage === 1}
                       onClick={() => setCurrentPage(prev => prev - 1)}
@@ -1068,6 +1086,14 @@ export default function Admin({ showToast }) {
                       className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
                     >
                       Sau
+                    </button>
+                    <button 
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(totalPages)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                      title="Đến trang cuối"
+                    >
+                      Cuối
                     </button>
                   </div>
                 )}
@@ -1261,6 +1287,14 @@ export default function Admin({ showToast }) {
                   <div className="flex items-center gap-1.5 text-xs font-semibold">
                     <button 
                       disabled={userPage === 1}
+                      onClick={() => setUserPage(1)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                      title="Về trang đầu"
+                    >
+                      Đầu
+                    </button>
+                    <button 
+                      disabled={userPage === 1}
                       onClick={() => setUserPage(prev => prev - 1)}
                       className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
                     >
@@ -1285,6 +1319,14 @@ export default function Admin({ showToast }) {
                       className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
                     >
                       Sau
+                    </button>
+                    <button 
+                      disabled={userPage === totalUserPages}
+                      onClick={() => setUserPage(totalUserPages)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 hover:text-white text-zinc-400 transition-all disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:text-zinc-400 disabled:cursor-not-allowed cursor-pointer"
+                      title="Đến trang cuối"
+                    >
+                      Cuối
                     </button>
                   </div>
                 )}

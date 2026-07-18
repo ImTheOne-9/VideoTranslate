@@ -133,14 +133,20 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
     const isExpired = k.expiresAt && new Date(k.expiresAt) < new Date();
     if (k.status === 'suspended') {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950/80 text-rose-400 border border-rose-900/30">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-955/80 text-rose-400 border border-rose-900/30">
           Bị Khóa
         </span>
       );
     } else if (k.paymentStatus === 'pending') {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-900/30">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-955/80 text-amber-400 border border-amber-900/30">
           Chờ Thanh Toán
+        </span>
+      );
+    } else if (k.paymentStatus === 'expired') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-900 text-zinc-500 border border-zinc-800">
+          Đã Hủy
         </span>
       );
     } else if (isExpired) {
@@ -260,7 +266,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
                         const remainingResets = Math.max(0, 2 - activeResets);
 
                         let disableReset = false;
-                        if (k.status === 'suspended' || k.paymentStatus === 'pending' || isExpired || !k.hwid) {
+                        if (k.status === 'suspended' || k.paymentStatus === 'pending' || k.paymentStatus === 'expired' || isExpired || !k.hwid) {
                           disableReset = true;
                         }
 

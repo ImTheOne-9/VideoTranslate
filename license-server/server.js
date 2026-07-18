@@ -1358,8 +1358,12 @@ app.post('/api/server/activate', async (req, res) => {
       return res.status(403).json({ error: 'Bản quyền đã bị đình chỉ hoặc thu hồi' });
     }
 
-    if (license.paymentStatus === 'pending') {
-      return res.status(403).json({ error: 'Bản quyền này đang ở trạng thái chờ kích hoạt thanh toán!' });
+    if (license.paymentStatus !== 'active') {
+      if (license.paymentStatus === 'pending') {
+        return res.status(403).json({ error: 'Bản quyền này đang ở trạng thái chờ kích hoạt thanh toán!' });
+      } else {
+        return res.status(403).json({ error: 'Bản quyền này chưa được kích hoạt thanh toán hoặc đã hết hạn/bị hủy!' });
+      }
     }
 
     const expiresDate = new Date(license.expiresAt);

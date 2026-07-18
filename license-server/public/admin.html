@@ -476,6 +476,8 @@
           statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-900/30">Bị Khóa</span>';
         } else if (k.paymentStatus === 'pending') {
           statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500 border border-amber-900/30">Chờ Thanh Toán</span>';
+        } else if (k.paymentStatus === 'expired') {
+          statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-900/30">Đã Hủy</span>';
         } else if (isExpired) {
           statusBadge = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-900/30">Hết Hạn</span>';
         } else if (k.hwid) {
@@ -507,12 +509,12 @@
             <td class="px-6 py-4 text-xs text-zinc-400">${formattedExpires}</td>
             <td class="px-6 py-4 text-center">${statusBadge}</td>
             <td class="px-6 py-4 text-right space-x-1.5">
-              <button onclick="resetHwid('${k.key}')" class="px-2.5 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-medium transition-colors" ${!k.hwid ? 'disabled class="opacity-50 cursor-not-allowed px-2.5 py-1 text-xs bg-zinc-850 text-zinc-600 rounded font-medium"' : ''}>
+              <button onclick="resetHwid('${k.key}')" class="px-2.5 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-medium transition-colors" ${(!k.hwid || isExpired || k.paymentStatus === 'expired') ? 'disabled class="opacity-50 cursor-not-allowed px-2.5 py-1 text-xs bg-zinc-850 text-zinc-600 rounded font-medium"' : ''}>
                 Reset HWID
               </button>
               <button onclick="toggleKeyStatus('${k.key}', '${k.status}')" class="px-2.5 py-1 text-xs font-semibold rounded transition-colors ${
-                k.status === 'suspended' ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-rose-950/40 hover:bg-rose-900/40 text-rose-400 border border-rose-900/50'
-              }">
+                (isExpired || k.paymentStatus === 'expired') ? 'bg-zinc-850 text-zinc-650 opacity-50 cursor-not-allowed' : (k.status === 'suspended' ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-rose-950/40 hover:bg-rose-900/40 text-rose-400 border border-rose-900/50')
+              }" ${(isExpired || k.paymentStatus === 'expired') ? 'disabled' : ''}>
                 ${k.status === 'suspended' ? 'Mở khóa' : 'Khóa'}
               </button>
             </td>
