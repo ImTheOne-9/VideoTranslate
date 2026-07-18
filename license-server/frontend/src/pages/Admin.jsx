@@ -892,13 +892,14 @@ export default function Admin({ showToast }) {
                 </div>
                 
                 {/* Filter Tabs */}
-                <div className="flex rounded-lg bg-zinc-900 p-1 border border-zinc-850 self-start sm:self-auto text-xs font-semibold">
-                  {['all', 'active', 'inactive', 'suspended', 'expired'].map((tab) => {
+                <div className="flex flex-wrap rounded-lg bg-zinc-900 p-1 border border-zinc-850 self-start sm:self-auto text-xs font-semibold gap-0.5">
+                  {['all', 'active', 'inactive', 'pending_payment', 'suspended', 'expired'].map((tab) => {
                     const isSelected = currentFilterTab === tab;
                     const tabNames = {
                       all: 'Tất cả',
                       active: 'Hoạt động',
                       inactive: 'Chờ kích hoạt',
+                      pending_payment: 'Chờ thanh toán',
                       suspended: 'Bị khóa',
                       expired: 'Hết hạn'
                     };
@@ -907,7 +908,11 @@ export default function Admin({ showToast }) {
                         key={tab}
                         onClick={() => setCurrentFilterTab(tab)}
                         className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                          isSelected ? 'bg-indigo-500 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+                          isSelected
+                            ? tab === 'pending_payment'
+                              ? 'bg-yellow-500 text-black shadow-sm'
+                              : 'bg-indigo-500 text-white shadow-sm'
+                            : 'text-zinc-400 hover:text-white'
                         }`}
                       >
                         {tabNames[tab]}
@@ -972,7 +977,15 @@ export default function Admin({ showToast }) {
 
                       return (
                         <tr key={k.key} className="hover:bg-zinc-900/20 transition-colors">
-                          <td className="px-6 py-4 font-semibold text-white">{k.customerName || 'Khách lẻ'}</td>
+                          <td className="px-6 py-4">
+                            <div className="font-semibold text-white">{k.customerName || 'Khách lẻ'}</div>
+                            {k.userEmail && (
+                              <div className="text-xs text-zinc-500 mt-0.5">{k.userEmail}</div>
+                            )}
+                            {k.userPhone && (
+                              <div className="text-xs text-zinc-500">{k.userPhone}</div>
+                            )}
+                          </td>
                           <td className="px-6 py-4 text-center">
                             {(() => {
                               const isPerm = !k.expiresAt || new Date(k.expiresAt).getFullYear() >= 9999;
