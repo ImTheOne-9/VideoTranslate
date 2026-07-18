@@ -749,7 +749,7 @@ export default function Admin({ showToast }) {
       
       {/* Header */}
       <header className="border-b border-zinc-900 bg-zinc-900/50 backdrop-blur-lg sticky top-0 z-30">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-md">
@@ -780,7 +780,7 @@ export default function Admin({ showToast }) {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-3 lg:p-4 space-y-4">
+      <main className="flex-1 max-w-screen-2xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
         
         {/* Main Tab Controls */}
         <div className="flex border-b border-zinc-900 gap-6 text-sm font-semibold mb-6">
