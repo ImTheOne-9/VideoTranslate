@@ -351,30 +351,7 @@ function AppContent() {
                 </ul>
               </div>
 
-              {/* Column 3: Proprietary Engines */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider font-display">Động cơ công nghệ</h4>
-                <ul className="space-y-2.5 text-xs text-zinc-400 font-medium">
-                  <li className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-                    <span>Smart-Voice AI (Nhận diện)</span>
-                  </li>
-                  <li className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-                    <span>VST-Speech AI (Lồng tiếng)</span>
-                  </li>
-                  <li className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-                    <span>VST-Core Fast Render (Biên tập)</span>
-                  </li>
-                  <li className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-                    <span>High-Speed Crawler (Tải video)</span>
-                  </li>
-                </ul>
-              </div>
-
-              {/* Column 4: Contact Support */}
+              {/* Column 3: Contact Support */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider font-display">Hỗ trợ & Liên hệ</h4>
                 <ul className="space-y-3 text-xs text-zinc-400 font-medium">

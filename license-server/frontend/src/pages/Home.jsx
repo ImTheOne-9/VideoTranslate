@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Youtube, Video, Download, Languages, Volume2, Cpu, Layers, Settings, Tv, Flame, ShieldCheck, Check, X, Zap, Sparkles, Share2, Music, HardDrive } from 'lucide-react';
+import { Youtube, Video, Download, Languages, Volume2, Cpu, Layers, Settings, Tv, Flame, ShieldCheck, Check, X, Zap, Sparkles, Share2, Music, HardDrive, Scissors, Mic2, Facebook } from 'lucide-react';
 
 import downloaderImg from '../assets/downloader_screenshot.png';
 import studioImg from '../assets/studio_render_screenshot.png';
-import subtitlesImg from '../assets/subtitles_screenshot.png';
-import voiceoverImg from '../assets/voiceover_screenshot.png';
+import bamcanhImg from '../assets/bamcanh_screenshot.png';
+import libraryImg from '../assets/library_screenshot.png';
+import managepageImg from '../assets/managepage_screenshot.png';
 
 export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePlan, showToast, appVersion }) {
   const [plans, setPlans] = useState([]);
@@ -98,8 +99,8 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
       <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
           <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Hệ Sinh Thái Editnhanh</span>
-          <h2 className="text-3xl sm:text-4xl font-bold font-display text-white">4 Phân Hệ Công Cụ Chuyên Nghiệp</h2>
-          <p className="text-zinc-400">Tích hợp đầy đủ các giải pháp tải, dịch thuật, lồng tiếng và render video thông minh trên máy tính.</p>
+          <h2 className="text-3xl sm:text-4xl font-bold font-display text-white">5 Phân Hệ Công Cụ Chuyên Nghiệp</h2>
+          <p className="text-zinc-400">Tích hợp đầy đủ các giải pháp tải video, biên tập, băm cảnh, quản lý giọng & nhạc nền và đăng video lên Facebook — tất cả trên máy tính.</p>
         </div>
 
         <div className="space-y-24">
@@ -152,11 +153,11 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold text-white font-display">Studio Biên Tập Render</h3>
-                  <p className="text-xs text-zinc-500 font-semibold">Quản lý dự án phi tuyến tính trực quan</p>
+                  <p className="text-xs text-zinc-500 font-semibold">Biên tập, phụ đề dịch thuật & lồng tiếng AI trong một nơi</p>
                 </div>
               </div>
               <p className="text-sm text-zinc-400 leading-relaxed">
-                Giao diện làm việc chuyên nghiệp, giúp bạn quản lý từng dự án biên tập riêng biệt. Cho phép cắt ghép video, đồng bộ âm thanh và kết xuất tốc độ cao.
+                Giao diện làm việc chuyên nghiệp, quản lý từng dự án biên tập riêng biệt. Tích hợp nhận diện giọng nói, dịch phụ đề tự động và lồng tiếng AI offline — kết xuất tốc độ cao chỉ trong vài click.
               </p>
               <div className="grid grid-cols-2 gap-3 text-xs text-zinc-350 bg-zinc-950/40 p-4 rounded-xl border border-zinc-900/60 font-medium">
                 <div className="flex items-center gap-2">
@@ -165,15 +166,15 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-purple-400"></span>
-                  <span>Tùy chỉnh khung hình dọc/ngang</span>
+                  <span>Phụ đề tự động & dịch thuật AI</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-purple-400"></span>
-                  <span>Chèn hình mờ (Watermark/Overlay)</span>
+                  <span>Lồng tiếng AI offline biểu cảm</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-purple-400"></span>
-                  <span>Ghép nhạc nền</span>
+                  <span>Render tốc độ cao, watermark</span>
                 </div>
               </div>
             </div>
@@ -182,81 +183,120 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
             </div>
           </div>
 
-          {/* Subtitles Section */}
+          {/* Băm cảnh Section */}
           <div className="flex flex-col lg:flex-row items-center gap-12">
             <div className="flex-1 space-y-6">
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-pink-500/10 text-pink-400 flex items-center justify-center">
-                  <Languages className="h-6 w-6" />
+                <div className="h-12 w-12 rounded-2xl bg-orange-500/10 text-orange-400 flex items-center justify-center">
+                  <Scissors className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-white font-display">Phụ Đề & Dịch Thuật</h3>
-                  <p className="text-xs text-zinc-500 font-semibold">Tự động nhận diện giọng nói chuẩn 99%</p>
+                  <h3 className="text-2xl font-bold text-white font-display">Băm Cảnh Tự Động</h3>
+                  <p className="text-xs text-zinc-500 font-semibold">Cắt video đài thành các ngắn cảnh Reels/Shorts</p>
                 </div>
               </div>
               <p className="text-sm text-zinc-400 leading-relaxed">
-                Trích xuất phụ đề tự động từ âm thanh video. Tự động dịch nghĩa phụ đề sang các ngôn ngữ khác nhau phục vụ Reup quốc tế.
+                Tự động phân tích và cắt video dài thành hàng loạt clip ngắn theo cảnh. Tùy chỉnh số bản, độ nhạy cắt cảnh và tỉ lệ khung hình đầu ra — lý tưởng để sản xuất hàng loạt Reels & Shorts.
               </p>
               <div className="grid grid-cols-2 gap-3 text-xs text-zinc-350 bg-zinc-950/40 p-4 rounded-xl border border-zinc-900/60 font-medium">
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-pink-400"></span>
-                  <span>Nhận diện giọng nói</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-400"></span>
+                  <span>Băm tự động theo cảnh AI</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-pink-400"></span>
-                  <span>Xuất tệp phụ đề</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-400"></span>
+                  <span>Tùy chỉnh số bản chia đều</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-pink-400"></span>
-                  <span>Dịch phụ đề sang Tiếng Việt</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-400"></span>
+                  <span>Xuất 9:16 Reels/Shorts tự động</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-pink-400"></span>
-                  <span>Trình chỉnh sửa dòng chữ trực quan</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-400"></span>
+                  <span>Điều chỉnh độ nhạy cắt cảnh</span>
                 </div>
               </div>
             </div>
             <div className="flex-1 w-full">
-              <img src={subtitlesImg} alt="Subtitles & Translation screen" className="w-full h-auto rounded-2xl border border-zinc-800 shadow-2xl hover:border-zinc-700 transition-all duration-300" />
+              <img src={bamcanhImg} alt="Băm cảnh tự động" className="w-full h-auto rounded-2xl border border-zinc-800 shadow-2xl hover:border-zinc-700 transition-all duration-300" />
             </div>
           </div>
 
-          {/* Voiceover Section */}
+          {/* Thư viện giọng & nhạc nền Section */}
           <div className="flex flex-col lg:flex-row-reverse items-center gap-12">
             <div className="flex-1 space-y-6">
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                  <Volume2 className="h-6 w-6" />
+                <div className="h-12 w-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+                  <Mic2 className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-white font-display">Lồng Tiếng AI Biểu Cảm</h3>
-                  <p className="text-xs text-zinc-500 font-semibold">Chuyển văn bản thành giọng nói tự nhiên</p>
+                  <h3 className="text-2xl font-bold text-white font-display">Quản Lý Giọng & Nhạc Nền</h3>
+                  <p className="text-xs text-zinc-500 font-semibold">Clone & quản lý kho tài nguyên âm thanh cá nhân</p>
                 </div>
               </div>
               <p className="text-sm text-zinc-400 leading-relaxed">
-                Tích hợp động cơ lồng tiếng offline chất lượng cao. Đa dạng giọng đọc nam/nữ nhiều vùng miền, tự động căn khớp thời gian nói theo tốc độ video nguồn.
+                Thư viện tập trung để quản lý toàn bộ giọng đọc AI và nhạc nền. Hỗ trợ clone giọng nói của bản thân hoặc bất kỳ ai chỉ với file ghi âm ngắn, tạo ra giọng đọc AI hoàn toàn riêng tư.
               </p>
               <div className="grid grid-cols-2 gap-3 text-xs text-zinc-350 bg-zinc-950/40 p-4 rounded-xl border border-zinc-900/60 font-medium">
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span>Động cơ lồng tiếng offline 100%</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+                  <span>Clone giọng nói bằng Omni Cloner</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span>Tùy chỉnh tốc độ và âm lượng</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+                  <span>Thư viện nhạc nền tùy chỉnh</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span>Giọng đọc truyền cảm, ấm áp</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+                  <span>Giọng đọc AI offline cá nhân hóa</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span>Tự động chèn khớp mốc thời gian</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+                  <span>Quản lý & tái sử dụng dễ dàng</span>
                 </div>
               </div>
             </div>
             <div className="flex-1 w-full">
-              <img src={voiceoverImg} alt="AI Voiceover Screen" className="w-full h-auto rounded-2xl border border-zinc-800 shadow-2xl hover:border-zinc-700 transition-all duration-300" />
+              <img src={libraryImg} alt="Quản lý giọng và nhạc nền" className="w-full h-auto rounded-2xl border border-zinc-800 shadow-2xl hover:border-zinc-700 transition-all duration-300" />
+            </div>
+          </div>
+
+          {/* Quản lý Page Facebook Section */}
+          <div className="flex flex-col lg:flex-row items-center gap-12">
+            <div className="flex-1 space-y-6">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                  <Facebook className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-white font-display">Quản Lý Đăng Video Facebook</h3>
+                  <p className="text-xs text-zinc-500 font-semibold">Đăng hàng loạt video lên Page Facebook tự động</p>
+                </div>
+              </div>
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                Quản lý danh sách tất cả các Facebook Fanpage của bạn tập trung tại một nơi. Lên lịch và đăng hàng loạt video lên nhiều Page cùng lúc — tối ưu hiệu suất vận hành kênh.
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-xs text-zinc-350 bg-zinc-950/40 p-4 rounded-xl border border-zinc-900/60 font-medium">
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+                  <span>Quản lý nhiều Fanpage cùng lúc</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+                  <span>Đăng video hàng loạt tự động</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+                  <span>Thêm, sửa, xóa Page dễ dàng</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+                  <span>Tìm kiếm & lọc Page nhanh chóng</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex-1 w-full">
+              <img src={managepageImg} alt="Quản lý đăng video Facebook Page" className="w-full h-auto rounded-2xl border border-zinc-800 shadow-2xl hover:border-zinc-700 transition-all duration-300" />
             </div>
           </div>
 
