@@ -65,6 +65,7 @@ test('component flow returns immediately when OCR is ready', async () => {
 test('component flow downloads once and polls until ready', async () => {
   const calls = [];
   const progress = [];
+  const waits = [];
   let polls = 0;
   const flow = createOcrComponentFlow({
     request: async (url, options) => {
@@ -75,7 +76,7 @@ test('component flow downloads once and polls until ready', async () => {
         ? { status: 'downloading', percent: 42 }
         : { status: 'ready', percent: 100 };
     },
-    wait: async () => {},
+    wait: async milliseconds => { waits.push(milliseconds); },
     onProgress: state => progress.push(state)
   });
 
@@ -86,7 +87,31 @@ test('component flow downloads once and polls until ready', async () => {
     ['/api/ocr-component/download-status', undefined],
     ['/api/ocr-component/download-status', undefined]
   ]);
+  assert.deepEqual(waits, [1500]);
   assert.equal(progress.at(-1).status, 'ready');
+});
+
+test('component flow waits and retries when progress polling is rate limited', async () => {
+  let polls = 0;
+  const waits = [];
+  const flow = createOcrComponentFlow({
+    request: async url => {
+      if (url.endsWith('/download')) return { success: true };
+      polls += 1;
+      if (polls === 1) {
+        const error = new Error('Quá nhiều yêu cầu.');
+        error.status = 429;
+        error.retryAfterMs = 3000;
+        throw error;
+      }
+      return { status: 'ready', percent: 100 };
+    },
+    wait: async milliseconds => { waits.push(milliseconds); }
+  });
+
+  assert.equal((await flow.download()).ready, true);
+  assert.equal(polls, 2);
+  assert.deepEqual(waits, [3000]);
 });
 
 test('component flow cancellation stops polling and calls cancel endpoint', async () => {
@@ -166,6 +191,7 @@ test('studio markup exposes language, advanced region, and first-use download co
     'ocr-region-right',
     'ocr-region-value',
     'ocr-region-overlay',
+    'ocr-mode-value',
     'ocr-component-modal',
     'ocr-download-btn',
     'ocr-download-cancel-btn'
@@ -173,7 +199,11 @@ test('studio markup exposes language, advanced region, and first-use download co
     assert.match(html, new RegExp(`id=["']${id}["']`), `missing #${id}`);
   }
   assert.match(html, /name=["']ocrLanguage["']/);
+  assert.match(html, /name=["']ocrMode["']/);
   assert.match(html, /name=["']ocrRegion["']/);
+  for (const mode of ['fast', 'auto', 'accurate']) {
+    assert.match(html, new RegExp(`data-ocr-mode=["']${mode}["']`));
+  }
   assert.match(html, /src=["']js\/ocr-ui\.js["']/);
 });
 

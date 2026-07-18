@@ -47,6 +47,7 @@ function baseOptions(directory, spawnImpl) {
     videoPath: 'D:\\Video có dấu\\Người đẹp.mp4',
     outputPath: path.join(directory, 'Phụ đề tiếng Việt', 'Kết quả cuối.srt'),
     language: 'vi',
+    mode: 'auto',
     region: '0.70,0.98,0.05,0.95',
     device: 'gpu',
     cwd: directory,
@@ -73,7 +74,7 @@ test('runs the exact executable with unchanged video and output arguments', asyn
       [
         '--video', options.videoPath,
         '--lang', options.language,
-        '--mode', 'fast',
+        '--mode', options.mode,
         '--sub_area', options.region,
         '--device', options.device,
         '--output', options.outputPath

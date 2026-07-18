@@ -318,10 +318,12 @@ module.exports = {
 
         if (hasSubtitles) {
           const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+          const downloadMarginV = Number(req.query.subtitleMarginV || 20);
+          const downloadSize = Number(req.query.subtitleSize || 18);
 
           const ffmpegArgs = [
             '-i', actualVideoPath,
-            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
+            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=${downloadMarginV},Fontsize=${downloadSize},WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
             '-c:a', 'copy',
             '-y', finalVideoPath
           ];
@@ -463,7 +465,7 @@ module.exports = {
     });
 
     try {
-      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH, translateTargetLang } = req.body;
+      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH, subtitleMarginV, translateTargetLang } = req.body;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -543,7 +545,7 @@ module.exports = {
             const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
             const ffmpegArgs = [
               '-i', actualVideoPath,
-              '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
+              '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=${subtitleMarginV || 20},Fontsize=${subtitleSize || 18},WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
               '-c:a', 'copy',
               '-y', finalVideoPath
             ];

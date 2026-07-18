@@ -319,6 +319,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       durationMs: options.totalDuration * 1000,
       whisperModel: body.whisperModel || 'base',
       ocrLanguage: body.ocrLanguage,
+      ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
       forceWhisper,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)

@@ -373,8 +373,12 @@ function openOmniClonerModal() {
   if (modal) modal.classList.remove('hidden');
   $('cloner-generate-btn').classList.remove('hidden');
   $('cloner-cancel-btn').classList.add('hidden');
+  const saveBtn = $('cloner-save-btn');
+  if (saveBtn) saveBtn.classList.add('hidden');
   $('cloner-result-area').classList.add('hidden');
   $('cloner-ref-preview').classList.add('hidden');
+  const closeBtn = $('cloner-close-btn');
+  if (closeBtn) closeBtn.textContent = 'Đóng';
 }
 
 function closeOmniClonerModal() {
@@ -394,6 +398,13 @@ function closeOmniClonerModal() {
   $('cloner-ref-preview').classList.add('hidden');
   $('cloner-generate-btn').classList.remove('hidden');
   $('cloner-cancel-btn').classList.add('hidden');
+  const saveBtn = $('cloner-save-btn');
+  if (saveBtn) saveBtn.classList.add('hidden');
+  const closeBtn = $('cloner-close-btn');
+  if (closeBtn) closeBtn.textContent = 'Đóng';
+
+  // Clear temporary cloner voice file if it exists
+  fetch('/api/clear-temp-cloner-voice', { method: 'POST' }).catch(() => {});
 }
 
 async function generateOmniClonerVoice(event) {
@@ -467,6 +478,8 @@ async function generateOmniClonerVoice(event) {
       btn.classList.remove('hidden');
       cancelBtn.classList.add('hidden');
       progressArea.classList.add('hidden');
+      const closeBtn = $('cloner-close-btn');
+      if (closeBtn) closeBtn.textContent = 'Đóng';
       return;
     }
 
@@ -484,8 +497,13 @@ async function generateOmniClonerVoice(event) {
     resultAudio.src = `/voices/${encodeURIComponent(data.filename)}`;
     resultAudio.play().catch(() => {});
 
-    toast('🎉 ' + (data.message || 'Tạo giọng mẫu thành công!'), 'success');
-    await loadAssets();
+    const saveBtn = $('cloner-save-btn');
+    if (saveBtn) saveBtn.classList.remove('hidden');
+
+    const closeBtn = $('cloner-close-btn');
+    if (closeBtn) closeBtn.textContent = 'Hủy bỏ';
+
+    toast('🎉 Tạo giọng mẫu thành công! Hãy nghe thử và nhấn "Lưu giọng".', 'success');
   } catch (err) {
     console.error('Lỗi tạo giọng Omni Cloner:', err);
     if (clonerPollInterval) {
@@ -496,7 +514,46 @@ async function generateOmniClonerVoice(event) {
     errorEl.classList.remove('hidden');
     btn.classList.remove('hidden');
     cancelBtn.classList.add('hidden');
+    const closeBtn = $('cloner-close-btn');
+    if (closeBtn) closeBtn.textContent = 'Đóng';
     toast('❌ ' + err.message, 'error');
+  }
+}
+
+async function saveClonerVoice() {
+  const voiceName = $('cloner-voice-name').value.trim();
+  if (!voiceName) {
+    toast('❌ Vui lòng nhập tên giọng mẫu gợi nhớ!', 'error');
+    return;
+  }
+
+  const saveBtn = $('cloner-save-btn');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Đang lưu...';
+  }
+
+  try {
+    const res = await fetch('/api/save-cloner-voice', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ voiceName })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Lỗi khi lưu giọng');
+
+    toast('🎉 ' + (data.message || 'Lưu giọng mẫu thành công!'), 'success');
+    closeOmniClonerModal();
+    await loadAssets();
+  } catch (err) {
+    toast('❌ ' + err.message, 'error');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = '💾 Lưu giọng';
+    }
   }
 }
 
@@ -511,6 +568,7 @@ window.openOmniClonerModal = openOmniClonerModal;
 window.closeOmniClonerModal = closeOmniClonerModal;
 window.generateOmniClonerVoice = generateOmniClonerVoice;
 window.cancelClonerVoice = cancelClonerVoice;
+window.saveClonerVoice = saveClonerVoice;
 
 // ==========================================
 function renderVoicesList(searchFilter = '') {
@@ -928,8 +986,12 @@ function updateModelDownloadUI(status) {
     if (actionBtn) {
       actionBtn.disabled = true;
       actionBtn.textContent = 'Đang tải...';
+      actionBtn.style.display = '';
     }
-    if (cancelBtn) cancelBtn.disabled = true;
+    if (cancelBtn) {
+      cancelBtn.disabled = true;
+      cancelBtn.style.display = '';
+    }
     if (closeBtn) closeBtn.style.display = 'none';
   } else {
     isDownloadingModel = false;
@@ -940,17 +1002,17 @@ function updateModelDownloadUI(status) {
       if (bytesLabel) bytesLabel.textContent = '1400 MB / 1400 MB';
       if (actionBtn) {
         actionBtn.disabled = false;
-        actionBtn.textContent = 'Tải lại';
-      }
-      if (cancelBtn) {
-        cancelBtn.disabled = false;
-        cancelBtn.textContent = 'Hoàn tất';
-        cancelBtn.style.background = 'var(--success)';
-        cancelBtn.style.color = 'white';
-        cancelBtn.onclick = () => {
+        actionBtn.textContent = 'Hoàn tất';
+        actionBtn.style.background = '';
+        actionBtn.style.color = '';
+        actionBtn.style.display = '';
+        actionBtn.onclick = () => {
           closeModelDownloadModal();
           loadAssets();
         };
+      }
+      if (cancelBtn) {
+        cancelBtn.style.display = 'none';
       }
       if (closeBtn) closeBtn.style.display = 'block';
     } else if (status.error) {
@@ -958,8 +1020,17 @@ function updateModelDownloadUI(status) {
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Thử lại';
+        actionBtn.style.display = '';
+        actionBtn.onclick = startModelDownload;
       }
-      if (cancelBtn) cancelBtn.disabled = false;
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Đóng';
+        cancelBtn.style.background = '';
+        cancelBtn.style.color = '';
+        cancelBtn.style.display = '';
+        cancelBtn.onclick = closeModelDownloadModal;
+      }
       if (closeBtn) closeBtn.style.display = 'block';
     } else {
       if (statusLabel) statusLabel.textContent = 'Sẵn sàng tải xuống';
@@ -969,12 +1040,15 @@ function updateModelDownloadUI(status) {
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Bắt đầu tải';
+        actionBtn.style.display = '';
+        actionBtn.onclick = startModelDownload;
       }
       if (cancelBtn) {
         cancelBtn.disabled = false;
         cancelBtn.textContent = 'Đóng';
         cancelBtn.style.background = '';
         cancelBtn.style.color = '';
+        cancelBtn.style.display = '';
         cancelBtn.onclick = closeModelDownloadModal;
       }
       if (closeBtn) closeBtn.style.display = 'block';
@@ -1090,8 +1164,12 @@ function updateWhisperDownloadUI(status, model) {
     if (actionBtn) {
       actionBtn.disabled = true;
       actionBtn.textContent = 'Đang tải...';
+      actionBtn.style.display = '';
     }
-    if (cancelBtn) cancelBtn.disabled = true;
+    if (cancelBtn) {
+      cancelBtn.disabled = true;
+      cancelBtn.style.display = '';
+    }
     if (closeBtn) closeBtn.style.display = 'none';
   } else {
     isDownloadingWhisper = false;
@@ -1103,17 +1181,17 @@ function updateWhisperDownloadUI(status, model) {
       if (bytesLabel) bytesLabel.textContent = `${mbTotal} MB / ${mbTotal} MB`;
       if (actionBtn) {
         actionBtn.disabled = false;
-        actionBtn.textContent = 'Tải lại';
-      }
-      if (cancelBtn) {
-        cancelBtn.disabled = false;
-        cancelBtn.textContent = 'Hoàn tất';
-        cancelBtn.style.background = 'var(--success)';
-        cancelBtn.style.color = 'white';
-        cancelBtn.onclick = () => {
+        actionBtn.textContent = 'Hoàn tất';
+        actionBtn.style.background = '';
+        actionBtn.style.color = '';
+        actionBtn.style.display = '';
+        actionBtn.onclick = () => {
           closeWhisperDownloadModal();
           checkWhisperModelStatus();
         };
+      }
+      if (cancelBtn) {
+        cancelBtn.style.display = 'none';
       }
       if (closeBtn) closeBtn.style.display = 'block';
     } else if (status.error) {
@@ -1121,8 +1199,17 @@ function updateWhisperDownloadUI(status, model) {
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Thử lại';
+        actionBtn.style.display = '';
+        actionBtn.onclick = startWhisperDownload;
       }
-      if (cancelBtn) cancelBtn.disabled = false;
+      if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Đóng';
+        cancelBtn.style.background = '';
+        cancelBtn.style.color = '';
+        cancelBtn.style.display = '';
+        cancelBtn.onclick = closeWhisperDownloadModal;
+      }
       if (closeBtn) closeBtn.style.display = 'block';
     } else {
       if (statusLabel) statusLabel.textContent = 'Sẵn sàng tải xuống';
@@ -1132,12 +1219,15 @@ function updateWhisperDownloadUI(status, model) {
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Bắt đầu tải';
+        actionBtn.style.display = '';
+        actionBtn.onclick = startWhisperDownload;
       }
       if (cancelBtn) {
         cancelBtn.disabled = false;
         cancelBtn.textContent = 'Đóng';
         cancelBtn.style.background = '';
         cancelBtn.style.color = '';
+        cancelBtn.style.display = '';
         cancelBtn.onclick = closeWhisperDownloadModal;
       }
       if (closeBtn) closeBtn.style.display = 'block';
@@ -1243,4 +1333,208 @@ async function checkWhisperModelStatus() {
     }
   }
 }
+
+// Global state for download configuration modal callback
+let currentDlConfirmCallback = null;
+
+function openDownloadTranslateModal(videoTitle, thumbnailUrl, onConfirm) {
+  currentDlConfirmCallback = onConfirm;
+
+  const titleEl = document.getElementById('dl-preview-video-title');
+  if (titleEl) titleEl.textContent = videoTitle || 'Đang tải video...';
+
+  const thumbEl = document.getElementById('dl-preview-thumbnail');
+  if (thumbEl) {
+    thumbEl.src = thumbnailUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='%23111'/></svg>";
+  }
+
+  // Load defaults from localStorage
+  const provider = localStorage.getItem('global_ai_provider') || 'google-translate';
+  const targetLang = localStorage.getItem('global_target_lang') || 'vi';
+  
+  // Use default subtitle values from active config inputs, or sensible defaults
+  const size = document.querySelector('input[name="subtitleSize"]')?.value || '18';
+  const marginV = '20';
+  const marginH = document.querySelector('input[name="subtitleMarginH"]')?.value || '20';
+  const maxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || '0';
+
+  // Set inputs
+  const providerSelect = document.getElementById('dl-ai-provider');
+  if (providerSelect) providerSelect.value = provider;
+
+  const targetLangSelect = document.getElementById('dl-target-lang');
+  if (targetLangSelect) targetLangSelect.value = targetLang;
+
+  const maxLinesSelect = document.getElementById('dl-subtitle-max-lines');
+  if (maxLinesSelect) maxLinesSelect.value = maxLines;
+
+  const sizeSlider = document.getElementById('dl-subtitle-size-slider');
+  if (sizeSlider) sizeSlider.value = size;
+
+  const marginVSlider = document.getElementById('dl-subtitle-margin-v-slider');
+  if (marginVSlider) marginVSlider.value = marginV;
+
+  const marginHSlider = document.getElementById('dl-subtitle-margin-h-slider');
+  if (marginHSlider) marginHSlider.value = marginH;
+
+  // Render provider fields (API keys, models)
+  onDlAiProviderChange();
+
+  // Show modal
+  const modal = document.getElementById('download-translate-modal');
+  if (modal) modal.classList.remove('hidden');
+
+  // Trigger preview update
+  updateLiveSubPreview();
+}
+
+function closeDownloadTranslateModal() {
+  const modal = document.getElementById('download-translate-modal');
+  if (modal) modal.classList.add('hidden');
+  currentDlConfirmCallback = null;
+}
+
+// AI Provider select handling
+function onDlAiProviderChange() {
+  const provider = document.getElementById('dl-ai-provider').value;
+  const modelRow = document.getElementById('dl-model-settings-row');
+  const modelSelect = document.getElementById('dl-ai-model');
+  const keyInput = document.getElementById('dl-ai-key');
+
+  if (provider === 'google-translate' || provider === 'nllb') {
+    modelRow.classList.add('hidden');
+    return;
+  }
+
+  modelRow.classList.remove('hidden');
+  modelSelect.innerHTML = '';
+
+  if (provider === 'gemini') {
+    keyInput.value = localStorage.getItem('global_gemini_key') || '';
+    keyInput.placeholder = 'Nhập Gemini API Key...';
+    
+    const geminiModels = [
+      { value: 'models/gemini-2.5-flash', label: 'gemini-2.5-flash' },
+      { value: 'models/gemini-1.5-flash', label: 'gemini-1.5-flash' },
+      { value: 'models/gemini-1.5-pro', label: 'gemini-1.5-pro' }
+    ];
+    geminiModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.value;
+      opt.textContent = m.label;
+      modelSelect.appendChild(opt);
+    });
+    const savedModel = localStorage.getItem('global_gemini_model') || 'models/gemini-2.5-flash';
+    modelSelect.value = savedModel.startsWith('models/') ? savedModel : 'models/' + savedModel;
+
+  } else if (provider === 'openrouter') {
+    keyInput.value = localStorage.getItem('global_openrouter_key') || '';
+    keyInput.placeholder = 'Nhập OpenRouter API Key...';
+    
+    const orModels = [
+      { value: 'openrouter/owl-alpha', label: 'Owl Alpha (Chuyên dịch)' },
+      { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' },
+      { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' }
+    ];
+    orModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.value;
+      opt.textContent = m.label;
+      modelSelect.appendChild(opt);
+    });
+    modelSelect.value = localStorage.getItem('global_openrouter_model') || 'openrouter/owl-alpha';
+
+  } else if (provider === '9router') {
+    keyInput.value = localStorage.getItem('global_ninerouter_key') || '';
+    keyInput.placeholder = 'Nhập 9Router API Key (nếu có)...';
+    
+    const nineModels = [
+      { value: 'google/gemini-1.5-flash', label: 'Gemini 1.5 Flash (Proxy)' },
+      { value: 'meta-llama/llama-3-8b-instruct', label: 'Llama 3 8B (Proxy)' }
+    ];
+    nineModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.value;
+      opt.textContent = m.label;
+      modelSelect.appendChild(opt);
+    });
+    modelSelect.value = localStorage.getItem('global_ninerouter_model') || 'google/gemini-1.5-flash';
+  }
+}
+
+// Live update subtitle text design
+function updateLiveSubPreview() {
+  const size = document.getElementById('dl-subtitle-size-slider').value;
+  const marginV = document.getElementById('dl-subtitle-margin-v-slider').value;
+  const marginH = document.getElementById('dl-subtitle-margin-h-slider').value;
+  const maxLines = document.getElementById('dl-subtitle-max-lines').value;
+
+  // Update labels
+  document.getElementById('dl-subtitle-size-val').textContent = size + 'px';
+  document.getElementById('dl-subtitle-margin-v-val').textContent = marginV + 'px';
+  document.getElementById('dl-subtitle-margin-h-val').textContent = marginH + 'px';
+
+  // Apply to preview elements
+  const subBox = document.getElementById('dl-preview-sub-box');
+  const subText = document.getElementById('dl-preview-sub-text');
+
+  if (subBox && subText) {
+    subText.style.fontSize = Math.round(Number(size) * 0.7) + 'px'; // Scale preview font size a bit to fit simulated frame
+    subBox.style.bottom = Math.round(Number(marginV) * 0.5) + 'px'; // Scale vertical margin slightly too
+    subBox.style.width = `calc(100% - ${Math.round(Number(marginH) * 0.5) * 2}px)`;
+
+    if (maxLines === '1') {
+      subText.textContent = "Đây là dòng phụ đề Vietsub mẫu tối đa 1 dòng.";
+    } else if (maxLines === '2') {
+      subText.textContent = "Đây là dòng phụ đề Vietsub mẫu\nchia thành tối đa 2 dòng hiển thị.";
+    } else {
+      subText.textContent = "Đây là dòng phụ đề Vietsub mẫu sẽ hiển thị trên video của bạn, tự động ngắt dòng thông minh khi câu thoại dài hơn.";
+    }
+  }
+}
+
+// Bind click event for confirmation button
+document.addEventListener('DOMContentLoaded', () => {
+  const dlConfirmBtn = document.getElementById('dl-confirm-btn');
+  if (dlConfirmBtn) {
+    dlConfirmBtn.onclick = function() {
+      if (currentDlConfirmCallback) {
+        const aiProvider = document.getElementById('dl-ai-provider').value;
+        const targetLang = document.getElementById('dl-target-lang').value;
+        const subtitleSize = document.getElementById('dl-subtitle-size-slider').value;
+        const subtitleMarginH = document.getElementById('dl-subtitle-margin-h-slider').value;
+        const subtitleMarginV = document.getElementById('dl-subtitle-margin-v-slider').value;
+        const subtitleMaxLines = document.getElementById('dl-subtitle-max-lines').value;
+        
+        let model = '';
+        let apiKey = '';
+        const modelSelect = document.getElementById('dl-ai-model');
+        const keyInput = document.getElementById('dl-ai-key');
+        if (modelSelect && !document.getElementById('dl-model-settings-row').classList.contains('hidden')) {
+          model = modelSelect.value;
+          apiKey = keyInput.value;
+        }
+
+        currentDlConfirmCallback({
+          aiProvider,
+          targetLang,
+          subtitleSize,
+          subtitleMarginH,
+          subtitleMarginV,
+          subtitleMaxLines,
+          model,
+          apiKey
+        });
+      }
+      closeDownloadTranslateModal();
+    };
+  }
+});
+
+// Expose functions globally
+window.openDownloadTranslateModal = openDownloadTranslateModal;
+window.closeDownloadTranslateModal = closeDownloadTranslateModal;
+window.onDlAiProviderChange = onDlAiProviderChange;
+window.updateLiveSubPreview = updateLiveSubPreview;
 

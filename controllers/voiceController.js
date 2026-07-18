@@ -42,12 +42,15 @@ module.exports = {
       return res.status(400).json({ error: 'Tên giọng mẫu không hợp lệ' });
     }
 
-    const voicePath = path.join(shared.VOICES_DIR, `${baseName}.wav`);
-    const txtPath = path.join(shared.VOICES_DIR, `${baseName}.txt`);
+    const targetVoicePath = path.join(shared.VOICES_DIR, `${baseName}.wav`);
+    const targetTxtPath = path.join(shared.VOICES_DIR, `${baseName}.txt`);
 
-    if (fs.existsSync(voicePath) || fs.existsSync(txtPath)) {
+    if (fs.existsSync(targetVoicePath) || fs.existsSync(targetTxtPath)) {
       return res.status(400).json({ error: 'Giọng mẫu với tên này đã tồn tại, vui lòng chọn tên khác.' });
     }
+
+    const voicePath = path.join(shared.VOICES_DIR, '_temp_cloner_voice.wav');
+    const txtPath = path.join(shared.VOICES_DIR, '_temp_cloner_voice.txt');
 
     const tempFiles = [];
     resetClonerState();
@@ -163,8 +166,8 @@ module.exports = {
       clonerState.percent = 90;
 
       fs.writeFileSync(txtPath, script, 'utf8');
-      clonerState.voiceFilename = `${baseName}.wav`;
-      console.log(`[OmniCloner] Đã lưu giọng tại ${voicePath}`);
+      clonerState.voiceFilename = '_temp_cloner_voice.wav';
+      console.log(`[OmniCloner] Đã lưu giọng tạm thời tại ${voicePath}`);
 
       clonerState.stage = 'Hoàn tất!';
       clonerState.percent = 100;
@@ -172,7 +175,7 @@ module.exports = {
       res.json({
         success: true,
         message: 'Tạo giọng mẫu bằng Omni Cloner thành công!',
-        filename: `${baseName}.wav`
+        filename: '_temp_cloner_voice.wav'
       });
 
     } catch (err) {
@@ -219,6 +222,55 @@ module.exports = {
     clonerState.active = false;
     clonerState.stage = 'Đã hủy';
     res.json({ success: true, message: 'Đã hủy tạo giọng' });
+  },
+
+  saveClonerVoice: async (req, res) => {
+    const { voiceName } = req.body;
+    if (!voiceName) {
+      return res.status(400).json({ error: 'Thiếu thông tin: voiceName' });
+    }
+
+    const baseName = shared.safeFileName(voiceName);
+    if (!baseName) {
+      return res.status(400).json({ error: 'Tên giọng mẫu không hợp lệ' });
+    }
+
+    const tempVoicePath = path.join(shared.VOICES_DIR, '_temp_cloner_voice.wav');
+    const tempTxtPath = path.join(shared.VOICES_DIR, '_temp_cloner_voice.txt');
+    const targetVoicePath = path.join(shared.VOICES_DIR, `${baseName}.wav`);
+    const targetTxtPath = path.join(shared.VOICES_DIR, `${baseName}.txt`);
+
+    if (!fs.existsSync(tempVoicePath)) {
+      return res.status(400).json({ error: 'Không tìm thấy file giọng mẫu tạm thời. Vui lòng tạo lại giọng.' });
+    }
+
+    if (fs.existsSync(targetVoicePath) || fs.existsSync(targetTxtPath)) {
+      return res.status(400).json({ error: 'Giọng mẫu với tên này đã tồn tại, vui lòng chọn tên khác.' });
+    }
+
+    try {
+      fs.renameSync(tempVoicePath, targetVoicePath);
+      if (fs.existsSync(tempTxtPath)) {
+        fs.renameSync(tempTxtPath, targetTxtPath);
+      }
+      res.json({ success: true, message: 'Đã lưu giọng mẫu thành công!' });
+    } catch (err) {
+      console.error('Error saving voice:', err);
+      res.status(500).json({ error: `Lỗi khi lưu giọng: ${err.message}` });
+    }
+  },
+
+  clearTempClonerVoice: async (req, res) => {
+    try {
+      const voicePath = path.join(shared.VOICES_DIR, '_temp_cloner_voice.wav');
+      const txtPath = path.join(shared.VOICES_DIR, '_temp_cloner_voice.txt');
+      if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath);
+      if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error clearing temp voice:', err);
+      res.status(500).json({ error: err.message });
+    }
   },
 
   saveVoice: async (req, res) => {

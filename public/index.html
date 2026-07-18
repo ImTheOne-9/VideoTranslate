@@ -1055,6 +1055,15 @@
 
                     <div id="ocr-settings-container" class="ocr-settings hidden">
                       <div class="form-group">
+                        <label>Chế độ nhận dạng</label>
+                        <div class="ocr-mode-segmented" role="group" aria-label="Chế độ nhận dạng OCR">
+                          <button type="button" class="ocr-mode-btn" data-ocr-mode="fast" title="Nhanh, dùng model nhẹ">Fast</button>
+                          <button type="button" class="ocr-mode-btn active" data-ocr-mode="auto" title="Tự chọn model theo CPU hoặc GPU">Auto</button>
+                          <button type="button" class="ocr-mode-btn" data-ocr-mode="accurate" title="Dò từng frame, chính xác nhưng chậm">Accurate</button>
+                        </div>
+                        <input type="hidden" id="ocr-mode-value" name="ocrMode" value="auto">
+                      </div>
+                      <div class="form-group">
                         <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
                         <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
                           <option value="">Chọn ngôn ngữ...</option>
@@ -2443,14 +2452,137 @@
           </div>
           <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button type="submit" id="cloner-generate-btn" class="premium-render-btn"
-              style="flex: 1; margin: 0; background: #3b82f6; color: white;">🤖 Tạo giọng mẫu</button>
+              style="flex: 1; margin: 0; background: #3b82f6; color: white;">🤖 Tạo giọng</button>
             <button type="button" id="cloner-cancel-btn" class="premium-render-btn hidden"
               style="flex: 1; margin: 0; background: #ef4444; color: white;" onclick="cancelClonerVoice()">⏹
               Hủy</button>
+            <button type="button" id="cloner-save-btn" class="premium-render-btn hidden" style="flex: 1; margin: 0; background: #22c55e; color: white;" onclick="saveClonerVoice()">💾 Lưu giọng</button>
             <button type="button" class="premium-render-btn ghost-btn" id="cloner-close-btn" style="flex: 1; margin: 0;"
-              onclick="closeOmniClonerModal()">Hủy</button>
+              onclick="closeOmniClonerModal()">Đóng</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download & Translate Configuration Modal -->
+  <div id="download-translate-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 800px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(34, 197, 94, 0.1); border-bottom-color: rgba(34, 197, 94, 0.2);">
+        <h3 style="color: #22c55e; display: flex; align-items: center; gap: 8px; margin: 0;">
+          📥 Cấu hình Tải & Dịch Vietsub
+        </h3>
+        <button class="fb-modal-close" onclick="closeDownloadTranslateModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px;">
+        <div class="dl-modal-layout">
+          <!-- Cột bên trái: Preview -->
+          <div class="dl-preview-col">
+            <label style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;">Xem trước hiển thị</label>
+            <div id="dl-preview-video-title" class="dl-preview-title">Đang tải tiêu đề video...</div>
+            <div class="dl-preview-frame">
+              <img id="dl-preview-thumbnail" class="dl-preview-bg" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='%23111'/></svg>" alt="Preview BG">
+              <div id="dl-preview-sub-box" class="dl-preview-sub-box">
+                <span id="dl-preview-sub-text" class="dl-preview-sub-text">Đây là dòng phụ đề Vietsub mẫu sẽ hiển thị trên video của bạn</span>
+              </div>
+            </div>
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
+              * Lưu ý: Khung xem trước mô phỏng gần đúng vị trí và cỡ chữ. Phụ đề thực tế khi xuất ra sẽ khớp tỷ lệ với video gốc.
+            </p>
+          </div>
+
+          <!-- Cột bên phải: Cấu hình -->
+          <div class="dl-config-col">
+            <!-- Chọn AI Dịch -->
+            <div class="dl-config-group">
+              <label>Dịch phụ đề bằng (AI Provider)</label>
+              <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
+                <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
+                <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
+                <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
+                <option value="openrouter">🦉 OpenRouter AI (Dịch chất lượng cao - Yêu cầu Key)</option>
+                <option value="9router">🤖 9Router Local AI Proxy (Miễn phí qua proxy nội bộ)</option>
+              </select>
+            </div>
+
+            <!-- Dòng cấu hình Model tuỳ chọn theo AI Provider -->
+            <div id="dl-model-settings-row" class="dl-config-row hidden">
+              <div class="dl-config-group">
+                <label>Model AI</label>
+                <select id="dl-ai-model" class="premium-select"></select>
+              </div>
+              <div class="dl-config-group">
+                <label>API Key</label>
+                <input type="password" id="dl-ai-key" class="premium-input" placeholder="Nhập API Key...">
+              </div>
+            </div>
+
+            <!-- Ngôn ngữ đích & Số dòng tối đa -->
+            <div class="dl-config-row">
+              <div class="dl-config-group">
+                <label>Dịch sang ngôn ngữ</label>
+                <select id="dl-target-lang" class="premium-select">
+                  <option value="vi">Tiếng Việt (Mặc định)</option>
+                  <option value="en">Tiếng Anh (English)</option>
+                  <option value="zh">Tiếng Trung (Chinese)</option>
+                  <option value="ja">Tiếng Nhật (Japanese)</option>
+                  <option value="ko">Tiếng Hàn (Korean)</option>
+                  <option value="fr">Tiếng Pháp (French)</option>
+                  <option value="de">Tiếng Đức (German)</option>
+                  <option value="es">Tiếng Tây Ban Nha (Spanish)</option>
+                  <option value="th">Tiếng Thái (Thai)</option>
+                </select>
+              </div>
+              <div class="dl-config-group">
+                <label>Số dòng phụ đề tối đa</label>
+                <select id="dl-subtitle-max-lines" class="premium-select" onchange="updateLiveSubPreview()">
+                  <option value="0">Tự động ngắt dòng (Mặc định)</option>
+                  <option value="1">Tối đa 1 dòng (Ngắn gọn)</option>
+                  <option value="2">Tối đa 2 dòng (Thông thường)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Cỡ chữ phụ đề -->
+            <div class="dl-config-group">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label>Cỡ chữ phụ đề</label>
+                <span id="dl-subtitle-size-val" class="dl-slider-val">18px</span>
+              </div>
+              <div class="dl-slider-container">
+                <input type="range" id="dl-subtitle-size-slider" min="10" max="60" value="18" class="premium-input" style="flex: 1; padding: 0;" oninput="updateLiveSubPreview()">
+              </div>
+            </div>
+
+            <!-- Căn lề lề dọc & ngang -->
+            <div class="dl-config-row">
+              <div class="dl-config-group">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>Lề dọc (Dưới lên)</label>
+                  <span id="dl-subtitle-margin-v-val" class="dl-slider-val">20px</span>
+                </div>
+                <div class="dl-slider-container">
+                  <input type="range" id="dl-subtitle-margin-v-slider" min="5" max="80" value="20" class="premium-input" style="flex: 1; padding: 0;" oninput="updateLiveSubPreview()">
+                </div>
+              </div>
+              <div class="dl-config-group">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>Lề ngang (Trái/phải)</label>
+                  <span id="dl-subtitle-margin-h-val" class="dl-slider-val">20px</span>
+                </div>
+                <div class="dl-slider-container">
+                  <input type="range" id="dl-subtitle-margin-h-slider" min="5" max="100" value="20" class="premium-input" style="flex: 1; padding: 0;" oninput="updateLiveSubPreview()">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 15px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; background: var(--panel-2);">
+        <button type="button" class="premium-render-btn ghost-btn" style="margin: 0; padding: 8px 18px;" onclick="closeDownloadTranslateModal()">Hủy bỏ</button>
+        <button type="button" id="dl-confirm-btn" class="premium-render-btn" style="margin: 0; padding: 8px 22px; background: #22c55e; color: white; display: flex; align-items: center; gap: 6px;">
+          <span>Bắt đầu Tải & Dịch</span>
+        </button>
       </div>
     </div>
   </div>

@@ -290,3 +290,9 @@ test('server retains executable dependency and Whisper route registrations', () 
     "app.post('/api/download-whisper-model', systemController.downloadWhisperModel);"
   ), true);
 });
+
+test('OCR download progress is exempt from the global API rate limiter', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /RATE_LIMIT_EXEMPT_PATHS[\s\S]*\/api\/ocr-component\/download-status/);
+  assert.match(source, /RATE_LIMIT_EXEMPT_PATHS\.has\(req\.path\)/);
+});

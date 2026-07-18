@@ -15,8 +15,12 @@ const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 120;
+const RATE_LIMIT_EXEMPT_PATHS = new Set([
+  '/api/ocr-component/download-status'
+]);
 function rateLimiter(req, res, next) {
   if (!req.path.startsWith('/api/')) return next();
+  if (RATE_LIMIT_EXEMPT_PATHS.has(req.path)) return next();
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   let entry = rateLimitMap.get(ip);
@@ -345,6 +349,8 @@ app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);
+app.post('/api/save-cloner-voice', voiceController.saveClonerVoice);
+app.post('/api/clear-temp-cloner-voice', voiceController.clearTempClonerVoice);
 app.post('/api/save-voice', studioUpload.single('voice'), voiceController.saveVoice);
 app.post('/api/save-music', studioUpload.single('music'), voiceController.saveMusic);
 app.post('/api/save-video', studioUpload.single('video'), voiceController.saveVideo);

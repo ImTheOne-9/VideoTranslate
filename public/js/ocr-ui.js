@@ -81,7 +81,7 @@
     const request = options.request;
     const wait = options.wait || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
     const onProgress = options.onProgress || (() => {});
-    const pollInterval = options.pollInterval ?? 500;
+    const pollInterval = options.pollInterval ?? 1500;
     let cancelled = false;
 
     if (typeof request !== 'function') throw new TypeError('request is required');
@@ -95,7 +95,16 @@
       cancelled = false;
       await request('/api/ocr-component/download', { method: 'POST' });
       while (!cancelled) {
-        const progress = await request('/api/ocr-component/download-status');
+        let progress;
+        try {
+          progress = await request('/api/ocr-component/download-status');
+        } catch (error) {
+          if (error?.status === 429) {
+            await wait(error.retryAfterMs || pollInterval);
+            continue;
+          }
+          throw error;
+        }
         if (cancelled) return { cancelled: true };
         onProgress(progress);
         if (progress.status === 'ready') return { ...progress, ready: true };

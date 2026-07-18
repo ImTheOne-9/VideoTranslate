@@ -165,6 +165,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   const body = {
     whisperModel: 'small',
     ocrLanguage: 'zh',
+    ocrMode: 'accurate',
     ocrRegion: '0.6,0.95,0.1,0.9'
   };
 
@@ -187,6 +188,7 @@ test('generate resolver wires coordinator options and returns result.path downst
       durationMs: 12500,
       whisperModel: 'small',
       ocrLanguage: 'zh',
+      ocrMode: 'accurate',
       ocrRegion: '0.6,0.95,0.1,0.9',
       forceWhisper: false,
       onProgress: 'function'

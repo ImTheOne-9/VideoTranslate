@@ -21,7 +21,7 @@ The PyInstaller output must be an onedir runtime at `dist/vse-cli`. Test both `-
 The ZIP layout is fixed:
 
 ```text
-vse-cli-1.0.0.zip
+vse-cli-1.0.1.zip
 `-- vse-cli/
     |-- vse-cli.exe
     `-- _internal/
@@ -30,18 +30,18 @@ vse-cli-1.0.0.zip
 Create the archive with 7-Zip so ZIP64 is available for the multi-gigabyte runtime:
 
 ```powershell
-7z a -tzip -mx=5 release\vse-cli-1.0.0.zip .\dist\vse-cli
-Get-FileHash release\vse-cli-1.0.0.zip -Algorithm SHA256
+7z a -tzip -mx=5 release\vse-cli-1.0.1.zip .\dist\vse-cli
+Get-FileHash release\vse-cli-1.0.1.zip -Algorithm SHA256
 ```
 
 `archiveSize` is the ZIP byte length. `installedSize` is the sum of uncompressed file lengths below `dist/vse-cli`. Generate `release/manifest.json` only from the final archive and directory; never estimate these values.
 
-Release 1.0.0 was verified with these values:
+Release 1.0.1 was verified with these values:
 
 ```text
-archiveSize:   2618396348
-installedSize: 4727673184
-sha256:        f4ef683647467990e4521eb69cba62a6ecdf0e0b7b630ce91044f7b5da88cde7
+archiveSize:   2618397906
+installedSize: 4727674924
+sha256:        a271756527b184a22e930b54181cff06a12744805cf90f27f782e1016dca0fd2
 ```
 
 ## Publish
@@ -49,7 +49,7 @@ sha256:        f4ef683647467990e4521eb69cba62a6ecdf0e0b7b630ce91044f7b5da88cde7
 Upload the archive first to:
 
 ```text
-https://huggingface.co/datasets/dvh1910/video-studio-tools/resolve/main/vse-cli/vse-cli-1.0.0.zip
+https://huggingface.co/datasets/dvh1910/video-studio-tools/resolve/main/vse-cli/vse-cli-1.0.1.zip
 ```
 
 Verify the uploaded archive byte length and SHA-256, then upload `manifest.json` last. Publishing the manifest last prevents clients from seeing a release whose archive is not ready.

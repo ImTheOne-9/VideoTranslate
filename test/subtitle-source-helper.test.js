@@ -27,6 +27,7 @@ function createOptions(directory, overrides = {}) {
     durationMs: 12_345,
     whisperModel: 'small',
     ocrLanguage: 'vi',
+    ocrMode: 'auto',
     ...overrides
   };
 }
@@ -153,6 +154,47 @@ test('unsupported OCR language is rejected as invalid options before device dete
       }
     );
     assert.equal(detected, false);
+  });
+});
+
+test('unsupported OCR mode is rejected before device detection', async () => {
+  await withTempDirectory(async (directory) => {
+    let detected = false;
+    const dependencies = createDependencies({
+      detectOcrDevice: () => {
+        detected = true;
+        return 'gpu';
+      }
+    });
+
+    await assert.rejects(
+      resolveAutomaticSubtitle(createOptions(directory, { ocrMode: 'precise' }), dependencies),
+      (error) => {
+        assert.equal(error.code, 'OCR_INVALID_OPTIONS');
+        assert.match(error.message, /mode/i);
+        return true;
+      }
+    );
+    assert.equal(detected, false);
+  });
+});
+
+test('OCR mode defaults to auto and forwards explicit modes to VSE', async () => {
+  await withTempDirectory(async (directory) => {
+    const seenModes = [];
+    const dependencies = createDependencies({
+      runVse: async (options) => {
+        seenModes.push(options.mode);
+        return { kind: 'no_subtitles' };
+      },
+      extractAudioAndTranscribe: async (videoPath, workDir) => path.join(workDir, 'whisper.srt')
+    });
+
+    await resolveAutomaticSubtitle(createOptions(directory, { ocrMode: undefined }), dependencies);
+    await resolveAutomaticSubtitle(createOptions(directory, { ocrMode: 'fast' }), dependencies);
+    await resolveAutomaticSubtitle(createOptions(directory, { ocrMode: 'accurate' }), dependencies);
+
+    assert.deepEqual(seenModes, ['auto', 'fast', 'accurate']);
   });
 });
 
