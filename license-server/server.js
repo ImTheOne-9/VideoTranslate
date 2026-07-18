@@ -3365,12 +3365,12 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
       if (obj.userEmail) {
         try {
           if (useMongo) {
-            const user = await UserModel.findOne({ email: obj.userEmail }, 'phone').lean();
-            userPhone = user ? user.phone : null;
+            const user = await UserModel.findOne({ email: obj.userEmail }, 'phoneNumber').lean();
+            userPhone = user ? user.phoneNumber : null;
           } else {
             const db = readJSON();
             const user = (db.users || []).find(u => u.email === obj.userEmail);
-            userPhone = user ? user.phone : null;
+            userPhone = user ? (user.phoneNumber || user.phone || null) : null;
           }
         } catch (_) {}
       }
