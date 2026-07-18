@@ -15,8 +15,12 @@ const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 120;
+const RATE_LIMIT_EXEMPT_PATHS = new Set([
+  '/api/ocr-component/download-status'
+]);
 function rateLimiter(req, res, next) {
   if (!req.path.startsWith('/api/')) return next();
+  if (RATE_LIMIT_EXEMPT_PATHS.has(req.path)) return next();
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   let entry = rateLimitMap.get(ip);
@@ -122,11 +126,11 @@ function migrateOldDataLayout() {
     }
   }
 
-  // --- 2. Migrate whisper_onnx.exe + CUDA DLLs: resources/tools/ -> DATA_TOOLS_DIR ---
+  // --- 2. Migrate CUDA DLLs: resources/tools/ -> DATA_TOOLS_DIR ---
   const oldToolsDir = shared.TOOLS_DIR; // resources/tools (app dir)
   const newToolsDir = shared.DATA_TOOLS_DIR; // data dir (VideoStudioData/tools)
   if (fs.existsSync(oldToolsDir) && oldToolsDir !== newToolsDir) {
-    const depFiles = ['whisper_onnx.exe', 'cublasLt64_12.dll', 'cublas64_12.dll', 'cudart64_12.dll'];
+    const depFiles = ['cublasLt64_12.dll', 'cublas64_12.dll', 'cudart64_12.dll'];
     let depMoved = 0;
     for (const file of depFiles) {
       const src = path.join(oldToolsDir, file);
@@ -141,7 +145,26 @@ function migrateOldDataLayout() {
       }
     }
     if (depMoved > 0) {
-      console.log(`[Migrate] ✅ Đã copy ${depMoved} file dependency (whisper/CUDA) sang DATA_TOOLS_DIR`);
+      console.log(`[Migrate] ✅ Đã copy ${depMoved} file CUDA sang DATA_TOOLS_DIR`);
+    }
+  }
+
+  // --- 3. Dọn runtime và model Whisper cũ ---
+  const onnxExe = path.join(shared.DATA_TOOLS_DIR, 'whisper_onnx.exe');
+  if (fs.existsSync(onnxExe)) {
+    try { fs.unlinkSync(onnxExe); console.log('[Migrate] ✅ Đã xoá whisper_onnx.exe cũ'); } catch (e) {}
+  }
+  const wDir = path.join(shared.MODELS_DIR, 'whisper');
+  const legacyFolders = fs.existsSync(wDir)
+    ? fs.readdirSync(wDir).filter((name) => name.startsWith('ggml-') || name === 'vad' || name === 'dtw')
+    : [];
+  for (const f of legacyFolders) {
+    const dir = path.join(wDir, f);
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      console.log('[Migrate] ✅ Đã xoá model Whisper cũ: whisper/' + f);
+    } catch (e) {
+      console.error('[Migrate] Lỗi xoá whisper/' + f + ': ' + e.message);
     }
   }
 
@@ -243,6 +266,7 @@ app.get('/api/download', downloadController.download);
 app.get('/api/download-vi', downloadController.downloadVi);
 app.post('/api/playlist', downloadController.playlist);
 app.post('/api/download-local', downloadController.downloadLocal);
+app.post('/api/download-raw-preview', downloadController.downloadRawPreview);
 app.get('/api/proxy-image', downloadController.proxyImage);
 
 // Cookie management routes
@@ -294,6 +318,7 @@ app.post('/api/render-reaction', upload.single('reactionVideo'), studioControlle
 app.get('/api/studio-assets', studioController.getStudioAssets);
 app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
+app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
 app.post('/api/cancel-queue-task', studioController.cancelQueueTask);
 app.post('/api/clear-queue', studioController.clearQueue);
 app.post('/api/cancel-render', studioController.cancelRender);
@@ -321,6 +346,8 @@ app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);
+app.post('/api/save-cloner-voice', voiceController.saveClonerVoice);
+app.post('/api/clear-temp-cloner-voice', voiceController.clearTempClonerVoice);
 app.post('/api/save-voice', studioUpload.single('voice'), voiceController.saveVoice);
 app.post('/api/save-music', studioUpload.single('music'), voiceController.saveMusic);
 app.post('/api/save-video', studioUpload.single('video'), voiceController.saveVideo);
@@ -375,6 +402,7 @@ app.get('/api/check-dependencies', systemController.checkDependencies);
 app.get('/api/check-dependencies-status', systemController.checkDependenciesStatus);
 app.post('/api/download-dependency', systemController.downloadDependency);
 app.get('/api/download-dependency-progress', systemController.getDependencyDownloadProgress);
+systemController.registerOcrComponentRoutes(app, systemController);
 app.post('/api/download-model', systemController.downloadModel);
 app.get('/api/download-model/status', systemController.getModelStatus);
 app.get('/api/whisper-model/status', systemController.getWhisperModelStatus);

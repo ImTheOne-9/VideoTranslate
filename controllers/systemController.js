@@ -6,6 +6,7 @@ const axios = require('axios');
 const shared = require('../lib/shared-state');
 const { getCompositeHWID, saveLicenseLocal, verifyLocalLicense, LICENSE_SERVER_URL } = require('../lib/license-manager');
 const { checkDependencyStatus, downloadAndExtract } = require('../lib/dependency-downloader');
+const ocrComponentManager = require('../lib/ocr-component-manager');
 const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
 
@@ -19,9 +20,84 @@ try {
 
 let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
 let whisperDownloadStatus = {};
+
+function normalizeWhisperOnnxVariant(value) {
+  const variant = String(value || 'q8').trim().toLowerCase();
+  if (['small', 'base', 'tiny', 'medium', 'large-v3'].includes(variant)) return 'q8';
+  if (!['q8', 'fp32'].includes(variant)) {
+    throw new Error(`Biến thể Whisper ONNX không hợp lệ: ${value}`);
+  }
+  return variant;
+}
+
+function getWhisperOnnxReadiness(variant) {
+  const { getWhisperOnnxConfig } = require('../lib/model-downloader');
+  const config = getWhisperOnnxConfig(variant);
+  const modelDir = path.join(shared.MODELS_DIR, 'whisper', config.folder);
+  return {
+    config,
+    modelDir,
+    exists: config.files.every((file) => {
+      const filePath = path.join(modelDir, ...file.name.split('/'));
+      return fs.existsSync(filePath) && fs.statSync(filePath).size === file.size;
+    })
+  };
+}
 let activeDependencyDownload = null;
 
+function createOcrComponentHandlers(manager, logger = console) {
+  return {
+    getOcrComponentStatus: async (req, res) => {
+      try {
+        const status = await manager.refreshOcrComponentStatus();
+        return res.json(status);
+      } catch (error) {
+        logger.error('OCR component status refresh failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    },
+
+    startOcrComponentDownload: (req, res) => {
+      try {
+        Promise.resolve(manager.downloadOcrComponent()).catch((error) => {
+          logger.error('OCR component download failed:', error);
+        });
+        return res.status(202).json({ success: true, message: 'Bắt đầu tải OCR' });
+      } catch (error) {
+        logger.error('OCR component download start failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    },
+
+    getOcrComponentDownloadStatus: (req, res) => {
+      return res.json(manager.getOcrDownloadProgress());
+    },
+
+    cancelOcrComponentDownload: async (req, res) => {
+      try {
+        const status = await manager.cancelOcrComponentDownload();
+        return res.json({ success: true, status });
+      } catch (error) {
+        logger.error('OCR component download cancel failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    }
+  };
+}
+
+const ocrComponentHandlers = createOcrComponentHandlers(ocrComponentManager);
+
+function registerOcrComponentRoutes(app, handlers) {
+  app.get('/api/ocr-component/status', handlers.getOcrComponentStatus);
+  app.post('/api/ocr-component/download', handlers.startOcrComponentDownload);
+  app.get('/api/ocr-component/download-status', handlers.getOcrComponentDownloadStatus);
+  app.post('/api/ocr-component/cancel', handlers.cancelOcrComponentDownload);
+}
+
 module.exports = {
+  createOcrComponentHandlers,
+  registerOcrComponentRoutes,
+  ...ocrComponentHandlers,
   getVideoInfo: async (req, res) => {
     try {
       // Validation tập trung qua validate helper
@@ -71,6 +147,7 @@ module.exports = {
           hasAudio: true, 
           container: 'mp4',
           format_note: f.format_note || '',
+          url: f.url || '',
         }))
         .reduce((acc, f) => {
           const key = `${f.quality}-${f.fps}`;
@@ -394,14 +471,12 @@ module.exports = {
   checkDependencies: async (req, res) => {
     const ffmpegOk = fs.existsSync(shared.FFMPEG_PATH);
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
-    // Whisper CLI: ưu tiên DATA_TOOLS_DIR (bản mới), fallback TOOLS_DIR (bản cũ)
-    const whisperCliOk = fs.existsSync(shared.WHISPER_ONNX_PATH) || fs.existsSync(shared.TOOLS_DIR + '/whisper_onnx.exe');
-
-    const whisperModels = ['base', 'tiny', 'small', 'medium', 'large-v3'];
-    const downloadedWhisperModels = whisperModels.filter(model => 
-      fs.existsSync(path.join(shared.MODELS_DIR, 'whisper', model, 'model.bin'))
-    );
-    const whisperModelOk = downloadedWhisperModels.length > 0;
+    const whisperVariants = {
+      q8: getWhisperOnnxReadiness('q8').exists,
+      fp32: getWhisperOnnxReadiness('fp32').exists
+    };
+    const whisperModelOk = whisperVariants.q8;
+    const downloadedWhisperModels = whisperModelOk ? ['small'] : [];
 
     const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
     const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
@@ -411,9 +486,9 @@ module.exports = {
     res.json({
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
-      whisper: whisperCliOk && whisperModelOk,
-      whisperCli: whisperCliOk,
+      whisper: whisperModelOk,
       whisperModel: whisperModelOk,
+      whisperVariants,
       downloadedWhisperModels: downloadedWhisperModels,
       omnivoice: omnivoiceCliOk && omnivoiceModelOk,
       omnivoiceCli: omnivoiceCliOk,
@@ -438,7 +513,7 @@ module.exports = {
 
   downloadDependency: async (req, res) => {
     const { type } = req.body;
-    if (!['cuda', 'whisper', 'separator', 'separator-gpu'].includes(type)) {
+    if (!['cuda', 'separator', 'separator-gpu'].includes(type)) {
       return res.status(400).json({ error: 'Loại thư viện không hợp lệ' });
     }
 
@@ -465,6 +540,44 @@ module.exports = {
         }
         const setupScript = path.join(shared.DATA_TOOLS_DIR, 'setup_gpu_separator.ps1');
         if (fs.existsSync(setupScript)) {
+          // Patch lỗi script gốc: xóa Out-Null, sửa CUDA check bị PowerShell parse lỗi
+          let psContent = fs.readFileSync(setupScript, 'utf8');
+          if (psContent.includes('| Out-Null') || psContent.includes("cuda.get_device_name(0) if")) {
+            psContent = psContent.replace(/\| Out-Null/g, '');
+            psContent = psContent.replace(/\$result = & \$venvPython -c "[^"]*torch\.cuda[^"]*" 2>&1/g, '# CUDA check handled via check_cuda.py below');
+            // Chèn block CUDA check mới dùng file riêng
+            const checkPy = path.join(shared.DATA_TOOLS_DIR, 'check_cuda.py');
+            if (!fs.existsSync(checkPy)) {
+              fs.writeFileSync(checkPy, `import torch\nprint('CUDA: ' + str(torch.cuda.is_available()) + ' | Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A') + ' | PyTorch: ' + torch.__version__)\n`, 'utf8');
+            }
+            const marker = '# ── Bước 5: Kiểm tra ──';
+            const idx = psContent.indexOf(marker);
+            if (idx >= 0) {
+              const blockEnd = psContent.indexOf('# ── Bước 6:', idx);
+              const oldBlock = blockEnd >= 0 ? psContent.substring(idx, blockEnd) : psContent.substring(idx);
+              const newBlock = `# ── Bước 5: Kiểm tra ──
+Write-Step "Đang kiểm tra CUDA availability..."
+try {
+    # Kiểm tra CUDA
+    $checkScript = Join-Path $ToolsDir "check_cuda.py"
+    if (Test-Path $checkScript) {
+        $result = & $venvPython $checkScript 2>&1
+        Write-OK $result
+    }
+    # Kiểm tra import audio-separator
+    & $venvPython -c "from audio_separator.separator import Separator; print('audio-separator OK')" 2>&1
+    Write-OK "audio-separator import OK"
+} catch {
+    Write-Warn "Kiểm tra thất bại: $_"
+    throw
+}
+`;
+              psContent = psContent.replace(oldBlock, newBlock);
+            }
+            fs.writeFileSync(setupScript, psContent, 'utf8');
+            console.log('[Dependency Downloader] Đã patch setup_gpu_separator.ps1 (fix Out-Null + CUDA check).');
+          }
+
           const { execFile } = require('child_process');
           await new Promise((resolve, reject) => {
             const proc = execFile('powershell.exe', [
@@ -477,6 +590,15 @@ module.exports = {
               global.registerChildProcess(proc);
             }
           });
+
+          // Kiểm tra venv đã được tạo chưa (script hay nuốt lỗi vì Out-Null)
+          const venvRoot = path.resolve(shared.DATA_TOOLS_DIR, '..');
+          const venvPython = path.join(venvRoot, 'temp_env', 'Scripts', 'python.exe');
+          if (!fs.existsSync(venvPython)) {
+            console.error('[Dependency Downloader] GPU separator setup script chạy xong nhưng không tạo được venv.');
+            throw new Error('Script setup chạy xong nhưng không tạo được Python venv. Hãy kiểm tra log chi tiết.');
+          }
+
           console.log('[Dependency Downloader] GPU separator setup hoàn tất.');
         }
       }
@@ -537,60 +659,54 @@ module.exports = {
   },
 
   getWhisperModelStatus: async (req, res) => {
-    const model = req.query.model || 'base';
-    if (model === 'base') {
-      return res.json({ exists: true, downloading: false, percent: 100 });
+    let variant;
+    try {
+      variant = normalizeWhisperOnnxVariant(req.query?.variant || req.query?.model);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
     }
+    const { config, exists } = getWhisperOnnxReadiness(variant);
+    const totalBytes = config.files.reduce((sum, file) => sum + file.size, 0);
 
-    const { WHISPER_MODELS_CONFIG } = require('../lib/model-downloader');
-    const modelConfig = WHISPER_MODELS_CONFIG[model];
-    let exists = false;
-
-    if (modelConfig) {
-      const whisperDir = path.join(shared.MODELS_DIR, 'whisper', model);
-      exists = modelConfig.files.every(file => {
-        const filePath = path.join(whisperDir, file.name);
-        return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
-      });
-    } else {
-      const modelPath = path.join(shared.MODELS_DIR, 'whisper', model, 'model.bin');
-      exists = fs.existsSync(modelPath);
-    }
-    
-    const status = whisperDownloadStatus[model] || { downloading: false, percent: 0, error: null };
+    const status = whisperDownloadStatus[variant] || { downloading: false, percent: 0, error: null };
     res.json({
-      exists: exists,
+      variant,
+      exists,
       downloading: status.downloading,
       percent: status.percent,
       error: status.error,
       downloadedBytes: status.downloadedBytes,
-      totalBytes: status.totalBytes
+      totalBytes: status.totalBytes || totalBytes
     });
   },
 
   downloadWhisperModel: async (req, res) => {
-    const { model } = req.body;
-    if (!model) return res.status(400).json({ error: 'Thiếu tham số model' });
+    let variant;
+    try {
+      variant = normalizeWhisperOnnxVariant(req.body?.variant || req.body?.model);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
-    if (whisperDownloadStatus[model] && whisperDownloadStatus[model].downloading) {
+    if (whisperDownloadStatus[variant] && whisperDownloadStatus[variant].downloading) {
       return res.json({ success: true, message: 'Đang tải rồi' });
     }
-    const { ensureWhisperModelExist } = require('../lib/model-downloader');
-    whisperDownloadStatus[model] = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
+    const { ensureWhisperOnnxModelExist } = require('../lib/model-downloader');
+    whisperDownloadStatus[variant] = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
     res.json({ success: true, message: 'Bắt đầu tải model Whisper' });
 
     try {
-      await ensureWhisperModelExist(shared.MODELS_DIR, model, (progress) => {
-        whisperDownloadStatus[model].percent = progress.percent;
-        whisperDownloadStatus[model].downloadedBytes = progress.downloadedBytes;
-        whisperDownloadStatus[model].totalBytes = progress.totalBytes;
+      await ensureWhisperOnnxModelExist(shared.MODELS_DIR, variant, (progress) => {
+        whisperDownloadStatus[variant].percent = progress.percent;
+        whisperDownloadStatus[variant].downloadedBytes = progress.downloadedBytes;
+        whisperDownloadStatus[variant].totalBytes = progress.totalBytes;
       });
-      whisperDownloadStatus[model].downloading = false;
-      whisperDownloadStatus[model].percent = 100;
+      whisperDownloadStatus[variant].downloading = false;
+      whisperDownloadStatus[variant].percent = 100;
     } catch (err) {
-      console.error(`Lỗi tải model Whisper ${model} qua API:`, err.message);
-      whisperDownloadStatus[model].downloading = false;
-      whisperDownloadStatus[model].error = err.message;
+      console.error(`Lỗi tải model Whisper ${variant} qua API:`, err.message);
+      whisperDownloadStatus[variant].downloading = false;
+      whisperDownloadStatus[variant].error = err.message;
     }
   },
 

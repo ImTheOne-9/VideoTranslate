@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.23",
+  "version": "1.0.25",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.1",
+    "@huggingface/transformers": "^3.8.1",
     "@vitalets/google-translate-api": "^9.2.1",
     "adm-zip": "^0.5.17",
     "axios": "^1.18.0",
@@ -26,7 +27,8 @@
     "multer": "^2.1.1",
     "node-machine-id": "^1.1.12",
     "srt-parser-2": "^1.2.3",
-    "whisper-node": "^1.1.1"
+    "unzipper": "^0.12.3",
+    "wavefile": "^11.0.0"
   },
   "devDependencies": {
     "electron": "^42.4.1",
@@ -44,6 +46,9 @@
       "output": "D:/BuildApp"
     },
     "asar": true,
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**/*"
+    ],
     "files": [
       "public/**/*",
       "lib/**/*.jsc",
