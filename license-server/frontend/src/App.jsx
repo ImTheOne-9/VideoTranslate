@@ -12,6 +12,7 @@ import DashboardPage from './pages/DashboardPage';
 import Profile from './pages/Profile';
 import Pricing from './pages/Pricing';
 import About from './pages/About';
+import Guide from './pages/Guide';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -263,6 +264,10 @@ function AppContent() {
           <Route path="/about" element={<About />} />
           <Route path="/about.html" element={<About />} />
           
+          {/* Instructions/Guide routes */}
+          <Route path="/instructions" element={<Guide />} />
+          <Route path="/instructions.html" element={<Guide />} />
+          
           {/* New Dashboard & Profile standalone pages */}
           <Route 
             path="/dashboard" 
@@ -347,6 +352,9 @@ function AppContent() {
                   </li>
                   <li>
                     <Link to="/#features" className="hover:text-white transition-colors">Tính năng chính</Link>
+                  </li>
+                  <li>
+                    <Link to="/instructions" className="hover:text-white transition-colors">Hướng dẫn sử dụng</Link>
                   </li>
                 </ul>
               </div>

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const shared = require('../lib/shared-state');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
+const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
 const anti = require('../lib/anti-dupe');
 
 // Helpers for Studio rendering
@@ -199,7 +200,12 @@ function convertSrtToAss(srtPath, assPath, options) {
   assLines.push('ScriptType: v4.00+');
   assLines.push(`PlayResX: ${videoWidth}`);
   assLines.push(`PlayResY: ${videoHeight}`);
-  assLines.push('WrapStyle: 0');
+  // WrapStyle: 0 = libass TỰ ĐỘNG xuống dòng khi text dài (smart wrap) -> dùng cho 2/3 dòng & tự động
+  //            2 = KHÔNG xuống dòng, ép phụ đề nằm trên 1 dòng duy nhất (có thể tràn mép nếu quá dài)
+  // Khi người dùng chọn "tối đa 1 dòng" (maxLines===1) bắt buộc phải dùng WrapStyle 2,
+  // nếu không libass sẽ tự ngắt dòng dài thành 2-3 dòng khi render (dù text SRT không có \n).
+  const wrapStyle = (Number(options.maxLines) === 1) ? 2 : 0;
+  assLines.push(`WrapStyle: ${wrapStyle}`);
   assLines.push('');
   assLines.push('[V4+ Styles]');
   assLines.push('Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, Strikeout, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding');
@@ -221,12 +227,233 @@ function convertSrtToAss(srtPath, assPath, options) {
   fs.writeFileSync(assPath, assLines.join('\n'), 'utf8');
 }
 
+function createRenderSourceResolver(dependencies = {}) {
+  const existsSync = dependencies.existsSync || fs.existsSync;
+  const moveUploadedFile = dependencies.moveUploadedFile || shared.moveUploadedFile;
+  const downloadsDir = dependencies.downloadsDir || shared.DOWNLOADS_DIR;
+  const resolveAssetPath = dependencies.resolveAssetPath || shared.resolveAssetPath;
+
+  return function resolveRenderSource(task) {
+    if (task.sourceVideoPath) {
+      if (existsSync(task.sourceVideoPath)) return task.sourceVideoPath;
+      const error = new Error('Video nguồn đã lưu không còn tồn tại. Vui lòng tạo lại tác vụ.');
+      error.code = 'RENDER_SOURCE_MISSING';
+      throw error;
+    }
+
+    const body = task.body || {};
+    const files = task.files || {};
+    let sourceVideo = null;
+
+    if (files.videoUpload?.[0]) {
+      const upload = files.videoUpload[0];
+      sourceVideo = moveUploadedFile(upload, downloadsDir, upload.originalname);
+    } else if (body.mainVideoFile) {
+      sourceVideo = resolveAssetPath('video', body.mainVideoFile);
+    }
+
+    if (!sourceVideo) throw new Error('Thiếu video nguồn');
+    task.sourceVideoPath = sourceVideo;
+    return sourceVideo;
+  };
+}
+
+const resolveRenderSource = createRenderSourceResolver();
+
+function mapAutomaticSubtitleProgress(event = {}) {
+  switch (event.phase) {
+    case 'ocr_starting':
+      return { percent: 12, step: 'Đang khởi động OCR...' };
+    case 'ocr_processing': {
+      const detailPercent = Number(event.detail?.pct);
+      const hasPercent = Number.isFinite(detailPercent);
+      const boundedPercent = hasPercent ? Math.max(0, Math.min(100, detailPercent)) : null;
+      return {
+        percent: hasPercent ? 13 + Math.round((boundedPercent / 100) * 21) : 18,
+        step: hasPercent
+          ? `Đang nhận dạng phụ đề bằng OCR: ${Math.round(boundedPercent)}%`
+          : 'Đang nhận dạng phụ đề bằng OCR...'
+      };
+    }
+    case 'ocr_retry_cpu':
+      return { percent: 24, step: 'OCR đang thử lại bằng CPU...' };
+    case 'ocr_validating':
+      return { percent: 32, step: 'Đang kiểm tra phụ đề OCR...' };
+    case 'whisper_fallback':
+      return { percent: 33, step: 'Đang tạo phụ đề bằng Whisper...' };
+    default:
+      return null;
+  }
+}
+
+function createAutomaticSubtitleProgressHandler(updateStudioProgress = shared.updateStudioProgress) {
+  let latestPercent = 12;
+  return function onAutomaticSubtitleProgress(event) {
+    try {
+      const progress = mapAutomaticSubtitleProgress(event);
+      if (!progress) return;
+      latestPercent = Math.min(34, Math.max(latestPercent, progress.percent));
+      updateStudioProgress(latestPercent, progress.step);
+    } catch {
+      // Progress reporting must never interrupt OCR or Whisper processing.
+    }
+  };
+}
+
+function createAutomaticSubtitleResolver(dependencies = {}) {
+  const resolveSubtitle = dependencies.resolveAutomaticSubtitle || resolveAutomaticSubtitle;
+  const updateStudioProgress = dependencies.updateStudioProgress || shared.updateStudioProgress;
+  const logger = dependencies.logger || console;
+
+  return async function resolveRenderAutomaticSubtitle(options) {
+    const body = options.body || {};
+    const subtitleEngine = ['auto', 'ocr', 'whisper'].includes(body.subtitleEngine)
+      ? body.subtitleEngine
+      : 'auto';
+    const forceWhisper = options.forceWhisper === true || subtitleEngine === 'whisper';
+    const ocrOnly = subtitleEngine === 'ocr';
+    const whisperOnnxVariant = ['q8', 'fp32'].includes(body.whisperOnnxVariant)
+      ? body.whisperOnnxVariant
+      : 'q8';
+    logger.log(
+      `[Auto Subtitle] route=${forceWhisper ? 'whisper_manual_fallback' : 'ocr_first'} `
+      + `language=${body.ocrLanguage || 'unset'} voiceOnly=${options.isVoiceOnlySub === true}`
+    );
+    const result = await resolveSubtitle({
+      videoPath: options.sourceVideo,
+      workDir: options.workDir,
+      ffmpegPath: options.ffmpegPath,
+      durationMs: options.totalDuration * 1000,
+      whisperModel: body.whisperModel || 'small',
+      whisperOnnxVariant,
+      ocrLanguage: body.ocrLanguage,
+      ocrMode: body.ocrMode,
+      ocrRegion: body.ocrRegion,
+      forceWhisper,
+      ocrOnly,
+      onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)
+    });
+    logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
+    return result.path;
+  };
+}
+
+const resolveRenderAutomaticSubtitle = createAutomaticSubtitleResolver();
+
+function applyRenderTaskSuccess(task, data, state = shared.state) {
+  task.status = 'success';
+  task.percent = 100;
+  task.step = 'Hoàn tất render!';
+  task.error = null;
+  task.actionRequired = null;
+  task.result = data;
+  state.studioProgress = {
+    status: 'success',
+    percent: 100,
+    step: 'Hoàn tất render!',
+    error: null,
+    result: data
+  };
+}
+
+function isRenderTaskCancellation(task, error) {
+  const taskStep = String(task.step || '').toLowerCase();
+  const taskError = String(task.error || '').toLowerCase();
+  const errorMessage = String(error?.message || '').toLowerCase();
+  return task.status === 'failed'
+    || taskStep.includes('hủy')
+    || taskError.includes('hủy')
+    || taskError.includes('cancel')
+    || errorMessage.includes('hủy')
+    || errorMessage.includes('cancel');
+}
+
+function applyRenderTaskFailure(task, error, state = shared.state) {
+  state.isStudioRendering = false;
+  state.activeRenderId = null;
+  if (state.currentActiveTask === task) state.currentActiveTask = null;
+
+  if (isRenderTaskCancellation(task, error)) {
+    task.status = 'failed';
+    task.step = 'Đã bị hủy';
+    task.actionRequired = null;
+    state.studioProgress = { status: 'idle', percent: 0, step: 'Đã hủy kết xuất', error: null };
+    return 'cancelled';
+  }
+
+  if (error?.code === 'OCR_TECHNICAL_ERROR') {
+    task.status = 'waiting_input';
+    task.step = 'OCR gặp lỗi kỹ thuật';
+    task.error = error.message;
+    task.actionRequired = 'ocr_fallback';
+    task.percent = Math.max(task.percent || 0, 12);
+    state.studioProgress = {
+      status: 'waiting_input',
+      percent: task.percent,
+      step: task.step,
+      error: task.error
+    };
+    return 'waiting_input';
+  }
+
+  task.status = 'error';
+  task.error = error.message;
+  task.step = 'Lỗi kết xuất';
+  task.actionRequired = null;
+  state.studioProgress = {
+    status: 'error',
+    percent: task.percent,
+    step: 'Lỗi kết xuất: ' + error.message,
+    error: error.message
+  };
+  return 'error';
+}
+
+function cleanupRenderWorkDir(workDir, dependencies = {}) {
+  const existsSync = dependencies.existsSync || fs.existsSync;
+  const rmSync = dependencies.rmSync || fs.rmSync;
+  const logger = dependencies.logger || console;
+  try {
+    if (workDir && existsSync(workDir)) {
+      rmSync(workDir, { recursive: true, force: true });
+      logger.log(`[Studio Render] Đã dọn thư mục tạm: ${workDir}`);
+    }
+  } catch (cleanErr) {
+    logger.error('[Studio Render] Lỗi dọn dẹp temp:', cleanErr.message);
+  }
+}
+
+function findNextPendingRenderTask(queue) {
+  return queue.find((task) => task.status === 'pending');
+}
+
+function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new Date() }) {
+  return {
+    id: taskId,
+    projectId: body.projectId || null,
+    projectName: body.projectName || 'Dự án chưa đặt tên',
+    status: 'pending',
+    percent: 0,
+    step: 'Đang xếp hàng...',
+    error: null,
+    actionRequired: null,
+    sourceVideoPath: null,
+    forceWhisper: false,
+    createdAt,
+    body,
+    files,
+    taskDir,
+    result: null
+  };
+}
+
 
 // Queue workers
 async function executeRenderTask(task) {
   const tempFiles = [];
   const voiceChunks = [];
   const renderId = task.id;
+  let workDir = null;
 
   global.activeRenderRes = null;
   shared.state.activeRenderId = renderId;
@@ -242,17 +469,7 @@ async function executeRenderTask(task) {
       if (this.statusCode >= 400 || data.error) {
         throw new Error(data.error || 'Lỗi không xác định khi kết xuất');
       }
-      task.status = 'success';
-      task.percent = 100;
-      task.step = 'Hoàn tất render!';
-      task.result = data;
-      shared.state.studioProgress = {
-        status: 'success',
-        percent: 100,
-        step: 'Hoàn tất render!',
-        error: null,
-        result: data
-      };
+      applyRenderTaskSuccess(task, data);
       return this;
     }
   };
@@ -271,17 +488,10 @@ async function executeRenderTask(task) {
     const body = task.body;
     const files = task.files || {};
     const timestamp = Date.now();
-    const workDir = path.join(shared.UPLOADS_DIR, `render_${timestamp}`);
+    workDir = path.join(shared.UPLOADS_DIR, `render_${timestamp}`);
     fs.mkdirSync(workDir, { recursive: true });
 
-    let sourceVideo = null;
-    if (files.videoUpload?.[0]) {
-      const originalName = files.videoUpload[0].originalname;
-      sourceVideo = shared.moveUploadedFile(files.videoUpload[0], shared.DOWNLOADS_DIR, originalName);
-    } else if (body.mainVideoFile) {
-      sourceVideo = shared.resolveAssetPath('video', body.mainVideoFile);
-    }
-    if (!sourceVideo) return res.status(400).json({ error: 'Thiếu video nguồn' });
+    const sourceVideo = resolveRenderSource(task);
 
     shared.updateStudioProgress(5, 'Đang phân tích thông tin video nguồn...');
     const dimensions = await shared.getVideoDimensions(sourceVideo);
@@ -306,48 +516,31 @@ async function executeRenderTask(task) {
         });
         tempFiles.push(tempAudioToSeparate);
 
-        // Ưu tiên GPU (venv Python + PyTorch CUDA), fallback CPU (audio-separator.exe)
-        const appDataRoot = path.resolve(shared.DATA_TOOLS_DIR, '..');
-        const pythonPath = path.join(appDataRoot, 'temp_env', 'Scripts', 'python.exe');
-        const scriptPath = path.join(shared.DATA_TOOLS_DIR, 'separate_audio.py');
-        const gpuAvailable = fs.existsSync(pythonPath) && fs.existsSync(scriptPath);
-
-        const exePath = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
-          ? shared.AUDIO_SEPARATOR_CLI_PATH
-          : (fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe'))
-            ? path.join(shared.TOOLS_DIR, 'audio-separator.exe') : null);
-
-        if (gpuAvailable) {
-          shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (GPU)...');
-          const modelDir = path.join(shared.DATA_TOOLS_DIR, 'models');
-          await shared.runExecFile(pythonPath, [
-            scriptPath,
-            tempAudioToSeparate,
-            '--output_dir', workDir,
-            '--model_dir', modelDir,
-            '--stem', 'Instrumental'
-          ]);
-        } else if (exePath) {
-          shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (CPU)...');
-          await shared.runExecFile(exePath, [
-            tempAudioToSeparate,
-            '--output_dir', workDir,
-            '--output_format', 'WAV',
-            '--single_stem', 'Instrumental',
-            '--model_file_dir', path.join(path.dirname(exePath), 'models')
-          ]);
-        } else {
-          throw new Error('Không tìm thấy công cụ tách nhạc (GPU hoặc CPU)');
+        if (!fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
+          || !fs.existsSync(shared.AUDIO_SEPARATOR_MODEL_PATH)) {
+          throw new Error('Chưa tải công cụ MDX ONNX tách nhạc nền');
         }
 
-        const separatedFiles = fs.readdirSync(workDir).filter(f => f.includes('(Instrumental)'));
-        if (separatedFiles.length > 0) {
-          extractedBgmPath = path.join(workDir, separatedFiles[0]);
-          console.log('[Studio Render] Đã tách xong nhạc nền:', extractedBgmPath);
-          tempFiles.push(extractedBgmPath);
-        } else {
-          console.warn('[Studio Render] Không tìm thấy file (Instrumental) đầu ra từ audio-separator.');
+        shared.updateStudioProgress(6, 'Đang dùng MDX ONNX tách nhạc nền...');
+        // KARA_2 predicts Instrumental as its primary stem. Sherpa writes the
+        // primary stem to the --output-vocals-wav slot and the residual stem
+        // to --output-accompaniment-wav, regardless of the model's stem name.
+        const instrumentalPath = path.join(workDir, `instrumental_${timestamp}.wav`);
+        const residualVocalsPath = path.join(workDir, `residual_vocals_${timestamp}.wav`);
+        await shared.runExecFile(shared.AUDIO_SEPARATOR_CLI_PATH, [
+          '--num-threads=4',
+          `--uvr-model=${shared.AUDIO_SEPARATOR_MODEL_PATH}`,
+          `--input-wav=${tempAudioToSeparate}`,
+          `--output-vocals-wav=${instrumentalPath}`,
+          `--output-accompaniment-wav=${residualVocalsPath}`
+        ]);
+
+        if (!fs.existsSync(instrumentalPath)) {
+          throw new Error('MDX ONNX không tạo được file nhạc nền');
         }
+        extractedBgmPath = instrumentalPath;
+        console.log('[Studio Render] MDX ONNX đã tách xong nhạc nền:', extractedBgmPath);
+        tempFiles.push(instrumentalPath, residualVocalsPath);
       } catch (err) {
         console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
       }
@@ -381,9 +574,16 @@ async function executeRenderTask(task) {
       shared.updateStudioProgress(10, 'Đang nạp file phụ đề đã chọn...');
       subtitlePath = shared.resolveAssetPath('subtitle', body.savedSubtitleFile);
     } else if (subtitleMode === 'generate') {
-      shared.updateStudioProgress(12, 'Đang chuẩn bị tạo phụ đề tự động bằng AI (Whisper)...');
-      const { extractAudioAndTranscribe } = require('../lib/whisper-helper');
-      subtitlePath = await extractAudioAndTranscribe(sourceVideo, workDir, shared.FFMPEG_PATH, body.whisperModel || 'base');
+      shared.updateStudioProgress(12, 'Đang chuẩn bị tạo phụ đề tự động bằng AI...');
+      subtitlePath = await resolveRenderAutomaticSubtitle({
+        body,
+        sourceVideo,
+        workDir,
+        totalDuration,
+        isVoiceOnlySub,
+        forceWhisper: task.forceWhisper === true,
+        ffmpegPath: shared.FFMPEG_PATH
+      });
     }
 
     let originalIsChinese = false;
@@ -470,7 +670,14 @@ async function executeRenderTask(task) {
             shared.updateStudioProgress(42, 'Đang trích xuất câu thoại từ giọng mẫu (AI Whisper)...');
             const { transcribeVoice } = require('../lib/whisper-helper');
             console.log('Đang tự động nhận diện câu thoại trong giọng mẫu...');
-            refText = await transcribeVoice(refAudioPath, workDir, shared.FFMPEG_PATH, body.whisperModel || 'base');
+            refText = await transcribeVoice(
+              refAudioPath,
+              workDir,
+              shared.FFMPEG_PATH,
+              body.whisperModel || 'small',
+              body.ocrLanguage,
+              ['q8', 'fp32'].includes(body.whisperOnnxVariant) ? body.whisperOnnxVariant : 'q8'
+            );
             console.log('Đã tự động trích xuất Ref-text:', refText);
           } catch (err) {
             console.error('Lỗi tự động nhận dạng giọng mẫu:', err.message);
@@ -956,7 +1163,7 @@ async function executeRenderTask(task) {
         convertSrtToAss(subtitlePath, assPath, {
           videoWidth, videoHeight, fontName, fontSize,
           assColor: finalAssColor, isBold, borderStyle, outline, shadow,
-          outlineColor, backColor, alignment, marginV, marginL, marginR, theme
+          outlineColor, backColor, alignment, marginV, marginL, marginR, theme, maxLines: Number(body.subtitleMaxLines || 0)
         });
         renderSubtitlePath = assPath;
       } catch (err) {
@@ -1280,37 +1487,12 @@ async function executeRenderTask(task) {
     }
   } catch (error) {
     console.error('Render studio error:', error.stderr || error.message, error.code ? `(code: ${error.code})` : '');
-    shared.state.isStudioRendering = false;
-    shared.state.activeRenderId = null;
-    if (shared.state.currentActiveTask === task) {
-      shared.state.currentActiveTask = null;
-    }
-    if (task.status === 'failed' || task.step?.includes('hủy') || task.error?.includes('hủy') || task.error?.includes('cancel') || (error.message && error.message.includes('hủy'))) {
+    const failureKind = applyRenderTaskFailure(task, error);
+    if (failureKind === 'cancelled') {
       console.log(`[Queue] Tác vụ ${task.id} đã bị hủy, reset state.`);
-      task.status = 'failed';
-      task.step = 'Đã bị hủy';
-      shared.state.studioProgress = { status: 'idle', percent: 0, step: 'Đã hủy kết xuất', error: null };
-      return;
     }
-    task.status = 'error';
-    task.error = error.message;
-    task.step = 'Lỗi kết xuất';
-    shared.state.studioProgress = {
-      status: 'error',
-      percent: task.percent,
-      step: 'Lỗi kết xuất: ' + error.message,
-      error: error.message
-    };
   } finally {
-    // Dọn dẹp tempFiles
-    try {
-      if (workDir && fs.existsSync(workDir)) {
-        fs.rmSync(workDir, { recursive: true, force: true });
-        console.log(`[Studio Render] Đã dọn thư mục tạm: ${workDir}`);
-      }
-    } catch (cleanErr) {
-      console.error('[Studio Render] Lỗi dọn dẹp temp:', cleanErr.message);
-    }
+    cleanupRenderWorkDir(workDir);
   }
 }
 
@@ -1321,7 +1503,7 @@ async function processNextRenderTask() {
     return;
   }
   _processingNext = true;
-  const nextTask = shared.state.renderQueue.find(t => t.status === 'pending');
+  const nextTask = findNextPendingRenderTask(shared.state.renderQueue);
   if (!nextTask) {
     console.log('[Queue] Hàng đợi trống. Không có tác vụ nào chờ xử lý.');
     _processingNext = false;
@@ -1336,6 +1518,7 @@ async function processNextRenderTask() {
     nextTask.status = 'error';
     nextTask.error = err.message;
     nextTask.step = 'Lỗi hệ thống';
+    nextTask.actionRequired = null;
   } finally {
     shared.state.currentActiveTask = null;
     _processingNext = false;
@@ -1345,7 +1528,143 @@ async function processNextRenderTask() {
   }
 }
 
+function startQueueProcessing(processNext, logger) {
+  try {
+    const processing = processNext();
+    if (processing && typeof processing.catch === 'function') {
+      processing.catch((error) => logger.error('[Queue] Lỗi khởi động tác vụ tiếp theo:', error));
+    }
+  } catch (error) {
+    logger.error('[Queue] Lỗi khởi động tác vụ tiếp theo:', error);
+  }
+}
+
+function createRenderQueueHandlers(dependencies = {}) {
+  const state = dependencies.state || shared.state;
+  const existsSync = dependencies.existsSync || fs.existsSync;
+  const rmSync = dependencies.rmSync || fs.rmSync;
+  const killActiveRenderProcesses = dependencies.killActiveRenderProcesses || shared.killActiveRenderProcesses;
+  const processNext = dependencies.processNextRenderTask || processNextRenderTask;
+  const schedule = dependencies.schedule || setTimeout;
+  const logger = dependencies.logger || console;
+
+  return {
+    getQueueStatus: async (req, res) => {
+      res.json({
+        queue: state.renderQueue.map((task) => ({
+          id: task.id,
+          projectId: task.projectId,
+          projectName: task.projectName,
+          status: task.status,
+          percent: task.percent,
+          step: task.step,
+          error: task.error,
+          actionRequired: task.actionRequired || null,
+          createdAt: task.createdAt,
+          videoName: task.body.mainVideoFile || (task.files.videoUpload?.[0]
+            ? task.files.videoUpload[0].originalname
+            : 'Video Tải Lên'),
+          result: task.result
+        })),
+        currentActiveId: state.currentActiveTask ? state.currentActiveTask.id : null
+      });
+    },
+
+    useWhisperForRenderTask: async (req, res) => {
+      const { taskId } = req.body || {};
+      if (!taskId) return res.status(400).json({ error: 'Thiếu mã tác vụ taskId' });
+
+      const task = state.renderQueue.find((candidate) => candidate.id === taskId);
+      if (!task) return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+      if (task.status !== 'waiting_input' || task.actionRequired !== 'ocr_fallback') {
+        return res.status(409).json({ error: 'Tác vụ không chờ chuyển sang Whisper' });
+      }
+
+      if (!task.sourceVideoPath || !existsSync(task.sourceVideoPath)) {
+        const errorMessage = 'Video nguồn đã lưu không còn tồn tại. Vui lòng tạo lại tác vụ.';
+        task.error = errorMessage;
+        return res.status(409).json({ error: errorMessage });
+      }
+
+      task.forceWhisper = true;
+      task.status = 'pending';
+      task.error = null;
+      task.actionRequired = null;
+      task.step = 'Đang chuyển sang Whisper...';
+
+      const response = res.json({ success: true, taskId });
+      startQueueProcessing(processNext, logger);
+      return response;
+    },
+
+    cancelQueueTask: async (req, res) => {
+      const { taskId } = req.body;
+      if (!taskId) {
+        return res.status(400).json({ error: 'Thiếu mã tác vụ taskId' });
+      }
+      const taskIndex = state.renderQueue.findIndex((task) => task.id === taskId);
+      if (taskIndex === -1) {
+        return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+      }
+      const task = state.renderQueue[taskIndex];
+
+      if (task.status === 'waiting_input') {
+        state.renderQueue.splice(taskIndex, 1);
+        try {
+          if (task.taskDir && existsSync(task.taskDir)) {
+            rmSync(task.taskDir, { recursive: true, force: true });
+          }
+        } catch (error) {
+          logger.error(`[Queue] Không thể dọn thư mục tải lên của tác vụ ${taskId}:`, error);
+        }
+        logger.log(`[Queue] Đã gỡ tác vụ đang chờ phản hồi: ${taskId}`);
+        return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi hàng đợi thành công.' });
+      }
+
+      if (task.status === 'pending') {
+        state.renderQueue.splice(taskIndex, 1);
+        logger.log(`[Queue] Đã gỡ tác vụ đang chờ khỏi hàng đợi: ${taskId}`);
+        return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi hàng đợi thành công.' });
+      }
+
+      if (task.status === 'rendering') {
+        logger.log(`[Queue] Nhận yêu cầu hủy và gỡ tác vụ đang chạy trực tiếp: ${taskId}`);
+        killActiveRenderProcesses();
+        state.isStudioRendering = false;
+        state.activeRenderId = null;
+        state.studioProgress = {
+          status: 'idle', percent: 0, step: 'Đã hủy kết xuất', error: null
+        };
+        task.status = 'failed';
+        task.step = 'Đã bị người dùng hủy';
+        task.actionRequired = null;
+
+        state.renderQueue.splice(taskIndex, 1);
+        state.currentActiveTask = null;
+
+        schedule(() => processNext(), 1500);
+        return res.json({ success: true, message: 'Đã hủy tiến trình và gỡ tác vụ khỏi hàng đợi thành công.' });
+      }
+
+      state.renderQueue.splice(taskIndex, 1);
+      return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi danh sách.' });
+    }
+  };
+}
+
+const renderQueueHandlers = createRenderQueueHandlers();
+
 module.exports = {
+  applyRenderTaskFailure,
+  applyRenderTaskSuccess,
+  cleanupRenderWorkDir,
+  createAutomaticSubtitleProgressHandler,
+  createAutomaticSubtitleResolver,
+  createRenderQueueHandlers,
+  createRenderQueueTask,
+  createRenderSourceResolver,
+  findNextPendingRenderTask,
+  mapAutomaticSubtitleProgress,
   getProjects: async (req, res) => {
     try {
       if (!fs.existsSync(shared.PROJECTS_DIR)) {
@@ -1525,20 +1844,12 @@ module.exports = {
         }
       }
 
-      const task = {
-        id: taskId,
-        projectId: body.projectId || null,
-        projectName: body.projectName || 'Dự án chưa đặt tên',
-        status: 'pending',
-        percent: 0,
-        step: 'Đang xếp hàng...',
-        error: null,
-        createdAt: new Date(),
-        body: body,
+      const task = createRenderQueueTask({
+        taskId,
+        body,
         files: movedFiles,
-        taskDir: taskDir,
-        result: null
-      };
+        taskDir
+      });
 
       shared.state.renderQueue.push(task);
       console.log(`[Queue] Đã xếp hàng tác vụ ${taskId}. Tổng hàng đợi: ${shared.state.renderQueue.length}`);
@@ -1555,64 +1866,9 @@ module.exports = {
     }
   },
 
-  getQueueStatus: async (req, res) => {
-    res.json({
-      queue: shared.state.renderQueue.map(t => ({
-        id: t.id,
-        projectId: t.projectId,
-        projectName: t.projectName,
-        status: t.status,
-        percent: t.percent,
-        step: t.step,
-        error: t.error,
-        createdAt: t.createdAt,
-        videoName: t.body.mainVideoFile || (t.files.videoUpload?.[0] ? t.files.videoUpload[0].originalname : 'Video Tải Lên'),
-        result: t.result
-      })),
-      currentActiveId: shared.state.currentActiveTask ? shared.state.currentActiveTask.id : null
-    });
-  },
-
-  cancelQueueTask: async (req, res) => {
-    const { taskId } = req.body;
-    if (!taskId) {
-      return res.status(400).json({ error: 'Thiếu mã tác vụ taskId' });
-    }
-    const taskIndex = shared.state.renderQueue.findIndex(t => t.id === taskId);
-    if (taskIndex === -1) {
-      return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
-    }
-    const task = shared.state.renderQueue[taskIndex];
-
-    if (task.status === 'pending') {
-      shared.state.renderQueue.splice(taskIndex, 1);
-      console.log(`[Queue] Đã gỡ tác vụ đang chờ khỏi hàng đợi: ${taskId}`);
-      return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi hàng đợi thành công.' });
-    }
-
-    if (task.status === 'rendering') {
-      console.log(`[Queue] Nhận yêu cầu hủy và gỡ tác vụ đang chạy trực tiếp: ${taskId}`);
-      shared.killActiveRenderProcesses();
-      shared.state.isStudioRendering = false;
-      shared.state.activeRenderId = null;
-      shared.state.studioProgress = {
-        status: 'idle', percent: 0, step: 'Đã hủy kết xuất', error: null
-      };
-      task.status = 'failed';
-      task.step = 'Đã bị người dùng hủy';
-
-      shared.state.renderQueue.splice(taskIndex, 1);
-      shared.state.currentActiveTask = null;
-
-      setTimeout(() => {
-        processNextRenderTask();
-      }, 1500);
-      return res.json({ success: true, message: 'Đã hủy tiến trình và gỡ tác vụ khỏi hàng đợi thành công.' });
-    }
-
-    shared.state.renderQueue.splice(taskIndex, 1);
-    return res.json({ success: true, message: 'Đã gỡ tác vụ khỏi danh sách.' });
-  },
+  getQueueStatus: renderQueueHandlers.getQueueStatus,
+  useWhisperForRenderTask: renderQueueHandlers.useWhisperForRenderTask,
+  cancelQueueTask: renderQueueHandlers.cancelQueueTask,
 
   clearQueue: async (req, res) => {
     console.log('[Queue] Nhận yêu cầu xóa sạch toàn bộ hàng đợi...');

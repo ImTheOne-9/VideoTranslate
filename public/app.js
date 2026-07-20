@@ -12,7 +12,6 @@ document.addEventListener('click', function (e) {
     closeCookieModal();
   }
 });
-
 // Global error handlers for UI debugging
 window.onerror = function (message, source, lineno, colno, error) {
   toast(`Lỗi UI: ${message} (dòng ${lineno})`, 'error');
@@ -241,8 +240,8 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
-  // Mở modal thiết lập nếu thiếu Whisper, Audio-Separator hoặc GPU Separator (chỉ 1 lần)
-  if (!window._setupModalShown && (!dependencyStatus.whisper || !dependencyStatus.separator || !dependencyStatus.separatorGpu)) {
+  // Mở modal thiết lập nếu thiếu Whisper ONNX hoặc MDX ONNX Separator (chỉ 1 lần)
+  if (!window._setupModalShown && (!dependencyStatus.whisper || !dependencyStatus.separator)) {
     window._setupModalShown = true;
     setTimeout(() => openSetupModal(), 500);
   }
@@ -417,7 +416,7 @@ async function fetchDouyinInfo(url, btn, loadingIndicator, extractedTitle) {
     } else {
       const vs = document.createElement('button');
       vs.className = 'quality-btn green'; vs.type = 'button';
-      vs.onclick = (e) => startDouyinDownload(e.target, data.formats[0].src, title, 'vietsub');
+      vs.onclick = (e) => startDownload(e.target, data.formats[0].src, title, data.thumbnail, 'vietsub', null, data.formats);
       vs.textContent = 'Tải + dịch Vietsub';
       grid.appendChild(vs);
       for (const fmt of data.formats) {
@@ -500,7 +499,7 @@ function renderVideoInfo(data) {
     const vietsub = document.createElement('button');
     vietsub.className = 'quality-btn green';
     vietsub.type = 'button';
-    vietsub.onclick = (e) => startDownload(e.target, currentUrl, data.title, data.thumbnail, 'vietsub');
+    vietsub.onclick = (e) => startDownload(e.target, currentUrl, data.title, data.thumbnail, 'vietsub', null, data.formats);
     vietsub.textContent = 'Tải + dịch Vietsub';
     grid.appendChild(vietsub);
 
@@ -726,8 +725,40 @@ function renderDownloadHistory() {
   });
 }
 
-async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
+async function startDownload(btn, url, videoTitle, thumbnail, formatId, overrideOptions = null, formats = []) {
   if (btn.disabled) return;
+
+  let isVietsub = formatId === 'vietsub';
+  if (overrideOptions) {
+    isVietsub = true;
+  }
+
+  if (isVietsub && !overrideOptions) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Chuẩn bị xem trước...';
+    try {
+      const previewRes = await fetch('/api/download-raw-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const previewData = await previewRes.json();
+      if (!previewRes.ok) throw new Error(previewData.error || 'Lỗi chuẩn bị video xem trước');
+
+      btn.disabled = false;
+      btn.textContent = originalText;
+
+      openDownloadTranslateModal(videoTitle, thumbnail, (opts) => {
+        startDownload(btn, url, videoTitle, thumbnail, opts.formatId, opts, formats);
+      }, formats, previewData.previewUrl ? `${previewData.previewUrl}?t=${Date.now()}` : null);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+    return;
+  }
 
   const defaultName = encodeURIComponent(($('video-filename-input')?.value.trim() || videoTitle) + '.mp4');
   const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
@@ -740,26 +771,58 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
   btn.disabled = true;
   btn.textContent = '⏳ Đang tải...';
 
-  const isVietsub = formatId === 'vietsub';
-
   try {
-    const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
-    const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
-    const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-    const aiSettings = getGlobalAiSettings();
+    let subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
+    let subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
+    let subtitleMarginV = 20;
+    let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
+    let aiSettings = getGlobalAiSettings();
+    let translateTargetLang = 'vi';
+    let finalFormatId = formatId;
+    let useExistingPreview = false;
+
+    if (overrideOptions) {
+      if (overrideOptions.formatId) {
+        finalFormatId = overrideOptions.formatId;
+      }
+      if (finalFormatId === 'temp_preview') {
+        finalFormatId = 'vietsub';
+        useExistingPreview = true;
+      }
+      aiSettings.aiProvider = overrideOptions.aiProvider;
+      if (overrideOptions.aiProvider === 'gemini') {
+        aiSettings.geminiApiKey = overrideOptions.apiKey;
+        aiSettings.geminiModel = overrideOptions.model;
+      } else if (overrideOptions.aiProvider === 'openrouter') {
+        aiSettings.openRouterApiKey = overrideOptions.apiKey;
+        aiSettings.openRouterModel = overrideOptions.model;
+      } else if (overrideOptions.aiProvider === '9router') {
+        aiSettings.ninerouterApiKey = overrideOptions.apiKey;
+        aiSettings.ninerouterModel = overrideOptions.model;
+      }
+      translateTargetLang = overrideOptions.targetLang;
+      subtitleSize = overrideOptions.subtitleSize;
+      subtitleMarginH = overrideOptions.subtitleMarginH;
+      subtitleMarginV = overrideOptions.subtitleMarginV;
+      subtitleMaxLines = overrideOptions.subtitleMaxLines;
+    }
 
     const res = await fetch('/api/download-local', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url,
-        format_id: formatId,
+        format_id: finalFormatId,
         customFilename,
         outputDir,
         ...aiSettings,
         subtitleMaxLines,
         subtitleSize,
-        subtitleMarginH
+        subtitleMarginH,
+        subtitleMarginV,
+        translateTargetLang,
+        useExistingPreview,
+        isVietsub
       })
     });
     const data = await res.json();
@@ -829,6 +892,339 @@ async function saveMusic(event) {
   }
 }
 
+const OCR_DEFAULT_REGION = ['0.70', '0.98', '0.05', '0.95'];
+let ocrReadyPromise = null;
+let resolveOcrReady = null;
+let ocrDownloadActive = false;
+let currentOcrSupportedLanguages = [];
+
+async function requestOcrJson(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Không thể kết nối bộ OCR.');
+  return data;
+}
+
+const ocrComponentFlow = window.OcrUi?.createOcrComponentFlow({
+  request: requestOcrJson,
+  onProgress: updateOcrDownloadProgress
+});
+
+function updateOcrLanguages(languages) {
+  const select = $('ocr-language-select');
+  if (!select || !languages?.length) return;
+  const previous = select.value;
+  const normalized = window.OcrUi.normalizeSupportedLanguages(languages);
+  currentOcrSupportedLanguages = normalized.map(language => language.id);
+  select.innerHTML = '<option value="">Chọn ngôn ngữ...</option>';
+  normalized.forEach(language => {
+    const option = document.createElement('option');
+    option.value = language.id;
+    option.textContent = language.label;
+    select.appendChild(option);
+  });
+  if (normalized.some(language => language.id === previous)) select.value = previous;
+}
+
+async function refreshOcrComponentStatusForUi() {
+  if (!ocrComponentFlow) return;
+  try {
+    const status = await ocrComponentFlow.check();
+    updateOcrLanguages(status.supportedLanguages);
+  } catch (error) {
+    console.error('Lỗi khi kiểm tra trạng thái OCR:', error);
+  }
+}
+
+function updateOcrDownloadProgress(progress = {}) {
+  const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+  const labels = {
+    checking: 'Đang kiểm tra...',
+    downloading: 'Đang tải...',
+    verifying: 'Đang xác minh...',
+    extracting: 'Đang giải nén...',
+    installing: 'Đang cài đặt...',
+    ready: 'OCR đã sẵn sàng',
+    cancelled: 'Đã hủy'
+  };
+  if ($('ocr-download-progress-bar')) $('ocr-download-progress-bar').style.width = `${percent}%`;
+  if ($('ocr-download-percent')) $('ocr-download-percent').textContent = `${percent}%`;
+  if ($('ocr-download-status')) $('ocr-download-status').textContent = labels[progress.step] || labels[progress.status] || 'Đang xử lý...';
+}
+
+function finishOcrPreflight(ready) {
+  $('ocr-component-modal')?.classList.add('hidden');
+  const resolve = resolveOcrReady;
+  resolveOcrReady = null;
+  ocrReadyPromise = null;
+  if (resolve) resolve(ready);
+}
+
+async function ensureOcrComponentReady() {
+  if (!ocrComponentFlow) throw new Error('Không thể khởi tạo giao diện OCR.');
+  const status = await ocrComponentFlow.check();
+  updateOcrLanguages(status.supportedLanguages);
+  if (status.ready) return true;
+  if (ocrReadyPromise) return ocrReadyPromise;
+
+  $('ocr-download-error')?.classList.add('hidden');
+  updateOcrDownloadProgress({ status: 'not_installed', percent: 0 });
+  $('ocr-component-modal')?.classList.remove('hidden');
+  ocrReadyPromise = new Promise(resolve => { resolveOcrReady = resolve; });
+  return ocrReadyPromise;
+}
+
+async function startOcrComponentDownload() {
+  if (ocrDownloadActive) return;
+  const button = $('ocr-download-btn');
+  const error = $('ocr-download-error');
+  ocrDownloadActive = true;
+  setBusy(button, true, 'Đang tải...');
+  error?.classList.add('hidden');
+  try {
+    const result = await ocrComponentFlow.download();
+    if (result.ready) {
+      const status = await ocrComponentFlow.check();
+      updateOcrLanguages(status.supportedLanguages);
+      finishOcrPreflight(true);
+    }
+  } catch (downloadError) {
+    if (error) {
+      error.textContent = downloadError.message;
+      error.classList.remove('hidden');
+    }
+  } finally {
+    ocrDownloadActive = false;
+    setBusy(button, false);
+  }
+}
+
+async function cancelOcrComponentDownload() {
+  try {
+    await ocrComponentFlow.cancel();
+  } catch (error) {
+    console.error('Lỗi khi hủy tải OCR:', error);
+  } finally {
+    finishOcrPreflight(false);
+  }
+}
+
+const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
+const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
+const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32']);
+const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
+
+function updateOcrModeButtons() {
+  const input = $('ocr-mode-value');
+  if (!input) return;
+  const mode = OCR_MODES.has(input.value) ? input.value : 'auto';
+  input.value = mode;
+  document.querySelectorAll('.ocr-mode-btn').forEach(button => {
+    const active = button.dataset.ocrMode === mode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function updateSubtitleEngineUi() {
+  const input = $('subtitle-engine-value');
+  if (!input) return 'auto';
+  const engine = SUBTITLE_ENGINES.has(input.value) ? input.value : 'auto';
+  input.value = engine;
+  document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
+    const active = button.dataset.subtitleEngine === engine;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  document.querySelectorAll('.ocr-engine-settings').forEach(element => {
+    element.classList.toggle('hidden', engine === 'whisper');
+  });
+  document.querySelectorAll('.whisper-engine-settings').forEach(element => {
+    element.classList.toggle('hidden', engine === 'ocr');
+  });
+  updateOcrRegionOverlay();
+  return engine;
+}
+
+function updateWhisperOnnxVariantButtons() {
+  const input = $('whisper-onnx-variant-value');
+  if (!input) return 'q8';
+  const variant = WHISPER_ONNX_VARIANTS.has(input.value) ? input.value : 'q8';
+  input.value = variant;
+  document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
+    const active = button.dataset.whisperOnnxVariant === variant;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  return variant;
+}
+
+function getOcrRegionValues() {
+  return OCR_REGION_INPUT_IDS.map(id => Number($(id)?.value));
+}
+
+function getOcrPreviewBounds() {
+  const wrapper = $('video-preview-wrapper');
+  const video = $('studio-video-preview');
+  if (!wrapper || !video) return null;
+
+  const width = wrapper.clientWidth;
+  const height = wrapper.clientHeight;
+  if (!width || !height) return null;
+
+  const videoWidth = video.videoWidth || (wrapper.classList.contains('aspect-16-9') ? 16 : 9);
+  const videoHeight = video.videoHeight || (wrapper.classList.contains('aspect-16-9') ? 9 : 16);
+  const videoRatio = videoWidth / videoHeight;
+  const wrapperRatio = width / height;
+
+  if (videoRatio > wrapperRatio) {
+    const actualHeight = width / videoRatio;
+    return { left: 0, top: (height - actualHeight) / 2, width, height: actualHeight };
+  }
+
+  const actualWidth = height * videoRatio;
+  return { left: (width - actualWidth) / 2, top: 0, width: actualWidth, height };
+}
+
+function updateOcrRegionOverlay() {
+  const overlay = $('ocr-region-overlay');
+  const wrapper = $('video-preview-wrapper');
+  const shouldShow = $('subtitle-mode')?.value === 'generate'
+    && $('subtitle-engine-value')?.value !== 'whisper'
+    && wrapper
+    && !wrapper.classList.contains('hidden');
+  if (!overlay || !shouldShow) {
+    overlay?.classList.add('hidden');
+    return;
+  }
+
+  const bounds = getOcrPreviewBounds();
+  const [top, bottom, left, right] = getOcrRegionValues();
+  if (!bounds || [top, bottom, left, right].some(value => !Number.isFinite(value))) return;
+
+  overlay.style.left = `${bounds.left + left * bounds.width}px`;
+  overlay.style.top = `${bounds.top + top * bounds.height}px`;
+  overlay.style.width = `${(right - left) * bounds.width}px`;
+  overlay.style.height = `${(bottom - top) * bounds.height}px`;
+  overlay.classList.remove('hidden');
+}
+
+function setOcrRegionValues(values) {
+  OCR_REGION_INPUT_IDS.forEach((id, index) => {
+    if ($(id)) $(id).value = values[index].toFixed(2);
+  });
+  syncOcrRegion(false);
+  updateOcrRegionOverlay();
+}
+
+function syncOcrRegion(updateOverlay = true) {
+  const region = window.OcrUi.normalizeOcrRegion(getOcrRegionValues());
+  $('ocr-region-value').value = region;
+  if (updateOverlay) updateOcrRegionOverlay();
+  return region;
+}
+
+function initOcrRegionOverlay() {
+  const overlay = $('ocr-region-overlay');
+  const wrapper = $('video-preview-wrapper');
+  const video = $('studio-video-preview');
+  if (!overlay || !wrapper || !video) return;
+
+  let dragState = null;
+  overlay.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const bounds = getOcrPreviewBounds();
+    if (!bounds) return;
+    dragState = {
+      pointerId: event.pointerId,
+      interaction: event.target.dataset.ocrHandle || 'move',
+      startX: event.clientX,
+      startY: event.clientY,
+      values: getOcrRegionValues(),
+      bounds
+    };
+    overlay.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  overlay.addEventListener('pointermove', event => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const deltaX = (event.clientX - dragState.startX) / dragState.bounds.width;
+    const deltaY = (event.clientY - dragState.startY) / dragState.bounds.height;
+    const values = window.OcrUi.transformOcrRegion(
+      dragState.values,
+      dragState.interaction,
+      deltaX,
+      deltaY
+    );
+    setOcrRegionValues(values);
+    event.preventDefault();
+  });
+
+  const endDrag = event => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    if (overlay.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    dragState = null;
+  };
+  overlay.addEventListener('pointerup', endDrag);
+  overlay.addEventListener('pointercancel', endDrag);
+
+  OCR_REGION_INPUT_IDS.forEach(id => {
+    $(id)?.addEventListener('input', () => {
+      try { syncOcrRegion(); } catch { /* Wait until the typed bounds are valid. */ }
+    });
+    $(id)?.addEventListener('change', () => {
+      try { syncOcrRegion(); } catch (error) { toast(error.message, 'error'); }
+    });
+  });
+
+  video.addEventListener('loadedmetadata', updateOcrRegionOverlay);
+  $('preview-aspect-select')?.addEventListener('change', () => requestAnimationFrame(updateOcrRegionOverlay));
+  window.addEventListener('resize', updateOcrRegionOverlay);
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(updateOcrRegionOverlay).observe(wrapper);
+  }
+  updateOcrRegionOverlay();
+}
+
+$('ocr-download-btn')?.addEventListener('click', startOcrComponentDownload);
+$('ocr-download-cancel-btn')?.addEventListener('click', cancelOcrComponentDownload);
+document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = $('subtitle-engine-value');
+    if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
+    input.value = button.dataset.subtitleEngine;
+    const engine = updateSubtitleEngineUi();
+    if (engine !== 'whisper' && $('subtitle-mode')?.value === 'generate') {
+      refreshOcrComponentStatusForUi();
+    }
+  });
+});
+document.querySelectorAll('.ocr-mode-btn').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = $('ocr-mode-value');
+    if (!input || !OCR_MODES.has(button.dataset.ocrMode)) return;
+    input.value = button.dataset.ocrMode;
+    updateOcrModeButtons();
+  });
+});
+document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = $('whisper-onnx-variant-value');
+    if (!input || !WHISPER_ONNX_VARIANTS.has(button.dataset.whisperOnnxVariant)) return;
+    input.value = button.dataset.whisperOnnxVariant;
+    updateWhisperOnnxVariantButtons();
+  });
+});
+$('ocr-region-reset-btn')?.addEventListener('click', () => {
+  OCR_REGION_INPUT_IDS.forEach((id, index) => {
+    if ($(id)) $(id).value = OCR_DEFAULT_REGION[index];
+  });
+  syncOcrRegion();
+});
+
+initOcrRegionOverlay();
+
 async function renderStudio(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -839,14 +1235,47 @@ async function renderStudio(event) {
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
   const omiDevice = data.get('omiDevice');
+  const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
+  const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(data.get('whisperOnnxVariant'))
+    ? data.get('whisperOnnxVariant')
+    : 'q8';
+  data.set('subtitleEngine', subtitleEngine);
+  data.set('whisperOnnxVariant', whisperOnnxVariant);
 
-  // Kiểm tra Whisper
-  if (subMode === 'generate' && !dependencyStatus.whisper) {
-    showDependencyModal('whisper', () => {
-      const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-      form.dispatchEvent(submitEvent);
-    });
-    return;
+  if (subMode === 'generate') {
+    if (!data.get('ocrLanguage')) {
+      toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
+      return;
+    }
+    if (subtitleEngine !== 'whisper') {
+      try {
+        data.set('ocrRegion', syncOcrRegion());
+        const ready = await ensureOcrComponentReady();
+        if (!ready) return;
+        if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
+          toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
+          return;
+        }
+      } catch (error) {
+        toast(error.message, 'error');
+        return;
+      }
+    }
+    if (subtitleEngine !== 'ocr') {
+      try {
+        const checkRes = await fetch(`/api/whisper-model/status?variant=${whisperOnnxVariant}`);
+        const checkStatus = await checkRes.json();
+        if (!checkRes.ok) throw new Error(checkStatus.error || 'Không thể kiểm tra model Whisper');
+        if (!checkStatus.exists) {
+          toast(`Thiếu model Whisper Small ${whisperOnnxVariant.toUpperCase()}. Hãy tải model trước khi render.`, 'warn');
+          if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal(whisperOnnxVariant);
+          return;
+        }
+      } catch (error) {
+        toast(error.message, 'error');
+        return;
+      }
+    }
   }
 
   // Kiểm tra CUDA
@@ -865,23 +1294,8 @@ async function renderStudio(event) {
 
   // Load global AI settings and set whisperModel
   const aiSettings = getGlobalAiSettings();
-  const whisperModel = aiSettings.whisperModel || 'base';
+  const whisperModel = aiSettings.whisperModel || 'small';
   data.set('whisperModel', whisperModel);
-
-  // Check if selected Whisper model is ready
-  if (subMode === 'generate' && whisperModel !== 'base') {
-    try {
-      const checkRes = await fetch(`/api/whisper-model/status?model=${whisperModel}`);
-      const checkStatus = await checkRes.json();
-      if (!checkStatus.exists) {
-        toast(`⚠️ Thiếu file Model AI ${whisperModel.toUpperCase()}. Vui lòng tải xuống trong Cài đặt AI!`, 'warn');
-        openGlobalSettingsModal();
-        return;
-      }
-    } catch (e) {
-      console.error('Lỗi khi kiểm tra model AI trước khi render:', e);
-    }
-  }
 
   data.set('translateVi', 'true');
   data.set('burnSub', 'true');
@@ -995,11 +1409,11 @@ async function updateQueueStatus() {
     updateMainResultUI(data.queue, data.currentActiveId);
 
     // Kiểm tra xem còn tác vụ nào đang chạy hoặc chờ không để tiếp tục polling
-    const hasActiveOrPending = data.queue.some(t => t.status === 'rendering' || t.status === 'pending');
+    const hasActiveOrPending = data.queue.some(t => ['rendering', 'pending', 'waiting_input'].includes(t.status));
     const statusText = $('render-status');
 
     // Cập nhật số lượng trên badge (chỉ đếm các task đang chạy hoặc đang chờ)
-    const activeOrPendingCount = data.queue.filter(t => t.status === 'rendering' || t.status === 'pending').length;
+    const activeOrPendingCount = data.queue.filter(t => ['rendering', 'pending', 'waiting_input'].includes(t.status)).length;
     const badgeElement = $('queue-badge');
     if (badgeElement) {
       if (activeOrPendingCount > 0) {
@@ -1103,6 +1517,21 @@ function updateMainResultUI(queue, currentActiveId) {
         <button style="margin-top: 20px; background: transparent; border: 1px solid rgba(239, 68, 68, 0.4); color: var(--danger); padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.15s;" onclick="cancelQueueTask('${targetTask.id}', event)" onmouseover="this.style.background='rgba(239, 68, 68, 0.06)'; this.style.borderColor='var(--danger)';" onmouseout="this.style.background='transparent'; this.style.borderColor='rgba(239, 68, 68, 0.4)';">Hủy Chờ</button>
       </div>
     `;
+  } else if (targetTask.status === 'waiting_input') {
+    const fallback = window.OcrUi.getOcrFallbackAction(targetTask);
+    const fallbackMessage = window.OcrUi.escapeHtml(fallback.message || targetTask.error || 'OCR gặp lỗi kỹ thuật.');
+    const whisperAction = fallback.visible
+      ? `<button type="button" class="premium-render-btn" onclick="useWhisperForTask('${targetTask.id}', event)">Dùng Whisper thay thế</button>`
+      : '';
+    html = `
+      <div class="render-loading-state ocr-waiting-state">
+        <h3>OCR cần bạn xác nhận</h3>
+        <p>${fallbackMessage}</p>
+        <div class="ocr-fallback-actions">
+          ${whisperAction}
+          <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+        </div>
+      </div>`;
   } else if (targetTask.status === 'success' && targetTask.result) {
     // 3. Giao diện Render thành công (Video Player full-size như cũ)
     html = `
@@ -1215,6 +1644,7 @@ function renderQueueModalUI(queue, currentActiveId) {
   sortedQueue.forEach((task) => {
     const isRunning = task.status === 'rendering';
     const isPending = task.status === 'pending';
+    const isWaiting = task.status === 'waiting_input';
     const isSuccess = task.status === 'success';
     const isFailed = task.status === 'failed' || task.status === 'error';
 
@@ -1230,6 +1660,10 @@ function renderQueueModalUI(queue, currentActiveId) {
       statusBadge = `<span style="color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Chờ render</span>`;
       progressBarPercent = 0;
       progressBarColor = 'rgba(255, 255, 255, 0.05)';
+    } else if (isWaiting) {
+      statusBadge = `<span style="color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Cần xác nhận</span>`;
+      progressBarPercent = task.percent || 0;
+      progressBarColor = '#f59e0b';
     } else if (isSuccess) {
       statusBadge = `<span style="color: #22c55e; background: rgba(34, 197, 94, 0.1); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">Hoàn tất</span>`;
       progressBarPercent = 100;
@@ -1241,7 +1675,14 @@ function renderQueueModalUI(queue, currentActiveId) {
     }
 
     let actionHtml = '';
-    if (isPending) {
+    let waitingMessageHtml = '';
+    if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
+      const waitingMessage = window.OcrUi.escapeHtml(window.OcrUi.getOcrFallbackAction(task).message);
+      waitingMessageHtml = `<div class="queue-ocr-error">${waitingMessage}</div>`;
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="useWhisperForTask('${task.id}', event)">Dùng Whisper</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if (isPending) {
       actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy chờ</button>`;
     } else if (isRunning) {
       actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy render</button>`;
@@ -1268,6 +1709,7 @@ function renderQueueModalUI(queue, currentActiveId) {
             ${actionHtml}
           </div>
         </div>
+        ${waitingMessageHtml}
         <!-- Progress Bar -->
         <div style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 4px; border-radius: 2px; overflow: hidden; position: relative;">
           <div style="width: ${progressBarPercent}%; height: 100%; background: ${progressBarColor}; transition: width 0.3s ease-out;"></div>
@@ -1405,6 +1847,27 @@ async function cancelQueueTask(taskId, event) {
 }
 window.cancelQueueTask = cancelQueueTask;
 
+async function useWhisperForTask(taskId, event) {
+  const button = event?.currentTarget || event?.target;
+  setBusy(button, true, 'Đang chuyển...');
+  try {
+    const response = await fetch('/api/render-use-whisper', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Không thể chuyển sang Whisper.');
+    toast('Đã chuyển tác vụ sang Whisper.', 'success');
+    startQueuePolling();
+    await updateQueueStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+    setBusy(button, false);
+  }
+}
+window.useWhisperForTask = useWhisperForTask;
+
 async function cancelRenderVideo() {
   const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
   if (!confirmCancel) return;
@@ -1436,7 +1899,7 @@ async function checkActiveRenderProgress() {
     const pRes = await fetch('/api/render-queue-status');
     if (!pRes.ok) return;
     const data = await pRes.json();
-    const hasActiveOrPending = data.queue.some(t => t.status === 'rendering' || t.status === 'pending');
+    const hasActiveOrPending = data.queue.some(t => ['rendering', 'pending', 'waiting_input'].includes(t.status));
     if (hasActiveOrPending || data.queue.length > 0) {
       startQueuePolling();
     }
@@ -1797,16 +2260,9 @@ function renderVideoCardFormats(index, data) {
   grid.appendChild(container);
 }
 
-async function downloadSingleBulkVideo(btn, index) {
+async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
   const video = currentPlaylistVideos[index];
   if (!video) return;
-
-  const defaultName = encodeURIComponent((video.title || 'video') + '.mp4');
-  const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
-  const saveData = await saveRes.json();
-  if (saveData.canceled) return;
-  const outputDir = saveData.dir;
-  const customFilename = saveData.filename.replace(/\.mp4$/i, '');
 
   const select = $(`format-select-${index}`);
   if (!select) return;
@@ -1814,11 +2270,61 @@ async function downloadSingleBulkVideo(btn, index) {
   if (!val) {
     toast('Vui lòng chọn chất lượng tải!', 'warn');
     select.focus();
-    // Highlight màu đỏ viền dropdown để báo hiệu
     select.style.borderColor = 'var(--danger)';
     setTimeout(() => { select.style.borderColor = ''; }, 3000);
     return;
   }
+
+  const isVietsub = val === 'vietsub';
+
+  if (isVietsub && !overrideOptions) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ ...';
+    const card = btn.closest('.bulk-video-card');
+    const statusLabel = card ? card.querySelector('.bulk-video-status') : null;
+    if (statusLabel) {
+      statusLabel.textContent = 'Chuẩn bị xem trước...';
+      statusLabel.style.color = 'var(--accent)';
+    }
+
+    try {
+      const previewRes = await fetch('/api/download-raw-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: video.url })
+      });
+      const previewData = await previewRes.json();
+      if (!previewRes.ok) throw new Error(previewData.error || 'Lỗi chuẩn bị video xem trước');
+
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (statusLabel) {
+        statusLabel.textContent = 'Đã sẵn sàng';
+        statusLabel.style.color = 'var(--text)';
+      }
+
+      openDownloadTranslateModal(video.title, video.thumbnail, (opts) => {
+        downloadSingleBulkVideo(btn, index, opts);
+      }, video.formats, previewData.previewUrl ? `${previewData.previewUrl}?t=${Date.now()}` : null);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (statusLabel) {
+        statusLabel.textContent = 'Lỗi preview';
+        statusLabel.style.color = 'var(--danger)';
+      }
+    }
+    return;
+  }
+
+  const defaultName = encodeURIComponent((video.title || 'video') + '.mp4');
+  const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
+  const saveData = await saveRes.json();
+  if (saveData.canceled) return;
+  const outputDir = saveData.dir;
+  const customFilename = saveData.filename.replace(/\.mp4$/i, '');
 
   const card = btn.closest('.bulk-video-card');
   const statusLabel = card ? card.querySelector('.bulk-video-status') : null;
@@ -1836,23 +2342,57 @@ async function downloadSingleBulkVideo(btn, index) {
     const oldCurrentUrl = currentUrl;
     currentUrl = video.url;
 
-    const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
-    const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
-    const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-    const aiSettings = getGlobalAiSettings();
+    let subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
+    let subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
+    let subtitleMarginV = 20;
+    let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
+    let aiSettings = getGlobalAiSettings();
+    let translateTargetLang = 'vi';
+    let finalFormatId = val;
+    let useExistingPreview = false;
+
+    if (overrideOptions) {
+      if (overrideOptions.formatId) {
+        finalFormatId = overrideOptions.formatId;
+      }
+      if (finalFormatId === 'temp_preview') {
+        finalFormatId = 'vietsub';
+        useExistingPreview = true;
+      }
+      aiSettings.aiProvider = overrideOptions.aiProvider;
+      if (overrideOptions.aiProvider === 'gemini') {
+        aiSettings.geminiApiKey = overrideOptions.apiKey;
+        aiSettings.geminiModel = overrideOptions.model;
+      } else if (overrideOptions.aiProvider === 'openrouter') {
+        aiSettings.openRouterApiKey = overrideOptions.apiKey;
+        aiSettings.openRouterModel = overrideOptions.model;
+      } else if (overrideOptions.aiProvider === '9router') {
+        aiSettings.ninerouterApiKey = overrideOptions.apiKey;
+        aiSettings.ninerouterModel = overrideOptions.model;
+      }
+      translateTargetLang = overrideOptions.targetLang;
+      subtitleSize = overrideOptions.subtitleSize;
+      subtitleMarginH = overrideOptions.subtitleMarginH;
+      subtitleMarginV = overrideOptions.subtitleMarginV;
+      subtitleMaxLines = overrideOptions.subtitleMaxLines;
+    }
 
     const res = await fetch('/api/download-local', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: video.url,
-        format_id: val,
+        format_id: finalFormatId,
         customFilename,
         outputDir,
         ...aiSettings,
         subtitleMaxLines,
         subtitleSize,
-        subtitleMarginH
+        subtitleMarginH,
+        subtitleMarginV,
+        translateTargetLang,
+        useExistingPreview,
+        isVietsub: true
       })
     });
     const data = await res.json();
@@ -1886,20 +2426,14 @@ async function downloadSingleBulkVideo(btn, index) {
   }
 }
 
-async function downloadSelectedBulkVideos() {
+async function downloadSelectedBulkVideos(overrideOptions = null) {
   const selectedVideos = currentPlaylistVideos.filter(v => v.selected);
   if (selectedVideos.length === 0) {
     toast('Vui lòng chọn ít nhất 1 video để tải.', 'warn');
     return;
   }
 
-  // Choose folder once for all videos
-  const folderRes = await fetch('/api/select-save-path?mode=folder');
-  const folderData = await folderRes.json();
-  if (folderData.canceled) return;
-  const bulkOutputDir = folderData.dir;
-
-  // Validate format selected for all checked videos
+  // Validate format selected for all checked videos first
   for (const video of selectedVideos) {
     if (!video.formats) {
       toast(`Đang tải danh sách định dạng cho video "${video.title || video.id}", vui lòng đợi...`, 'warn');
@@ -1926,6 +2460,24 @@ async function downloadSelectedBulkVideos() {
       return;
     }
   }
+
+  // Intercept if there's any vietsub download requested
+  const hasVietsub = selectedVideos.some(v => v.selectedFormat === 'vietsub');
+  if (hasVietsub && !overrideOptions) {
+    const firstVietsubVideo = selectedVideos.find(v => v.selectedFormat === 'vietsub');
+    const vietsubCount = selectedVideos.filter(v => v.selectedFormat === 'vietsub').length;
+    const refTitle = `[HÀNG LOẠT] ${firstVietsubVideo.title}` + (vietsubCount > 1 ? ` (+${vietsubCount - 1} video khác)` : '');
+    openDownloadTranslateModal(refTitle, firstVietsubVideo.thumbnail, (opts) => {
+      downloadSelectedBulkVideos(opts);
+    });
+    return;
+  }
+
+  // Choose folder once for all videos
+  const folderRes = await fetch('/api/select-save-path?mode=folder');
+  const folderData = await folderRes.json();
+  if (folderData.canceled) return;
+  const bulkOutputDir = folderData.dir;
 
   const dlBtn = $('bulk-download-selected-btn');
   const stats = $('bulk-stats');
@@ -2023,10 +2575,31 @@ async function downloadSelectedBulkVideos() {
 
     try {
       const formatId = video.selectedFormat;
-      const subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
-      const subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
-      const subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-      const aiSettings = getGlobalAiSettings();
+      let subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
+      let subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
+      let subtitleMarginV = 20;
+      let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
+      let aiSettings = getGlobalAiSettings();
+      let translateTargetLang = 'vi';
+
+      if (overrideOptions) {
+        aiSettings.aiProvider = overrideOptions.aiProvider;
+        if (overrideOptions.aiProvider === 'gemini') {
+          aiSettings.geminiApiKey = overrideOptions.apiKey;
+          aiSettings.geminiModel = overrideOptions.model;
+        } else if (overrideOptions.aiProvider === 'openrouter') {
+          aiSettings.openRouterApiKey = overrideOptions.apiKey;
+          aiSettings.openRouterModel = overrideOptions.model;
+        } else if (overrideOptions.aiProvider === '9router') {
+          aiSettings.ninerouterApiKey = overrideOptions.apiKey;
+          aiSettings.ninerouterModel = overrideOptions.model;
+        }
+        translateTargetLang = overrideOptions.targetLang;
+        subtitleSize = overrideOptions.subtitleSize;
+        subtitleMarginH = overrideOptions.subtitleMarginH;
+        subtitleMarginV = overrideOptions.subtitleMarginV;
+        subtitleMaxLines = overrideOptions.subtitleMaxLines;
+      }
 
       const res = await fetch('/api/download-local', {
         method: 'POST',
@@ -2039,7 +2612,9 @@ async function downloadSelectedBulkVideos() {
           ...aiSettings,
           subtitleMaxLines,
           subtitleSize,
-          subtitleMarginH
+          subtitleMarginH,
+          subtitleMarginV,
+          translateTargetLang
         }),
         signal: activeBulkDownloadController.signal
       });
@@ -2146,6 +2721,9 @@ function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
   $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
   $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
+  updateOcrModeButtons();
+  updateSubtitleEngineUi();
+  updateWhisperOnnxVariantButtons();
 
   const whisperModelWrapper = $('whisper-model-wrapper');
   if (whisperModelWrapper) {
@@ -3789,6 +4367,7 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
     const input = $('voice-mode');
     if (input) {
       input.value = mode;
+
       input.dispatchEvent(new Event('change'));
     }
   });
@@ -3803,9 +4382,11 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
     if (input) {
       const mode = btn.dataset.subMode;
       input.value = mode;
-
-
-
+      $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
+      updateOcrRegionOverlay();
+      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper') {
+        refreshOcrComponentStatusForUi();
+      }
       // Automatically center subtitle overlay when any active subtitle mode is selected
       if (e && e.isTrusted && mode !== 'none') {
         const alignInput = $('subtitle-alignment-input');
@@ -4935,13 +5516,14 @@ function getGlobalAiSettings() {
     ninerouterApiKey: localStorage.getItem('global_ninerouter_key') || '',
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
-    whisperModel: localStorage.getItem('global_whisper_model') || 'base'
+    whisperModel: 'small',
+    whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'q8'
   };
 }
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -5246,7 +5828,7 @@ function openGlobalSettingsModal() {
     loadNineRouterModels(settings.ninerouterApiKey, settings.ninerouterBaseUrl);
   }
   if (whisperModelSelect) {
-    whisperModelSelect.value = settings.whisperModel;
+    whisperModelSelect.value = settings.whisperOnnxVariant;
     checkWhisperModelStatus();
   }
 
@@ -5316,7 +5898,7 @@ function saveGlobalSettings() {
   if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
-  if (whisperModelSelect) localStorage.setItem('global_whisper_model', whisperModelSelect.value);
+  if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
 
   toast('Đã lưu cài đặt AI toàn cục thành công!', 'success');
   closeGlobalSettingsModal();
@@ -5563,26 +6145,16 @@ async function checkSystemConnections() {
       whisperDot.style.boxShadow = '0 0 8px var(--success)';
       whisperDesc.textContent = 'Đã sẵn sàng';
     } else {
-      if (!data.whisperCli) {
-        whisperDot.className = 'dot error';
-        whisperDot.style.background = 'var(--danger)';
-        whisperDot.style.boxShadow = '0 0 8px var(--danger)';
-        whisperDesc.textContent = 'Thiếu công cụ nhận diện giọng nói (Chưa tải)';
-        if (whisperAction) {
-          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); showDependencyModal('whisper');">Tải</button>`;
-        }
-      } else {
-        whisperDot.className = 'dot warn';
-        whisperDot.style.background = 'var(--warn)';
-        whisperDot.style.boxShadow = '0 0 8px var(--warn)';
-        whisperDesc.textContent = 'Thiếu tệp dữ liệu AI';
-        if (whisperAction) {
-          whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">Tải</button>`;
-        }
+      whisperDot.className = 'dot warn';
+      whisperDot.style.background = 'var(--warn)';
+      whisperDot.style.boxShadow = '0 0 8px var(--warn)';
+      whisperDesc.textContent = 'Thiếu model Whisper ONNX Q8';
+      if (whisperAction) {
+        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal('q8');">Tải</button>`;
       }
     }
 
-    // 4. Audio Separator (CPU)
+    // 4. MDX ONNX Audio Separator
     const separatorDot = $('conn-separator-dot');
     const separatorDesc = $('conn-separator-desc');
     const separatorAction = $('conn-separator-action');
@@ -5601,24 +6173,6 @@ async function checkSystemConnections() {
       }
     }
 
-    // 4b. Audio Separator (GPU)
-    const separatorGpuDot = $('conn-separator-gpu-dot');
-    const separatorGpuDesc = $('conn-separator-gpu-desc');
-    const separatorGpuAction = $('conn-separator-gpu-action');
-    if (data.separatorGpu) {
-      separatorGpuDot.className = 'dot ok';
-      separatorGpuDot.style.background = 'var(--success)';
-      separatorGpuDot.style.boxShadow = '0 0 8px var(--success)';
-      separatorGpuDesc.textContent = 'Đã sẵn sàng (GPU)';
-    } else {
-      separatorGpuDot.className = 'dot error';
-      separatorGpuDot.style.background = 'var(--danger)';
-      separatorGpuDot.style.boxShadow = '0 0 8px var(--danger)';
-      separatorGpuDesc.textContent = 'Chưa cài (Khuyên dùng)';
-      if (separatorGpuAction) {
-        separatorGpuAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: #3b82f6;" onclick="closeConnectionStatusModal(); showDependencyModal('separator-gpu');">Tải GPU</button>`;
-      }
-    }
 
     // 5. OmniVoice
     const omnivoiceDot = $('conn-omnivoice-dot');
@@ -6382,17 +6936,11 @@ function showDependencyModal(type, callback) {
     desc.textContent = 'Hệ thống cần tải công cụ Whisper ONNX Runtime (whisper_onnx.exe) để thực hiện nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng tải khoảng ~90MB.';
     sizeText.textContent = 'Dung lượng: ~90 MB';
   } else if (type === 'separator') {
-    title.textContent = '📥 Tải xuống Audio-Separator CPU';
+    title.textContent = '📥 Tải xuống MDX ONNX';
     icon.textContent = '🎵';
-    name.textContent = 'Công cụ tách nhạc nền AI (CPU)';
-    desc.textContent = 'Tách nhạc nền khỏi giọng hát bằng CPU, dùng được trên mọi máy. Dung lượng ~1GB. Chậm hơn GPU.';
-    sizeText.textContent = 'Dung lượng: ~1 GB';
-  } else if (type === 'separator-gpu') {
-    title.textContent = '📥 Tải xuống Audio-Separator GPU';
-    icon.textContent = '🎵';
-    name.textContent = 'Công cụ tách nhạc nền AI (GPU)';
-    desc.textContent = 'Tách nhạc nền bằng GPU, nhanh gấp 5-10 lần CPU. Cần NVIDIA GPU. Script tự tải Python + PyTorch CUDA (~5GB).';
-    sizeText.textContent = 'Dung lượng: ~5 GB (tự động tải)';
+    name.textContent = 'Công cụ tách nhạc nền MDX ONNX';
+    desc.textContent = 'Một model UVR MDX chạy bằng ONNX Runtime C++. Không cần Python hoặc PyTorch.';
+    sizeText.textContent = 'Dung lượng: ~53 MB';
   }
   modal.classList.remove('hidden');
 }
@@ -6494,19 +7042,17 @@ window.startDependencyDownload = startDependencyDownload;
 // ==========================================
 // SETUP MODAL (gộp CUDA & Whisper khi lần đầu vào app)
 // ==========================================
-let setupDownloadState = { cuda: false, whisper: false, separator: false, 'separator-gpu': false };
+let setupDownloadState = { cuda: false, whisper: false, separator: false };
 
 function openSetupModal() {
   const cudaMissing = false;
   const whisperMissing = !dependencyStatus.whisper;
   const separatorMissing = !dependencyStatus.separator;
-  const separatorGpuMissing = !dependencyStatus.separatorGpu;
-  if (!whisperMissing && !separatorMissing && !separatorGpuMissing) return;
+  if (!whisperMissing && !separatorMissing) return;
 
   const cudaItem = $('setup-cuda-item');
   const whisperItem = $('setup-whisper-item');
   const separatorItem = $('setup-separator-item');
-  const separatorGpuItem = $('setup-separator-gpu-item');
 
   if (cudaItem) {
     cudaItem.classList.add('hidden');
@@ -6516,16 +7062,12 @@ function openSetupModal() {
     whisperItem.classList.toggle('hidden', !whisperMissing);
     resetSetupItemUI('whisper');
   }
-  if (separatorGpuItem) {
-    separatorGpuItem.classList.toggle('hidden', !separatorGpuMissing);
-    resetSetupItemUI('separator-gpu');
-  }
   if (separatorItem) {
     separatorItem.classList.toggle('hidden', !separatorMissing);
     resetSetupItemUI('separator');
   }
 
-  setupDownloadState = { cuda: false, whisper: false, separator: false, 'separator-gpu': false };
+  setupDownloadState = { cuda: false, whisper: false, separator: false };
 
   const modal = $('setup-dependencies-modal');
   if (modal) modal.classList.remove('hidden');
@@ -6543,13 +7085,9 @@ function resetSetupItemUI(type) {
   if (progressArea) progressArea.classList.add('hidden');
   if (errorEl) errorEl.classList.add('hidden');
   if (btn) {
-    const labels = { cuda: '📥 Tải CUDA', whisper: '📥 Tải Whisper', separator: '📥 Tải CPU', 'separator-gpu': '📥 Tải GPU' };
+    const labels = { cuda: '📥 Tải CUDA', whisper: '📥 Tải Whisper', separator: '📥 Tải MDX ONNX' };
     btn.textContent = labels[type] || '📥 Tải xuống';
-    if (type === 'separator-gpu') {
-      btn.style.background = '#3b82f6';
-    } else {
-      btn.style.background = 'var(--accent)';
-    }
+    btn.style.background = 'var(--accent)';
   }
 }
 
@@ -6558,7 +7096,7 @@ async function startSetupDownload(type) {
   setupDownloadState[type] = true;
 
   // Vô hiệu hóa nút các item khác (chỉ tải 1 cái 1 lúc)
-  const setupOtherTypes = ['cuda', 'whisper', 'separator', 'separator-gpu'].filter(t => t !== type);
+  const setupOtherTypes = ['cuda', 'whisper', 'separator'].filter(t => t !== type);
   setupOtherTypes.forEach(t => {
     const b = $(`setup-${t}-btn`);
     if (b && !b.disabled) {
@@ -6582,10 +7120,12 @@ async function startSetupDownload(type) {
   if (statusText) statusText.textContent = 'Đang tải...';
 
   try {
-    const res = await fetch('/api/download-dependency', {
+    const downloadUrl = type === 'whisper' ? '/api/download-whisper-model' : '/api/download-dependency';
+    const requestBody = type === 'whisper' ? { variant: 'q8' } : { type };
+    const res = await fetch(downloadUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type })
+      body: JSON.stringify(requestBody)
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Yêu cầu tải thất bại');
@@ -6618,13 +7158,28 @@ async function startSetupDownload(type) {
 }
 
 function pollSetupDownload(type) {
-  const setupOtherTypes = ['cuda', 'whisper', 'separator', 'separator-gpu'].filter(t => t !== type);
+  const setupOtherTypes = ['cuda', 'whisper', 'separator'].filter(t => t !== type);
   return new Promise((resolve) => {
     const interval = setInterval(async () => {
       try {
-        const pRes = await fetch('/api/download-dependency-progress');
+        const progressUrl = type === 'whisper'
+          ? '/api/whisper-model/status?variant=q8'
+          : '/api/download-dependency-progress';
+        const pRes = await fetch(progressUrl);
         if (!pRes.ok) return;
-        const pData = await pRes.json();
+        const rawProgress = await pRes.json();
+        const pData = type === 'whisper'
+          ? {
+              ...rawProgress,
+              status: rawProgress.downloading
+                ? 'downloading'
+                : rawProgress.exists
+                  ? 'success'
+                  : rawProgress.error
+                    ? 'error'
+                    : 'idle'
+            }
+          : rawProgress;
 
         const progressBar = $(`setup-${type}-progress-bar`);
         const progressText = $(`setup-${type}-progress-text`);
@@ -6655,8 +7210,8 @@ function pollSetupDownload(type) {
           setupDownloadState[type] = false;
 
           // Nếu tất cả đều xong thì đóng modal
-          const allDone = !setupDownloadState.cuda && !setupDownloadState.whisper && !setupDownloadState.separator && !setupDownloadState['separator-gpu']
-            && dependencyStatus.whisper && dependencyStatus.separator && dependencyStatus.separatorGpu;
+          const allDone = !setupDownloadState.cuda && !setupDownloadState.whisper && !setupDownloadState.separator
+            && dependencyStatus.whisper && dependencyStatus.separator;
           if (allDone) {
             setTimeout(() => {
               closeSetupModal();
