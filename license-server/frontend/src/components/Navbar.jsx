@@ -97,7 +97,7 @@ export default function Navbar({ currentUser, onOpenAuth, onLogout, onScrollToDa
                         <span>Trang cá nhân</span>
                       </button>
 
-                      {currentUser.role === 'admin' && (
+                      {['admin', 'sale'].includes(currentUser.role) && (
                         <button
                           onClick={() => {
                             setDropdownOpen(false);
