@@ -1009,6 +1009,14 @@ async function cancelOcrComponentDownload() {
   }
 }
 
+function openOcrDownloadModal() {
+  ensureOcrComponentReady();
+  setTimeout(() => {
+    startOcrComponentDownload();
+  }, 150);
+}
+window.openOcrDownloadModal = openOcrDownloadModal;
+
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
 const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
@@ -6201,6 +6209,28 @@ async function checkSystemConnections() {
         omnivoiceDesc.textContent = 'Thiếu tệp giọng nói AI';
         if (omnivoiceAction) {
           omnivoiceAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openModelDownloadModal();">Tải</button>`;
+        }
+      }
+    }
+
+    // 6. OCR (Optical Character Recognition)
+    const ocrDot = $('conn-ocr-dot');
+    const ocrDesc = $('conn-ocr-desc');
+    const ocrAction = $('conn-ocr-action');
+    if (ocrDot) {
+      if (data.ocr) {
+        ocrDot.className = 'dot ok';
+        ocrDot.style.background = 'var(--success)';
+        ocrDot.style.boxShadow = '0 0 8px var(--success)';
+        ocrDesc.textContent = 'Đã sẵn sàng';
+        if (ocrAction) ocrAction.innerHTML = '';
+      } else {
+        ocrDot.className = 'dot warn';
+        ocrDot.style.background = 'var(--warn)';
+        ocrDot.style.boxShadow = '0 0 8px var(--warn)';
+        ocrDesc.textContent = 'Thiếu bộ công cụ OCR';
+        if (ocrAction) {
+          ocrAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openOcrDownloadModal();">Tải</button>`;
         }
       }
     }

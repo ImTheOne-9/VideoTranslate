@@ -485,6 +485,9 @@ module.exports = {
     const separatorCliOk = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
       && fs.existsSync(shared.AUDIO_SEPARATOR_MODEL_PATH);
 
+    const ocrStatus = await ocrComponentManager.refreshOcrComponentStatus();
+    const ocrOk = ocrStatus && ocrStatus.status === 'ready';
+
     res.json({
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
@@ -496,7 +499,8 @@ module.exports = {
       omnivoiceCli: omnivoiceCliOk,
       omnivoiceModel: omnivoiceModelOk,
       separator: separatorCliOk,
-      separatorCli: separatorCliOk
+      separatorCli: separatorCliOk,
+      ocr: ocrOk
     });
   },
 

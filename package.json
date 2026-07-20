@@ -69,6 +69,7 @@
           "ffmpeg.exe",
           "yt-dlp.exe",
           "nllb_translate.exe",
+          "silero-vad/silero_vad.onnx",
           "omnivoice/omnivoice-cli.exe",
           "omnivoice/*.dll"
         ]
