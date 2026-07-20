@@ -479,16 +479,11 @@ app.get('/api/app-info', async (req, res) => {
       // wmic không có (Windows 11 22H2+) → dùng PowerShell
     }
 
-    // Fallback: PowerShell qua temp .ps1 file (tránh quoting issues)
+    // Fallback: PowerShell qua Command (tránh quoting/execution policy issues)
     if (total === 0) {
-      const tmpFile = path.join(os.tmpdir(), `_vs_disk_${Date.now()}.ps1`);
       try {
-        fs.writeFileSync(tmpFile,
-          `$d = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DeviceID -eq '${driveLetter}:' }\n` +
-          `if ($d) { Write-Output ($d.Size.ToString() + ',' + $d.FreeSpace.ToString()) } else { Write-Output '0,0' }\n`
-        );
         const psOut = execSync(
-          `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`,
+          `powershell -NoProfile -Command "$d = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DeviceID -eq '${driveLetter}:' }; if ($d) { Write-Output ($d.Size.ToString() + ',' + $d.FreeSpace.ToString()) } else { Write-Output '0,0' }"`,
           { encoding: 'utf8', timeout: 6000 }
         ).trim();
         const parts = psOut.split(',');

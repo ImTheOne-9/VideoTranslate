@@ -516,48 +516,31 @@ async function executeRenderTask(task) {
         });
         tempFiles.push(tempAudioToSeparate);
 
-        // Ưu tiên GPU (venv Python + PyTorch CUDA), fallback CPU (audio-separator.exe)
-        const appDataRoot = path.resolve(shared.DATA_TOOLS_DIR, '..');
-        const pythonPath = path.join(appDataRoot, 'temp_env', 'Scripts', 'python.exe');
-        const scriptPath = path.join(shared.DATA_TOOLS_DIR, 'separate_audio.py');
-        const gpuAvailable = fs.existsSync(pythonPath) && fs.existsSync(scriptPath);
-
-        const exePath = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
-          ? shared.AUDIO_SEPARATOR_CLI_PATH
-          : (fs.existsSync(path.join(shared.TOOLS_DIR, 'audio-separator.exe'))
-            ? path.join(shared.TOOLS_DIR, 'audio-separator.exe') : null);
-
-        if (gpuAvailable) {
-          shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (GPU)...');
-          const modelDir = path.join(shared.DATA_TOOLS_DIR, 'models');
-          await shared.runExecFile(pythonPath, [
-            scriptPath,
-            tempAudioToSeparate,
-            '--output_dir', workDir,
-            '--model_dir', modelDir,
-            '--stem', 'Instrumental'
-          ]);
-        } else if (exePath) {
-          shared.updateStudioProgress(6, 'Đang dùng AI tách nhạc nền (CPU)...');
-          await shared.runExecFile(exePath, [
-            tempAudioToSeparate,
-            '--output_dir', workDir,
-            '--output_format', 'WAV',
-            '--single_stem', 'Instrumental',
-            '--model_file_dir', path.join(path.dirname(exePath), 'models')
-          ]);
-        } else {
-          throw new Error('Không tìm thấy công cụ tách nhạc (GPU hoặc CPU)');
+        if (!fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
+          || !fs.existsSync(shared.AUDIO_SEPARATOR_MODEL_PATH)) {
+          throw new Error('Chưa tải công cụ MDX ONNX tách nhạc nền');
         }
 
-        const separatedFiles = fs.readdirSync(workDir).filter(f => f.includes('(Instrumental)'));
-        if (separatedFiles.length > 0) {
-          extractedBgmPath = path.join(workDir, separatedFiles[0]);
-          console.log('[Studio Render] Đã tách xong nhạc nền:', extractedBgmPath);
-          tempFiles.push(extractedBgmPath);
-        } else {
-          console.warn('[Studio Render] Không tìm thấy file (Instrumental) đầu ra từ audio-separator.');
+        shared.updateStudioProgress(6, 'Đang dùng MDX ONNX tách nhạc nền...');
+        // KARA_2 predicts Instrumental as its primary stem. Sherpa writes the
+        // primary stem to the --output-vocals-wav slot and the residual stem
+        // to --output-accompaniment-wav, regardless of the model's stem name.
+        const instrumentalPath = path.join(workDir, `instrumental_${timestamp}.wav`);
+        const residualVocalsPath = path.join(workDir, `residual_vocals_${timestamp}.wav`);
+        await shared.runExecFile(shared.AUDIO_SEPARATOR_CLI_PATH, [
+          '--num-threads=4',
+          `--uvr-model=${shared.AUDIO_SEPARATOR_MODEL_PATH}`,
+          `--input-wav=${tempAudioToSeparate}`,
+          `--output-vocals-wav=${instrumentalPath}`,
+          `--output-accompaniment-wav=${residualVocalsPath}`
+        ]);
+
+        if (!fs.existsSync(instrumentalPath)) {
+          throw new Error('MDX ONNX không tạo được file nhạc nền');
         }
+        extractedBgmPath = instrumentalPath;
+        console.log('[Studio Render] MDX ONNX đã tách xong nhạc nền:', extractedBgmPath);
+        tempFiles.push(instrumentalPath, residualVocalsPath);
       } catch (err) {
         console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
       }

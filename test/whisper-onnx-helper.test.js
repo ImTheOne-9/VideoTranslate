@@ -2,11 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { Worker } = require('node:worker_threads');
 
 const {
   chunksToSrt,
   formatSrtTime,
   normalizeLanguage,
+  resolveWorkerModulePaths,
   transcribeAudio
 } = require('../lib/whisper-onnx-helper');
 const { getWhisperOnnxConfig } = require('../lib/model-downloader');
@@ -23,6 +25,42 @@ test('production runtime no longer references the legacy Whisper CLI', () => {
   const source = files.map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
 
   assert.doesNotMatch(source, /whisper\.cpp|whisper-cli|WHISPER_ENGINE|ensureWhisperModelExist/i);
+});
+
+test('eval worker loads Transformers.js and wavefile from resolved module paths', async () => {
+  const modulePaths = resolveWorkerModulePaths();
+  assert.equal(path.isAbsolute(modulePaths.transformersModulePath), true);
+  assert.equal(path.isAbsolute(modulePaths.wavefileModulePath), true);
+
+  const result = await new Promise((resolve, reject) => {
+    const worker = new Worker(`
+      const { parentPort, workerData } = require('worker_threads');
+      try {
+        const transformers = require(workerData.transformersModulePath);
+        const wavefile = require(workerData.wavefileModulePath);
+        parentPort.postMessage({
+          pipeline: typeof transformers.pipeline,
+          waveFile: typeof wavefile.WaveFile
+        });
+      } catch (error) {
+        parentPort.postMessage({ error: error.stack || error.message });
+      }
+    `, { eval: true, workerData: modulePaths });
+    worker.once('message', resolve);
+    worker.once('error', reject);
+  });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result, { pipeline: 'function', waveFile: 'function' });
+});
+
+test('packaging unpacks worker dependencies alongside ONNX Runtime', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.deepEqual(packageJson.build.asarUnpack, [
+    'node_modules/onnxruntime-node/**/*',
+    'node_modules/@huggingface/transformers/**/*',
+    'node_modules/wavefile/**/*'
+  ]);
 });
 
 test('defines separate Q8 and FP32 model files', () => {
@@ -81,4 +119,22 @@ test('fills a missing chunk end without passing the next cue start', () => {
   ]);
   assert.match(srt, /00:00:02,000 --> 00:00:03,000/);
   assert.equal(formatSrtTime(3661.005), '01:01:01,005');
+});
+
+test('clamps regressing Whisper timestamps so cues never move backwards', () => {
+  const srt = chunksToSrt([
+    { timestamp: [124.84, 125.04], text: 'Câu dài bị chia thành nhiều đoạn' },
+    { timestamp: [125, 126.2], text: 'Câu kế tiếp' }
+  ]);
+
+  assert.equal(srt, [
+    '1',
+    '00:02:04,840 --> 00:02:05,000',
+    'Câu dài bị chia thành nhiều đoạn',
+    '',
+    '2',
+    '00:02:05,000 --> 00:02:06,200',
+    'Câu kế tiếp',
+    ''
+  ].join('\n'));
 });

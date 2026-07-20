@@ -54,7 +54,7 @@ let activeBlurBoxId = null;
 const $ = (id) => document.getElementById(id);
 
 // Dependency Downloader globals
-let dependencyStatus = { cuda: true, whisper: true, separator: true, separatorGpu: false };
+let dependencyStatus = { cuda: true, whisper: true, separator: true };
 let activeDownloadType = null;
 let downloadSuccessCallback = null;
 let downloadProgressInterval = null;

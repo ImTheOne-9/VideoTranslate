@@ -1695,7 +1695,7 @@
                         <label class="premium-switch">
                           <input type="checkbox" id="keep-bgm-ai" name="keepOriginalBgmAI" value="true">
                           <span class="switch-slider"></span>
-                          <span class="switch-label">Giữ Nhạc Nền Gốc bằng AI (Cần tải audio-separator vào tools)</span>
+                          <span class="switch-label">Giữ Nhạc Nền Gốc bằng AI (MDX ONNX)</span>
                         </label>
                       </div>
 
@@ -3137,33 +3137,20 @@
             <div id="conn-whisper-action"></div>
           </div>
 
-          <!-- Audio Separator (CPU) -->
+          <!-- MDX ONNX Audio Separator -->
           <div class="connection-item"
             style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span class="dot" id="conn-separator-dot"
                 style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
               <div>
-                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền AI (CPU)</div>
+                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền MDX ONNX</div>
                 <div style="font-size: 11px; color: var(--muted);" id="conn-separator-desc">Đang kiểm tra...</div>
               </div>
             </div>
             <div id="conn-separator-action"></div>
           </div>
 
-          <!-- Audio Separator (GPU) -->
-          <div class="connection-item"
-            style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="dot" id="conn-separator-gpu-dot"
-                style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
-              <div>
-                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền AI (GPU) <span style="font-size: 10px; background: #3b82f6; color: white; padding: 1px 6px; border-radius: 8px;">Khuyên dùng</span></div>
-                <div style="font-size: 11px; color: var(--muted);" id="conn-separator-gpu-desc">Đang kiểm tra...</div>
-              </div>
-            </div>
-            <div id="conn-separator-gpu-action"></div>
-          </div>
 
           <!-- OmniVoice -->
           <div class="connection-item"
@@ -3370,48 +3357,20 @@
           </div>
         </div>
 
-        <!-- Audio Separator GPU item -->
-        <div id="setup-separator-gpu-item" class="hidden"
-          style="border: 1px solid #3b82f6; border-radius: 8px; padding: 14px; background: rgba(59,130,246,0.05);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
-            <div style="flex: 1;">
-              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Tách nhạc nền AI (GPU) <span style="font-size: 10px; background: #3b82f6; color: white; padding: 1px 8px; border-radius: 8px; vertical-align: middle;">Khuyên dùng</span></div>
-              <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
-                Tách nhạc nền bằng GPU, nhanh gấp 5-10 lần CPU. Cần NVIDIA GPU. Script tự tải Python + PyTorch CUDA (~5GB).
-              </p>
-            </div>
-            <button type="button" id="setup-separator-gpu-btn" class="premium-render-btn"
-              style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: #3b82f6; color: white;"
-              onclick="startSetupDownload('separator-gpu')">📥 Tải GPU</button>
-          </div>
-          <div id="setup-separator-gpu-progress-area" class="hidden" style="margin-top: 10px;">
-            <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
-              <div id="setup-separator-gpu-progress-bar"
-                style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
-              <span id="setup-separator-gpu-progress-text" style="font-size: 11px; color: var(--muted);">0%</span>
-              <span id="setup-separator-gpu-status-text" style="font-size: 11px; color: var(--muted);">Đang tải...</span>
-            </div>
-          </div>
-          <div id="setup-separator-gpu-error" class="hidden"
-            style="color: #ef4444; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px;">
-          </div>
-        </div>
 
-        <!-- Audio Separator CPU item -->
+        <!-- MDX ONNX Audio Separator item -->
         <div id="setup-separator-item" class="hidden"
           style="border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--panel-2);">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
             <div style="flex: 1;">
-              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Tách nhạc nền AI (CPU)</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Tách nhạc nền MDX ONNX</div>
               <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
-                Tách nhạc nền bằng CPU, dùng được trên mọi máy. Chậm hơn GPU nhưng ổn định. Dung lượng ~1GB.
+                Một model UVR MDX chạy ONNX, không cần Python hoặc PyTorch. Dung lượng tải khoảng 53MB.
               </p>
             </div>
             <button type="button" id="setup-separator-btn" class="premium-render-btn"
               style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: var(--accent); color: white;"
-              onclick="startSetupDownload('separator')">📥 Tải CPU</button>
+              onclick="startSetupDownload('separator')">📥 Tải MDX ONNX</button>
           </div>
           <div id="setup-separator-progress-area" class="hidden" style="margin-top: 10px;">
             <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
