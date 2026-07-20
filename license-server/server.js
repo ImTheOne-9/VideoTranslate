@@ -2892,9 +2892,42 @@ function _readAdminSessionToken(req) {
 }
 
 // Middleware bảo vệ các route /api/admin/*
-//  1. Ưu tiên phiên đăng nhập Admin qua JWT cookie (email/password, role = admin)
+//  1. Ưu tiên phiên đăng nhập Admin qua JWT cookie (email/password, role = admin hoặc sale)
 //  2. Fallback: header X-Admin-Token (giữ tương thích với CLI generate-key.js / legacy)
 async function adminAuth(req, res, next) {
+  const sessionToken = _readAdminSessionToken(req);
+  if (sessionToken) {
+    const payload = verifyToken(sessionToken);
+    if (payload && payload.email) {
+      try {
+        const user = await DB.users.findOne({ email: payload.email });
+        if (user && ['admin', 'sale'].includes(user.role)) {
+          const jwtIssuedAtMs = payload.iat * 1000;
+          if (user.passwordChangedAt && jwtIssuedAtMs < new Date(user.passwordChangedAt).getTime()) {
+            return res.status(401).json({ error: 'Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại!' });
+          }
+          req.user = payload;
+          req.adminUser = { email: user.email, fullName: user.fullName, role: user.role };
+          return next();
+        }
+        return res.status(403).json({ error: 'Tài khoản không có quyền truy cập trang quản trị!' });
+      } catch (err) {
+        return res.status(500).json({ error: 'Lỗi hệ thống khi xác thực Admin: ' + err.message });
+      }
+    }
+  }
+
+  const adminTokenHeader = req.headers['x-admin-token'];
+  if (adminTokenHeader && adminTokenHeader === ADMIN_TOKEN) {
+    req.adminUser = null;
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Chưa đăng nhập Admin hoặc phiên đã hết hạn!' });
+}
+
+// Middleware chỉ cho phép role admin đầy đủ (không cho phép role sale)
+async function adminOnlyAuth(req, res, next) {
   const sessionToken = _readAdminSessionToken(req);
   if (sessionToken) {
     const payload = verifyToken(sessionToken);
@@ -2909,6 +2942,9 @@ async function adminAuth(req, res, next) {
           req.user = payload;
           req.adminUser = { email: user.email, fullName: user.fullName, role: user.role };
           return next();
+        }
+        if (user && user.role === 'sale') {
+          return res.status(403).json({ error: 'Tài khoản Sale không có quyền thực hiện thao tác này!' });
         }
         return res.status(403).json({ error: 'Tài khoản không có quyền Quản trị viên (Admin)!' });
       } catch (err) {
@@ -2926,7 +2962,7 @@ async function adminAuth(req, res, next) {
   return res.status(401).json({ error: 'Chưa đăng nhập Admin hoặc phiên đã hết hạn!' });
 }
 
-// API Đăng nhập Admin (email/password, yêu cầu role = admin)
+// API Đăng nhập Admin (email/password, yêu cầu role = admin hoặc sale)
 app.post('/api/admin/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -2939,8 +2975,8 @@ app.post('/api/admin/login', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
     }
 
-    if (user.role !== 'admin') {
-      return res.status(403).json({ error: 'Tài khoản không có quyền Quản trị viên (Admin)!' });
+    if (!['admin', 'sale'].includes(user.role)) {
+      return res.status(403).json({ error: 'Tài khoản không có quyền truy cập trang quản trị!' });
     }
 
     if (!user.isVerified) {
@@ -3006,7 +3042,7 @@ app.get('/api/admin/config', adminAuth, async (req, res) => {
 });
 
 // API cập nhật cấu hình hệ thống (Admin)
-app.post('/api/admin/config', adminAuth, async (req, res) => {
+app.post('/api/admin/config', adminOnlyAuth, async (req, res) => {
   const { installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName } = req.body;
   try {
     await DB.settings.set('installerUrl', (installerUrl || '').trim());
@@ -3033,7 +3069,7 @@ app.get('/api/admin/plans', adminAuth, async (req, res) => {
 });
 
 // API tạo gói dịch vụ mới (Admin)
-app.post('/api/admin/plans', adminAuth, async (req, res) => {
+app.post('/api/admin/plans', adminOnlyAuth, async (req, res) => {
   const { id, name, price, durationDays, description, features, isPopular, status } = req.body;
   if (!id || !name || price === undefined || !durationDays) {
     return res.status(400).json({ error: 'ID, tên, giá bán và hạn dùng là bắt buộc!' });
@@ -3079,7 +3115,7 @@ app.post('/api/admin/plans', adminAuth, async (req, res) => {
 });
 
 // API cập nhật gói dịch vụ (Admin)
-app.put('/api/admin/plans/:id', adminAuth, async (req, res) => {
+app.put('/api/admin/plans/:id', adminOnlyAuth, async (req, res) => {
   const { id } = req.params;
   const { name, price, durationDays, description, features, isPopular, status } = req.body;
 
@@ -3117,7 +3153,7 @@ app.put('/api/admin/plans/:id', adminAuth, async (req, res) => {
 });
 
 // API xóa gói dịch vụ (Admin)
-app.delete('/api/admin/plans/:id', adminAuth, async (req, res) => {
+app.delete('/api/admin/plans/:id', adminOnlyAuth, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -3290,13 +3326,13 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
         query.hwid = { $ne: null };
       } else if (status === 'inactive') {
         query.status = 'active';
-        query.paymentStatus = { $ne: 'pending' };
+        query.paymentStatus = { $nin: ['pending', 'expired'] };
         query.$or = [{ hwid: null }, { hwid: '' }];
       } else if (status === 'expired') {
         query.status = { $ne: 'suspended' };
         query.expiresAt = { $lt: now };
       } else if (status === 'pending_payment') {
-        query.paymentStatus = 'pending';
+        query.paymentStatus = { $in: ['pending', 'expired'] };
         query.status = { $ne: 'suspended' };
       }
 
@@ -3337,11 +3373,11 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
       } else if (status === 'active') {
         filtered = filtered.filter(k => k.status === 'active' && new Date(k.expiresAt) >= now && k.hwid);
       } else if (status === 'inactive') {
-        filtered = filtered.filter(k => k.status === 'active' && !k.hwid && k.paymentStatus !== 'pending');
+        filtered = filtered.filter(k => k.status === 'active' && !k.hwid && k.paymentStatus !== 'pending' && k.paymentStatus !== 'expired');
       } else if (status === 'expired') {
         filtered = filtered.filter(k => k.status !== 'suspended' && new Date(k.expiresAt) < now);
       } else if (status === 'pending_payment') {
-        filtered = filtered.filter(k => k.paymentStatus === 'pending' && k.status !== 'suspended');
+        filtered = filtered.filter(k => (k.paymentStatus === 'pending' || k.paymentStatus === 'expired') && k.status !== 'suspended');
       }
 
       if (search) {
@@ -3499,13 +3535,13 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
 });
 
 // API cập nhật thông tin người dùng (Admin - Sửa thành viên)
-app.post('/api/admin/update-user', adminAuth, async (req, res) => {
+app.post('/api/admin/update-user', adminOnlyAuth, async (req, res) => {
   const { email, fullName, phoneNumber, isVerified, role, registrationIp, registrationHwid, deviceHwid } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Thiếu email người dùng cần cập nhật!' });
   }
-  if (role && !['user', 'admin'].includes(role)) {
-    return res.status(400).json({ error: 'Vai trò không hợp lệ (chỉ user/admin)!' });
+  if (role && !['user', 'admin', 'sale'].includes(role)) {
+    return res.status(400).json({ error: 'Vai trò không hợp lệ (chỉ user/admin/sale)!' });
   }
 
   try {
@@ -3552,10 +3588,10 @@ app.post('/api/admin/update-user', adminAuth, async (req, res) => {
 });
 
 // API cập nhật vai trò người dùng (Admin)
-app.post('/api/admin/update-user-role', adminAuth, async (req, res) => {
+app.post('/api/admin/update-user-role', adminOnlyAuth, async (req, res) => {
   const { email, role } = req.body;
-  if (!email || !['user', 'admin'].includes(role)) {
-    return res.status(400).json({ error: 'Email và vai trò (user/admin) không hợp lệ!' });
+  if (!email || !['user', 'admin', 'sale'].includes(role)) {
+    return res.status(400).json({ error: 'Email và vai trò (user/admin/sale) không hợp lệ!' });
   }
   
   try {
@@ -3574,7 +3610,7 @@ app.post('/api/admin/update-user-role', adminAuth, async (req, res) => {
 });
 
 // API xóa tài khoản người dùng (Admin)
-app.delete('/api/admin/users/:email', adminAuth, async (req, res) => {
+app.delete('/api/admin/users/:email', adminOnlyAuth, async (req, res) => {
   const { email } = req.params;
   try {
     const user = await DB.users.findOne({ email });
@@ -3590,7 +3626,7 @@ app.delete('/api/admin/users/:email', adminAuth, async (req, res) => {
 });
 
 // B. API tạo mới Key bản quyền
-app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
+app.post('/api/admin/generate-key', adminOnlyAuth, async (req, res) => {
   const { days, customerName } = req.body;
   const name = customerName && customerName.trim() ? customerName.trim() : 'Khách lẻ';
   const key = 'STUDIO-' + crypto.randomBytes(4).toString('hex').toUpperCase() + '-' + crypto.randomBytes(4).toString('hex').toUpperCase() + '-' + crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -3636,7 +3672,7 @@ app.post('/api/admin/generate-key', adminAuth, async (req, res) => {
 });
 
 // C. API Reset HWID (Admin bypass quota)
-app.post('/api/admin/reset-hwid', adminAuth, async (req, res) => {
+app.post('/api/admin/reset-hwid', adminOnlyAuth, async (req, res) => {
   const { key } = req.body;
   if (!key) {
     return res.status(400).json({ error: 'Key bản quyền là bắt buộc' });
@@ -3661,7 +3697,7 @@ app.post('/api/admin/reset-hwid', adminAuth, async (req, res) => {
 });
 
 // D. API đình chỉ/kích hoạt trạng thái Key (Suspend/Activate)
-app.post('/api/admin/toggle-status', adminAuth, async (req, res) => {
+app.post('/api/admin/toggle-status', adminOnlyAuth, async (req, res) => {
   const { key, status } = req.body;
   if (!key || !['active', 'suspended'].includes(status)) {
     return res.status(400).json({ error: 'Mã key và trạng thái (active/suspended) là bắt buộc' });
