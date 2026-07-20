@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home } from 'lucide-react';
 
 export default function Admin({ showToast }) {
   const [adminUser, setAdminUser] = useState(null);
@@ -776,6 +777,14 @@ export default function Admin({ showToast }) {
                   ) : null}
                 </span>
               )}
+              <Link 
+                to="/"
+                className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5"
+                title="Quay về trang chủ"
+              >
+                <Home className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Trang chủ</span>
+              </Link>
               <button 
                 onClick={handleLogout} 
                 className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 cursor-pointer"
