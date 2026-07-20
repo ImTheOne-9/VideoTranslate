@@ -1101,7 +1101,13 @@ let isDownloadingWhisper = false;
 let activeWhisperOnnxVariant = 'q8';
 
 function normalizeWhisperOnnxVariant(value) {
-  return String(value || '').toLowerCase() === 'fp32' ? 'fp32' : 'q8';
+  const variant = String(value || '').trim().toLowerCase();
+  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'q8';
+}
+
+function getWhisperOnnxVariantLabel(value) {
+  const variant = normalizeWhisperOnnxVariant(value);
+  return variant === 'medium-q8' ? 'MEDIUM Q8' : `SMALL ${variant.toUpperCase()}`;
 }
 
 function openWhisperDownloadModal(requestedVariant) {
@@ -1113,7 +1119,7 @@ function openWhisperDownloadModal(requestedVariant) {
   
   const modelNameEl = $('whisper-download-model-name');
   if (modelNameEl) {
-    modelNameEl.textContent = `SMALL ${activeWhisperOnnxVariant.toUpperCase()}`;
+    modelNameEl.textContent = getWhisperOnnxVariantLabel(activeWhisperOnnxVariant);
   }
   
   fetch(`/api/whisper-model/status?variant=${activeWhisperOnnxVariant}`)
@@ -1148,7 +1154,8 @@ function updateWhisperDownloadUI(status, variant) {
 
   const whisperSizes = {
     q8: '252 MB',
-    fp32: '971 MB'
+    fp32: '971 MB',
+    'medium-q8': '944 MB'
   };
   const targetSize = whisperSizes[variant] || '...';
   if (sizeLabel) sizeLabel.textContent = `Kích thước: ~${targetSize}`;
@@ -1268,7 +1275,7 @@ function startWhisperStatusPolling(variant) {
         if (!status.downloading) {
           clearInterval(whisperDownloadInterval);
           if (status.exists) {
-            toast(`🎉 Tải xuống model AI SMALL ${variant.toUpperCase()} thành công!`, 'success');
+            toast(`🎉 Tải xuống model AI ${getWhisperOnnxVariantLabel(variant)} thành công!`, 'success');
             checkWhisperModelStatus();
           } else if (status.error) {
             toast('❌ Lỗi khi tải model AI: ' + status.error, 'error');

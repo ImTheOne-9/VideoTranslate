@@ -312,7 +312,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       : 'auto';
     const forceWhisper = options.forceWhisper === true || subtitleEngine === 'whisper';
     const ocrOnly = subtitleEngine === 'ocr';
-    const whisperOnnxVariant = ['q8', 'fp32'].includes(body.whisperOnnxVariant)
+    const whisperOnnxVariant = ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant)
       ? body.whisperOnnxVariant
       : 'q8';
     logger.log(
@@ -676,7 +676,7 @@ async function executeRenderTask(task) {
               shared.FFMPEG_PATH,
               body.whisperModel || 'small',
               body.ocrLanguage,
-              ['q8', 'fp32'].includes(body.whisperOnnxVariant) ? body.whisperOnnxVariant : 'q8'
+              ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant) ? body.whisperOnnxVariant : 'q8'
             );
             console.log('Đã tự động trích xuất Ref-text:', refText);
           } catch (err) {

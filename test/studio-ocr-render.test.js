@@ -276,6 +276,27 @@ test('invalid or missing ONNX variants fall back to Q8', async () => {
   assert.deepEqual(received, ['q8', 'q8']);
 });
 
+test('Medium Q8 is preserved when resolving automatic subtitles', async () => {
+  let receivedVariant;
+  const resolveSubtitle = createAutomaticSubtitleResolver({
+    resolveAutomaticSubtitle: async (options) => {
+      receivedVariant = options.whisperOnnxVariant;
+      return { path: 'selected.srt' };
+    },
+    updateStudioProgress: () => {}
+  });
+
+  await resolveSubtitle({
+    body: { subtitleEngine: 'whisper', whisperOnnxVariant: 'medium-q8' },
+    sourceVideo: 'source.mp4',
+    workDir: 'work',
+    totalDuration: 3,
+    ffmpegPath: 'ffmpeg.exe'
+  });
+
+  assert.equal(receivedVariant, 'medium-q8');
+});
+
 test('only the trusted task resume flag forces Whisper through coordinator options', async () => {
   requireFunction(createAutomaticSubtitleResolver, 'createAutomaticSubtitleResolver');
   const receivedFlags = [];

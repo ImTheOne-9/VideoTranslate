@@ -1011,7 +1011,12 @@ async function cancelOcrComponentDownload() {
 
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
-const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32']);
+const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
+
+function getWhisperOnnxVariantLabel(variant) {
+  if (variant === 'medium-q8') return 'Medium Q8';
+  return `Small ${String(variant || 'q8').toUpperCase()}`;
+}
 const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
 
 function updateOcrModeButtons() {
@@ -1267,7 +1272,7 @@ async function renderStudio(event) {
         const checkStatus = await checkRes.json();
         if (!checkRes.ok) throw new Error(checkStatus.error || 'Không thể kiểm tra model Whisper');
         if (!checkStatus.exists) {
-          toast(`Thiếu model Whisper Small ${whisperOnnxVariant.toUpperCase()}. Hãy tải model trước khi render.`, 'warn');
+          toast(`Thiếu model Whisper ${getWhisperOnnxVariantLabel(whisperOnnxVariant)}. Hãy tải model trước khi render.`, 'warn');
           if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal(whisperOnnxVariant);
           return;
         }

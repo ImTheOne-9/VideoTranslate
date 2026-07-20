@@ -1068,6 +1068,7 @@
                         <div class="ocr-mode-segmented" role="group" aria-label="Model Whisper ONNX">
                           <button type="button" class="whisper-onnx-variant-btn active" data-whisper-onnx-variant="q8" title="Nhẹ, nhanh và phù hợp CPU">Small Q8</button>
                           <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="fp32" title="Trọng số đầy đủ, tốn nhiều RAM hơn">Small FP32</button>
+                          <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="medium-q8" title="Nhận dạng chính xác hơn, cần nhiều RAM và chạy chậm hơn">Medium Q8</button>
                         </div>
                         <input type="hidden" id="whisper-onnx-variant-value" name="whisperOnnxVariant" value="q8">
                       </div>
@@ -3002,6 +3003,7 @@
               <select id="whisper-model-select" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
                 <option value="q8" selected>Whisper Small Q8 (ONNX - 252 MB)</option>
                 <option value="fp32">Whisper Small FP32 (ONNX - 971 MB)</option>
+                <option value="medium-q8">Whisper Medium Q8 (ONNX - 944 MB)</option>
               </select>
               <button type="button" id="whisper-model-download-btn" class="premium-render-btn"
                 style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;"

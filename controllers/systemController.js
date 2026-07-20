@@ -23,8 +23,9 @@ let whisperDownloadStatus = {};
 
 function normalizeWhisperOnnxVariant(value) {
   const variant = String(value || 'q8').trim().toLowerCase();
-  if (['small', 'base', 'tiny', 'medium', 'large-v3'].includes(variant)) return 'q8';
-  if (!['q8', 'fp32'].includes(variant)) {
+  if (variant === 'medium') return 'medium-q8';
+  if (['small', 'base', 'tiny', 'large-v3'].includes(variant)) return 'q8';
+  if (!['q8', 'fp32', 'medium-q8'].includes(variant)) {
     throw new Error(`Biến thể Whisper ONNX không hợp lệ: ${value}`);
   }
   return variant;

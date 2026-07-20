@@ -63,19 +63,29 @@ test('packaging unpacks worker dependencies alongside ONNX Runtime', () => {
   ]);
 });
 
-test('defines separate Q8 and FP32 model files', () => {
+test('defines separate Small Q8, Small FP32, and Medium Q8 model files', () => {
   const q8 = getWhisperOnnxConfig('q8');
   const fp32 = getWhisperOnnxConfig('fp32');
+  const mediumQ8 = getWhisperOnnxConfig('medium-q8');
 
   assert.equal(q8.folder, 'onnx-small-timestamped');
+  assert.equal(q8.modelSize, 'small');
   assert.equal(q8.dtype, 'q8');
   assert.ok(q8.files.some((file) => file.name === 'onnx/encoder_model_quantized.onnx'));
   assert.ok(q8.files.some((file) => file.name === 'onnx/decoder_model_merged_quantized.onnx'));
   assert.equal(fp32.folder, 'onnx-small-timestamped-fp32');
+  assert.equal(fp32.modelSize, 'small');
   assert.equal(fp32.dtype, 'fp32');
   assert.ok(fp32.files.some((file) => file.name === 'onnx/encoder_model.onnx'));
   assert.ok(fp32.files.some((file) => file.name === 'onnx/decoder_model_merged.onnx'));
   assert.ok(fp32.files.reduce((sum, file) => sum + file.size, 0) > 900 * 1024 * 1024);
+  assert.equal(mediumQ8.repo, 'onnx-community/whisper-medium_timestamped');
+  assert.equal(mediumQ8.folder, 'onnx-medium-timestamped');
+  assert.equal(mediumQ8.modelSize, 'medium');
+  assert.equal(mediumQ8.dtype, 'q8');
+  assert.ok(mediumQ8.files.some((file) => file.name === 'onnx/encoder_model_quantized.onnx'));
+  assert.ok(mediumQ8.files.some((file) => file.name === 'onnx/decoder_model_merged_quantized.onnx'));
+  assert.ok(mediumQ8.files.reduce((sum, file) => sum + file.size, 0) > 940 * 1024 * 1024);
 });
 
 test('rejects unsupported ONNX variants before starting a worker', async () => {
