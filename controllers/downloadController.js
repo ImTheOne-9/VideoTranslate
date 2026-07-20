@@ -123,6 +123,74 @@ module.exports = {
     }
   },
 
+  downloadRawPreview: async (req, res) => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        controller.abort();
+      }
+    });
+
+    try {
+      const { url } = req.body;
+      if (!url) return res.status(400).json({ error: 'Thiếu URL video' });
+
+      const cleanUrl = shared.extractUrl(url);
+
+      const publicDir = path.join(__dirname, '..', 'public');
+      const previewFilename = 'temp_preview.mp4';
+      const previewFilePath = path.join(publicDir, previewFilename);
+
+      if (fs.existsSync(previewFilePath)) {
+        try { fs.unlinkSync(previewFilePath); } catch (_) {}
+      }
+      const partPath = previewFilePath + '.part';
+      if (fs.existsSync(partPath)) {
+        try { fs.unlinkSync(partPath); } catch (_) {}
+      }
+      const ytdlPath = previewFilePath + '.ytdl';
+      if (fs.existsSync(ytdlPath)) {
+        try { fs.unlinkSync(ytdlPath); } catch (_) {}
+      }
+
+      console.log(`[Preview] Bắt đầu tải video thô cho preview: ${cleanUrl}`);
+
+      let formatSelector = '18/best[height<=360]/best';
+      if (cleanUrl.includes('douyin.com') || cleanUrl.includes('iesdouyin.com') || cleanUrl.endsWith('.mp4')) {
+        formatSelector = 'best';
+      }
+
+      const args = [
+        '--no-warnings',
+        '--no-playlist',
+        '--no-continue',
+        '-f', formatSelector,
+        '--merge-output-format', 'mp4',
+        '-o', previewFilePath,
+        ...shared.getCustomExtractorArgs(cleanUrl)
+      ];
+      args.push(cleanUrl);
+
+      if (fs.existsSync(shared.FFMPEG_PATH)) {
+        args.push('--ffmpeg-location', shared.FFMPEG_PATH);
+      }
+
+      await shared.runYtDlp(args, { signal });
+
+      if (!fs.existsSync(previewFilePath)) {
+        throw new Error('Tệp video tải về không tồn tại.');
+      }
+
+      console.log(`[Preview] Đã tải xong video preview tại: ${previewFilePath}`);
+      res.json({ success: true, previewUrl: `/${previewFilename}`, localPath: previewFilePath });
+    } catch (e) {
+      console.error('[Preview] Lỗi tải video preview:', e.message);
+      res.status(500).json({ error: 'Lỗi tải video preview: ' + e.message });
+    }
+  },
+
   download: async (req, res) => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -318,10 +386,12 @@ module.exports = {
 
         if (hasSubtitles) {
           const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+          const downloadMarginV = Number(req.query.subtitleMarginV || 20);
+          const downloadSize = Number(req.query.subtitleSize || 18);
 
           const ffmpegArgs = [
             '-i', actualVideoPath,
-            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+            '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=${downloadMarginV},Fontsize=${downloadSize},WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
             '-c:a', 'copy',
             '-y', finalVideoPath
           ];
@@ -463,7 +533,7 @@ module.exports = {
     });
 
     try {
-      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH, translateTargetLang } = req.body;
+      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH, subtitleMarginV, translateTargetLang, useExistingPreview } = req.body;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -484,10 +554,14 @@ module.exports = {
         safeTitle = shared.removeVietnameseTones(shared.cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
       }
       
-      const isVietsub = format_id === 'vietsub';
+      const isVietsub = req.body.isVietsub || format_id === 'vietsub' || !!aiProvider;
 
       if (isVietsub) {
-        const videoId = info.id || Date.now();
+        let videoId = info.id || Date.now();
+        videoId = String(videoId).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+        if (!videoId || videoId.replace(/_/g, '') === '') {
+          videoId = Date.now();
+        }
         tempDir = path.join(shared.DOWNLOADS_DIR, `temp_local_${videoId}_${Math.floor(Math.random() * 1000)}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
@@ -497,16 +571,27 @@ module.exports = {
         const finalVideoPath = path.join(videoDir, `${safeTitle}_Vietsub.mp4`);
         const translatedSubPath = path.join(tempDir, `translated.srt`);
 
-        const videoArgs = ['--no-warnings', '--no-playlist', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', videoPathPattern, ...shared.getCustomExtractorArgs(url)];
-        videoArgs.push(url);
-        if (fs.existsSync(shared.FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', shared.FFMPEG_PATH);
-        
-        await shared.runYtDlp(videoArgs, { signal });
+        let actualVideoPath;
+        const previewFilePath = path.join(__dirname, '..', 'public', 'temp_preview.mp4');
 
-        const files = fs.readdirSync(tempDir);
-        const videoFile = files.find(f => f.startsWith('video.'));
-        if (!videoFile) throw new Error('Không tìm thấy video đã tải');
-        const actualVideoPath = path.join(tempDir, videoFile);
+        if (useExistingPreview && fs.existsSync(previewFilePath)) {
+          console.log('[DownloadLocal] Sử dụng video thô sẵn có từ preview...');
+          const tempVideoPath = path.join(tempDir, 'video.mp4');
+          fs.copyFileSync(previewFilePath, tempVideoPath);
+          actualVideoPath = tempVideoPath;
+        } else {
+          const videoFormatSelector = (!format_id || format_id === 'vietsub') ? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' : format_id;
+          const videoArgs = ['--no-warnings', '--no-playlist', '-f', videoFormatSelector, '--merge-output-format', 'mp4', '-o', videoPathPattern, ...shared.getCustomExtractorArgs(url)];
+          videoArgs.push(url);
+          if (fs.existsSync(shared.FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', shared.FFMPEG_PATH);
+          
+          await shared.runYtDlp(videoArgs, { signal });
+
+          const files = fs.readdirSync(tempDir);
+          const videoFile = files.find(f => f.startsWith('video.'));
+          if (!videoFile) throw new Error('Không tìm thấy video đã tải');
+          actualVideoPath = path.join(tempDir, videoFile);
+        }
 
         const subArgs = ['--write-auto-subs', '--write-subs', '--convert-subs', 'srt', '--skip-download', '-o', subPathPattern, ...shared.getCustomExtractorArgs(url), url];
         try { await shared.runYtDlp(subArgs, { signal }); } catch (e) {}
@@ -525,7 +610,27 @@ module.exports = {
           const downloadMaxLines = Number(subtitleMaxLines || 0);
           const downloadFontSize = Math.round(Number(subtitleSize || 18) * 1.35);
           const downloadMarginH = Number(subtitleMarginH || 20);
-          const downloadWidth = 1080;
+          let downloadWidth = 1080;
+          try {
+            const ffprobePath = shared.FFMPEG_PATH.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
+            if (fs.existsSync(ffprobePath)) {
+              const { execFileSync } = require('child_process');
+              const widthOut = execFileSync(ffprobePath, [
+                '-v', 'error',
+                '-select_streams', 'v:0',
+                '-show_entries', 'stream=width',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                actualVideoPath
+              ], { encoding: 'utf8', timeout: 5000 });
+              const parsedWidth = parseInt(widthOut.trim(), 10);
+              if (parsedWidth && !isNaN(parsedWidth)) {
+                downloadWidth = parsedWidth;
+                console.log(`[DownloadLocal] Đã lấy chiều rộng thực tế của video qua ffprobe: ${downloadWidth}px`);
+              }
+            }
+          } catch (e) {
+            console.warn('[DownloadLocal] Không thể lấy video width từ ffprobe, sử dụng mặc định 1080:', e.message);
+          }
           const downloadBoxWidth = downloadWidth - 2 * downloadMarginH;
           const dlTargetLang = translateTargetLang || 'vi';
           const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
@@ -543,7 +648,7 @@ module.exports = {
             const escapedSubPath = translatedSubPath.replace(/\\/g, '/').replace(/:/g, '\\:');
             const ffmpegArgs = [
               '-i', actualVideoPath,
-              '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=20,Fontsize=18,WrapStyle=0'`,
+              '-vf', `subtitles='${escapedSubPath}':force_style='BorderStyle=3,BackColour=&H80000000,MarginV=${subtitleMarginV || 20},Fontsize=${subtitleSize || 18},WrapStyle=${(downloadMaxLines === 1) ? 2 : 0}'`,
               '-c:a', 'copy',
               '-y', finalVideoPath
             ];

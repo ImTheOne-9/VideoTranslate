@@ -1,21 +1,33 @@
-/**
- * Test runner: chạy toàn bộ unit test trong test/unit/
- * Chạy: node test/run-tests.js  hoặc  npm test
- */
-const { spawnSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
-const testDir = path.join(__dirname, 'unit');
-const files = fs.readdirSync(testDir)
-  .filter(f => f.endsWith('.test.js'))
-  .map(f => path.join(testDir, f));
-
-if (files.length === 0) {
-  console.log('⚠️ Không tìm thấy file test nào trong test/unit/');
-  process.exit(0);
+function findTestFiles(testDir = __dirname) {
+  return fs.readdirSync(testDir, { recursive: true })
+    .filter((entry) => entry.endsWith('.test.js') && path.basename(entry) !== 'run-tests.js')
+    .map((entry) => path.join(testDir, entry))
+    .sort();
 }
 
-console.log(`🧪 Chạy ${files.length} file test...\n`);
-const result = spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit' });
-process.exit(result.status || 0);
+function runTests(options = {}) {
+  const testDir = options.testDir ?? __dirname;
+  const testFiles = findTestFiles(testDir);
+
+  if (testFiles.length === 0) {
+    (options.logError ?? console.error)('No test files found below test/.');
+    return 1;
+  }
+
+  const result = (options.spawnSync ?? spawnSync)(process.execPath, ['--test', ...testFiles], {
+    cwd: options.cwd ?? path.resolve(__dirname, '..'),
+    stdio: 'inherit'
+  });
+
+  return result.status ?? 1;
+}
+
+module.exports = { findTestFiles, runTests };
+
+if (require.main === module) {
+  process.exitCode = runTests();
+}

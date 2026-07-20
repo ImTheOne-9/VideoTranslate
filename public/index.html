@@ -526,6 +526,18 @@
                         <audio id="preview-voice-audio" preload="auto" style="display:none"></audio>
                         <audio id="preview-music-audio" preload="auto" style="display:none"></audio>
 
+                        <div id="ocr-region-overlay" class="ocr-region-overlay hidden" aria-label="Vùng nhận dạng OCR">
+                          <span class="ocr-region-overlay-label">Vùng OCR</span>
+                          <span class="ocr-region-handle handle-nw" data-ocr-handle="nw"></span>
+                          <span class="ocr-region-handle handle-n" data-ocr-handle="n"></span>
+                          <span class="ocr-region-handle handle-ne" data-ocr-handle="ne"></span>
+                          <span class="ocr-region-handle handle-e" data-ocr-handle="e"></span>
+                          <span class="ocr-region-handle handle-se" data-ocr-handle="se"></span>
+                          <span class="ocr-region-handle handle-s" data-ocr-handle="s"></span>
+                          <span class="ocr-region-handle handle-sw" data-ocr-handle="sw"></span>
+                          <span class="ocr-region-handle handle-w" data-ocr-handle="w"></span>
+                        </div>
+
                         <!-- Konva stage container -->
                         <div id="konva-stage-container"
                           style="position: absolute; top: 0; left: 0; z-index: 15; pointer-events: none;"></div>
@@ -1039,6 +1051,60 @@
                       <label for="subtitle-upload" class="premium-upload-zone">
                         Tải lên file phụ đề (.srt, .vtt, .ass)
                       </label>
+                    </div>
+
+                    <div id="ocr-settings-container" class="ocr-settings hidden">
+                      <div class="form-group">
+                        <label>Nguồn nhận dạng</label>
+                        <div class="ocr-mode-segmented" role="group" aria-label="Nguồn nhận dạng phụ đề">
+                          <button type="button" class="subtitle-engine-btn active" data-subtitle-engine="auto">Tự động</button>
+                          <button type="button" class="subtitle-engine-btn" data-subtitle-engine="ocr">OCR</button>
+                          <button type="button" class="subtitle-engine-btn" data-subtitle-engine="whisper">Whisper</button>
+                        </div>
+                        <input type="hidden" id="subtitle-engine-value" name="subtitleEngine" value="auto">
+                      </div>
+                      <div class="form-group whisper-engine-settings">
+                        <label>Model Whisper</label>
+                        <div class="ocr-mode-segmented" role="group" aria-label="Model Whisper ONNX">
+                          <button type="button" class="whisper-onnx-variant-btn active" data-whisper-onnx-variant="q8" title="Nhẹ, nhanh và phù hợp CPU">Small Q8</button>
+                          <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="fp32" title="Trọng số đầy đủ, tốn nhiều RAM hơn">Small FP32</button>
+                          <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="medium-q8" title="Nhận dạng chính xác hơn, cần nhiều RAM và chạy chậm hơn">Medium Q8</button>
+                        </div>
+                        <input type="hidden" id="whisper-onnx-variant-value" name="whisperOnnxVariant" value="q8">
+                      </div>
+                      <div class="form-group ocr-engine-settings">
+                        <label>Chế độ nhận dạng</label>
+                        <div class="ocr-mode-segmented" role="group" aria-label="Chế độ nhận dạng OCR">
+                          <button type="button" class="ocr-mode-btn" data-ocr-mode="fast" title="Nhanh, dùng model nhẹ">Fast</button>
+                          <button type="button" class="ocr-mode-btn active" data-ocr-mode="auto" title="Tự chọn model theo CPU hoặc GPU">Auto</button>
+                          <button type="button" class="ocr-mode-btn" data-ocr-mode="accurate" title="Dò từng frame, chính xác nhưng chậm">Accurate</button>
+                        </div>
+                        <input type="hidden" id="ocr-mode-value" name="ocrMode" value="auto">
+                      </div>
+                      <div class="form-group">
+                        <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
+                        <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
+                          <option value="">Chọn ngôn ngữ...</option>
+                          <option value="ch">Trung</option>
+                          <option value="vi">Việt</option>
+                          <option value="en">Anh</option>
+                          <option value="japan">Nhật</option>
+                          <option value="korean">Hàn</option>
+                        </select>
+                      </div>
+                      <details class="ocr-region-details ocr-engine-settings">
+                        <summary>Vùng nhận dạng nâng cao</summary>
+                        <div class="ocr-region-grid">
+                          <label>Trên<input id="ocr-region-top" type="number" value="0.70" min="0" max="1" step="0.01"></label>
+                          <label>Dưới<input id="ocr-region-bottom" type="number" value="0.98" min="0" max="1" step="0.01"></label>
+                          <label>Trái<input id="ocr-region-left" type="number" value="0.05" min="0" max="1" step="0.01"></label>
+                          <label>Phải<input id="ocr-region-right" type="number" value="0.95" min="0" max="1" step="0.01"></label>
+                        </div>
+                        <button type="button" id="ocr-region-reset-btn" class="ocr-icon-btn" title="Đặt lại vùng OCR" aria-label="Đặt lại vùng OCR">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                        </button>
+                      </details>
+                      <input type="hidden" id="ocr-region-value" name="ocrRegion" value="0.70,0.98,0.05,0.95">
                     </div>
 
 
@@ -1630,7 +1696,7 @@
                         <label class="premium-switch">
                           <input type="checkbox" id="keep-bgm-ai" name="keepOriginalBgmAI" value="true">
                           <span class="switch-slider"></span>
-                          <span class="switch-label">Giữ Nhạc Nền Gốc bằng AI (Cần tải audio-separator vào tools)</span>
+                          <span class="switch-label">Giữ Nhạc Nền Gốc bằng AI (MDX ONNX)</span>
                         </label>
                       </div>
 
@@ -2419,14 +2485,146 @@
           </div>
           <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button type="submit" id="cloner-generate-btn" class="premium-render-btn"
-              style="flex: 1; margin: 0; background: #3b82f6; color: white;">🤖 Tạo giọng mẫu</button>
+              style="flex: 1; margin: 0; background: #3b82f6; color: white;">🤖 Tạo giọng</button>
             <button type="button" id="cloner-cancel-btn" class="premium-render-btn hidden"
               style="flex: 1; margin: 0; background: #ef4444; color: white;" onclick="cancelClonerVoice()">⏹
               Hủy</button>
+            <button type="button" id="cloner-save-btn" class="premium-render-btn hidden" style="flex: 1; margin: 0; background: #22c55e; color: white;" onclick="saveClonerVoice()">💾 Lưu giọng</button>
             <button type="button" class="premium-render-btn ghost-btn" id="cloner-close-btn" style="flex: 1; margin: 0;"
-              onclick="closeOmniClonerModal()">Hủy</button>
+              onclick="closeOmniClonerModal()">Đóng</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download & Translate Configuration Modal -->
+  <div id="download-translate-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width: 1050px; max-width: 95%;">
+      <div class="fb-modal-header" style="background: rgba(34, 197, 94, 0.1); border-bottom-color: rgba(34, 197, 94, 0.2);">
+        <h3 style="color: #22c55e; display: flex; align-items: center; gap: 8px; margin: 0;">
+          📥 Cấu hình Tải & Dịch Vietsub
+        </h3>
+        <button class="fb-modal-close" onclick="closeDownloadTranslateModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 20px;">
+        <div class="dl-modal-layout">
+          <!-- Cột bên trái: Preview -->
+          <div class="dl-preview-col">
+            <label style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;">Xem trước hiển thị</label>
+            <div id="dl-preview-video-title" class="dl-preview-title">Đang tải tiêu đề video...</div>
+            <div class="dl-preview-frame">
+              <img id="dl-preview-thumbnail" class="dl-preview-bg" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='%23111'/></svg>" alt="Preview BG">
+              <video id="dl-preview-video" class="dl-preview-bg hidden" autoplay muted loop playsinline></video>
+              <div id="dl-preview-sub-box" class="dl-preview-sub-box">
+                <span id="dl-preview-sub-text" class="dl-preview-sub-text">Đây là dòng phụ đề Vietsub mẫu sẽ hiển thị trên video của bạn</span>
+              </div>
+            </div>
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
+              * Lưu ý: Khung xem trước mô phỏng gần đúng vị trí và cỡ chữ. Phụ đề thực tế khi xuất ra sẽ khớp tỷ lệ với video gốc.
+            </p>
+          </div>
+
+          <!-- Cột bên phải: Cấu hình -->
+          <div class="dl-config-col">
+            <!-- Chọn AI Dịch -->
+            <div class="dl-config-group">
+              <label>Dịch phụ đề bằng (AI Provider)</label>
+              <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
+                <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
+                <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
+                <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
+                <option value="openrouter">🦉 OpenRouter AI (Dịch chất lượng cao - Yêu cầu Key)</option>
+                <option value="9router">🤖 9Router Local AI Proxy (Miễn phí qua proxy nội bộ)</option>
+              </select>
+            </div>
+
+            <!-- Chất lượng video xuất ra -->
+            <div class="dl-config-group">
+              <label>Chất lượng video xuất ra (Video Resolution)</label>
+              <select id="dl-video-quality" class="premium-select">
+                <option value="vietsub">Tải chất lượng tốt nhất tự động (Mặc định)</option>
+              </select>
+            </div>
+
+            <!-- Dòng cấu hình Model tuỳ chọn theo AI Provider -->
+            <div id="dl-model-settings-row" class="dl-config-row hidden">
+              <div class="dl-config-group">
+                <label>Model AI</label>
+                <select id="dl-ai-model" class="premium-select"></select>
+              </div>
+              <div class="dl-config-group">
+                <label>API Key</label>
+                <input type="password" id="dl-ai-key" class="premium-input" placeholder="Nhập API Key...">
+              </div>
+            </div>
+
+            <!-- Ngôn ngữ đích & Số dòng tối đa -->
+            <div class="dl-config-row">
+              <div class="dl-config-group">
+                <label>Dịch sang ngôn ngữ</label>
+                <select id="dl-target-lang" class="premium-select">
+                  <option value="vi">Tiếng Việt (Mặc định)</option>
+                  <option value="en">Tiếng Anh (English)</option>
+                  <option value="zh">Tiếng Trung (Chinese)</option>
+                  <option value="ja">Tiếng Nhật (Japanese)</option>
+                  <option value="ko">Tiếng Hàn (Korean)</option>
+                  <option value="fr">Tiếng Pháp (French)</option>
+                  <option value="de">Tiếng Đức (German)</option>
+                  <option value="es">Tiếng Tây Ban Nha (Spanish)</option>
+                  <option value="th">Tiếng Thái (Thai)</option>
+                </select>
+              </div>
+              <div class="dl-config-group">
+                <label>Số dòng phụ đề tối đa</label>
+                <select id="dl-subtitle-max-lines" class="premium-select" onchange="updateLiveSubPreview()">
+                  <option value="0">Tự động ngắt dòng (Mặc định)</option>
+                  <option value="1">Tối đa 1 dòng (Ngắn gọn)</option>
+                  <option value="2">Tối đa 2 dòng (Thông thường)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Cỡ chữ phụ đề -->
+            <div class="dl-config-group">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label>Cỡ chữ phụ đề</label>
+                <span id="dl-subtitle-size-val" class="dl-slider-val">18px</span>
+              </div>
+              <div class="dl-slider-container">
+                <input type="range" id="dl-subtitle-size-slider" min="10" max="60" value="18" class="premium-input" style="flex: 1; padding: 0;" oninput="updateLiveSubPreview()">
+              </div>
+            </div>
+
+            <!-- Căn lề lề dọc & ngang -->
+            <div class="dl-config-row">
+              <div class="dl-config-group">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>Lề dọc (Dưới lên)</label>
+                  <span id="dl-subtitle-margin-v-val" class="dl-slider-val">20px</span>
+                </div>
+                <div class="dl-slider-container">
+                  <input type="range" id="dl-subtitle-margin-v-slider" min="5" max="80" value="20" class="premium-input" style="flex: 1; padding: 0;" oninput="updateLiveSubPreview()">
+                </div>
+              </div>
+              <div class="dl-config-group">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>Lề ngang (Trái/phải)</label>
+                  <span id="dl-subtitle-margin-h-val" class="dl-slider-val">20px</span>
+                </div>
+                <div class="dl-slider-container">
+                  <input type="range" id="dl-subtitle-margin-h-slider" min="5" max="100" value="20" class="premium-input" style="flex: 1; padding: 0;" oninput="updateLiveSubPreview()">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 15px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; background: var(--panel-2);">
+        <button type="button" class="premium-render-btn ghost-btn" style="margin: 0; padding: 8px 18px;" onclick="closeDownloadTranslateModal()">Hủy bỏ</button>
+        <button type="button" id="dl-confirm-btn" class="premium-render-btn" style="margin: 0; padding: 8px 22px; background: #22c55e; color: white; display: flex; align-items: center; gap: 6px;">
+          <span>Bắt đầu Tải & Dịch</span>
+        </button>
       </div>
     </div>
   </div>
@@ -2803,11 +3001,9 @@
             </label>
             <div style="display: flex; gap: 8px;">
               <select id="whisper-model-select" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
-                <option value="base" selected>🎙️ Bản tiêu chuẩn (Base - 140MB - Khuyên dùng)</option>
-                <option value="tiny">⚡ Bản siêu nhẹ (Tiny - 75MB - Nhận diện nhanh)</option>
-                <option value="small">📢 Bản nâng cao (Small - 460MB - Khá tốt)</option>
-                <option value="medium">🎯 Bản chuyên nghiệp (Medium - 1.5GB - Rất chính xác)</option>
-                <option value="large-v3">🏆 Bản cao cấp nhất (Large-V3 - 3.0GB - Tốt nhất)</option>
+                <option value="q8" selected>Whisper Small Q8 (ONNX - 252 MB)</option>
+                <option value="fp32">Whisper Small FP32 (ONNX - 971 MB)</option>
+                <option value="medium-q8">Whisper Medium Q8 (ONNX - 944 MB)</option>
               </select>
               <button type="button" id="whisper-model-download-btn" class="premium-render-btn"
                 style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;"
@@ -2958,33 +3154,20 @@
             <div id="conn-whisper-action"></div>
           </div>
 
-          <!-- Audio Separator (CPU) -->
+          <!-- MDX ONNX Audio Separator -->
           <div class="connection-item"
             style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span class="dot" id="conn-separator-dot"
                 style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
               <div>
-                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền AI (CPU)</div>
+                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền MDX ONNX</div>
                 <div style="font-size: 11px; color: var(--muted);" id="conn-separator-desc">Đang kiểm tra...</div>
               </div>
             </div>
             <div id="conn-separator-action"></div>
           </div>
 
-          <!-- Audio Separator (GPU) -->
-          <div class="connection-item"
-            style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="dot" id="conn-separator-gpu-dot"
-                style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
-              <div>
-                <div style="font-size: 13.5px; font-weight: 600; color: var(--text);">Tách nhạc nền AI (GPU) <span style="font-size: 10px; background: #3b82f6; color: white; padding: 1px 6px; border-radius: 8px;">Khuyên dùng</span></div>
-                <div style="font-size: 11px; color: var(--muted);" id="conn-separator-gpu-desc">Đang kiểm tra...</div>
-              </div>
-            </div>
-            <div id="conn-separator-gpu-action"></div>
-          </div>
 
           <!-- OmniVoice -->
           <div class="connection-item"
@@ -3191,48 +3374,20 @@
           </div>
         </div>
 
-        <!-- Audio Separator GPU item -->
-        <div id="setup-separator-gpu-item" class="hidden"
-          style="border: 1px solid #3b82f6; border-radius: 8px; padding: 14px; background: rgba(59,130,246,0.05);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
-            <div style="flex: 1;">
-              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Tách nhạc nền AI (GPU) <span style="font-size: 10px; background: #3b82f6; color: white; padding: 1px 8px; border-radius: 8px; vertical-align: middle;">Khuyên dùng</span></div>
-              <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
-                Tách nhạc nền bằng GPU, nhanh gấp 5-10 lần CPU. Cần NVIDIA GPU. Script tự tải Python + PyTorch CUDA (~5GB).
-              </p>
-            </div>
-            <button type="button" id="setup-separator-gpu-btn" class="premium-render-btn"
-              style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: #3b82f6; color: white;"
-              onclick="startSetupDownload('separator-gpu')">📥 Tải GPU</button>
-          </div>
-          <div id="setup-separator-gpu-progress-area" class="hidden" style="margin-top: 10px;">
-            <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
-              <div id="setup-separator-gpu-progress-bar"
-                style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
-              <span id="setup-separator-gpu-progress-text" style="font-size: 11px; color: var(--muted);">0%</span>
-              <span id="setup-separator-gpu-status-text" style="font-size: 11px; color: var(--muted);">Đang tải...</span>
-            </div>
-          </div>
-          <div id="setup-separator-gpu-error" class="hidden"
-            style="color: #ef4444; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px;">
-          </div>
-        </div>
 
-        <!-- Audio Separator CPU item -->
+        <!-- MDX ONNX Audio Separator item -->
         <div id="setup-separator-item" class="hidden"
           style="border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--panel-2);">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
             <div style="flex: 1;">
-              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Tách nhạc nền AI (CPU)</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎵 Tách nhạc nền MDX ONNX</div>
               <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
-                Tách nhạc nền bằng CPU, dùng được trên mọi máy. Chậm hơn GPU nhưng ổn định. Dung lượng ~1GB.
+                Một model UVR MDX chạy ONNX, không cần Python hoặc PyTorch. Dung lượng tải khoảng 53MB.
               </p>
             </div>
             <button type="button" id="setup-separator-btn" class="premium-render-btn"
               style="flex-shrink: 0; width: auto; margin: 0; padding: 0 16px; font-size: 13px; height: 34px; background: var(--accent); color: white;"
-              onclick="startSetupDownload('separator')">📥 Tải CPU</button>
+              onclick="startSetupDownload('separator')">📥 Tải MDX ONNX</button>
           </div>
           <div id="setup-separator-progress-area" class="hidden" style="margin-top: 10px;">
             <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
@@ -3252,6 +3407,30 @@
         <div style="display: flex; gap: 10px; margin-top: 4px; justify-content: flex-end;">
           <button type="button" id="setup-close-btn" class="premium-render-btn ghost-btn" style="margin: 0;"
             onclick="closeSetupModal()">Bỏ qua</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Hàng đợi Render -->
+  <div id="ocr-component-modal" class="fb-modal-overlay hidden" style="z-index: 10008;">
+    <div class="fb-modal-content ocr-download-dialog">
+      <div class="fb-modal-header">
+        <h3>Bộ nhận dạng phụ đề OCR</h3>
+      </div>
+      <div class="fb-modal-body ocr-download-body">
+        <p id="ocr-download-description">Cần tải bộ OCR ở lần sử dụng đầu tiên.</p>
+        <div class="ocr-download-track" aria-hidden="true">
+          <div id="ocr-download-progress-bar"></div>
+        </div>
+        <div class="ocr-download-meta">
+          <span id="ocr-download-status">Sẵn sàng tải</span>
+          <span id="ocr-download-percent">0%</span>
+        </div>
+        <p id="ocr-download-error" class="ocr-download-error hidden"></p>
+        <div class="ocr-download-actions">
+          <button type="button" id="ocr-download-btn" class="premium-render-btn">Tải OCR</button>
+          <button type="button" id="ocr-download-cancel-btn" class="premium-render-btn ghost-btn">Hủy</button>
         </div>
       </div>
     </div>
@@ -3336,6 +3515,7 @@
   <script src="js/drag-drop-module.js"></script>
   <script src="js/ui-utils.js"></script>
   <script src="js/anti-dupe-module.js"></script>
+  <script src="js/ocr-ui.js"></script>
 <script src="app.js"></script>
 </body>
 

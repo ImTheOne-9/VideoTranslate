@@ -32,6 +32,7 @@ export default function Navbar({ currentUser, onOpenAuth, onLogout, onScrollToDa
           {/* Navigation Links */}
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-400">
             <Link to="/" className="hover:text-white transition-colors">Trang chủ</Link>
+            <Link to="/instructions" className="hover:text-white transition-colors">Hướng dẫn</Link>
             <Link to="/pricing" className="hover:text-white transition-colors">Bảng giá</Link>
             <Link to="/about" className="hover:text-white transition-colors">Về chúng tôi</Link>
           </nav>

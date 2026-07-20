@@ -1,0 +1,68 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const Parser = require('srt-parser-2').default;
+
+const { formatSubtitleFile } = require('../lib/translate-sub');
+
+function writeSrt(lines) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subtitle-format-'));
+  const subtitlePath = path.join(tempDir, 'translated.srt');
+  fs.writeFileSync(subtitlePath, lines.join('\n'), 'utf8');
+  return { tempDir, subtitlePath };
+}
+
+test('formatSubtitleFile merges consecutive duplicate translations', () => {
+  const { tempDir, subtitlePath } = writeSrt([
+    '1', '00:01:24,840 --> 00:01:25,000', 'Cùng với Teigu Koro,', '',
+    '2', '00:01:25,000 --> 00:01:26,200', 'Cùng với Teigu Koro,', ''
+  ]);
+
+  formatSubtitleFile(subtitlePath, 1, 80);
+
+  const cues = new Parser().fromSrt(fs.readFileSync(subtitlePath, 'utf8'));
+  assert.equal(cues.length, 1);
+  assert.equal(cues[0].startTime, '00:01:24,840');
+  assert.equal(cues[0].endTime, '00:01:26,200');
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('formatSubtitleFile merges a combined cue followed by its repeated parts', () => {
+  const { tempDir, subtitlePath } = writeSrt([
+    '1', '00:01:24,840 --> 00:01:25,000',
+    'Cùng với Đế Cụ Koro, cô ấy bị dồn vào tình thế nguy hiểm chưa từng có.', '',
+    '2', '00:01:25,000 --> 00:01:26,200', 'Cùng với Đế Cụ Koro,', '',
+    '3', '00:01:26,200 --> 00:01:28,000',
+    'cô ấy bị dồn vào tình thế nguy hiểm chưa từng có.', ''
+  ]);
+
+  formatSubtitleFile(subtitlePath, 1, 100);
+
+  const cues = new Parser().fromSrt(fs.readFileSync(subtitlePath, 'utf8'));
+  assert.equal(cues.length, 1);
+  assert.equal(cues[0].startTime, '00:01:24,840');
+  assert.equal(cues[0].endTime, '00:01:28,000');
+  assert.equal(cues[0].text, 'Cùng với Đế Cụ Koro, cô ấy bị dồn vào tình thế nguy hiểm chưa từng có.');
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('formatSubtitleFile drops a corrupted combined cue containing the next two cues', () => {
+  const { tempDir, subtitlePath } = writeSrt([
+    '1', '00:01:24,840 --> 00:01:25,000',
+    'Cùng với Teigu Koro, cô ta đã đẩy Mine vào tình thế nguy hiểm chưa từng có. Nội dung cũ bị lặp.', '',
+    '2', '00:01:25,000 --> 00:01:26,200', 'Cùng với Teigu Koro,', '',
+    '3', '00:01:26,200 --> 00:01:28,000',
+    'đã đẩy Mine vào tình thế nguy hiểm chưa từng có.', ''
+  ]);
+
+  formatSubtitleFile(subtitlePath, 1, 100);
+
+  const cues = new Parser().fromSrt(fs.readFileSync(subtitlePath, 'utf8'));
+  assert.equal(cues.length, 2);
+  assert.equal(cues[0].startTime, '00:01:25,000');
+  assert.equal(cues[0].text, 'Cùng với Teigu Koro,');
+  assert.equal(cues[1].endTime, '00:01:28,000');
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
