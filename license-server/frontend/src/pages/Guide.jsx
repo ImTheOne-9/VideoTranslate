@@ -458,7 +458,7 @@ export default function Guide() {
                     </div>
                     <ul className="list-disc pl-4 text-xs text-zinc-350 space-y-1.5 leading-relaxed">
                       <li><strong>Tạo nhạc & giọng sạch:</strong> Tách nhạc nền & giọng nói bằng mô hình AI.</li>
-                      <li><strong>Nhận diện phụ đề (OCR & Whisper):</strong> Quét chữ trực tiếp trên khung hình video (OCR) hoặc dịch giọng nói thành văn bản offline (Whisper AI).</li>
+                      <li><strong>Nhận diện phụ đề:</strong> Quét chữ trực tiếp trên khung hình video hoặc dịch giọng nói thành văn bản offline (Whisper AI).</li>
                       <li><strong>Dịch thuật thông minh:</strong> Chuyển ngữ chuẩn ngữ cảnh Tiếng Việt qua mô hình AI.</li>
                       <li><strong>Lồng tiếng AI:</strong> Thuyết minh biểu cảm. Tự động tăng tốc độ đọc để vừa khớp khung hình.</li>
                       <li><strong>Render hoàn chỉnh:</strong> Trộn nhạc nền gốc, chèn sub nghệ thuật, mờ viền Shorts, xuất video bằng tăng tốc GPU.</li>
