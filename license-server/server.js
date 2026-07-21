@@ -3986,15 +3986,9 @@ app.post('/api/admin/toggle-status', adminOnlyAuth, async (req, res) => {
   }
 });
 
-// SPA Fallback Route
-app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'frontend', 'dist', 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(200).json({ status: 'ok', message: 'License Server đang chạy. Frontend chưa được build.' });
-  }
-});
+
+// (SPA catch-all đã được di chuyển xuống cuối file, sau tất cả API routes)
+
 
 // ==========================================
 // CANH BAO SAP HET HAN KEY (EMAIL)
@@ -4320,6 +4314,16 @@ app.post('/api/user/set-affiliate', userAuth, async (req, res) => {
     res.json({ success: true, message: 'Đã gắn mã affiliate thành công!', affiliateCode: code });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi: ' + err.message });
+  }
+});
+
+// SPA Fallback Route - PHẢI ĐẶT SAU TẤT CẢ API ROUTES
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'frontend', 'dist', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(200).json({ status: 'ok', message: 'License Server đang chạy. Frontend chưa được build.' });
   }
 });
 
