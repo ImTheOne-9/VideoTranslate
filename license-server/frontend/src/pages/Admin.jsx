@@ -235,32 +235,55 @@ export default function Admin({ showToast }) {
 
   const loadAffiliateData = async () => {
     setLoadingAff(true);
-    try {
-      const [statsRes, linksRes, ordersRes, tiersRes] = await Promise.all([
-        apiFetch('/api/admin/affiliate/stats'),
-        apiFetch('/api/admin/affiliate/links'),
-        apiFetch(`/api/admin/affiliate/orders?page=${affOrdersPage}&limit=15`),
-        apiFetch('/api/admin/affiliate/commission-tiers'),
-      ]);
-      const [statsData, linksData, ordersData, tiersData] = await Promise.all([
-        statsRes.json(), linksRes.json(), ordersRes.json(), tiersRes.json()
-      ]);
-      if (statsData.success) setAffStats(statsData.stats);
-      if (linksData.success) setAffLinks(linksData.links || []);
-      if (ordersData.success) {
-        setAffOrders(ordersData.orders || []);
-        setAffOrdersTotal(ordersData.total || 0);
-        setAffOrdersTotalPages(ordersData.totalPages || 1);
+    let hasError = false;
+
+    // Helper: safe fetch + parse JSON
+    const safeFetch = async (url) => {
+      try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (res.status === 401) {
+          setAdminUser(null);
+          setIsAuthModalOpen(true);
+          hasError = true;
+          return null;
+        }
+        const text = await res.text();
+        try { return JSON.parse(text); }
+        catch { console.error('[AFF] JSON parse error for', url, text.slice(0, 200)); hasError = true; return null; }
+      } catch (err) {
+        console.error('[AFF] Fetch error for', url, err.message);
+        hasError = true;
+        return null;
       }
-      if (tiersData.success) {
-        setCommissionTiers(tiersData.tiers || []);
-        setTiersForm(tiersData.tiers ? tiersData.tiers.map(t => ({ ...t })) : []);
-      }
-    } catch (err) {
-      if (!err.sessionExpired) showToast('Lỗi tải dữ liệu Affiliate!', 'error');
-    } finally {
-      setLoadingAff(false);
-    }
+    };
+
+    // Load song song nhưng mỗi cái xử lý độc lập
+    const [statsData, linksData, ordersData, tiersData] = await Promise.all([
+      safeFetch('/api/admin/affiliate/stats'),
+      safeFetch('/api/admin/affiliate/links'),
+      safeFetch(`/api/admin/affiliate/orders?page=${affOrdersPage}&limit=15`),
+      safeFetch('/api/admin/affiliate/commission-tiers'),
+    ]);
+
+    if (statsData?.success) setAffStats(statsData.stats);
+    else if (statsData !== null) { console.error('[AFF] stats:', statsData); hasError = true; }
+
+    if (linksData?.success) setAffLinks(linksData.links || []);
+    else if (linksData !== null) { console.error('[AFF] links:', linksData); hasError = true; }
+
+    if (ordersData?.success) {
+      setAffOrders(ordersData.orders || []);
+      setAffOrdersTotal(ordersData.total || 0);
+      setAffOrdersTotalPages(ordersData.totalPages || 1);
+    } else if (ordersData !== null) { console.error('[AFF] orders:', ordersData); hasError = true; }
+
+    if (tiersData?.success) {
+      setCommissionTiers(tiersData.tiers || []);
+      setTiersForm(tiersData.tiers ? tiersData.tiers.map(t => ({ ...t })) : []);
+    } else if (tiersData !== null) { console.error('[AFF] tiers:', tiersData); hasError = true; }
+
+    if (hasError) showToast('Một số dữ liệu Affiliate tải thất bại. Xem Console để biết chi tiết.', 'error');
+    setLoadingAff(false);
   };
 
   const handleCreateLink = async (e) => {
