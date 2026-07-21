@@ -4141,12 +4141,12 @@ app.get('/aff/:code', async (req, res) => {
 // API lấy bảng bậc hoa hồng
 app.get('/api/admin/affiliate/commission-tiers', adminAuth, async (req, res) => {
   const defaultTiers = [
-    { minRevenue: 0,         maxRevenue: 100000000,  rate: 2 },
-    { minRevenue: 100000000, maxRevenue: 200000000,  rate: 3 },
-    { minRevenue: 200000000, maxRevenue: 300000000,  rate: 4 },
-    { minRevenue: 300000000, maxRevenue: 400000000,  rate: 5 },
-    { minRevenue: 400000000, maxRevenue: 500000000,  rate: 6 },
-    { minRevenue: 500000000, maxRevenue: Infinity,   rate: 7 },
+    { minRevenue: 0,            maxRevenue: 100000000,    rate: 2 },
+    { minRevenue: 100000000,    maxRevenue: 200000000,    rate: 3 },
+    { minRevenue: 200000000,    maxRevenue: 300000000,    rate: 4 },
+    { minRevenue: 300000000,    maxRevenue: 400000000,    rate: 5 },
+    { minRevenue: 400000000,    maxRevenue: 500000000,    rate: 6 },
+    { minRevenue: 500000000,    maxRevenue: 999999999999, rate: 7 },
   ];
   const tiers = await DB.settings.get('affiliateCommissionTiers', defaultTiers);
   res.json({ success: true, tiers });
@@ -4164,10 +4164,12 @@ app.post('/api/admin/affiliate/commission-tiers', adminOnlyAuth, async (req, res
 
 // API tạo link affiliate (admin tạo cho sale bất kỳ, sale tự tạo cho chính mình)
 app.post('/api/admin/affiliate/links', adminAuth, async (req, res) => {
-  const isSaleUser = req.user && req.user.role === 'sale';
+  const role = (req.adminUser && req.adminUser.role) || (req.user && req.user.role) || 'admin';
+  const isSaleUser = role === 'sale';
+  const currentEmail = (req.adminUser && req.adminUser.email) || (req.user && req.user.email) || '';
 
   // Nếu là sale: tự gán email chính mình, không cần nhập
-  const targetEmail = isSaleUser ? req.user.email : (req.body.saleEmail || '').trim();
+  const targetEmail = isSaleUser ? currentEmail : (req.body.saleEmail || '').trim();
   if (!targetEmail) return res.status(400).json({ error: 'Email sale là bắt buộc!' });
 
   try {
@@ -4191,8 +4193,9 @@ app.post('/api/admin/affiliate/links', adminAuth, async (req, res) => {
 // API lấy danh sách link affiliate
 app.get('/api/admin/affiliate/links', adminAuth, async (req, res) => {
   try {
-    const isSaleUser = req.user.role === 'sale';
-    const query = isSaleUser ? { saleEmail: req.user.email } : {};
+    const isSaleUser = (req.adminUser && req.adminUser.role) === 'sale';
+    const saleEmail = isSaleUser ? (req.adminUser.email || req.user.email) : null;
+    const query = isSaleUser ? { saleEmail } : {};
     const links = await DB.affiliateLinks.find(query);
     const domain = process.env.APP_URL || req.protocol + '://' + req.get('host');
 
@@ -4248,8 +4251,9 @@ app.delete('/api/admin/affiliate/links/:code', adminOnlyAuth, async (req, res) =
 // API lấy danh sách đơn hàng affiliate
 app.get('/api/admin/affiliate/orders', adminAuth, async (req, res) => {
   try {
-    const isSaleUser = req.user.role === 'sale';
-    const query = isSaleUser ? { saleEmail: req.user.email } : {};
+    const isSaleUser = (req.adminUser && req.adminUser.role) === 'sale';
+    const saleEmail = isSaleUser ? (req.adminUser.email || req.user.email) : null;
+    const query = isSaleUser ? { saleEmail } : {};
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -4267,10 +4271,11 @@ app.get('/api/admin/affiliate/orders', adminAuth, async (req, res) => {
 // API thống kê tổng quan affiliate
 app.get('/api/admin/affiliate/stats', adminAuth, async (req, res) => {
   try {
-    const isSaleUser = req.user.role === 'sale';
-    const query = isSaleUser ? { saleEmail: req.user.email } : {};
+    const isSaleUser = (req.adminUser && req.adminUser.role) === 'sale';
+    const saleEmail = isSaleUser ? (req.adminUser.email || req.user.email) : null;
+    const query = isSaleUser ? { saleEmail } : {};
 
-    const links = await DB.affiliateLinks.find(isSaleUser ? { saleEmail: req.user.email } : {});
+    const links = await DB.affiliateLinks.find(isSaleUser ? { saleEmail } : {});
     const orders = await DB.affiliateOrders.find(query);
 
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
