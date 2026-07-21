@@ -209,8 +209,21 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
 
         if (data.success) {
           showToast('Đăng nhập thành công!');
+          // Gắn mã affiliate từ cookie (nếu có) - chỉ lần đầu, không ghi đè
+          try {
+            const affCode = document.cookie.split('; ').find(r => r.startsWith('aff_code='))?.split('=')[1];
+            if (affCode) {
+              fetch('/api/user/set-affiliate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: affCode }),
+                credentials: 'include'
+              }).catch(() => {});
+            }
+          } catch(e) {}
           onAuthSuccess(data.user);
           onClose();
+
         } else {
           setNotice({ text: data.error || 'Email hoặc mật khẩu không chính xác!', isError: true });
         }
