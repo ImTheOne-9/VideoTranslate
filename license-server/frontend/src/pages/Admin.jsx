@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home } from 'lucide-react';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home, Eye, EyeOff, Link2, ToggleLeft, ToggleRight, BarChart3, ShoppingBag, BadgePercent, ExternalLink, ChevronUp, ChevronDown, RefreshCcw } from 'lucide-react';
 
 export default function Admin({ showToast }) {
   const [adminUser, setAdminUser] = useState(null);
@@ -84,6 +84,12 @@ export default function Admin({ showToast }) {
   const [editDeviceHwid, setEditDeviceHwid] = useState('');
   const [savingUser, setSavingUser] = useState(false);
 
+  // Password fields inside edit user modal
+  const [editNewPassword, setEditNewPassword] = useState('');
+  const [editConfirmPassword, setEditConfirmPassword] = useState('');
+  const [showEditNewPassword, setShowEditNewPassword] = useState(false);
+  const [showEditConfirmPassword, setShowEditConfirmPassword] = useState(false);
+
   // Payment Transactions states
   const [payments, setPayments] = useState([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
@@ -93,6 +99,22 @@ export default function Admin({ showToast }) {
   const [paymentSearchText, setPaymentSearchText] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
   const [paymentStats, setPaymentStats] = useState({ total: 0, confirmed: 0, pending: 0, totalAmount: 0 });
+
+  // Affiliate states
+  const [affStats, setAffStats] = useState(null);
+  const [affLinks, setAffLinks] = useState([]);
+  const [affOrders, setAffOrders] = useState([]);
+  const [affOrdersTotal, setAffOrdersTotal] = useState(0);
+  const [affOrdersPage, setAffOrdersPage] = useState(1);
+  const [affOrdersTotalPages, setAffOrdersTotalPages] = useState(1);
+  const [loadingAff, setLoadingAff] = useState(false);
+  const [commissionTiers, setCommissionTiers] = useState([]);
+  const [editingTiers, setEditingTiers] = useState(false);
+  const [tiersForm, setTiersForm] = useState([]);
+  const [savingTiers, setSavingTiers] = useState(false);
+  const [isCreateLinkModalOpen, setIsCreateLinkModalOpen] = useState(false);
+  const [newLinkEmail, setNewLinkEmail] = useState('');
+  const [creatingLink, setCreatingLink] = useState(false);
 
   const getPageNumbers = (curr, total) => {
     const pages = [];
@@ -106,7 +128,7 @@ export default function Admin({ showToast }) {
 
   // Helper: gọi API Admin kèm cookie phiên, tự mở lại modal đăng nhập khi 401
   const apiFetch = async (url, options = {}) => {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { credentials: 'include', ...options });
     if (res.status === 401) {
       setAdminUser(null);
       setIsAuthModalOpen(true);
@@ -204,7 +226,106 @@ export default function Admin({ showToast }) {
     }
   }, [paymentSearchText]);
 
+  // Load affiliate data when switching to affiliate tab
+  useEffect(() => {
+    if (adminUser && activeMainTab === 'affiliate') {
+      loadAffiliateData();
+    }
+  }, [adminUser, activeMainTab, affOrdersPage]);
+
+  const loadAffiliateData = async () => {
+    setLoadingAff(true);
+    try {
+      const [statsRes, linksRes, ordersRes, tiersRes] = await Promise.all([
+        apiFetch('/api/admin/affiliate/stats'),
+        apiFetch('/api/admin/affiliate/links'),
+        apiFetch(`/api/admin/affiliate/orders?page=${affOrdersPage}&limit=15`),
+        apiFetch('/api/admin/affiliate/commission-tiers'),
+      ]);
+      const [statsData, linksData, ordersData, tiersData] = await Promise.all([
+        statsRes.json(), linksRes.json(), ordersRes.json(), tiersRes.json()
+      ]);
+      if (statsData.success) setAffStats(statsData.stats);
+      if (linksData.success) setAffLinks(linksData.links || []);
+      if (ordersData.success) {
+        setAffOrders(ordersData.orders || []);
+        setAffOrdersTotal(ordersData.total || 0);
+        setAffOrdersTotalPages(ordersData.totalPages || 1);
+      }
+      if (tiersData.success) {
+        setCommissionTiers(tiersData.tiers || []);
+        setTiersForm(tiersData.tiers ? tiersData.tiers.map(t => ({ ...t })) : []);
+      }
+    } catch (err) {
+      if (!err.sessionExpired) showToast('Lỗi tải dữ liệu Affiliate!', 'error');
+    } finally {
+      setLoadingAff(false);
+    }
+  };
+
+  const handleCreateLink = async (e) => {
+    e.preventDefault();
+    // Sale tự tạo cho mình không cần email, admin mới cần nhập
+    if (!isSale && !newLinkEmail.trim()) return;
+    setCreatingLink(true);
+    try {
+      const body = isSale ? {} : { saleEmail: newLinkEmail.trim() };
+      const res = await apiFetch('/api/admin/affiliate/links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Đã tạo link affiliate thành công!');
+        setIsCreateLinkModalOpen(false);
+        setNewLinkEmail('');
+        loadAffiliateData();
+      } else {
+        showToast(data.error || 'Lỗi tạo link!', 'error');
+      }
+    } catch (err) { if (!err.sessionExpired) showToast('Lỗi kết nối!', 'error'); }
+    finally { setCreatingLink(false); }
+  };
+
+  const handleToggleLink = async (code) => {
+    try {
+      const res = await apiFetch(`/api/admin/affiliate/links/${code}/toggle`, { method: 'PATCH' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.isActive ? 'Đã bật link!' : 'Đã tắt link!');
+        loadAffiliateData();
+      } else showToast(data.error || 'Lỗi!', 'error');
+    } catch (err) { if (!err.sessionExpired) showToast('Lỗi kết nối!', 'error'); }
+  };
+
+  const handleDeleteLink = async (code) => {
+    if (!window.confirm(`Xóa link affiliate ${code}? Các đơn hàng liên kết sẽ không bị xóa.`)) return;
+    try {
+      const res = await apiFetch(`/api/admin/affiliate/links/${code}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) { showToast('Đã xóa link!'); loadAffiliateData(); }
+      else showToast(data.error || 'Lỗi!', 'error');
+    } catch (err) { if (!err.sessionExpired) showToast('Lỗi kết nối!', 'error'); }
+  };
+
+  const handleSaveTiers = async () => {
+    setSavingTiers(true);
+    try {
+      const res = await apiFetch('/api/admin/affiliate/commission-tiers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tiers: tiersForm })
+      });
+      const data = await res.json();
+      if (data.success) { showToast('Đã cập nhật bảng hoa hồng!'); setEditingTiers(false); loadAffiliateData(); }
+      else showToast(data.error || 'Lỗi!', 'error');
+    } catch (err) { if (!err.sessionExpired) showToast('Lỗi kết nối!', 'error'); }
+    finally { setSavingTiers(false); }
+  };
+
   const loadPayments = async () => {
+
     setLoadingPayments(true);
     try {
       const params = new URLSearchParams({ page: paymentPage, limit: 15, search: paymentSearchText, status: paymentStatusFilter });
@@ -496,10 +617,11 @@ export default function Admin({ showToast }) {
     }
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    showToast('Đã sao chép mã bản quyền vào clipboard!');
+  const copyToClipboard = (text, message) => {
+    navigator.clipboard.writeText(text).then(() => showToast(message || 'Đã sao chép vào clipboard!')).catch(() => showToast('Lỗi copy!', 'error'));
   };
+
+  const fmtMoney = (n) => n ? n.toLocaleString('vi-VN') + 'đ' : '0đ';
 
   const handleGenerateKey = async (e) => {
     e.preventDefault();
@@ -642,6 +764,11 @@ export default function Admin({ showToast }) {
     setEditIp(u.registrationIp && u.registrationIp !== 'unknown' ? (u.registrationIp || '') : '');
     setEditHwid(u.registrationHwid || '');
     setEditDeviceHwid(u.deviceHwid || '');
+    // Reset password fields
+    setEditNewPassword('');
+    setEditConfirmPassword('');
+    setShowEditNewPassword(false);
+    setShowEditConfirmPassword(false);
     setIsUserEditModalOpen(true);
   };
 
@@ -660,8 +787,20 @@ export default function Admin({ showToast }) {
         return;
       }
     }
+    // Validate password nếu có nhập
+    if (editNewPassword) {
+      if (editNewPassword.length < 8) {
+        showToast('Mật khẩu mới phải có ít nhất 8 ký tự!', 'error');
+        return;
+      }
+      if (editNewPassword !== editConfirmPassword) {
+        showToast('Mật khẩu xác nhận không khớp!', 'error');
+        return;
+      }
+    }
     setSavingUser(true);
     try {
+      // 1. Cập nhật thông tin thành viên
       const res = await apiFetch('/api/admin/update-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -677,19 +816,40 @@ export default function Admin({ showToast }) {
         })
       });
       const data = await res.json();
-      if (res.status === 200 && data.success) {
-        showToast(data.message || 'Cập nhật thành viên thành công!');
-        setIsUserEditModalOpen(false);
-        await loadUsers();
-      } else {
+      if (!(res.status === 200 && data.success)) {
         showToast(data.error || 'Lỗi khi cập nhật thành viên', 'error');
+        return;
       }
+
+      // 2. Đổi mật khẩu nếu có nhập
+      if (editNewPassword) {
+        const pwRes = await apiFetch('/api/admin/change-user-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: editUserEmail, newPassword: editNewPassword })
+        });
+        const pwData = await pwRes.json();
+        if (!(pwRes.status === 200 && pwData.success)) {
+          showToast((pwData.error || 'Lỗi khi đổi mật khẩu') + ' (thông tin khác đã lưu)', 'error');
+          setIsUserEditModalOpen(false);
+          await loadUsers();
+          return;
+        }
+        showToast('Đã cập nhật thành viên và đổi mật khẩu thành công!');
+      } else {
+        showToast(data.message || 'Cập nhật thành viên thành công!');
+      }
+
+      setIsUserEditModalOpen(false);
+      await loadUsers();
     } catch (err) {
       showToast('Lỗi kết nối: ' + err.message, 'error');
     } finally {
       setSavingUser(false);
     }
   };
+
+
 
   const getStatusBadge = (k) => {
     const isExpired = k.expiresAt && new Date(k.expiresAt) < new Date();
@@ -828,6 +988,15 @@ export default function Admin({ showToast }) {
           >
             <CreditCard className="h-4 w-4" />
             <span>Quản lý Thanh Toán</span>
+          </button>
+          <button
+            onClick={() => setActiveMainTab('affiliate')}
+            className={`pb-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+              activeMainTab === 'affiliate' ? 'border-amber-500 text-amber-400' : 'border-transparent text-zinc-400 hover:text-white'
+            }`}
+          >
+            <BadgePercent className="h-4 w-4" />
+            <span>Affiliate</span>
           </button>
           {!isSale && (
             <button 
@@ -1809,6 +1978,289 @@ export default function Admin({ showToast }) {
           </div>
         )}
 
+        {/* ========== AFFILIATE TAB ========== */}
+        {activeMainTab === 'affiliate' && (
+          <div className="space-y-6">
+            {loadingAff ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-amber-400" />
+                <span className="ml-3 text-zinc-400">Đang tải dữ liệu Affiliate...</span>
+              </div>
+            ) : (
+              <>
+              {/* Stats Cards */}
+              {affStats && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-5 bg-zinc-900/60 border border-amber-900/30 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Link hoạt động</p>
+                      <h3 className="text-2xl font-bold mt-1 text-white">{affStats.activeLinks}<span className="text-sm text-zinc-500 font-normal">/{affStats.totalLinks}</span></h3>
+                    </div>
+                    <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+                      <Link2 className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <div className="p-5 bg-zinc-900/60 border border-amber-900/30 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Đơn hàng (năm)</p>
+                      <h3 className="text-2xl font-bold mt-1 text-white">{affStats.yearOrders}<span className="text-sm text-zinc-500 font-normal"> đơn</span></h3>
+                    </div>
+                    <div className="h-10 w-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                      <ShoppingBag className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <div className="p-5 bg-zinc-900/60 border border-amber-900/30 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Doanh số (năm)</p>
+                      <h3 className="text-xl font-bold mt-1 text-emerald-400">{fmtMoney(affStats.yearRevenue)}</h3>
+                    </div>
+                    <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                      <TrendingUp className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <div className="p-5 bg-zinc-900/60 border border-amber-900/30 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Hoa hồng (năm)</p>
+                      <h3 className="text-xl font-bold mt-1 text-amber-400">{fmtMoney(affStats.yearCommission)}</h3>
+                    </div>
+                    <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+                      <BadgePercent className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Commission Tiers */}
+                <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-amber-400" />
+                      Bảng Bậc Hoa Hồng
+                    </h3>
+                    {!isSale && (
+                      <button
+                        onClick={() => { setEditingTiers(!editingTiers); setTiersForm(commissionTiers.map(t => ({ ...t }))); }}
+                        className="text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer transition-colors flex items-center gap-1"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                        {editingTiers ? 'Hủy' : 'Chỉnh sửa'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {(editingTiers ? tiersForm : commissionTiers).map((tier, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs rounded-lg px-3 py-2 bg-zinc-950/50 border border-zinc-800/60">
+                        <span className="text-zinc-400 font-medium">
+                          {tier.minRevenue >= 1000000
+                            ? (tier.minRevenue / 1000000).toFixed(0) + 'tr'
+                            : '0'} – {tier.maxRevenue === Infinity || tier.maxRevenue >= 10000000000
+                            ? '∞'
+                            : (tier.maxRevenue / 1000000).toFixed(0) + 'tr'}đ
+                        </span>
+                        {editingTiers ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              value={tier.rate}
+                              onChange={e => {
+                                const f = [...tiersForm];
+                                f[idx] = { ...f[idx], rate: parseFloat(e.target.value) || 0 };
+                                setTiersForm(f);
+                              }}
+                              className="w-14 rounded bg-zinc-900 border border-amber-600/40 px-2 py-0.5 text-amber-400 font-bold text-center focus:outline-none"
+                            />
+                            <span className="text-zinc-500">%</span>
+                          </div>
+                        ) : (
+                          <span className="font-bold text-amber-400">{tier.rate}%</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {editingTiers && (
+                    <button
+                      onClick={handleSaveTiers}
+                      disabled={savingTiers}
+                      className="mt-4 w-full py-2 bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      {savingTiers ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Lưu bảng hoa hồng
+                    </button>
+                  )}
+                </div>
+
+                {/* Links List */}
+                <div className="lg:col-span-2 bg-zinc-900/60 border border-zinc-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Link2 className="h-4 w-4 text-amber-400" />
+                      Danh sách Link Affiliate
+                    </h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={loadAffiliateData}
+                        className="text-zinc-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
+                      >
+                        <RefreshCcw className="h-3.5 w-3.5" />
+                      </button>
+                      {!isSale && (
+                        <button
+                          onClick={() => setIsCreateLinkModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Tạo Link Mới
+                        </button>
+                      )}
+                      {isSale && (
+                        <button
+                          onClick={() => setIsCreateLinkModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Tạo Link Của Tôi
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {affLinks.length === 0 ? (
+                    <div className="text-center py-10 text-zinc-600 text-sm">Chưa có link affiliate nào.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {affLinks.map(link => (
+                        <div key={link.code} className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border ${link.isActive ? 'border-zinc-800 bg-zinc-950/40' : 'border-zinc-900/50 bg-zinc-950/20 opacity-60'}`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">{link.code}</span>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${link.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>
+                                {link.isActive ? 'Hoạt động' : 'Tắt'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-zinc-400 mt-1 truncate">{link.saleName} — <span className="text-zinc-500">{link.saleEmail}</span></p>
+                            <div className="flex items-center gap-3 mt-1 text-[10px] text-zinc-500">
+                              <span>👆 {link.clickCount} click</span>
+                              <span>📦 {link.orderCount} đơn</span>
+                              <span>💰 {fmtMoney(link.totalRevenue)}</span>
+                              <span>🏆 {fmtMoney(link.totalCommission)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => copyToClipboard(link.url)}
+                              title="Copy link"
+                              className="p-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            {!isSale && (
+                              <>
+                                <button
+                                  onClick={() => handleToggleLink(link.code)}
+                                  title={link.isActive ? 'Tắt link' : 'Bật link'}
+                                  className="p-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
+                                >
+                                  {link.isActive ? <ToggleRight className="h-3.5 w-3.5 text-emerald-400" /> : <ToggleLeft className="h-3.5 w-3.5" />}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteLink(link.code)}
+                                  title="Xóa link"
+                                  className="p-1.5 rounded-md bg-zinc-900 hover:bg-rose-900/30 text-zinc-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Orders Table */}
+              <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <ShoppingBag className="h-4 w-4 text-indigo-400" />
+                    Đơn Hàng qua Affiliate
+                    <span className="text-xs font-normal text-zinc-500">({affOrdersTotal} đơn)</span>
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-zinc-900 text-left text-sm text-zinc-300">
+                    <thead className="bg-zinc-900/80 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      <tr>
+                        <th className="px-4 py-3">Khách hàng</th>
+                        <th className="px-4 py-3">Email / SĐT</th>
+                        <th className="px-4 py-3">Gói mua</th>
+                        <th className="px-4 py-3 text-right">Số tiền</th>
+                        {!isSale && <th className="px-4 py-3">Sale phụ trách</th>}
+                        <th className="px-4 py-3 text-center">Hoa hồng</th>
+                        <th className="px-4 py-3">Ngày giờ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900/50 bg-transparent">
+                      {affOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="px-4 py-10 text-center text-zinc-600 text-sm">
+                            Chưa có đơn hàng nào qua affiliate.
+                          </td>
+                        </tr>
+                      ) : (
+                        affOrders.map((order, idx) => (
+                          <tr key={idx} className="hover:bg-zinc-900/40 transition-colors">
+                            <td className="px-4 py-3 font-medium text-white text-xs">{order.customerName || '—'}</td>
+                            <td className="px-4 py-3 text-xs">
+                              <div className="text-zinc-300">{order.customerEmail}</div>
+                              {order.customerPhone && <div className="text-zinc-500 text-[10px]">{order.customerPhone}</div>}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-900/50">
+                                {order.planType || '—'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-emerald-400 text-xs">{fmtMoney(order.amount)}</td>
+                            {!isSale && (
+                              <td className="px-4 py-3 text-xs">
+                                <div className="text-zinc-300">{order.saleName}</div>
+                                <div className="text-zinc-500 text-[10px]">{order.saleEmail}</div>
+                              </td>
+                            )}
+                            <td className="px-4 py-3 text-center">
+                              <span className="text-amber-400 font-bold text-xs">{fmtMoney(order.commissionAmount)}</span>
+                              <div className="text-zinc-500 text-[10px]">{order.commissionRate}%</div>
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500 text-xs">
+                              {new Date(order.paidAt).toLocaleDateString('vi-VN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {affOrdersTotalPages > 1 && (
+                  <div className="px-5 py-3 border-t border-zinc-900 flex items-center justify-between">
+                    <p className="text-xs text-zinc-500">Trang {affOrdersPage}/{affOrdersTotalPages}</p>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setAffOrdersPage(p => Math.max(1, p - 1))} disabled={affOrdersPage === 1}
+                        className="px-3 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 hover:text-white disabled:opacity-40 cursor-pointer">←</button>
+                      <button onClick={() => setAffOrdersPage(p => Math.min(affOrdersTotalPages, p + 1))} disabled={affOrdersPage === affOrdersTotalPages}
+                        className="px-3 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 hover:text-white disabled:opacity-40 cursor-pointer">→</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Footer Info */}
         <div className="text-center text-xs text-zinc-650 pt-4 flex items-center justify-center gap-2">
           <ShieldCheck className="h-4 w-4 text-zinc-600" />
@@ -1816,6 +2268,62 @@ export default function Admin({ showToast }) {
         </div>
 
       </main>
+
+      {/* Create Affiliate Link Modal */}
+      {isCreateLinkModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md p-6 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Link2 className="text-amber-400 h-5 w-5" />
+                Tạo Link Affiliate Mới
+              </h3>
+              <button onClick={() => setIsCreateLinkModalOpen(false)} className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateLink} className="space-y-4">
+              {isSale ? (
+                <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <div className="flex items-start gap-3">
+                    <BadgePercent className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Tạo link affiliate cho tài khoản của bạn</p>
+                      <p className="text-xs text-zinc-400 mt-1">Một link với mã code 8 ký tự ngẫu nhiên sẽ được tạo. Khi khách hàng click vào link và mua hàng, hoa hồng sẽ được tính cho bạn.</p>
+                      <p className="text-xs text-amber-400 mt-2 font-medium">🔗 Link sẽ redirect về: editnhanh.com/pricing</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Email Sale phụ trách</label>
+                  <input
+                    type="email"
+                    value={newLinkEmail}
+                    onChange={e => setNewLinkEmail(e.target.value)}
+                    placeholder="vd: sale@example.com"
+                    required
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-500">Sale phải có tài khoản trong hệ thống. Một code 8 ký tự ngẫu nhiên sẽ được tạo tự động.</p>
+                </div>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsCreateLinkModalOpen(false)}
+                  className="px-4 py-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300 rounded-lg cursor-pointer">
+                  Hủy
+                </button>
+                <button type="submit" disabled={creatingLink}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                  {creatingLink ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  Tạo Link
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
 
       {/* Admin Login Modal (email/password) */}
       {isAuthModalOpen && (
@@ -2037,6 +2545,69 @@ export default function Admin({ showToast }) {
                     placeholder="Tự sinh khi active key đầu tiên. Xóa trống để cho phép đổi máy."
                     className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                   />
+                </div>
+              </div>
+              {/* Password Change Section */}
+              <div className="pt-3 border-t border-zinc-800/60 space-y-3">
+                <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 text-amber-500" />
+                  Đổi Mật Khẩu <span className="font-normal text-zinc-600 normal-case tracking-normal">(tuỳ chọn &mdash; để trống nếu không muốn đổi)</span>
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-500 mb-1">Mật khẩu mới</label>
+                    <div className="relative">
+                      <input
+                        type={showEditNewPassword ? 'text' : 'password'}
+                        value={editNewPassword}
+                        onChange={(e) => setEditNewPassword(e.target.value)}
+                        placeholder="Tối thiểu 8 ký tự"
+                        autoComplete="new-password"
+                        className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 pr-9 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditNewPassword(v => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300 transition-colors cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showEditNewPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-500 mb-1">Xác nhận mật khẩu</label>
+                    <div className="relative">
+                      <input
+                        type={showEditConfirmPassword ? 'text' : 'password'}
+                        value={editConfirmPassword}
+                        onChange={(e) => setEditConfirmPassword(e.target.value)}
+                        placeholder="Nhập lại"
+                        autoComplete="new-password"
+                        className={`w-full rounded-lg bg-zinc-950 border px-3 py-2 pr-9 text-sm text-white focus:outline-none focus:ring-1 transition-colors ${
+                          editConfirmPassword && editConfirmPassword !== editNewPassword
+                            ? 'border-rose-700 focus:ring-rose-500'
+                            : editConfirmPassword && editConfirmPassword === editNewPassword
+                            ? 'border-emerald-700 focus:ring-emerald-500'
+                            : 'border-zinc-800 focus:ring-amber-500'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditConfirmPassword(v => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300 transition-colors cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showEditConfirmPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                    {editConfirmPassword && editConfirmPassword !== editNewPassword && (
+                      <p className="mt-1 text-[10px] text-rose-400">⚠ Chưa khớp</p>
+                    )}
+                    {editConfirmPassword && editConfirmPassword === editNewPassword && (
+                      <p className="mt-1 text-[10px] text-emerald-400">✓ Khớp</p>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="pt-4 border-t border-zinc-800 flex justify-end gap-3">

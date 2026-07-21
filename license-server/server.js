@@ -135,6 +135,7 @@ const userSchema = new mongoose.Schema({
   registrationIp: { type: String, default: null },
   registrationHwid: { type: String, default: null },
   deviceHwid: { type: String, default: null }, // HWID that cua thiet bi (lay khi active key dau tien)
+  affiliateCode: { type: String, default: null }, // Mã affiliate được gán cho user (không thay đổi sau khi set)
   createdAt: { type: Date, default: Date.now }
 });
 const UserModel = mongoose.model('User', userSchema);
@@ -198,6 +199,34 @@ const paymentTransactionSchema = new mongoose.Schema({
 });
 const PaymentTransactionModel = mongoose.model('PaymentTransaction', paymentTransactionSchema);
 
+// Schema Affiliate Link
+const affiliateLinkSchema = new mongoose.Schema({
+  code:       { type: String, unique: true, required: true },
+  saleEmail:  { type: String, required: true },
+  saleName:   { type: String, default: '' },
+  isActive:   { type: Boolean, default: true },
+  clickCount: { type: Number, default: 0 },
+  createdAt:  { type: Date, default: Date.now }
+});
+const AffiliateLinkModel = mongoose.model('AffiliateLink', affiliateLinkSchema);
+
+// Schema Affiliate Order (hoa hồng)
+const affiliateOrderSchema = new mongoose.Schema({
+  affiliateCode:     { type: String, required: true },
+  saleEmail:         { type: String, required: true },
+  saleName:          { type: String, default: '' },
+  customerEmail:     { type: String, default: '' },
+  customerName:      { type: String, default: '' },
+  customerPhone:     { type: String, default: '' },
+  planType:          { type: String, default: '' },
+  amount:            { type: Number, default: 0 },
+  commissionRate:    { type: Number, default: 0 },   // % hoa hồng
+  commissionAmount:  { type: Number, default: 0 },   // số tiền hoa hồng
+  transactionId:     { type: String, default: '' },
+  paidAt:            { type: Date, default: Date.now }
+});
+const AffiliateOrderModel = mongoose.model('AffiliateOrder', affiliateOrderSchema);
+
 const DB_FILE = path.join(__dirname, 'database.json');
 let useMongo = false;
 
@@ -213,6 +242,8 @@ function readJSON() {
     if (!data.users) data.users = [];
     if (!data.plans) data.plans = [];
     if (!data.paymentTransactions) data.paymentTransactions = [];
+    if (!data.affiliateLinks) data.affiliateLinks = [];
+    if (!data.affiliateOrders) data.affiliateOrders = [];
     return data;
   } catch (err) {
     console.error('[License Server] Đọc file database.json thất bại, sử dụng cấu trúc rỗng:', err.message);
@@ -481,6 +512,7 @@ const DB = {
           deviceHwid: user.deviceHwid || null,
           role: user.role || 'user',
           avatar: user.avatar || null,
+          affiliateCode: user.affiliateCode || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
           verificationToken: user.verificationToken || null,
           verificationExpires: user.verificationExpires || null,
@@ -502,6 +534,7 @@ const DB = {
                 deviceHwid: this.deviceHwid || null,
                 role: this.role,
                 avatar: this.avatar || null,
+                affiliateCode: this.affiliateCode || null,
                 isVerified: this.isVerified,
                 verificationToken: this.verificationToken,
                 verificationExpires: this.verificationExpires,
@@ -564,6 +597,7 @@ const DB = {
           deviceHwid: user.deviceHwid || null,
           role: user.role || 'user',
           avatar: user.avatar || null,
+          affiliateCode: user.affiliateCode || null,
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
           verificationToken: user.verificationToken || null,
           verificationExpires: user.verificationExpires || null,
@@ -585,6 +619,7 @@ const DB = {
                 deviceHwid: this.deviceHwid || null,
                 role: this.role,
                 avatar: this.avatar || null,
+                affiliateCode: this.affiliateCode || null,
                 isVerified: this.isVerified,
                 verificationToken: this.verificationToken,
                 verificationExpires: this.verificationExpires,
@@ -614,6 +649,7 @@ const DB = {
           deviceHwid: data.deviceHwid || null,
           role: data.role || 'user',
           avatar: data.avatar || null,
+          affiliateCode: data.affiliateCode || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
           verificationToken: data.verificationToken || null,
           verificationExpires: data.verificationExpires || null
@@ -631,6 +667,7 @@ const DB = {
           deviceHwid: data.deviceHwid || null,
           role: data.role || 'user',
           avatar: data.avatar || null,
+          affiliateCode: data.affiliateCode || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
           verificationToken: data.verificationToken || null,
           verificationExpires: data.verificationExpires || null,
@@ -870,10 +907,156 @@ const DB = {
         return newTx;
       }
     }
+  },
+
+  affiliateLinks: {
+    async find(query = {}) {
+      if (useMongo) {
+        let q = AffiliateLinkModel.find(query).sort({ createdAt: -1 });
+        return await q;
+      } else {
+        const db = readJSON();
+        let results = [...(db.affiliateLinks || [])];
+        if (query.saleEmail) results = results.filter(l => l.saleEmail === query.saleEmail);
+        if (query.isActive !== undefined) results = results.filter(l => l.isActive === query.isActive);
+        return results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(l => ({
+          ...l,
+          save: async function() {
+            const dbData = readJSON();
+            const idx = dbData.affiliateLinks.findIndex(x => x.code === this.code);
+            if (idx !== -1) { dbData.affiliateLinks[idx] = { code: this.code, saleEmail: this.saleEmail, saleName: this.saleName, isActive: this.isActive, clickCount: this.clickCount, createdAt: this.createdAt }; await writeJSON(dbData); }
+            return this;
+          }
+        }));
+      }
+    },
+    async findOne(query) {
+      if (useMongo) { return await AffiliateLinkModel.findOne(query); }
+      const db = readJSON();
+      let link = null;
+      if (query.code) link = (db.affiliateLinks || []).find(l => l.code === query.code);
+      else if (query.saleEmail) link = (db.affiliateLinks || []).find(l => l.saleEmail === query.saleEmail);
+      if (!link) return null;
+      return {
+        ...link,
+        save: async function() {
+          const dbData = readJSON();
+          const idx = dbData.affiliateLinks.findIndex(x => x.code === this.code);
+          if (idx !== -1) { dbData.affiliateLinks[idx] = { code: this.code, saleEmail: this.saleEmail, saleName: this.saleName, isActive: this.isActive, clickCount: this.clickCount, createdAt: this.createdAt }; await writeJSON(dbData); }
+          return this;
+        }
+      };
+    },
+    async create(data) {
+      if (useMongo) { const doc = new AffiliateLinkModel(data); return await doc.save(); }
+      const db = readJSON();
+      if (!db.affiliateLinks) db.affiliateLinks = [];
+      if (db.affiliateLinks.find(l => l.code === data.code)) throw new Error('Code đã tồn tại');
+      const newLink = { code: data.code, saleEmail: data.saleEmail, saleName: data.saleName || '', isActive: true, clickCount: 0, createdAt: new Date().toISOString() };
+      db.affiliateLinks.push(newLink);
+      await writeJSON(db);
+      return { ...newLink, save: async function() { const dbData = readJSON(); const idx = dbData.affiliateLinks.findIndex(x => x.code === this.code); if (idx !== -1) { dbData.affiliateLinks[idx] = { code: this.code, saleEmail: this.saleEmail, saleName: this.saleName, isActive: this.isActive, clickCount: this.clickCount, createdAt: this.createdAt }; await writeJSON(dbData); } return this; } };
+    },
+    async deleteOne(query) {
+      if (useMongo) { return await AffiliateLinkModel.deleteOne(query); }
+      const db = readJSON();
+      const before = (db.affiliateLinks || []).length;
+      db.affiliateLinks = (db.affiliateLinks || []).filter(l => l.code !== query.code);
+      await writeJSON(db);
+      return { deletedCount: before - db.affiliateLinks.length };
+    }
+  },
+
+  affiliateOrders: {
+    async find(query = {}, opts = {}) {
+      if (useMongo) {
+        let q = AffiliateOrderModel.find(query).sort({ paidAt: -1 });
+        if (opts.skip) q = q.skip(opts.skip);
+        if (opts.limit) q = q.limit(opts.limit);
+        return await q;
+      } else {
+        const db = readJSON();
+        let results = [...(db.affiliateOrders || [])];
+        if (query.affiliateCode) results = results.filter(o => o.affiliateCode === query.affiliateCode);
+        if (query.saleEmail) results = results.filter(o => o.saleEmail === query.saleEmail);
+        results.sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+        if (opts.skip) results = results.slice(opts.skip);
+        if (opts.limit) results = results.slice(0, opts.limit);
+        return results;
+      }
+    },
+    async create(data) {
+      if (useMongo) { const doc = new AffiliateOrderModel(data); return await doc.save(); }
+      const db = readJSON();
+      if (!db.affiliateOrders) db.affiliateOrders = [];
+      const newOrder = { affiliateCode: data.affiliateCode, saleEmail: data.saleEmail, saleName: data.saleName || '', customerEmail: data.customerEmail || '', customerName: data.customerName || '', customerPhone: data.customerPhone || '', planType: data.planType || '', amount: data.amount || 0, commissionRate: data.commissionRate || 0, commissionAmount: data.commissionAmount || 0, transactionId: data.transactionId || '', paidAt: data.paidAt || new Date().toISOString() };
+      db.affiliateOrders.push(newOrder);
+      await writeJSON(db);
+      return newOrder;
+    }
   }
 };
 
-// Function to seed default plans
+// ============================================================
+// Hàm tính hoa hồng affiliate theo bậc doanh số năm
+// ============================================================
+async function getCommissionRate(saleEmail) {
+  const defaultTiers = [
+    { minRevenue: 0,         maxRevenue: 100000000,  rate: 2 },
+    { minRevenue: 100000000, maxRevenue: 200000000,  rate: 3 },
+    { minRevenue: 200000000, maxRevenue: 300000000,  rate: 4 },
+    { minRevenue: 300000000, maxRevenue: 400000000,  rate: 5 },
+    { minRevenue: 400000000, maxRevenue: 500000000,  rate: 6 },
+    { minRevenue: 500000000, maxRevenue: Infinity,   rate: 7 },
+  ];
+  const tiers = await DB.settings.get('affiliateCommissionTiers', defaultTiers);
+
+  // Tính doanh số năm hiện tại của sale
+  const yearStart = new Date(new Date().getFullYear(), 0, 1);
+  const orders = await DB.affiliateOrders.find({ saleEmail });
+  const yearRevenue = orders
+    .filter(o => new Date(o.paidAt) >= yearStart)
+    .reduce((sum, o) => sum + (o.amount || 0), 0);
+
+  // Xác định bậc
+  const tier = [...tiers].reverse().find(t => yearRevenue >= t.minRevenue);
+  return { rate: tier ? tier.rate : 2, yearRevenue };
+}
+
+// Hook tính hoa hồng sau khi license được kích hoạt thành công
+async function processAffiliateCommission({ transactionId, licenseKey, userEmail, customerName, customerPhone, planType, amount }) {
+  try {
+    if (!userEmail) return;
+    const user = await DB.users.findOne({ email: userEmail });
+    if (!user || !user.affiliateCode) return;
+
+    const affLink = await DB.affiliateLinks.findOne({ code: user.affiliateCode });
+    if (!affLink || !affLink.isActive) return;
+
+    const { rate } = await getCommissionRate(affLink.saleEmail);
+    const commissionAmount = Math.round(amount * rate / 100);
+
+    await DB.affiliateOrders.create({
+      affiliateCode: user.affiliateCode,
+      saleEmail: affLink.saleEmail,
+      saleName: affLink.saleName,
+      customerEmail: userEmail,
+      customerName: customerName || user.fullName || '',
+      customerPhone: customerPhone || user.phoneNumber || '',
+      planType,
+      amount,
+      commissionRate: rate,
+      commissionAmount,
+      transactionId,
+      paidAt: new Date().toISOString()
+    });
+    console.log(`[Affiliate] ✅ Ghi nhận hoa hồng ${commissionAmount.toLocaleString()}đ (${rate}%) cho sale ${affLink.saleEmail} từ đơn ${transactionId}`);
+  } catch (err) {
+    console.error('[Affiliate] Lỗi ghi nhận hoa hồng:', err.message);
+  }
+}
+
+
 async function seedDefaultPlans() {
   try {
     const plansCount = await DB.plans.find({});
@@ -2356,7 +2539,19 @@ stripeWebhookHandler = async (req, res) => {
         console.error(`[Stripe Webhook] ⚠️ WARNING: Lỗi gửi email kích hoạt:`, emailErr.message);
       }
 
+      // Tính hoa hồng affiliate
+      processAffiliateCommission({
+        transactionId: session.payment_intent || session.id,
+        licenseKey: updatedLicense.key,
+        userEmail: updatedLicense.userEmail,
+        customerName: updatedLicense.customerName,
+        customerPhone: '',
+        planType: updatedLicense.planType,
+        amount: session.amount_total || (updatedLicense.priceAtPurchase || 0)
+      }).catch(e => console.error('[Affiliate Hook Stripe]', e.message));
+
       return res.json({ success: true, message: 'Activated' });
+
 
     } catch (err) {
       console.error('[Stripe Webhook] Lỗi xử lý checkout.session.completed:', err);
@@ -2644,7 +2839,21 @@ app.post('/api/payment/webhook', async (req, res) => {
           }).catch(() => {});
         } catch(e) {}
 
-        // Gửi email báo kích hoạt thành công (nếu key có email liên kết)
+        // Tính hoa hồng affiliate (bất đồng bộ, không block response)
+        try {
+          const u2 = await DB.users.findOne({ email: license.userEmail });
+          processAffiliateCommission({
+            transactionId,
+            licenseKey: license.key,
+            userEmail: license.userEmail,
+            customerName: license.customerName || (u2 ? u2.fullName : ''),
+            customerPhone: u2 ? u2.phoneNumber : '',
+            planType: license.planType,
+            amount
+          }).catch(e => console.error('[Affiliate Hook SePay]', e.message));
+        } catch(e) {}
+
+
         if (license.userEmail) {
           try {
             const user = await DB.users.findOne({ email: license.userEmail });
@@ -2760,6 +2969,17 @@ app.post('/api/payment/payos/webhook', async (req, res) => {
         } catch (emailErr) {
           console.error(`[PayOS Webhook] Lỗi gửi email:`, emailErr.message);
         }
+
+        // Tính hoa hồng affiliate
+        processAffiliateCommission({
+          transactionId: String(webhookData.orderCode || ''),
+          licenseKey: updatedLicense.key,
+          userEmail: updatedLicense.userEmail,
+          customerName: updatedLicense.customerName,
+          customerPhone: '',
+          planType: updatedLicense.planType,
+          amount: webhookData.amount || (updatedLicense.priceAtPurchase || 0)
+        }).catch(e => console.error('[Affiliate Hook PayOS]', e.message));
       }
 
       return res.json({ success: true });
@@ -3643,6 +3863,36 @@ app.delete('/api/admin/users/:email', adminOnlyAuth, async (req, res) => {
   }
 });
 
+// API đổi mật khẩu người dùng (Admin)
+app.post('/api/admin/change-user-password', adminOnlyAuth, async (req, res) => {
+  const { email, newPassword } = req.body;
+  if (!email || !newPassword) {
+    return res.status(400).json({ error: 'Thiếu email hoặc mật khẩu mới!' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 8 ký tự!' });
+  }
+
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng này!' });
+    }
+
+    const hashedPassword = hashPassword(newPassword);
+    user.password = hashedPassword;
+    user.passwordChangedAt = new Date();
+    // Xóa token reset mật khẩu nếu có
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+
+    res.json({ success: true, message: `Đã đổi mật khẩu cho tài khoản: ${email}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi đổi mật khẩu người dùng: ' + err.message });
+  }
+});
+
 // B. API tạo mới Key bản quyền
 app.post('/api/admin/generate-key', adminOnlyAuth, async (req, res) => {
   const { days, customerName } = req.body;
@@ -3865,7 +4115,211 @@ setInterval(sendExpiryWarnings, 60 * 60 * 1000);
 // Trigger lan dau sau 60s de MongoDB connect xong
 setTimeout(sendExpiryWarnings, 60 * 1000);
 
+// ============================================================
+// AFFILIATE SYSTEM APIs
+// ============================================================
+
+// Tracking link: /aff/:code  → set cookie → redirect trang bảng giá
+app.get('/aff/:code', async (req, res) => {
+  const { code } = req.params;
+  try {
+    const affLink = await DB.affiliateLinks.findOne({ code });
+    if (affLink && affLink.isActive) {
+      // Tăng click count
+      affLink.clickCount = (affLink.clickCount || 0) + 1;
+      await affLink.save();
+      // Set cookie 30 ngày
+      res.cookie('aff_code', code, { maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: false, path: '/' });
+    }
+  } catch (e) {
+    console.error('[Affiliate Track]', e.message);
+  }
+  // Redirect về trang bảng giá cố định
+  res.redirect('https://editnhanh.com/pricing');
+});
+
+// API lấy bảng bậc hoa hồng
+app.get('/api/admin/affiliate/commission-tiers', adminAuth, async (req, res) => {
+  const defaultTiers = [
+    { minRevenue: 0,         maxRevenue: 100000000,  rate: 2 },
+    { minRevenue: 100000000, maxRevenue: 200000000,  rate: 3 },
+    { minRevenue: 200000000, maxRevenue: 300000000,  rate: 4 },
+    { minRevenue: 300000000, maxRevenue: 400000000,  rate: 5 },
+    { minRevenue: 400000000, maxRevenue: 500000000,  rate: 6 },
+    { minRevenue: 500000000, maxRevenue: Infinity,   rate: 7 },
+  ];
+  const tiers = await DB.settings.get('affiliateCommissionTiers', defaultTiers);
+  res.json({ success: true, tiers });
+});
+
+// API cập nhật bảng bậc hoa hồng (chỉ admin)
+app.post('/api/admin/affiliate/commission-tiers', adminOnlyAuth, async (req, res) => {
+  const { tiers } = req.body;
+  if (!Array.isArray(tiers) || tiers.length === 0) {
+    return res.status(400).json({ error: 'Dữ liệu bậc hoa hồng không hợp lệ!' });
+  }
+  await DB.settings.set('affiliateCommissionTiers', tiers);
+  res.json({ success: true, message: 'Đã cập nhật bảng bậc hoa hồng!' });
+});
+
+// API tạo link affiliate (admin tạo cho sale bất kỳ, sale tự tạo cho chính mình)
+app.post('/api/admin/affiliate/links', adminAuth, async (req, res) => {
+  const isSaleUser = req.user && req.user.role === 'sale';
+
+  // Nếu là sale: tự gán email chính mình, không cần nhập
+  const targetEmail = isSaleUser ? req.user.email : (req.body.saleEmail || '').trim();
+  if (!targetEmail) return res.status(400).json({ error: 'Email sale là bắt buộc!' });
+
+  try {
+    const saleUser = await DB.users.findOne({ email: targetEmail });
+    if (!saleUser) return res.status(404).json({ error: 'Không tìm thấy tài khoản sale này!' });
+
+    // Tạo code ngắn ngẫu nhiên 8 ký tự
+    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const newLink = await DB.affiliateLinks.create({
+      code,
+      saleEmail: targetEmail.toLowerCase(),
+      saleName: saleUser.fullName || targetEmail
+    });
+    const domain = process.env.APP_URL || req.protocol + '://' + req.get('host');
+    res.json({ success: true, link: newLink, url: `${domain}/aff/${code}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi tạo link affiliate: ' + err.message });
+  }
+});
+
+// API lấy danh sách link affiliate
+app.get('/api/admin/affiliate/links', adminAuth, async (req, res) => {
+  try {
+    const isSaleUser = req.user.role === 'sale';
+    const query = isSaleUser ? { saleEmail: req.user.email } : {};
+    const links = await DB.affiliateLinks.find(query);
+    const domain = process.env.APP_URL || req.protocol + '://' + req.get('host');
+
+    // Tính tổng doanh số + hoa hồng cho mỗi link
+    const result = await Promise.all(links.map(async (l) => {
+      const orders = await DB.affiliateOrders.find({ affiliateCode: l.code });
+      const totalRevenue = orders.reduce((s, o) => s + (o.amount || 0), 0);
+      const totalCommission = orders.reduce((s, o) => s + (o.commissionAmount || 0), 0);
+      return {
+        code: l.code,
+        saleEmail: l.saleEmail,
+        saleName: l.saleName,
+        isActive: l.isActive,
+        clickCount: l.clickCount || 0,
+        totalRevenue,
+        totalCommission,
+        orderCount: orders.length,
+        url: `${domain}/aff/${l.code}`,
+        createdAt: l.createdAt
+      };
+    }));
+    res.json({ success: true, links: result });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi lấy danh sách link: ' + err.message });
+  }
+});
+
+// API bật/tắt link affiliate (chỉ admin)
+app.patch('/api/admin/affiliate/links/:code/toggle', adminOnlyAuth, async (req, res) => {
+  const { code } = req.params;
+  try {
+    const link = await DB.affiliateLinks.findOne({ code });
+    if (!link) return res.status(404).json({ error: 'Không tìm thấy link!' });
+    link.isActive = !link.isActive;
+    await link.save();
+    res.json({ success: true, isActive: link.isActive });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi: ' + err.message });
+  }
+});
+
+// API xóa link affiliate (chỉ admin)
+app.delete('/api/admin/affiliate/links/:code', adminOnlyAuth, async (req, res) => {
+  const { code } = req.params;
+  try {
+    await DB.affiliateLinks.deleteOne({ code });
+    res.json({ success: true, message: 'Đã xóa link affiliate!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi xóa link: ' + err.message });
+  }
+});
+
+// API lấy danh sách đơn hàng affiliate
+app.get('/api/admin/affiliate/orders', adminAuth, async (req, res) => {
+  try {
+    const isSaleUser = req.user.role === 'sale';
+    const query = isSaleUser ? { saleEmail: req.user.email } : {};
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const allOrders = await DB.affiliateOrders.find(query);
+    const total = allOrders.length;
+    const orders = allOrders.slice(skip, skip + limit);
+
+    res.json({ success: true, orders, total, page, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi lấy danh sách đơn hàng: ' + err.message });
+  }
+});
+
+// API thống kê tổng quan affiliate
+app.get('/api/admin/affiliate/stats', adminAuth, async (req, res) => {
+  try {
+    const isSaleUser = req.user.role === 'sale';
+    const query = isSaleUser ? { saleEmail: req.user.email } : {};
+
+    const links = await DB.affiliateLinks.find(isSaleUser ? { saleEmail: req.user.email } : {});
+    const orders = await DB.affiliateOrders.find(query);
+
+    const yearStart = new Date(new Date().getFullYear(), 0, 1);
+    const yearOrders = orders.filter(o => new Date(o.paidAt) >= yearStart);
+
+    res.json({
+      success: true,
+      stats: {
+        totalLinks: links.length,
+        activeLinks: links.filter(l => l.isActive).length,
+        totalOrders: orders.length,
+        yearOrders: yearOrders.length,
+        totalRevenue: orders.reduce((s, o) => s + (o.amount || 0), 0),
+        yearRevenue: yearOrders.reduce((s, o) => s + (o.amount || 0), 0),
+        totalCommission: orders.reduce((s, o) => s + (o.commissionAmount || 0), 0),
+        yearCommission: yearOrders.reduce((s, o) => s + (o.commissionAmount || 0), 0),
+        totalClicks: links.reduce((s, l) => s + (l.clickCount || 0), 0)
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi thống kê: ' + err.message });
+  }
+});
+
+// API lấy mã affiliate của user hiện tại (dùng cho frontend khi user đăng ký/login để gắn cookie)
+app.post('/api/user/set-affiliate', userAuth, async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Mã affiliate là bắt buộc!' });
+  try {
+    const user = await DB.users.findOne({ email: req.user.email });
+    if (!user) return res.status(404).json({ error: 'Không tìm thấy tài khoản!' });
+    // Chỉ gắn nếu chưa có mã aff (không ghi đè)
+    if (user.affiliateCode) {
+      return res.json({ success: true, message: 'Tài khoản đã có mã affiliate, không ghi đè.', affiliateCode: user.affiliateCode });
+    }
+    const affLink = await DB.affiliateLinks.findOne({ code });
+    if (!affLink || !affLink.isActive) {
+      return res.status(404).json({ error: 'Link affiliate không hợp lệ hoặc đã bị vô hiệu hóa!' });
+    }
+    user.affiliateCode = code;
+    await user.save();
+    res.json({ success: true, message: 'Đã gắn mã affiliate thành công!', affiliateCode: code });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi: ' + err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[License Server] Máy chủ bản quyền đang chạy tại http://127.0.0.1:${PORT}`);
   console.log(`[License Server] Trang quản trị Admin khả dụng tại http://127.0.0.1:${PORT}/admin`);
 });
+
