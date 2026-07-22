@@ -157,7 +157,7 @@ test('fills a missing chunk end without passing the next cue start', () => {
   assert.equal(formatSrtTime(3661.005), '01:01:01,005');
 });
 
-test('clamps regressing Whisper timestamps so cues never move backwards', () => {
+test('drops an unreadably dense Whisper chunk at a timestamp boundary', () => {
   const srt = chunksToSrt([
     { timestamp: [124.84, 125.04], text: 'Câu dài bị chia thành nhiều đoạn' },
     { timestamp: [125, 126.2], text: 'Câu kế tiếp' }
@@ -165,12 +165,27 @@ test('clamps regressing Whisper timestamps so cues never move backwards', () => 
 
   assert.equal(srt, [
     '1',
-    '00:02:04,840 --> 00:02:05,000',
-    'Câu dài bị chia thành nhiều đoạn',
-    '',
-    '2',
     '00:02:05,000 --> 00:02:06,200',
     'Câu kế tiếp',
     ''
   ].join('\n'));
+});
+
+test('removes repeated boundary hallucinations without dropping short valid cues', () => {
+  const srt = chunksToSrt([
+    { timestamp: [123.24, 124.24], text: 'Wow!' },
+    {
+      timestamp: [124.76, 124.943],
+      text: 'Bạn nhỏ này còn có cơ bụng, vóc dáng này được đấy, mấy tuổi rồi? Tôi thấy hai người như'
+    },
+    { timestamp: [124.943, 125], text: 'AI vậy, cứ thế ôm lấy nhau.' },
+    { timestamp: [126, 129], text: 'Nhỏ tuổi mà đã có cơ bụng, vóc dáng này được đấy.' },
+    { timestamp: [129, 130], text: 'Mấy tuổi rồi?' }
+  ]);
+
+  assert.match(srt, /00:02:03,240 --> 00:02:04,240\nWow!/);
+  assert.doesNotMatch(srt, /Tôi thấy hai người/);
+  assert.doesNotMatch(srt, /AI vậy/);
+  assert.match(srt, /00:02:06,000 --> 00:02:09,000\nNhỏ tuổi/);
+  assert.match(srt, /00:02:09,000 --> 00:02:10,000\nMấy tuổi rồi\?/);
 });
