@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.25",
+  "version": "1.0.27",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -48,7 +48,12 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/onnxruntime-node/**/*",
+      "node_modules/onnxruntime-common/**/*",
       "node_modules/@huggingface/transformers/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/detect-libc/**/*",
+      "node_modules/semver/**/*",
       "node_modules/wavefile/**/*"
     ],
     "files": [
@@ -58,6 +63,7 @@
       "server.jsc",
       "main.jsc",
       "index.js",
+      "whisper-onnx-child-runtime.js",
       "logo.ico",
       "package.json"
     ],

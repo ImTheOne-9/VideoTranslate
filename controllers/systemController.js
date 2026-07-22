@@ -472,6 +472,8 @@ module.exports = {
   checkDependencies: async (req, res) => {
     const ffmpegOk = fs.existsSync(shared.FFMPEG_PATH);
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
+    const dependencyDir = fs.existsSync(shared.DATA_TOOLS_DIR) ? shared.DATA_TOOLS_DIR : shared.TOOLS_DIR;
+    const runtimeDependencies = checkDependencyStatus(dependencyDir);
     const whisperVariants = {
       q8: getWhisperOnnxReadiness('q8').exists,
       fp32: getWhisperOnnxReadiness('fp32').exists
@@ -489,6 +491,7 @@ module.exports = {
     const ocrOk = ocrStatus && ocrStatus.status === 'ready';
 
     res.json({
+      cuda: runtimeDependencies.cuda,
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
       whisper: whisperModelOk,

@@ -54,13 +54,39 @@ test('eval worker loads Transformers.js and wavefile from resolved module paths'
   assert.deepEqual(result, { pipeline: 'function', waveFile: 'function' });
 });
 
+test('packaged child dependencies prefer app.asar.unpacked paths', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'whisper-onnx-helper.js'), 'utf8');
+  assert.match(source, /app\.asar\.unpacked/);
+  assert.match(source, /fs\.existsSync\(unpackedPath\)/);
+});
+
 test('packaging unpacks worker dependencies alongside ONNX Runtime', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   assert.deepEqual(packageJson.build.asarUnpack, [
     'node_modules/onnxruntime-node/**/*',
+    'node_modules/onnxruntime-common/**/*',
     'node_modules/@huggingface/transformers/**/*',
+    'node_modules/sharp/**/*',
+    'node_modules/@img/**/*',
+    'node_modules/detect-libc/**/*',
+    'node_modules/semver/**/*',
     'node_modules/wavefile/**/*'
   ]);
+  assert.ok(packageJson.build.files.includes('whisper-onnx-child-runtime.js'));
+});
+
+test('isolates each Whisper inference from the Electron process', () => {
+  const root = path.join(__dirname, '..');
+  const helperSource = fs.readFileSync(path.join(root, 'lib', 'whisper-onnx-helper.js'), 'utf8');
+  const childSource = fs.readFileSync(path.join(root, 'lib', 'whisper-onnx-child.js'), 'utf8');
+
+  assert.match(helperSource, /childProcess\.fork\(workerPath/);
+  assert.match(helperSource, /whisper-onnx-child-runtime\.js/);
+  assert.match(helperSource, /ELECTRON_RUN_AS_NODE:\s*'1'/);
+  assert.match(helperSource, /serialization:\s*'advanced'/);
+  assert.match(childSource, /process\.once\('message'/);
+  assert.match(childSource, /process\.exit\(0\)/);
+  assert.equal(fs.existsSync(path.join(root, 'whisper-onnx-child-runtime.js')), true);
 });
 
 test('defines separate Small Q8, Small FP32, and Medium Q8 model files', () => {

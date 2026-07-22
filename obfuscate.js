@@ -18,7 +18,8 @@ const backendFiles = [
 // File chạy dạng JS thô cần làm rối bằng javascript-obfuscator
 const frontendFiles = [
   'public/app.js',
-  'index.js'
+  'index.js',
+  'whisper-onnx-child-runtime.js'
 ];
 
 const OBFUSCATOR_OPTIONS = {

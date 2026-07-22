@@ -40,7 +40,7 @@ window.toggleSidebar = toggleSidebar;
 
 async function checkLocalDependencies() {
   try {
-    const res = await fetch('/api/check-dependencies-status');
+    const res = await fetch('/api/check-dependencies');
     if (res.ok) {
       dependencyStatus = await res.json();
       updateDependencyUI();
