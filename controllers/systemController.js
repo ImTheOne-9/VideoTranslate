@@ -489,7 +489,6 @@ module.exports = {
 
     const ocrStatus = await ocrComponentManager.refreshOcrComponentStatus();
     const ocrOk = ocrStatus && ocrStatus.status === 'ready';
-
     res.json({
       cuda: runtimeDependencies.cuda,
       ffmpeg: ffmpegOk,

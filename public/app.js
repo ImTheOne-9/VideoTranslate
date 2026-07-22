@@ -6117,20 +6117,20 @@ async function downloadAllMissingDependencies() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ variant: 'medium-q8' })
         });
-        await pollProgress('/api/whisper-model/status?variant=medium-q8', updateProgress, (d) => d.exists, (d) => d.percent || 0);
+        await pollProgress('/api/whisper-model/status?variant=medium-q8', updateProgress, (d) => d.exists || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
       } else if (item.type === 'separator') {
         await fetch('/api/download-dependency', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'separator' })
         });
-        await pollProgress('/api/download-dependency-progress', updateProgress, (d) => d.status === 'completed', (d) => d.percent || 0);
+        await pollProgress('/api/download-dependency-progress', updateProgress, (d) => d.status === 'success' || d.status === 'completed' || d.percent >= 100, (d) => d.percent || 0);
       } else if (item.type === 'omnivoice') {
         await fetch('/api/download-model', { method: 'POST' });
-        await pollProgress('/api/download-model/status', updateProgress, (d) => d.status === 'completed' || d.percent >= 100, (d) => d.percent || 0);
+        await pollProgress('/api/download-model/status', updateProgress, (d) => d.status === 'completed' || d.status === 'success' || (!d.downloading && d.percent >= 100), (d) => d.percent || 0);
       } else if (item.type === 'ocr') {
-        await fetch('/api/download-ocr-component', { method: 'POST' });
-        await pollProgress('/api/ocr-component-status', updateProgress, (d) => d.status === 'ready', (d) => d.percent || d.downloadPercent || 0);
+        await fetch('/api/ocr-component/download', { method: 'POST' });
+        await pollProgress('/api/ocr-component/download-status', updateProgress, (d) => d.status === 'completed' || d.status === 'ready' || d.status === 'success' || d.percent >= 100, (d) => d.percent || d.downloadPercent || 0);
       }
     }
 
