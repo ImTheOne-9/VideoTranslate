@@ -1410,7 +1410,7 @@ function openDownloadTranslateModal(videoTitle, thumbnailUrl, onConfirm, formats
   }
 
   // Load defaults from localStorage
-  const provider = localStorage.getItem('global_ai_provider') || 'google-translate';
+  const provider = localStorage.getItem('global_ai_provider') || 'nllb';
   const targetLang = localStorage.getItem('global_target_lang') || 'vi';
   
   // Use default subtitle values from active config inputs, or sensible defaults

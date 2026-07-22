@@ -5296,7 +5296,7 @@ window.switchDownloadMode = switchDownloadMode;
 
 function getGlobalAiSettings() {
   return {
-    aiProvider: localStorage.getItem('global_ai_provider') || 'google-translate',
+    aiProvider: localStorage.getItem('global_ai_provider') || 'nllb',
     geminiApiKey: localStorage.getItem('global_gemini_key') || '',
     geminiModel: localStorage.getItem('global_gemini_model') || '',
     openRouterApiKey: localStorage.getItem('global_openrouter_key') || '',
