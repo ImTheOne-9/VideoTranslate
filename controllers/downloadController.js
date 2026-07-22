@@ -533,7 +533,10 @@ module.exports = {
     });
 
     try {
-      let { url, format_id, customFilename, outputDir, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, subtitleMaxLines, subtitleSize, subtitleMarginH, subtitleMarginV, translateTargetLang, useExistingPreview } = req.body;
+      let { url, format_id, customFilename, outputDir } = req.body;
+      if (req.body.isVietsub === true || format_id === 'vietsub' || format_id === 'temp_preview') {
+        return res.status(410).json({ error: 'Chức năng Tải & Dịch Vietsub đã được gỡ bỏ.' });
+      }
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
 
@@ -554,7 +557,9 @@ module.exports = {
         safeTitle = shared.removeVietnameseTones(shared.cleanVideoTitle(info.title)).replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
       }
       
-      const isVietsub = req.body.isVietsub || format_id === 'vietsub' || !!aiProvider;
+      const isVietsub = typeof req.body.isVietsub === 'boolean'
+        ? req.body.isVietsub
+        : (format_id === 'vietsub');
 
       if (isVietsub) {
         let videoId = info.id || Date.now();
@@ -580,7 +585,9 @@ module.exports = {
           fs.copyFileSync(previewFilePath, tempVideoPath);
           actualVideoPath = tempVideoPath;
         } else {
-          const videoFormatSelector = (!format_id || format_id === 'vietsub') ? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' : format_id;
+          const videoFormatSelector = (!format_id || format_id === 'vietsub')
+            ? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            : `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/${format_id}`;
           const videoArgs = ['--no-warnings', '--no-playlist', '-f', videoFormatSelector, '--merge-output-format', 'mp4', '-o', videoPathPattern, ...shared.getCustomExtractorArgs(url)];
           videoArgs.push(url);
           if (fs.existsSync(shared.FFMPEG_PATH)) videoArgs.push('--ffmpeg-location', shared.FFMPEG_PATH);

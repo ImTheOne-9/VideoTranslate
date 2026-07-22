@@ -414,11 +414,6 @@ async function fetchDouyinInfo(url, btn, loadingIndicator, extractedTitle) {
       msg.textContent = '⚠️ Không tìm thấy chất lượng. Video có thể cần đăng nhập.';
       grid.appendChild(msg);
     } else {
-      const vs = document.createElement('button');
-      vs.className = 'quality-btn green'; vs.type = 'button';
-      vs.onclick = (e) => startDownload(e.target, data.formats[0].src, title, data.thumbnail, 'vietsub', null, data.formats);
-      vs.textContent = 'Tải + dịch Vietsub';
-      grid.appendChild(vs);
       for (const fmt of data.formats) {
         const b = document.createElement('button');
         b.className = 'quality-btn'; b.type = 'button'; b.dataset.src = fmt.src;
@@ -449,7 +444,6 @@ async function startDouyinDownload(btn, cdnUrl, videoTitle, qualityLabel) {
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = '⏳ Đang tải...';
-  const isVietsub = qualityLabel === 'vietsub';
   try {
     const res = await fetch('/api/douyin-download', {
       method: 'POST',
@@ -460,12 +454,12 @@ async function startDouyinDownload(btn, cdnUrl, videoTitle, qualityLabel) {
     if (!res.ok) throw new Error(data.error || 'Lỗi tải Douyin');
     const savedFilename = data.filename || (customFilename + '.mp4');
     toast(`Tải thành công: ${outputDir}\\${savedFilename}`, 'success');
-    addDownloadHistory(videoTitle, '', 'success', savedFilename, isVietsub ? 'Vietsub' : ('Douyin ' + qualityLabel));
+    addDownloadHistory(videoTitle, '', 'success', savedFilename, 'Douyin ' + qualityLabel);
     await loadAssets();
   } catch (error) {
     console.error('Douyin download error:', error);
     toast(`Lỗi: ${error.message}`, 'error');
-    addDownloadHistory(videoTitle, '', 'failed', '', isVietsub ? 'Vietsub' : ('Douyin ' + qualityLabel));
+    addDownloadHistory(videoTitle, '', 'failed', '', 'Douyin ' + qualityLabel);
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
@@ -496,13 +490,6 @@ function renderVideoInfo(data) {
     msg.textContent = '⚠️ Đây là bài đăng hình ảnh tĩnh hoặc slide ảnh (Không hỗ trợ tải video).';
     grid.appendChild(msg);
   } else {
-    const vietsub = document.createElement('button');
-    vietsub.className = 'quality-btn green';
-    vietsub.type = 'button';
-    vietsub.onclick = (e) => startDownload(e.target, currentUrl, data.title, data.thumbnail, 'vietsub', null, data.formats);
-    vietsub.textContent = 'Tải + dịch Vietsub';
-    grid.appendChild(vietsub);
-
     for (const format of data.formats || []) {
       const btn = document.createElement('button');
       btn.className = 'quality-btn';
@@ -725,40 +712,8 @@ function renderDownloadHistory() {
   });
 }
 
-async function startDownload(btn, url, videoTitle, thumbnail, formatId, overrideOptions = null, formats = []) {
+async function startDownload(btn, url, videoTitle, thumbnail, formatId) {
   if (btn.disabled) return;
-
-  let isVietsub = formatId === 'vietsub';
-  if (overrideOptions) {
-    isVietsub = true;
-  }
-
-  if (isVietsub && !overrideOptions) {
-    const originalText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '⏳ Chuẩn bị xem trước...';
-    try {
-      const previewRes = await fetch('/api/download-raw-preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
-      const previewData = await previewRes.json();
-      if (!previewRes.ok) throw new Error(previewData.error || 'Lỗi chuẩn bị video xem trước');
-
-      btn.disabled = false;
-      btn.textContent = originalText;
-
-      openDownloadTranslateModal(videoTitle, thumbnail, (opts) => {
-        startDownload(btn, url, videoTitle, thumbnail, opts.formatId, opts, formats);
-      }, formats, previewData.previewUrl ? `${previewData.previewUrl}?t=${Date.now()}` : null);
-    } catch (err) {
-      toast(err.message, 'error');
-      btn.disabled = false;
-      btn.textContent = originalText;
-    }
-    return;
-  }
 
   const defaultName = encodeURIComponent(($('video-filename-input')?.value.trim() || videoTitle) + '.mp4');
   const saveRes = await fetch('/api/select-save-path?defaultFilename=' + defaultName);
@@ -772,70 +727,27 @@ async function startDownload(btn, url, videoTitle, thumbnail, formatId, override
   btn.textContent = '⏳ Đang tải...';
 
   try {
-    let subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
-    let subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
-    let subtitleMarginV = 20;
-    let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-    let aiSettings = getGlobalAiSettings();
-    let translateTargetLang = 'vi';
-    let finalFormatId = formatId;
-    let useExistingPreview = false;
-
-    if (overrideOptions) {
-      if (overrideOptions.formatId) {
-        finalFormatId = overrideOptions.formatId;
-      }
-      if (finalFormatId === 'temp_preview') {
-        finalFormatId = 'vietsub';
-        useExistingPreview = true;
-      }
-      aiSettings.aiProvider = overrideOptions.aiProvider;
-      if (overrideOptions.aiProvider === 'gemini') {
-        aiSettings.geminiApiKey = overrideOptions.apiKey;
-        aiSettings.geminiModel = overrideOptions.model;
-      } else if (overrideOptions.aiProvider === 'openrouter') {
-        aiSettings.openRouterApiKey = overrideOptions.apiKey;
-        aiSettings.openRouterModel = overrideOptions.model;
-      } else if (overrideOptions.aiProvider === '9router') {
-        aiSettings.ninerouterApiKey = overrideOptions.apiKey;
-        aiSettings.ninerouterModel = overrideOptions.model;
-      }
-      translateTargetLang = overrideOptions.targetLang;
-      subtitleSize = overrideOptions.subtitleSize;
-      subtitleMarginH = overrideOptions.subtitleMarginH;
-      subtitleMarginV = overrideOptions.subtitleMarginV;
-      subtitleMaxLines = overrideOptions.subtitleMaxLines;
-    }
-
     const res = await fetch('/api/download-local', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url,
-        format_id: finalFormatId,
+        format_id: formatId,
         customFilename,
-        outputDir,
-        ...aiSettings,
-        subtitleMaxLines,
-        subtitleSize,
-        subtitleMarginH,
-        subtitleMarginV,
-        translateTargetLang,
-        useExistingPreview,
-        isVietsub
+        outputDir
       })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Lỗi tải video');
 
-    const savedFilename = data.filename || `${customFilename}${isVietsub ? '_Vietsub' : ''}.mp4`;
+    const savedFilename = data.filename || `${customFilename}.mp4`;
     toast(`Tải thành công: ${outputDir}\\${savedFilename}`, 'success');
-    addDownloadHistory(videoTitle, thumbnail, 'success', savedFilename, isVietsub ? 'Vietsub' : originalText);
+    addDownloadHistory(videoTitle, thumbnail, 'success', savedFilename, originalText);
     await loadAssets();
   } catch (error) {
     console.error('Client startDownload error:', error);
     toast(`Lỗi: ${error.message}`, 'error');
-    addDownloadHistory(videoTitle, thumbnail, 'failed', '', isVietsub ? 'Vietsub' : originalText);
+    addDownloadHistory(videoTitle, thumbnail, 'failed', '', originalText);
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
@@ -2234,12 +2146,6 @@ function renderVideoCardFormats(index, data) {
   defaultOpt.textContent = '--- Chọn chất lượng ---';
   select.appendChild(defaultOpt);
 
-  // Tùy chọn Vietsub
-  const vietsubOpt = document.createElement('option');
-  vietsubOpt.value = 'vietsub';
-  vietsubOpt.textContent = 'Tải + dịch Vietsub';
-  select.appendChild(vietsubOpt);
-
   // Thêm các format chất lượng
   for (const format of data.formats || []) {
     const opt = document.createElement('option');
@@ -2273,7 +2179,7 @@ function renderVideoCardFormats(index, data) {
   grid.appendChild(container);
 }
 
-async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
+async function downloadSingleBulkVideo(btn, index) {
   const video = currentPlaylistVideos[index];
   if (!video) return;
 
@@ -2285,50 +2191,6 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
     select.focus();
     select.style.borderColor = 'var(--danger)';
     setTimeout(() => { select.style.borderColor = ''; }, 3000);
-    return;
-  }
-
-  const isVietsub = val === 'vietsub';
-
-  if (isVietsub && !overrideOptions) {
-    const originalText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '⏳ ...';
-    const card = btn.closest('.bulk-video-card');
-    const statusLabel = card ? card.querySelector('.bulk-video-status') : null;
-    if (statusLabel) {
-      statusLabel.textContent = 'Chuẩn bị xem trước...';
-      statusLabel.style.color = 'var(--accent)';
-    }
-
-    try {
-      const previewRes = await fetch('/api/download-raw-preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: video.url })
-      });
-      const previewData = await previewRes.json();
-      if (!previewRes.ok) throw new Error(previewData.error || 'Lỗi chuẩn bị video xem trước');
-
-      btn.disabled = false;
-      btn.textContent = originalText;
-      if (statusLabel) {
-        statusLabel.textContent = 'Đã sẵn sàng';
-        statusLabel.style.color = 'var(--text)';
-      }
-
-      openDownloadTranslateModal(video.title, video.thumbnail, (opts) => {
-        downloadSingleBulkVideo(btn, index, opts);
-      }, video.formats, previewData.previewUrl ? `${previewData.previewUrl}?t=${Date.now()}` : null);
-    } catch (err) {
-      toast(err.message, 'error');
-      btn.disabled = false;
-      btn.textContent = originalText;
-      if (statusLabel) {
-        statusLabel.textContent = 'Lỗi preview';
-        statusLabel.style.color = 'var(--danger)';
-      }
-    }
     return;
   }
 
@@ -2355,57 +2217,14 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
     const oldCurrentUrl = currentUrl;
     currentUrl = video.url;
 
-    let subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
-    let subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
-    let subtitleMarginV = 20;
-    let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-    let aiSettings = getGlobalAiSettings();
-    let translateTargetLang = 'vi';
-    let finalFormatId = val;
-    let useExistingPreview = false;
-
-    if (overrideOptions) {
-      if (overrideOptions.formatId) {
-        finalFormatId = overrideOptions.formatId;
-      }
-      if (finalFormatId === 'temp_preview') {
-        finalFormatId = 'vietsub';
-        useExistingPreview = true;
-      }
-      aiSettings.aiProvider = overrideOptions.aiProvider;
-      if (overrideOptions.aiProvider === 'gemini') {
-        aiSettings.geminiApiKey = overrideOptions.apiKey;
-        aiSettings.geminiModel = overrideOptions.model;
-      } else if (overrideOptions.aiProvider === 'openrouter') {
-        aiSettings.openRouterApiKey = overrideOptions.apiKey;
-        aiSettings.openRouterModel = overrideOptions.model;
-      } else if (overrideOptions.aiProvider === '9router') {
-        aiSettings.ninerouterApiKey = overrideOptions.apiKey;
-        aiSettings.ninerouterModel = overrideOptions.model;
-      }
-      translateTargetLang = overrideOptions.targetLang;
-      subtitleSize = overrideOptions.subtitleSize;
-      subtitleMarginH = overrideOptions.subtitleMarginH;
-      subtitleMarginV = overrideOptions.subtitleMarginV;
-      subtitleMaxLines = overrideOptions.subtitleMaxLines;
-    }
-
     const res = await fetch('/api/download-local', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: video.url,
-        format_id: finalFormatId,
+        format_id: val,
         customFilename,
-        outputDir,
-        ...aiSettings,
-        subtitleMaxLines,
-        subtitleSize,
-        subtitleMarginH,
-        subtitleMarginV,
-        translateTargetLang,
-        useExistingPreview,
-        isVietsub: true
+        outputDir
       })
     });
     const data = await res.json();
@@ -2439,7 +2258,7 @@ async function downloadSingleBulkVideo(btn, index, overrideOptions = null) {
   }
 }
 
-async function downloadSelectedBulkVideos(overrideOptions = null) {
+async function downloadSelectedBulkVideos() {
   const selectedVideos = currentPlaylistVideos.filter(v => v.selected);
   if (selectedVideos.length === 0) {
     toast('Vui lòng chọn ít nhất 1 video để tải.', 'warn');
@@ -2474,18 +2293,6 @@ async function downloadSelectedBulkVideos(overrideOptions = null) {
     }
   }
 
-  // Intercept if there's any vietsub download requested
-  const hasVietsub = selectedVideos.some(v => v.selectedFormat === 'vietsub');
-  if (hasVietsub && !overrideOptions) {
-    const firstVietsubVideo = selectedVideos.find(v => v.selectedFormat === 'vietsub');
-    const vietsubCount = selectedVideos.filter(v => v.selectedFormat === 'vietsub').length;
-    const refTitle = `[HÀNG LOẠT] ${firstVietsubVideo.title}` + (vietsubCount > 1 ? ` (+${vietsubCount - 1} video khác)` : '');
-    openDownloadTranslateModal(refTitle, firstVietsubVideo.thumbnail, (opts) => {
-      downloadSelectedBulkVideos(opts);
-    });
-    return;
-  }
-
   // Choose folder once for all videos
   const folderRes = await fetch('/api/select-save-path?mode=folder');
   const folderData = await folderRes.json();
@@ -2516,9 +2323,7 @@ async function downloadSelectedBulkVideos(overrideOptions = null) {
   selectedVideos.forEach((video, idx) => {
     const index = currentPlaylistVideos.indexOf(video);
     let formatLabel = 'Tự động';
-    if (video.selectedFormat === 'vietsub') {
-      formatLabel = 'Vietsub';
-    } else if (video.formats) {
+    if (video.formats) {
       const matched = video.formats.find(f => f.format_id === video.selectedFormat);
       if (matched) {
         formatLabel = matched.quality;
@@ -2588,32 +2393,6 @@ async function downloadSelectedBulkVideos(overrideOptions = null) {
 
     try {
       const formatId = video.selectedFormat;
-      let subtitleSize = document.querySelector('input[name="subtitleSize"]')?.value || 18;
-      let subtitleMarginH = document.querySelector('input[name="subtitleMarginH"]')?.value || 20;
-      let subtitleMarginV = 20;
-      let subtitleMaxLines = document.querySelector('[name="subtitleMaxLines"]')?.value || 0;
-      let aiSettings = getGlobalAiSettings();
-      let translateTargetLang = 'vi';
-
-      if (overrideOptions) {
-        aiSettings.aiProvider = overrideOptions.aiProvider;
-        if (overrideOptions.aiProvider === 'gemini') {
-          aiSettings.geminiApiKey = overrideOptions.apiKey;
-          aiSettings.geminiModel = overrideOptions.model;
-        } else if (overrideOptions.aiProvider === 'openrouter') {
-          aiSettings.openRouterApiKey = overrideOptions.apiKey;
-          aiSettings.openRouterModel = overrideOptions.model;
-        } else if (overrideOptions.aiProvider === '9router') {
-          aiSettings.ninerouterApiKey = overrideOptions.apiKey;
-          aiSettings.ninerouterModel = overrideOptions.model;
-        }
-        translateTargetLang = overrideOptions.targetLang;
-        subtitleSize = overrideOptions.subtitleSize;
-        subtitleMarginH = overrideOptions.subtitleMarginH;
-        subtitleMarginV = overrideOptions.subtitleMarginV;
-        subtitleMaxLines = overrideOptions.subtitleMaxLines;
-      }
-
       const res = await fetch('/api/download-local', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2621,13 +2400,7 @@ async function downloadSelectedBulkVideos(overrideOptions = null) {
           url: video.url,
           format_id: formatId,
           customFilename: video.customTitle || video.title,
-          outputDir: bulkOutputDir,
-          ...aiSettings,
-          subtitleMaxLines,
-          subtitleSize,
-          subtitleMarginH,
-          subtitleMarginV,
-          translateTargetLang
+          outputDir: bulkOutputDir
         }),
         signal: activeBulkDownloadController.signal
       });
@@ -5695,6 +5468,15 @@ async function loadNineRouterModels(apiKey, baseUrl) {
       html += `<option value="${m.id}" ${isSelected}>${m.name}</option>`;
     });
     select.innerHTML = html;
+
+    const dlProvider = $('dl-ai-provider');
+    const dlModelSelect = $('dl-ai-model');
+    if (dlProvider && dlModelSelect && dlProvider.value === '9router') {
+      dlModelSelect.innerHTML = html;
+      if (!dlModelSelect.value && models.length > 0) {
+        dlModelSelect.value = models[0].id;
+      }
+    }
 
     const currentVal = select.value;
     if (!currentVal && models.length > 0) {

@@ -263,10 +263,8 @@ const antiDupeController = require('./controllers/antiDupeController');
 
 // 1. Download Routes
 app.get('/api/download', downloadController.download);
-app.get('/api/download-vi', downloadController.downloadVi);
 app.post('/api/playlist', downloadController.playlist);
 app.post('/api/download-local', downloadController.downloadLocal);
-app.post('/api/download-raw-preview', downloadController.downloadRawPreview);
 app.get('/api/proxy-image', downloadController.proxyImage);
 
 // Cookie management routes

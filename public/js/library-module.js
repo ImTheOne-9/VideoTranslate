@@ -1455,6 +1455,17 @@ function closeDownloadTranslateModal() {
   currentDlConfirmCallback = null;
 }
 
+function isValidModelSelect(globalSelect) {
+  if (!globalSelect || globalSelect.options.length === 0) return false;
+  const firstOpt = globalSelect.options[0];
+  const val = (firstOpt.value || '').trim();
+  const text = (firstOpt.textContent || '').toLowerCase();
+  if (!val && (text.includes('đang') || text.includes('vui lòng') || text.includes('lỗi') || text.includes('không'))) {
+    return false;
+  }
+  return true;
+}
+
 // AI Provider select handling
 function onDlAiProviderChange() {
   const provider = document.getElementById('dl-ai-provider').value;
@@ -1475,7 +1486,7 @@ function onDlAiProviderChange() {
     keyInput.placeholder = 'Nhập Gemini API Key...';
     
     const globalSelect = document.getElementById('global-gemini-model');
-    if (globalSelect && globalSelect.options.length > 0 && !globalSelect.options[0].textContent.includes('Đang tải') && !globalSelect.options[0].textContent.includes('Vui lòng')) {
+    if (isValidModelSelect(globalSelect)) {
       for (let i = 0; i < globalSelect.options.length; i++) {
         const opt = globalSelect.options[i];
         const newOpt = document.createElement('option');
@@ -1505,7 +1516,7 @@ function onDlAiProviderChange() {
     keyInput.placeholder = 'Nhập OpenRouter API Key...';
     
     const globalSelect = document.getElementById('global-openrouter-model');
-    if (globalSelect && globalSelect.options.length > 0 && !globalSelect.options[0].textContent.includes('Đang tải') && !globalSelect.options[0].textContent.includes('Vui lòng')) {
+    if (isValidModelSelect(globalSelect)) {
       for (let i = 0; i < globalSelect.options.length; i++) {
         const opt = globalSelect.options[i];
         const newOpt = document.createElement('option');
@@ -1535,7 +1546,7 @@ function onDlAiProviderChange() {
     keyInput.placeholder = 'Nhập 9Router API Key (nếu có)...';
     
     const globalSelect = document.getElementById('global-ninerouter-model');
-    if (globalSelect && globalSelect.options.length > 0 && !globalSelect.options[0].textContent.includes('Đang tải') && !globalSelect.options[0].textContent.includes('Vui lòng')) {
+    if (isValidModelSelect(globalSelect)) {
       for (let i = 0; i < globalSelect.options.length; i++) {
         const opt = globalSelect.options[i];
         const newOpt = document.createElement('option');
@@ -1547,7 +1558,9 @@ function onDlAiProviderChange() {
     } else {
       const nineModels = [
         { value: 'google/gemini-1.5-flash', label: 'Gemini 1.5 Flash (Proxy)' },
-        { value: 'meta-llama/llama-3-8b-instruct', label: 'Llama 3 8B (Proxy)' }
+        { value: 'meta-llama/llama-3-8b-instruct', label: 'Llama 3 8B (Proxy)' },
+        { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B (Proxy)' },
+        { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat (Proxy)' }
       ];
       nineModels.forEach(m => {
         const opt = document.createElement('option');
