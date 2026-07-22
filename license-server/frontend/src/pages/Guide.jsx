@@ -615,12 +615,12 @@ export default function Guide() {
             </div>
             {contact.zalo && (
               <a 
-                href={`https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`} 
+                href={contact.zalo.startsWith('http') ? contact.zalo : `https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-xs font-bold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
-                <span>Chat Zalo kỹ thuật ({contact.zalo})</span>
+                <span>{contact.zalo.startsWith('http') ? 'Tham gia nhóm Zalo hỗ trợ' : `Chat Zalo kỹ thuật (${contact.zalo})`}</span>
               </a>
             )}
           </div>

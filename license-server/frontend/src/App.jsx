@@ -370,7 +370,13 @@ function AppContent() {
                   {contact.zalo && (
                     <li className="flex items-center gap-2">
                       <Phone className="h-4 w-4 text-indigo-400 shrink-0" />
-                      <span className="select-text">Zalo: {contact.zalo}</span>
+                      <a
+                        href={contact.zalo.startsWith('http') ? contact.zalo : `https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="hover:text-white transition-colors"
+                      >
+                        {contact.zalo.startsWith('http') ? 'Nhóm Zalo hỗ trợ' : `Zalo: ${contact.zalo}`}
+                      </a>
                     </li>
                   )}
                   {contact.telegram && (
@@ -431,10 +437,10 @@ function AppContent() {
       {/* Zalo Floating Bubble - chỉ hiển thị nếu có SĐT Zalo */}
       {!isAdminRoute && contact.zalo && (
         <a
-          href={`https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
+          href={contact.zalo.startsWith('http') ? contact.zalo : `https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
           target="_blank"
           rel="noopener noreferrer"
-          title={`Chat Zalo hỗ trợ: ${contact.zalo}`}
+          title={contact.zalo.startsWith('http') ? 'Tham gia nhóm Zalo hỗ trợ' : `Chat Zalo hỗ trợ: ${contact.zalo}`}
           style={{ zIndex: 9999 }}
           className="fixed bottom-6 right-6 group flex flex-row-reverse items-center gap-3"
         >
