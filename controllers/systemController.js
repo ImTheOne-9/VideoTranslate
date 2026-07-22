@@ -22,9 +22,8 @@ let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloa
 let whisperDownloadStatus = {};
 
 function normalizeWhisperOnnxVariant(value) {
-  const variant = String(value || 'q8').trim().toLowerCase();
+  const variant = String(value || 'medium-q8').trim().toLowerCase();
   if (variant === 'medium') return 'medium-q8';
-  if (['small', 'base', 'tiny', 'large-v3'].includes(variant)) return 'q8';
   if (!['q8', 'fp32', 'medium-q8'].includes(variant)) {
     throw new Error(`Biến thể Whisper ONNX không hợp lệ: ${value}`);
   }
@@ -476,10 +475,11 @@ module.exports = {
     const runtimeDependencies = checkDependencyStatus(dependencyDir);
     const whisperVariants = {
       q8: getWhisperOnnxReadiness('q8').exists,
-      fp32: getWhisperOnnxReadiness('fp32').exists
+      fp32: getWhisperOnnxReadiness('fp32').exists,
+      'medium-q8': getWhisperOnnxReadiness('medium-q8').exists
     };
-    const whisperModelOk = whisperVariants.q8;
-    const downloadedWhisperModels = whisperModelOk ? ['small'] : [];
+    const whisperModelOk = whisperVariants['medium-q8'];
+    const downloadedWhisperModels = whisperModelOk ? ['medium'] : [];
 
     const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
     const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);

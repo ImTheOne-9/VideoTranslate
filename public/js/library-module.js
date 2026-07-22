@@ -1098,11 +1098,11 @@ function startStatusPolling() {
 // Whisper Model Management & Downloading
 let whisperDownloadInterval = null;
 let isDownloadingWhisper = false;
-let activeWhisperOnnxVariant = 'q8';
+let activeWhisperOnnxVariant = 'medium-q8';
 
 function normalizeWhisperOnnxVariant(value) {
   const variant = String(value || '').trim().toLowerCase();
-  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'q8';
+  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'medium-q8';
 }
 
 function getWhisperOnnxVariantLabel(value) {

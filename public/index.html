@@ -25,7 +25,20 @@
       </div>
     </div>
     <div id="win-title-right">
-      <button type="button" class="ghost-btn" onclick="openQueueModal()" style="position: relative; overflow: visible !important;">
+      <button type="button" class="ghost-btn" id="refresh-assets-btn" title="Kiểm tra kết nối">
+        <span class="status-dot" id="connection-dot"></span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        Kết nối
+      </button>
+      <button type="button" class="ghost-btn" id="open-settings-btn" onclick="openGlobalSettingsModal()" title="Cài đặt AI toàn cục">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Cài đặt AI
+      </button>
+      <button type="button" class="ghost-btn" onclick="openCookieModal()" title="Quản lý Cookies">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5A10 10 0 0 0 12 2"/><path d="M8.5 8.5v.01"/><path d="M16 15v.01"/><path d="M11 16v.01"/></svg>
+        Cookies
+      </button>
+      <button type="button" class="ghost-btn" onclick="openQueueModal()" style="position: relative; overflow: visible !important;" title="Hàng đợi tác vụ">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         Hàng đợi
         <span id="queue-badge"
@@ -114,7 +127,7 @@
         </div>
       </div>
 
-      <!-- USER INFO + SETTINGS -->
+      <!-- USER INFO -->
       <div class="sidebar-user" id="sidebar-user-block">
         <div class="sidebar-user-avatar" id="sidebar-user-avatar">?</div>
         <div class="sidebar-user-info">
@@ -122,28 +135,7 @@
           <div class="sidebar-user-plan" id="sidebar-user-plan">--</div>
           <div class="sidebar-user-expiry" id="sidebar-user-expiry"></div>
         </div>
-        <button class="sidebar-settings-btn" id="sidebar-settings-btn" onclick="toggleSidebarSettings(event)" title="Cài đặt">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
       </div>
-
-      <!-- SETTINGS DROPDOWN -->
-      <div class="sidebar-settings-dropdown" id="sidebar-settings-dropdown">
-        <button class="ssd-item" id="refresh-assets-btn">
-          <span class="status-dot" id="connection-dot"></span>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-          Kết nối
-        </button>
-        <button class="ssd-item" id="open-settings-btn" onclick="openGlobalSettingsModal()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          Cài đặt AI
-        </button>
-        <button class="ssd-item" onclick="openCookieModal()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5A10 10 0 0 0 12 2"/><path d="M8.5 8.5v.01"/><path d="M16 15v.01"/><path d="M11 16v.01"/></svg>
-          Cookies
-        </button>
-      </div>
-
     </aside>
 
     <main class="workspace">
@@ -1063,24 +1055,8 @@
                         </div>
                         <input type="hidden" id="subtitle-engine-value" name="subtitleEngine" value="auto">
                       </div>
-                      <div class="form-group whisper-engine-settings">
-                        <label>Model Whisper</label>
-                        <div class="ocr-mode-segmented" role="group" aria-label="Model Whisper ONNX">
-                          <button type="button" class="whisper-onnx-variant-btn active" data-whisper-onnx-variant="q8" title="Nhẹ, nhanh và phù hợp CPU">Small Q8</button>
-                          <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="fp32" title="Trọng số đầy đủ, tốn nhiều RAM hơn">Small FP32</button>
-                          <button type="button" class="whisper-onnx-variant-btn" data-whisper-onnx-variant="medium-q8" title="Nhận dạng chính xác hơn, cần nhiều RAM và chạy chậm hơn">Medium Q8</button>
-                        </div>
-                        <input type="hidden" id="whisper-onnx-variant-value" name="whisperOnnxVariant" value="q8">
-                      </div>
-                      <div class="form-group ocr-engine-settings">
-                        <label>Chế độ nhận dạng</label>
-                        <div class="ocr-mode-segmented" role="group" aria-label="Chế độ nhận dạng OCR">
-                          <button type="button" class="ocr-mode-btn" data-ocr-mode="fast" title="Nhanh, dùng model nhẹ">Fast</button>
-                          <button type="button" class="ocr-mode-btn active" data-ocr-mode="auto" title="Tự chọn model theo CPU hoặc GPU">Auto</button>
-                          <button type="button" class="ocr-mode-btn" data-ocr-mode="accurate" title="Dò từng frame, chính xác nhưng chậm">Accurate</button>
-                        </div>
-                        <input type="hidden" id="ocr-mode-value" name="ocrMode" value="auto">
-                      </div>
+
+
                       <div class="form-group">
                         <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
                         <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
@@ -2988,7 +2964,7 @@
           </div>
         </div>
 
-        <!-- Tab 2: Whisper Content -->
+        <!-- Tab 2: Whisper & OCR Content -->
         <div id="settings-tab-whisper" class="settings-tab-content hidden"
           style="display: flex; flex-direction: column; gap: 16px;">
           <!-- Whisper Model Configuration -->
@@ -3001,9 +2977,7 @@
             </label>
             <div style="display: flex; gap: 8px;">
               <select id="whisper-model-select" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
-                <option value="q8" selected>Whisper Small Q8 (ONNX - 252 MB)</option>
-                <option value="fp32">Whisper Small FP32 (ONNX - 971 MB)</option>
-                <option value="medium-q8">Whisper Medium Q8 (ONNX - 944 MB)</option>
+                <option value="medium-q8" selected>Whisper Medium Q8 (ONNX - 944 MB - Mặc định)</option>
               </select>
               <button type="button" id="whisper-model-download-btn" class="premium-render-btn"
                 style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;"
@@ -3011,6 +2985,20 @@
             </div>
             <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Dùng để tự động nhận diện và trích xuất
               phụ đề từ âm thanh video.</p>
+          </div>
+
+          <!-- OCR Mode Configuration -->
+          <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+            <label
+              style="font-size: 13px; font-weight: 600; color: var(--text); display: flex; justify-content: space-between; align-items: center;">
+              <span>Chế độ nhận dạng OCR phụ đề</span>
+            </label>
+            <select id="global-ocr-mode-select" class="premium-select" style="width: 100%; margin: 0; height: 38px;">
+              <option value="auto" selected>Auto - Tự động tối ưu theo phần cứng (Khuyên dùng)</option>
+              <option value="fast">Fast - Nhanh (Dùng model nhẹ)</option>
+              <option value="accurate">Accurate - Chính xác cao (Dò quét tỉ mỉ từng frame)</option>
+            </select>
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Cấu hình tốc độ và độ tỉ mỉ cho công cụ quét chữ phụ đề in sẵn trên màn hình video.</p>
           </div>
         </div>
 
@@ -3199,18 +3187,44 @@
           </div>
         </div>
 
-        <div style="display: flex; gap: 10px; margin-top: 14px; width: 100%;">
-          <button type="button" class="premium-render-btn"
-            style="flex: 1; margin: 0; background: var(--accent); color: white; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
-            onclick="checkSystemConnections()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        <!-- Progress Area for Batch Downloading Missing Resources -->
+        <div id="conn-download-all-progress-area" class="hidden"
+          style="margin-top: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--text);">
+            <span id="conn-download-all-status-text">Đang chuẩn bị tải...</span>
+            <span id="conn-download-all-progress-text">0%</span>
+          </div>
+          <div style="background: rgba(255,255,255,0.05); height: 8px; border-radius: 4px; overflow: hidden; width: 100%;">
+            <div id="conn-download-all-progress-bar"
+              style="background: #3b82f6; width: 0%; height: 100%; transition: width 0.2s ease-out; border-radius: 4px;"></div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; width: 100%;">
+          <div style="display: flex; gap: 10px; width: 100%;">
+            <button type="button" id="conn-refresh-btn" class="premium-render-btn"
+              style="flex: 1; margin: 0; background: var(--accent); color: white; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
+              onclick="checkSystemConnections()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              Kiểm tra lại
+            </button>
+            <button type="button" id="conn-close-btn" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;"
+              onclick="closeConnectionStatusModal()">Đóng</button>
+          </div>
+          <button type="button" id="conn-download-all-btn" class="premium-render-btn"
+            style="width: 100%; margin: 0; background: #3b82f6; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; font-size: 13px;"
+            onclick="downloadAllMissingDependencies()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
               stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            Kiểm tra lại
+            Tải tất cả còn thiếu
           </button>
-          <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;"
-            onclick="closeConnectionStatusModal()">Đóng</button>
         </div>
       </div>
     </div>

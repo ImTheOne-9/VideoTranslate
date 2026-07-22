@@ -973,8 +973,8 @@ function updateSubtitleEngineUi() {
 
 function updateWhisperOnnxVariantButtons() {
   const input = $('whisper-onnx-variant-value');
-  if (!input) return 'q8';
-  const variant = WHISPER_ONNX_VARIANTS.has(input.value) ? input.value : 'q8';
+  if (!input) return 'medium-q8';
+  const variant = WHISPER_ONNX_VARIANTS.has(input.value) ? input.value : 'medium-q8';
   input.value = variant;
   document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
     const active = button.dataset.whisperOnnxVariant === variant;
@@ -1161,11 +1161,13 @@ async function renderStudio(event) {
   const voiceMode = data.get('voiceMode');
   const omiDevice = data.get('omiDevice');
   const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
-  const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(data.get('whisperOnnxVariant'))
-    ? data.get('whisperOnnxVariant')
-    : 'q8';
+  const globalWhisperVal = $('whisper-model-select')?.value;
+  const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(globalWhisperVal) ? globalWhisperVal : 'medium-q8';
+  const globalOcrModeVal = $('global-ocr-mode-select')?.value || localStorage.getItem('global_ocr_mode') || 'auto';
+  const ocrMode = OCR_MODES.has(globalOcrModeVal) ? globalOcrModeVal : 'auto';
   data.set('subtitleEngine', subtitleEngine);
   data.set('whisperOnnxVariant', whisperOnnxVariant);
+  data.set('ocrMode', ocrMode);
 
   if (subMode === 'generate') {
     if (!data.get('ocrLanguage')) {
@@ -5302,8 +5304,9 @@ function getGlobalAiSettings() {
     ninerouterApiKey: localStorage.getItem('global_ninerouter_key') || '',
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
-    whisperModel: 'small',
-    whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'q8'
+    whisperModel: 'medium',
+    whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
+    ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
   };
 }
 
@@ -5626,6 +5629,10 @@ function openGlobalSettingsModal() {
     whisperModelSelect.value = settings.whisperOnnxVariant;
     checkWhisperModelStatus();
   }
+  const globalOcrSelect = $('global-ocr-mode-select');
+  if (globalOcrSelect) {
+    globalOcrSelect.value = settings.ocrMode;
+  }
 
   toggleGlobalAiProviderFields();
   switchSettingsTab('translate');
@@ -5694,6 +5701,8 @@ function saveGlobalSettings() {
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
+  const globalOcrSelect = $('global-ocr-mode-select');
+  if (globalOcrSelect) localStorage.setItem('global_ocr_mode', globalOcrSelect.value);
 
   toast('Đã lưu cài đặt AI toàn cục thành công!', 'success');
   closeGlobalSettingsModal();
@@ -5943,9 +5952,9 @@ async function checkSystemConnections() {
       whisperDot.className = 'dot warn';
       whisperDot.style.background = 'var(--warn)';
       whisperDot.style.boxShadow = '0 0 8px var(--warn)';
-      whisperDesc.textContent = 'Thiếu model Whisper ONNX Q8';
+      whisperDesc.textContent = 'Thiếu model Whisper ONNX Medium Q8 (~944MB)';
       if (whisperAction) {
-        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal('q8');">Tải</button>`;
+        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal('medium-q8');">Tải</button>`;
       }
     }
 
@@ -6017,6 +6026,30 @@ async function checkSystemConnections() {
       }
     }
 
+    // Tính toán danh sách các tài nguyên còn thiếu
+    let missingList = [];
+    if (!data.whisper) missingList.push({ type: 'whisper', label: 'Whisper ONNX Medium Q8' });
+    if (!data.separator) missingList.push({ type: 'separator', label: 'MDX ONNX Audio Separator' });
+    if (!data.omnivoice) missingList.push({ type: 'omnivoice', label: 'Mẫu giọng thuyết minh OmniVoice' });
+    if (!data.ocr) missingList.push({ type: 'ocr', label: 'Bộ công cụ OCR phụ đề' });
+
+    window._latestMissingDependencies = missingList;
+    const downloadAllBtn = $('conn-download-all-btn');
+    if (downloadAllBtn) {
+      if (missingList.length > 0) {
+        downloadAllBtn.classList.remove('hidden');
+        downloadAllBtn.disabled = false;
+        downloadAllBtn.innerHTML = `
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Tải tất cả còn thiếu (${missingList.length})
+        `;
+      } else {
+        downloadAllBtn.classList.remove('hidden');
+        downloadAllBtn.disabled = true;
+        downloadAllBtn.innerHTML = `✅ Tất cả tài nguyên đã đầy đủ`;
+      }
+    }
+
     // Cập nhật connection dot trên topbar
     const connDot = $('connection-dot');
     const connBtn = $('refresh-assets-btn');
@@ -6039,9 +6072,118 @@ async function checkSystemConnections() {
   }
 }
 
+let isBatchDownloading = false;
+
+async function downloadAllMissingDependencies() {
+  if (isBatchDownloading) return;
+  const missingList = window._latestMissingDependencies || [];
+  if (missingList.length === 0) {
+    toast('Tất cả tài nguyên hệ thống đã được cài đặt đầy đủ!', 'info');
+    return;
+  }
+
+  isBatchDownloading = true;
+  const progressArea = $('conn-download-all-progress-area');
+  const progressBar = $('conn-download-all-progress-bar');
+  const progressText = $('conn-download-all-progress-text');
+  const statusText = $('conn-download-all-status-text');
+  const downloadAllBtn = $('conn-download-all-btn');
+  const refreshBtn = $('conn-refresh-btn');
+
+  if (progressArea) progressArea.classList.remove('hidden');
+  if (downloadAllBtn) { downloadAllBtn.disabled = true; downloadAllBtn.style.opacity = '0.5'; }
+  if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.style.opacity = '0.5'; }
+
+  const totalItems = missingList.length;
+
+  try {
+    for (let index = 0; index < totalItems; index++) {
+      const item = missingList[index];
+      const basePercent = (index / totalItems) * 100;
+      const stepWeight = 100 / totalItems;
+
+      const updateProgress = (itemPercent, customStatusMsg) => {
+        const overallPercent = Math.min(99, Math.round(basePercent + (itemPercent * stepWeight / 100)));
+        if (progressBar) progressBar.style.width = `${overallPercent}%`;
+        if (progressText) progressText.textContent = `${overallPercent}%`;
+        if (statusText) statusText.textContent = customStatusMsg || `Đang tải ${item.label} (${index + 1}/${totalItems})...`;
+      };
+
+      updateProgress(0, `Bắt đầu tải ${item.label} (${index + 1}/${totalItems})...`);
+
+      if (item.type === 'whisper') {
+        await fetch('/api/download-whisper-model', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variant: 'medium-q8' })
+        });
+        await pollProgress('/api/whisper-model/status?variant=medium-q8', updateProgress, (d) => d.exists, (d) => d.percent || 0);
+      } else if (item.type === 'separator') {
+        await fetch('/api/download-dependency', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'separator' })
+        });
+        await pollProgress('/api/download-dependency-progress', updateProgress, (d) => d.status === 'completed', (d) => d.percent || 0);
+      } else if (item.type === 'omnivoice') {
+        await fetch('/api/download-model', { method: 'POST' });
+        await pollProgress('/api/download-model/status', updateProgress, (d) => d.status === 'completed' || d.percent >= 100, (d) => d.percent || 0);
+      } else if (item.type === 'ocr') {
+        await fetch('/api/download-ocr-component', { method: 'POST' });
+        await pollProgress('/api/ocr-component-status', updateProgress, (d) => d.status === 'ready', (d) => d.percent || d.downloadPercent || 0);
+      }
+    }
+
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressText) progressText.textContent = '100%';
+    if (statusText) statusText.textContent = '✅ Đã hoàn tất cài đặt tất cả tài nguyên!';
+    toast('Đã tải và cài đặt thành công tất cả tài nguyên hệ thống!', 'success');
+
+  } catch (err) {
+    console.error('Lỗi khi tải tập trung tài nguyên:', err);
+    toast(`Lỗi khi tải tài nguyên: ${err.message}`, 'error');
+    if (statusText) statusText.textContent = `❌ Lỗi: ${err.message}`;
+  } finally {
+    isBatchDownloading = false;
+    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.style.opacity = '1'; }
+    if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.style.opacity = '1'; }
+    await checkSystemConnections();
+  }
+}
+
+async function pollProgress(url, onProgress, isDoneCheck, getPercent) {
+  return new Promise((resolve, reject) => {
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Không thể kiểm tra tiến trình');
+        const data = await res.json();
+        const percent = getPercent(data);
+        onProgress(percent);
+
+        if (isDoneCheck(data)) {
+          clearInterval(interval);
+          resolve(true);
+        } else if (data.status === 'error' || data.error) {
+          clearInterval(interval);
+          reject(new Error(data.error || 'Lỗi khi tải tài nguyên'));
+        }
+      } catch (e) {
+        if (attempts > 300) { // Max 5 phút timeout
+          clearInterval(interval);
+          reject(e);
+        }
+      }
+    }, 1000);
+  });
+}
+
 window.openConnectionStatusModal = openConnectionStatusModal;
 window.closeConnectionStatusModal = closeConnectionStatusModal;
 window.checkSystemConnections = checkSystemConnections;
+window.downloadAllMissingDependencies = downloadAllMissingDependencies;
 
 /* ==========================================================================
    QUẢN LÝ CHỌN GIỌNG NÓI ĐÃ LƯU (NEW GRID VOICE SELECTOR)
