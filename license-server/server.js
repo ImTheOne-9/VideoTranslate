@@ -979,6 +979,7 @@ const DB = {
         let results = [...(db.affiliateOrders || [])];
         if (query.affiliateCode) results = results.filter(o => o.affiliateCode === query.affiliateCode);
         if (query.saleEmail) results = results.filter(o => o.saleEmail === query.saleEmail);
+        if (query.transactionId) results = results.filter(o => o.transactionId === query.transactionId);
         results.sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
         if (opts.skip) results = results.slice(opts.skip);
         if (opts.limit) results = results.slice(0, opts.limit);
@@ -989,6 +990,11 @@ const DB = {
       if (useMongo) { const doc = new AffiliateOrderModel(data); return await doc.save(); }
       const db = readJSON();
       if (!db.affiliateOrders) db.affiliateOrders = [];
+      // Chống duplicate theo transactionId
+      if (data.transactionId && db.affiliateOrders.find(o => o.transactionId === data.transactionId)) {
+        console.log(`[Affiliate] Duplicate transactionId ${data.transactionId}, bỏ qua.`);
+        return null;
+      }
       const newOrder = { affiliateCode: data.affiliateCode, saleEmail: data.saleEmail, saleName: data.saleName || '', customerEmail: data.customerEmail || '', customerName: data.customerName || '', customerPhone: data.customerPhone || '', planType: data.planType || '', amount: data.amount || 0, commissionRate: data.commissionRate || 0, commissionAmount: data.commissionAmount || 0, transactionId: data.transactionId || '', paidAt: data.paidAt || new Date().toISOString() };
       db.affiliateOrders.push(newOrder);
       await writeJSON(db);
@@ -1002,12 +1008,12 @@ const DB = {
 // ============================================================
 async function getCommissionRate(saleEmail) {
   const defaultTiers = [
-    { minRevenue: 0,         maxRevenue: 100000000,  rate: 2 },
-    { minRevenue: 100000000, maxRevenue: 200000000,  rate: 3 },
-    { minRevenue: 200000000, maxRevenue: 300000000,  rate: 4 },
-    { minRevenue: 300000000, maxRevenue: 400000000,  rate: 5 },
-    { minRevenue: 400000000, maxRevenue: 500000000,  rate: 6 },
-    { minRevenue: 500000000, maxRevenue: Infinity,   rate: 7 },
+    { minRevenue: 0,         maxRevenue: 100000000,    rate: 2 },
+    { minRevenue: 100000000, maxRevenue: 200000000,    rate: 3 },
+    { minRevenue: 200000000, maxRevenue: 300000000,    rate: 4 },
+    { minRevenue: 300000000, maxRevenue: 400000000,    rate: 5 },
+    { minRevenue: 400000000, maxRevenue: 500000000,    rate: 6 },
+    { minRevenue: 500000000, maxRevenue: 999999999999, rate: 7 },
   ];
   const tiers = await DB.settings.get('affiliateCommissionTiers', defaultTiers);
 
@@ -1027,11 +1033,20 @@ async function getCommissionRate(saleEmail) {
 async function processAffiliateCommission({ transactionId, licenseKey, userEmail, customerName, customerPhone, planType, amount }) {
   try {
     if (!userEmail) return;
+    // Chống duplicate: kiểm tra transactionId đã được ghi hưa hồng chưa
+    if (transactionId) {
+      const existingOrders = await DB.affiliateOrders.find({ transactionId });
+      if (existingOrders && existingOrders.length > 0) {
+        console.log(`[Affiliate] Đư họng duplicate transactionId=${transactionId}`);
+        return;
+      }
+    }
+
     const user = await DB.users.findOne({ email: userEmail });
-    if (!user || !user.affiliateCode) return;
+    if (!user || !user.affiliateCode) return; // Khách không có mã aff -> bỏ qua
 
     const affLink = await DB.affiliateLinks.findOne({ code: user.affiliateCode });
-    if (!affLink || !affLink.isActive) return;
+    if (!affLink || !affLink.isActive) return; // Link vô hiệu -> bỏ qua
 
     const { rate } = await getCommissionRate(affLink.saleEmail);
     const commissionAmount = Math.round(amount * rate / 100);
@@ -1050,7 +1065,7 @@ async function processAffiliateCommission({ transactionId, licenseKey, userEmail
       transactionId,
       paidAt: new Date().toISOString()
     });
-    console.log(`[Affiliate] ✅ Ghi nhận hoa hồng ${commissionAmount.toLocaleString()}đ (${rate}%) cho sale ${affLink.saleEmail} từ đơn ${transactionId}`);
+    console.log(`[Affiliate] ✅ Hoa hồng ${commissionAmount.toLocaleString()}đ (${rate}%) cho sale ${affLink.saleEmail} | KH: ${userEmail} | MãGD: ${transactionId}`);
   } catch (err) {
     console.error('[Affiliate] Lỗi ghi nhận hoa hồng:', err.message);
   }
