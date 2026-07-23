@@ -4006,36 +4006,36 @@ app.post('/api/admin/toggle-status', adminOnlyAuth, async (req, res) => {
 
 
 // ==========================================
-// CANH BAO SAP HET HAN KEY (EMAIL)
+// CẢNH BÁO SẮP HẾT HẠN KEY (EMAIL)
 // ==========================================
 
-// Email template: canh bao sap het han key
+// Email template: cảnh báo sắp hết hạn key
 async function sendExpiryWarningEmail({ toEmail, fullName, key, planName, daysLeft, expiresAt }) {
-  const escapedName = escapeHtml(fullName || 'Ban');
+  const escapedName = escapeHtml(fullName || 'Bạn');
   const escapedKey = escapeHtml(key);
   const expStr = new Date(expiresAt).toLocaleDateString('vi-VN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const dayText = daysLeft <= 0 ? 'hom nay' : (daysLeft + ' ngay');
-  const subject = '[Canh bao] Key ban quyen cua ban sap het han con ' + dayText;
+  const dayText = daysLeft <= 0 ? 'hôm nay' : (daysLeft + ' ngày');
+  const subject = '[Cảnh báo] Key bản quyền của bạn sắp hết hạn, còn ' + dayText;
   const bodyContent = `
-    <h3>Xin chao ${escapedName},</h3>
-    <p>Day la email tu dong canh bao tu he thong ban quyen <strong>Editnhanh</strong>.</p>
-    <p>Key ban quuyen cua ban <strong>sap het han</strong> con lai <strong style="color:#e11d48;">${dayText}</strong>.</p>
+    <h3>Xin chào ${escapedName},</h3>
+    <p>Đây là email tự động cảnh báo từ hệ thống bản quyền <strong>Editnhanh</strong>.</p>
+    <p>Key bản quyền của bạn <strong>sắp hết hạn</strong>, còn lại <strong style="color:#e11d48;">${dayText}</strong>.</p>
     <div style="background:#fef2f2;padding:18px;border-radius:8px;border:1px solid #fecaca;margin:15px 0;">
-      <p style="margin:4px 0;"><strong>Ma key:</strong> <span style="font-family:monospace;background:#fff;padding:2px 6px;border-radius:4px;">${escapedKey}</span></p>
-      <p style="margin:4px 0;"><strong>Goi dich vu:</strong> ${escapeHtml(planName || '')}</p>
-      <p style="margin:4px 0;"><strong>Ngay het han:</strong> ${expStr}</p>
+      <p style="margin:4px 0;"><strong>Mã key:</strong> <span style="font-family:monospace;background:#fff;padding:2px 6px;border-radius:4px;">${escapedKey}</span></p>
+      <p style="margin:4px 0;"><strong>Gói dịch vụ:</strong> ${escapeHtml(planName || '')}</p>
+      <p style="margin:4px 0;"><strong>Ngày hết hạn:</strong> ${expStr}</p>
     </div>
-    <p>Vui long <strong>gia han</strong> hoac <strong>mua key moi</strong> truoc khi het han de tiep tuc su dung phan mem khong bi gian doan.</p>
-    <p style="font-size:12px;color:#6b7280;">Day la email tu dong, vui long khong tra loi email nay.</p>
+    <p>Vui lòng <strong>gia hạn</strong> hoặc <strong>mua key mới</strong> trước khi hết hạn để tiếp tục sử dụng phần mềm không bị gián đoạn.</p>
+    <p style="font-size:12px;color:#6b7280;">Đây là email tự động, vui lòng không trả lời email này.</p>
   `;
   await sendMailHelper({ toEmail, subject, bodyContent });
 }
 
-// Background job: scan key sap het han va gui email canh bao (1 email/ngay/key)
+// Background job: quét key sắp hết hạn và gửi email cảnh báo (1 email/ngày/key)
 async function sendExpiryWarnings() {
   try {
     const now = new Date();
-    const warningWindowMs = 7 * 24 * 60 * 60 * 1000; // 7 ngay
+    const warningWindowMs = 7 * 24 * 60 * 60 * 1000; // 7 ngày
     let mongoQuery, jsonFilter;
     if (useMongo) {
       mongoQuery = {
@@ -4054,11 +4054,11 @@ async function sendExpiryWarnings() {
       const matchedKeys = all.filter(l => {
         if (l.status !== 'active' || l.paymentStatus !== 'active') return false;
         const exp = new Date(l.expiresAt);
-        if (exp.getFullYear() >= 9999) return false; // bo qua vinh vien
+        if (exp.getFullYear() >= 9999) return false; // bỏ qua vĩnh viễn
         const ms = exp.getTime() - now.getTime();
         return ms >= 0 && ms <= warningWindowMs;
       }).map(l => l.key);
-      // Dung findOne de co save() method
+      // Dùng findOne để có save() method
       licenses = [];
       for (const k of matchedKeys) {
         const lic = await DB.licenses.findOne({ key: k });
@@ -4071,27 +4071,27 @@ async function sendExpiryWarnings() {
       const daysLeft = computeDaysLeft(license.expiresAt);
       if (daysLeft === null || daysLeft < 0) continue;
 
-      // Chi gui 1 email/ngay/key (tranh spam)
+      // Chỉ gửi 1 email/ngày/key (tránh spam)
       const lastSent = license.lastExpiryWarningSent ? new Date(license.lastExpiryWarningSent) : null;
       if (lastSent) {
         const hoursSinceLast = (now.getTime() - lastSent.getTime()) / (60 * 60 * 1000);
-        if (hoursSinceLast < 20) continue; // chua du 20h -> chua gui lai
+        if (hoursSinceLast < 20) continue; // chưa đủ 20h -> chưa gửi lại
       }
 
-      // Chi gui email neu key co userEmail (key cua user dang ky)
+      // Chỉ gửi email nếu key có userEmail (key của user đăng ký)
       if (!license.userEmail) continue;
 
-      let fullName = 'Ban';
+      let fullName = 'Bạn';
       try {
         const user = await DB.users.findOne({ email: license.userEmail });
         if (user && user.fullName) fullName = user.fullName;
       } catch (e) {}
 
-      const planName = (license.planType === 'trial') ? 'Dung thu'
-        : (license.planType === 'monthly') ? 'Thang'
-        : (license.planType === 'yearly' || license.planType === 'annual') ? 'Nam'
-        : (license.planType === 'lifetime') ? 'Tron doi'
-        : (license.planType || 'Goi dich vu');
+      const planName = (license.planType === 'trial') ? 'Dùng thử'
+        : (license.planType === 'monthly') ? 'Tháng'
+        : (license.planType === 'yearly' || license.planType === 'annual') ? 'Năm'
+        : (license.planType === 'lifetime') ? 'Trọn đời'
+        : (license.planType || 'Gói dịch vụ');
 
       try {
         await sendExpiryWarningEmail({
@@ -4105,23 +4105,23 @@ async function sendExpiryWarnings() {
         license.lastExpiryWarningSent = now.toISOString();
         await license.save();
         sentCount++;
-        console.log('[Expiry Warning] Da gui email canh bao cho ' + license.userEmail + ' (key ' + license.key + ', con ' + daysLeft + ' ngay)');
+        console.log('[Expiry Warning] Đã gửi email cảnh báo cho ' + license.userEmail + ' (key ' + license.key + ', còn ' + daysLeft + ' ngày)');
       } catch (err) {
-        console.error('[Expiry Warning] Loi gui email cho ' + license.userEmail + ': ' + err.message);
+        console.error('[Expiry Warning] Lỗi gửi email cho ' + license.userEmail + ': ' + err.message);
       }
     }
 
     if (sentCount > 0) {
-      console.log('[Expiry Warning] Tong cong da gui ' + sentCount + ' email canh bao sap het han.');
+      console.log('[Expiry Warning] Tổng cộng đã gửi ' + sentCount + ' email cảnh báo sắp hết hạn.');
     }
   } catch (err) {
-    console.error('[Expiry Warning] Loi job canh bao: ' + err.message);
+    console.error('[Expiry Warning] Lỗi job cảnh báo: ' + err.message);
   }
 }
 
-// Chay job canh bao moi 1 gio
+// Chạy job cảnh báo mỗi 1 giờ
 setInterval(sendExpiryWarnings, 60 * 60 * 1000);
-// Trigger lan dau sau 60s de MongoDB connect xong
+// Trigger lần đầu sau 60s để MongoDB connect xong
 setTimeout(sendExpiryWarnings, 60 * 1000);
 
 // ============================================================
