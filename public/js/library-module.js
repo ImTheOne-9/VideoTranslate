@@ -1098,11 +1098,11 @@ function startStatusPolling() {
 // Whisper Model Management & Downloading
 let whisperDownloadInterval = null;
 let isDownloadingWhisper = false;
-let activeWhisperOnnxVariant = 'q8';
+let activeWhisperOnnxVariant = 'medium-q8';
 
 function normalizeWhisperOnnxVariant(value) {
   const variant = String(value || '').trim().toLowerCase();
-  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'q8';
+  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'medium-q8';
 }
 
 function getWhisperOnnxVariantLabel(value) {
@@ -1410,7 +1410,7 @@ function openDownloadTranslateModal(videoTitle, thumbnailUrl, onConfirm, formats
   }
 
   // Load defaults from localStorage
-  const provider = localStorage.getItem('global_ai_provider') || 'google-translate';
+  const provider = localStorage.getItem('global_ai_provider') || 'nllb';
   const targetLang = localStorage.getItem('global_target_lang') || 'vi';
   
   // Use default subtitle values from active config inputs, or sensible defaults

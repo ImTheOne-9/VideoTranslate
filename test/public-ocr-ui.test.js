@@ -191,7 +191,7 @@ test('studio markup exposes language, advanced region, and first-use download co
     'ocr-region-right',
     'ocr-region-value',
     'ocr-region-overlay',
-    'ocr-mode-value',
+    'global-ocr-mode-select',
     'subtitle-engine-value',
     'ocr-component-modal',
     'ocr-download-btn',
@@ -200,15 +200,9 @@ test('studio markup exposes language, advanced region, and first-use download co
     assert.match(html, new RegExp(`id=["']${id}["']`), `missing #${id}`);
   }
   assert.match(html, /name=["']ocrLanguage["']/);
-  assert.match(html, /name=["']ocrMode["']/);
   assert.match(html, /name=["']subtitleEngine["']/);
-  assert.match(html, /name=["']whisperOnnxVariant["']/);
-  assert.match(html, /data-whisper-onnx-variant=["']q8["']/);
-  assert.match(html, /data-whisper-onnx-variant=["']fp32["']/);
+  assert.match(html, /id=["']whisper-model-select["']/);
   assert.match(html, /name=["']ocrRegion["']/);
-  for (const mode of ['fast', 'auto', 'accurate']) {
-    assert.match(html, new RegExp(`data-ocr-mode=["']${mode}["']`));
-  }
   for (const engine of ['auto', 'ocr', 'whisper']) {
     assert.match(html, new RegExp(`data-subtitle-engine=["']${engine}["']`));
   }
