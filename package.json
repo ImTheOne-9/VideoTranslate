@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {

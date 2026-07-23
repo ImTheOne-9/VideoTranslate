@@ -1655,8 +1655,13 @@ async function selectAndShowTask(taskId) {
     if (res.ok) {
       const data = await res.json();
       const task = data.queue.find(t => t.id === taskId);
-      if (task && task.projectId && task.projectId !== currentProjectId) {
-        await loadProject(task.projectId, true);
+      if (task && task.projectId) {
+        if (task.projectId !== currentProjectId) {
+          await loadProject(task.projectId, true);
+        } else {
+          executeSwitchView('studio');
+          openStudioEditor();
+        }
         currentDisplayedTaskId = taskId;
         switchToResultTab();
         updateQueueStatus();
@@ -1669,7 +1674,7 @@ async function selectAndShowTask(taskId) {
   }
 
   currentDisplayedTaskId = taskId;
-  switchView('studio');
+  executeSwitchView('studio');
   openStudioEditor();
   switchToResultTab();
   updateQueueStatus();
@@ -6106,7 +6111,10 @@ async function downloadAllMissingDependencies() {
         const overallPercent = Math.min(99, Math.round(basePercent + (itemPercent * stepWeight / 100)));
         if (progressBar) progressBar.style.width = `${overallPercent}%`;
         if (progressText) progressText.textContent = `${overallPercent}%`;
-        if (statusText) statusText.textContent = customStatusMsg || `Đang tải ${item.label} (${index + 1}/${totalItems})...`;
+        const textMsg = (typeof customStatusMsg === 'string' && customStatusMsg.trim())
+          ? customStatusMsg
+          : `Đang tải ${item.label} (${index + 1}/${totalItems})...`;
+        if (statusText) statusText.textContent = textMsg;
       };
 
       updateProgress(0, `Bắt đầu tải ${item.label} (${index + 1}/${totalItems})...`);
@@ -6130,7 +6138,20 @@ async function downloadAllMissingDependencies() {
         await pollProgress('/api/download-model/status', updateProgress, (d) => d.status === 'completed' || d.status === 'success' || (!d.downloading && d.percent >= 100), (d) => d.percent || 0);
       } else if (item.type === 'ocr') {
         await fetch('/api/ocr-component/download', { method: 'POST' });
-        await pollProgress('/api/ocr-component/download-status', updateProgress, (d) => d.status === 'completed' || d.status === 'ready' || d.status === 'success' || d.percent >= 100, (d) => d.percent || d.downloadPercent || 0);
+        await pollProgress(
+          '/api/ocr-component/download-status',
+          (percent, data) => {
+            let msg = `Đang tải ${item.label} (${index + 1}/${totalItems})...`;
+            if (data && data.step === 'extracting') {
+              msg = `Đang giải nén ${item.label} (${index + 1}/${totalItems})...`;
+            } else if (data && data.step === 'installing') {
+              msg = `Đang cài đặt ${item.label} (${index + 1}/${totalItems})...`;
+            }
+            updateProgress(percent, msg);
+          },
+          (d) => d.status === 'ready' || d.status === 'completed' || d.status === 'success',
+          (d) => d.percent || d.downloadPercent || 0
+        );
       }
     }
 
@@ -6161,7 +6182,7 @@ async function pollProgress(url, onProgress, isDoneCheck, getPercent) {
         if (!res.ok) throw new Error('Không thể kiểm tra tiến trình');
         const data = await res.json();
         const percent = getPercent(data);
-        onProgress(percent);
+        onProgress(percent, data);
 
         if (isDoneCheck(data)) {
           clearInterval(interval);
