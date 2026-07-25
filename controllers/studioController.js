@@ -10,7 +10,7 @@ const {
   DEFAULT_VOICE_ENGINE_ID,
   VoiceEngineError,
   voiceEngineRegistry
-} = require('../lib/voice-engines');
+} = require('../lib/voice-engines/index');
 const {
   createCheckpointSignature,
   getFileIdentity,

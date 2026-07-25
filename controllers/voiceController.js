@@ -4,7 +4,7 @@ const shared = require('../lib/shared-state');
 const {
   DEFAULT_VOICE_ENGINE_ID,
   voiceEngineRegistry
-} = require('../lib/voice-engines');
+} = require('../lib/voice-engines/index');
 
 // Trạng thái tiến trình cloner voice
 const clonerState = {

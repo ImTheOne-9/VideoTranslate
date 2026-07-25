@@ -3,16 +3,29 @@ const path = require('path');
 const child_process = require('child_process');
 const JavaScriptObfuscator = require('javascript-obfuscator');
 
+function getAllJsFiles(dir) {
+  let results = [];
+  if (!fs.existsSync(dir)) return results;
+  const list = fs.readdirSync(dir);
+  for (const file of list) {
+    const fullPath = path.join(dir, file);
+    const stat = fs.statSync(fullPath);
+    if (stat && stat.isDirectory()) {
+      results = results.concat(getAllJsFiles(fullPath));
+    } else if (file.endsWith('.js')) {
+      const relPath = path.relative(__dirname, fullPath).replace(/\\/g, '/');
+      results.push(relPath);
+    }
+  }
+  return results;
+}
+
 // Thu thập toàn bộ file backend cần biên dịch sang bytecode .jsc
 const backendFiles = [
   'main.js',
   'server.js',
-  ...fs.readdirSync(path.join(__dirname, 'lib'))
-    .filter(f => f.endsWith('.js'))
-    .map(f => `lib/${f}`),
-  ...fs.readdirSync(path.join(__dirname, 'controllers'))
-    .filter(f => f.endsWith('.js'))
-    .map(f => `controllers/${f}`)
+  ...getAllJsFiles(path.join(__dirname, 'lib')),
+  ...getAllJsFiles(path.join(__dirname, 'controllers'))
 ];
 
 // File chạy dạng JS thô cần làm rối bằng javascript-obfuscator
