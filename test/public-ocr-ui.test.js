@@ -229,9 +229,25 @@ test('studio client wires OCR preflight and Whisper fallback endpoint', () => {
 
   const mainWaiting = source.slice(source.indexOf("targetTask.status === 'waiting_input'"), source.indexOf("targetTask.status === 'success'"));
   assert.match(mainWaiting, /fallback\.visible/);
+  assert.match(mainWaiting, /actionRequired === 'render_resume'/);
+  assert.match(mainWaiting, /targetTask\.step \|\| 'Tác vụ đã được khôi phục/);
+  assert.match(source, /data\.set\('uiSnapshot', JSON\.stringify\(serializeStudioForm\(\)\)\)/);
+  assert.match(source, /applyRenderTaskUiSnapshot\(task, true\)/);
+  assert.match(source, /restoreLatestRenderUiSnapshotForCurrentProject/);
+  assert.match(mainWaiting, /Render đang chờ tiếp tục/);
+  assert.match(mainWaiting, /resumeRenderTask/);
 
   const queueWaitingStart = source.indexOf('if (isWaiting &&');
   const queueWaiting = source.slice(queueWaitingStart, source.indexOf('} else if (isPending)', queueWaitingStart));
   assert.match(queueWaiting, /cancelQueueTask/);
   assert.match(queueWaiting, /escapeHtml/);
+});
+
+test('returning from queue result to preview redraws the blur timeline', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(source, /if \(tab === 'preview'\) \{\s*refreshStudioPreviewLayout\(\);/);
+  assert.match(source, /function refreshStudioPreviewLayout\(\)/);
+  assert.match(source, /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/);
+  assert.match(source, /typeof renderTimeline === 'function'/);
+  assert.match(source, /typeof syncPlayhead === 'function'/);
 });
