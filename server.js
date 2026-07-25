@@ -317,6 +317,7 @@ app.get('/api/studio-assets', studioController.getStudioAssets);
 app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
 app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
+app.post('/api/render-resume', studioController.resumeRenderTask);
 app.post('/api/cancel-queue-task', studioController.cancelQueueTask);
 app.post('/api/clear-queue', studioController.clearQueue);
 app.post('/api/cancel-render', studioController.cancelRender);
@@ -341,6 +342,7 @@ app.get('/api/anti-dupe-progress', antiDupeController.getProgress);
 app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 
 // 4. Voice and asset routes
+app.get('/api/voice-engines', voiceController.getVoiceEngines);
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);
@@ -543,6 +545,7 @@ function findAvailablePort(startPort) {
 function startServer(preferredPort = 3456) {
   return new Promise(async (resolve, reject) => {
     try {
+      studioController.restoreRenderQueue();
       const port = await findAvailablePort(preferredPort);
       const server = app.listen(port, '127.0.0.1', () => {
         console.log(`\n🚀 YouTube Shorts Downloader đang chạy tại:`);

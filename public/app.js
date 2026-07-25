@@ -39,6 +39,7 @@ function setBusy(button, busy, text) {
 }
 
 let pendingSwitchViewName = null;
+let studioAssetsReady = false;
 
 function closeSaveProjectConfirmModal() {
   const modal = $('save-project-confirm-modal');
@@ -149,8 +150,27 @@ document.querySelectorAll('.preview-tab-btn').forEach(btn => {
     const resultTab = $('tab-result-content');
     if (previewTab) previewTab.classList.toggle('hidden', tab !== 'preview');
     if (resultTab) resultTab.classList.toggle('hidden', tab !== 'result');
+    if (tab === 'preview') {
+      refreshStudioPreviewLayout();
+    }
   });
 });
+
+function refreshStudioPreviewLayout() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (typeof updateBlurBoxPreview === 'function') {
+        updateBlurBoxPreview();
+      }
+      if (typeof renderTimeline === 'function') {
+        renderTimeline();
+      }
+      if (typeof syncPlayhead === 'function') {
+        syncPlayhead();
+      }
+    });
+  });
+}
 
 // Setup bottom configuration tabs switcher
 document.querySelectorAll('.config-tab-icon-btn').forEach(btn => {
@@ -234,6 +254,67 @@ function renderAssetList(id, items) {
   }
 }
 
+function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-omnivoice') {
+  const select = $('voice-engine-select');
+  const capabilityText = $('voice-engine-capabilities');
+  if (!select) return;
+  const previousValue = select.value || defaultEngineId;
+  select.innerHTML = '';
+
+  for (const engine of voiceEngines) {
+    const option = document.createElement('option');
+    option.value = engine.id;
+    option.textContent = engine.id === 'current-omnivoice'
+      ? 'OmniVoice hiện tại'
+      : engine.name;
+    option.disabled = engine.status?.ready !== true;
+    if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
+    select.appendChild(option);
+  }
+
+  const preferred = voiceEngines.some((engine) => engine.id === previousValue && engine.status?.ready)
+    ? previousValue
+    : defaultEngineId;
+  select.value = preferred;
+
+  const updateDescription = () => {
+    const engine = voiceEngines.find((item) => item.id === select.value);
+    if (!engine || !capabilityText) return;
+    const capabilities = engine.capabilities || {};
+    const languageLabels = { vi: 'Việt', en: 'Anh', zh: 'Trung' };
+    const languages = (capabilities.languages || [])
+      .map((language) => languageLabels[language] || language)
+      .join(', ');
+    const devices = (capabilities.devices || []).map((device) => {
+      if (device === 'cpu') return 'CPU';
+      if (device.startsWith('vulkan')) return 'Vulkan';
+      if (device.startsWith('cuda')) return 'CUDA';
+      return device;
+    }).join(', ');
+    const features = [
+      capabilities.cloneVoice ? 'Clone giọng' : null,
+      languages || null,
+      devices || null,
+      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null
+    ].filter(Boolean);
+    capabilityText.textContent = engine.status?.ready
+      ? features.join(' • ')
+      : 'Engine chưa sẵn sàng. Hãy cài đủ CLI và model.';
+  };
+
+  select.onchange = updateDescription;
+  updateDescription();
+
+  const clonerSelect = $('cloner-voice-engine-select');
+  if (clonerSelect) {
+    const previousClonerValue = clonerSelect.value || preferred;
+    clonerSelect.innerHTML = select.innerHTML;
+    clonerSelect.value = voiceEngines.some(
+      (engine) => engine.id === previousClonerValue && engine.status?.ready
+    ) ? previousClonerValue : preferred;
+  }
+}
+
 async function loadAssets() {
   try {
     await checkLocalDependencies();
@@ -258,6 +339,7 @@ async function loadAssets() {
   renderAssetList('asset-voices', assets.voices);
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
+  renderVoiceEngineOptions(assets.voiceEngines || [], assets.defaultVoiceEngineId);
   const omiStatusEl = $('omi-status');
   if (omiStatusEl) {
     if (assets.omiConfigured) {
@@ -275,6 +357,8 @@ async function loadAssets() {
   if ($('voice-list-tbody')) renderVoicesList($('voice-search-input')?.value || '');
   if ($('music-list-tbody')) renderMusicList($('music-search-input')?.value || '');
   if ($('rendered-videos-grid')) renderRenderedVideosGrid($('rendered-search-input')?.value || '');
+  studioAssetsReady = true;
+  reapplyPendingRenderUiSnapshot();
 
   // Kiểm tra xem có tiến trình render đang chạy ngầm hay không để khôi phục giao diện
   checkActiveRenderProgress();
@@ -1315,6 +1399,7 @@ async function renderStudio(event) {
   const status = $('render-status');
   syncTranslationProfileValue(false);
   const data = new FormData(form);
+  data.set('uiSnapshot', JSON.stringify(serializeStudioForm()));
 
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
@@ -1365,6 +1450,16 @@ async function renderStudio(event) {
   }
 
   // Kiểm tra CUDA
+  if (voiceMode === 'omi') {
+    const voiceEngineId = data.get('voiceEngine') || assets.defaultVoiceEngineId || 'current-omnivoice';
+    const voiceEngine = (assets.voiceEngines || []).find((engine) => engine.id === voiceEngineId);
+    if (!voiceEngine?.status?.ready) {
+      toast('Voice engine đã chọn chưa sẵn sàng. Hãy kiểm tra CLI và model.', 'error');
+      return;
+    }
+    data.set('voiceEngine', voiceEngineId);
+  }
+
   if (voiceMode === 'omi' && omiDevice === 'cuda:0' && !dependencyStatus.cuda) {
     showDependencyModal('cuda', () => {
       const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
@@ -1468,6 +1563,43 @@ async function renderStudio(event) {
 // ==========================================================================
 let queuePollInterval = null;
 let currentDisplayedTaskId = null;
+let appliedRenderUiSnapshotTaskId = null;
+let pendingRenderUiSnapshotTask = null;
+
+function applyRenderTaskUiSnapshot(task, force = false) {
+  if (!task?.uiSnapshot || typeof task.uiSnapshot !== 'object') return false;
+  if (!force && appliedRenderUiSnapshotTaskId === task.id) return false;
+  pendingRenderUiSnapshotTask = studioAssetsReady ? null : task;
+  deserializeStudioForm(task.uiSnapshot);
+  appliedRenderUiSnapshotTaskId = task.id;
+  return true;
+}
+
+function reapplyPendingRenderUiSnapshot() {
+  if (!pendingRenderUiSnapshotTask) return;
+  deserializeStudioForm(pendingRenderUiSnapshotTask.uiSnapshot);
+  appliedRenderUiSnapshotTaskId = pendingRenderUiSnapshotTask.id;
+  pendingRenderUiSnapshotTask = null;
+}
+
+async function restoreLatestRenderUiSnapshotForCurrentProject() {
+  if (!currentProjectId) return;
+  try {
+    const response = await fetch('/api/render-queue-status');
+    if (!response.ok) return;
+    const data = await response.json();
+    const candidates = (Array.isArray(data.queue) ? data.queue : [])
+      .filter((task) => task.projectId === currentProjectId
+        && ['pending', 'rendering', 'waiting_input', 'error'].includes(task.status)
+        && task.uiSnapshot)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    if (!candidates.length) return;
+    currentDisplayedTaskId = candidates[0].id;
+    applyRenderTaskUiSnapshot(candidates[0], true);
+  } catch (error) {
+    console.error('[Render Snapshot] Không thể khôi phục cấu hình:', error.message);
+  }
+}
 
 function startQueuePolling() {
   if (queuePollInterval) return;
@@ -1623,20 +1755,35 @@ function updateMainResultUI(queue, currentActiveId) {
       </div>
     `;
   } else if (targetTask.status === 'waiting_input') {
-    const fallback = window.OcrUi.getOcrFallbackAction(targetTask);
-    const fallbackMessage = window.OcrUi.escapeHtml(fallback.message || targetTask.error || 'OCR gặp lỗi kỹ thuật.');
-    const whisperAction = fallback.visible
-      ? `<button type="button" class="premium-render-btn" onclick="useWhisperForTask('${targetTask.id}', event)">Dùng Whisper thay thế</button>`
-      : '';
-    html = `
-      <div class="render-loading-state ocr-waiting-state">
-        <h3>OCR cần bạn xác nhận</h3>
-        <p>${fallbackMessage}</p>
-        <div class="ocr-fallback-actions">
-          ${whisperAction}
-          <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
-        </div>
-      </div>`;
+    if (targetTask.actionRequired === 'render_resume') {
+      const resumeMessage = window.OcrUi.escapeHtml(
+        targetTask.step || 'Tác vụ đã được khôi phục từ lần chạy trước.'
+      );
+      html = `
+        <div class="render-loading-state ocr-waiting-state">
+          <h3>Render đang chờ tiếp tục</h3>
+          <p>${resumeMessage}</p>
+          <div class="ocr-fallback-actions">
+            <button type="button" class="premium-render-btn" onclick="resumeRenderTask('${targetTask.id}', event)">Tiếp tục từ checkpoint</button>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+          </div>
+        </div>`;
+    } else {
+      const fallback = window.OcrUi.getOcrFallbackAction(targetTask);
+      const fallbackMessage = window.OcrUi.escapeHtml(fallback.message || targetTask.error || 'OCR gặp lỗi kỹ thuật.');
+      const whisperAction = fallback.visible
+        ? `<button type="button" class="premium-render-btn" onclick="useWhisperForTask('${targetTask.id}', event)">Dùng Whisper thay thế</button>`
+        : '';
+      html = `
+        <div class="render-loading-state ocr-waiting-state">
+          <h3>OCR cần bạn xác nhận</h3>
+          <p>${fallbackMessage}</p>
+          <div class="ocr-fallback-actions">
+            ${whisperAction}
+            <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+          </div>
+        </div>`;
+    }
   } else if (targetTask.status === 'success' && targetTask.result) {
     // 3. Giao diện Render thành công (Video Player full-size như cũ)
     html = `
@@ -1661,7 +1808,10 @@ function updateMainResultUI(queue, currentActiveId) {
     const statusColor = isCancelled ? 'var(--muted)' : '#ef4444';
     const borderColor = isCancelled ? 'var(--border)' : 'rgba(239, 68, 68, 0.3)';
     const bgColor = isCancelled ? 'rgba(255, 255, 255, 0.01)' : 'rgba(239, 68, 68, 0.05)';
-    const errMsg = targetTask.error || targetTask.step || 'Lỗi không xác định';
+    const errMsg = window.OcrUi.escapeHtml(targetTask.error || targetTask.step || 'Lỗi không xác định');
+    const resumeAction = targetTask.canResume
+      ? `<button type="button" class="premium-render-btn" style="margin-top: 12px;" onclick="resumeRenderTask('${targetTask.id}', event)">Tiếp tục từ checkpoint</button>`
+      : '';
 
     html = `
       <div class="render-loading-state" style="border-color: ${borderColor}; background: ${bgColor}; max-width: 500px; margin: 20px auto; padding: 30px; border-radius: 12px; border: 1px solid;">
@@ -1669,6 +1819,7 @@ function updateMainResultUI(queue, currentActiveId) {
         <h3 style="color: ${statusColor}; margin-bottom: 10px;">${statusTitle}</h3>
         <p style="color: var(--muted); font-size: 13px; margin-bottom: 15px; line-height: 1.5;">${errMsg}</p>
         <p style="font-size: 12px; color: var(--muted);">Tên video: ${targetTask.videoName}</p>
+        ${resumeAction}
       </div>
     `;
   }
@@ -1788,6 +1939,16 @@ function renderQueueModalUI(queue, currentActiveId) {
       actionHtml = `
         <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="useWhisperForTask('${task.id}', event)">Dùng Whisper</button>
         <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if ((isWaiting && task.actionRequired === 'render_resume') || (isFailed && task.canResume)) {
+      const waitingMessage = window.OcrUi.escapeHtml(
+        isWaiting && task.actionRequired === 'render_resume'
+          ? (task.step || 'Tác vụ có thể tiếp tục từ checkpoint.')
+          : (task.error || task.step || 'Tác vụ có thể tiếp tục từ checkpoint.')
+      );
+      waitingMessageHtml = `<div class="queue-ocr-error">${waitingMessage}</div>`;
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="resumeRenderTask('${task.id}', event)">Tiếp tục</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
     } else if (isPending) {
       actionHtml = `<button type="button" class="premium-render-btn" style="background: #ef4444; color: white; padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy chờ</button>`;
     } else if (isRunning) {
@@ -1798,6 +1959,12 @@ function renderQueueModalUI(queue, currentActiveId) {
       `;
     }
 
+    const voiceFallbackHtml = task.voiceExecution?.fallback
+      ? `<div style="font-size: 11px; color: #f59e0b;">
+          Voice engine đã chuyển từ ${window.OcrUi.escapeHtml(task.voiceExecution.requestedDevice || 'GPU')}
+          sang ${window.OcrUi.escapeHtml(task.voiceExecution.usedDevice || 'CPU')}.
+        </div>`
+      : '';
     const timeStr = new Date(task.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
     html += `
@@ -1816,6 +1983,7 @@ function renderQueueModalUI(queue, currentActiveId) {
           </div>
         </div>
         ${waitingMessageHtml}
+        ${voiceFallbackHtml}
         <!-- Progress Bar -->
         <div style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 4px; border-radius: 2px; overflow: hidden; position: relative;">
           <div style="width: ${progressBarPercent}%; height: 100%; background: ${progressBarColor}; transition: width 0.3s ease-out;"></div>
@@ -1841,6 +2009,7 @@ async function selectAndShowTask(taskId) {
           executeSwitchView('studio');
           openStudioEditor();
         }
+        applyRenderTaskUiSnapshot(task, true);
         currentDisplayedTaskId = taskId;
         switchToResultTab();
         updateQueueStatus();
@@ -1853,6 +2022,13 @@ async function selectAndShowTask(taskId) {
   }
 
   currentDisplayedTaskId = taskId;
+  try {
+    const response = await fetch('/api/render-queue-status');
+    if (response.ok) {
+      const data = await response.json();
+      applyRenderTaskUiSnapshot(data.queue.find((task) => task.id === taskId), true);
+    }
+  } catch {}
   executeSwitchView('studio');
   openStudioEditor();
   switchToResultTab();
@@ -1965,7 +2141,7 @@ async function useWhisperForTask(taskId, event) {
     const response = await fetch('/api/render-use-whisper', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId })
+      body: JSON.stringify({ taskId, settings: getGlobalAiSettings() })
     });
     const result = await response.json();
     if (!response.ok || !result.success) throw new Error(result.error || 'Không thể chuyển sang Whisper.');
@@ -1978,6 +2154,35 @@ async function useWhisperForTask(taskId, event) {
   }
 }
 window.useWhisperForTask = useWhisperForTask;
+
+async function resumeRenderTask(taskId, event) {
+  const button = event?.currentTarget || event?.target;
+  setBusy(button, true, 'Đang tiếp tục...');
+  try {
+    const response = await fetch('/api/render-resume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        taskId,
+        settings: getGlobalAiSettings()
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Không thể tiếp tục tác vụ render.');
+    }
+    const skipped = Array.isArray(result.completedStages) ? result.completedStages.length : 0;
+    toast(skipped > 0
+      ? `Đang tiếp tục, giữ lại ${skipped} bước đã hoàn tất.`
+      : 'Đã đưa tác vụ trở lại hàng chờ.', 'success');
+    startQueuePolling();
+    await updateQueueStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+    setBusy(button, false);
+  }
+}
+window.resumeRenderTask = resumeRenderTask;
 
 async function cancelRenderVideo() {
   const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
@@ -3111,8 +3316,11 @@ function renderCurrentConfigSummary() {
     const omiSteps = document.querySelector('input[name="omiSteps"]');
     const omiSeed = $('omi-seed-preset');
     const omiCustomSeed = $('omi-seed-input');
+    const voiceEngine = $('voice-engine-select');
+    const allowCpuFallback = $('voice-allow-cpu-fallback');
 
     let clonerParts = [];
+    if (voiceEngine) clonerParts.push(`Engine: ${getSelectedText(voiceEngine)}`);
     if (outputLang) clonerParts.push(`Ngôn ngữ: ${outputLang.options[outputLang.selectedIndex].text}`);
     if (omiDevice) clonerParts.push(`Thiết bị: ${getSelectedText(omiDevice)}`);
     if (omiSteps) clonerParts.push(`Bước (Steps): ${omiSteps.value}`);
@@ -3121,6 +3329,7 @@ function renderCurrentConfigSummary() {
     } else if (omiSeed) {
       clonerParts.push(`Seed: ${omiSeed.value}`);
     }
+    clonerParts.push(`Fallback CPU: ${allowCpuFallback?.checked ? 'Cho phép' : 'Không'}`);
     summary.push(`<div>🤖 <b>OmniVoice Cloner:</b> ${clonerParts.join(' | ')}</div>`);
   }
 
@@ -5488,6 +5697,7 @@ function getGlobalAiSettings() {
     ninerouterApiKey: localStorage.getItem('global_ninerouter_key') || '',
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
+    opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -5496,7 +5706,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -5803,6 +6013,7 @@ function openGlobalSettingsModal() {
   if (ninerouterBaseUrlInput) {
     ninerouterBaseUrlInput.value = settings.ninerouterBaseUrl || 'http://localhost:20128/v1';
   }
+  if ($('global-opencode-model')) { $('global-opencode-model').value = settings.opencodeModel || 'DeepSeek V4 Flash (Free)'; }
   if (ninerouterInput) {
     ninerouterInput.value = settings.ninerouterApiKey;
   }
@@ -5861,6 +6072,14 @@ function toggleGlobalAiProviderFields() {
       loadNineRouterModels(key, baseUrl);
     } else {
       ninerouterFields.classList.add('hidden');
+    }
+  }
+  const opencodeFields = $('global-opencode-fields');
+  if (opencodeFields) {
+    if (val === 'opencode') {
+      opencodeFields.classList.remove('hidden');
+    } else {
+      opencodeFields.classList.add('hidden');
     }
   }
 }
@@ -7622,8 +7841,7 @@ function deserializeStudioForm(obj) {
     if (item) {
       item.click();
     } else {
-      $('selected-video-file').value = obj.mainVideoFile;
-      setPreviewVideo(`/downloads/${encodeURIComponent(obj.mainVideoFile)}`);
+      selectSourceVideo(obj.mainVideoFile);
     }
   }
 
@@ -7634,7 +7852,7 @@ function deserializeStudioForm(obj) {
     if (item) {
       item.click();
     } else {
-      $('selected-reaction-video-file').value = obj.savedReactionFile;
+      selectReactionVideo(obj.savedReactionFile);
     }
   }
 
@@ -7660,6 +7878,7 @@ function deserializeStudioForm(obj) {
   }
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
   renderBlurBoxesList();
+  if (typeof updateBlurBoxPreview === 'function') updateBlurBoxPreview();
 
   // Đợi video load metadata xong rồi mới cập nhật overlay phụ đề
   // để tránh tính toán sai vị trí khi videoWidth/videoHeight chưa sẵn sàng
@@ -8173,7 +8392,7 @@ async function renderProjectsList() {
 const PROJECTS_PER_PAGE = 5;
 let projectsPage = 1;
 
-function renderPaginationControls(total, perPage, currentPage, container) {
+function renderProjectPaginationControls(total, perPage, currentPage, container) {
   if (!container || typeof container.appendChild !== 'function') return;
   const totalPages = Math.ceil(total / perPage);
   if (totalPages <= 1) return;
@@ -8323,7 +8542,7 @@ function filterAndRenderProjects() {
     if (filtered.length > PROJECTS_PER_PAGE && paginationRoot) {
       const paginationWrap = document.createElement('div');
       paginationWrap.className = 'project-pagination';
-      renderPaginationControls(filtered.length, PROJECTS_PER_PAGE, projectsPage, paginationWrap);
+      renderProjectPaginationControls(filtered.length, PROJECTS_PER_PAGE, projectsPage, paginationWrap);
       paginationRoot.appendChild(paginationWrap);
     }
   }
@@ -8406,7 +8625,7 @@ document.addEventListener('click', e => {
   }
 });
 
-function initActiveProject() {
+async function initActiveProject() {
   currentProjectId = localStorage.getItem('current_project_id') || null;
   currentProjectName = localStorage.getItem('current_project_name') || 'Dự án chưa đặt tên';
 
@@ -8416,7 +8635,8 @@ function initActiveProject() {
   }
 
   if (currentProjectId) {
-    loadProjectQuietly(currentProjectId);
+    await loadProjectQuietly(currentProjectId);
+    await restoreLatestRenderUiSnapshotForCurrentProject();
   }
   window.__projectDirty = false;
   

@@ -64,6 +64,8 @@ test('production separator flow no longer references Python or dual variants', (
   assert.doesNotMatch(source, /separator-gpu|separatorGpu|separate_audio\.py|setup_gpu_separator|audio-separator\.exe/i);
   assert.match(source, /UVR_MDXNET_KARA_2\.onnx/);
   assert.match(source, /output-vocals-wav=\$\{instrumentalPath\}/);
-  assert.match(source, /extractedBgmPath = instrumentalPath/);
+  assert.match(source, /runStage\(task, 'background_separation'/);
+  assert.match(source, /const extractedBgmPath = backgroundStage\.instrumentalPath/);
+  assert.match(source, /path\.join\(workDir, 'instrumental\.wav'\)/);
   assert.doesNotMatch(source, /extractedBgmPath = (?:accompanimentPath|residualVocalsPath)/);
 });

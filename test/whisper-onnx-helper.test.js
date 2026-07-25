@@ -1,10 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 
 const {
+  combineRegionResults,
   chunksToSrt,
   formatSrtTime,
   normalizeLanguage,
@@ -128,6 +130,104 @@ test('maps application language identifiers to Whisper language names', () => {
   assert.equal(normalizeLanguage('japan'), 'japanese');
   assert.equal(normalizeLanguage('korean'), 'korean');
   assert.equal(normalizeLanguage(), 'vietnamese');
+});
+
+test('combines persisted Whisper region results in original order', () => {
+  const result = combineRegionResults({
+    2: { text: 'ba', chunks: [{ timestamp: [2, 3], text: 'ba' }] },
+    0: { text: 'một', chunks: [{ timestamp: [0, 1], text: 'một' }] },
+    1: { text: 'hai', chunks: [{ timestamp: [1, 2], text: 'hai' }] }
+  }, { enabled: true, regionCount: 3 });
+
+  assert.equal(result.text, 'một hai ba');
+  assert.deepEqual(result.chunks.map((chunk) => chunk.text), ['một', 'hai', 'ba']);
+  assert.equal(result.vad.regionCount, 3);
+});
+
+test('Whisper child reports each completed VAD region for checkpointing', () => {
+  const root = path.join(__dirname, '..');
+  for (const file of ['lib/whisper-onnx-child.js', 'whisper-onnx-child-runtime.js']) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.match(source, /type:\s*'region_result'/);
+    assert.match(source, /checkpointIndex/);
+    assert.match(source, /checkpointTotal/);
+  }
+});
+
+test('Whisper resumes from the first unfinished VAD region', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-region-resume-'));
+  try {
+    const modelPath = path.join(directory, 'model');
+    const checkpointPath = path.join(directory, 'regions.json');
+    fs.mkdirSync(path.join(modelPath, 'onnx'), { recursive: true });
+    for (const file of [
+      'config.json',
+      'generation_config.json',
+      'preprocessor_config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ]) {
+      fs.writeFileSync(path.join(modelPath, file), '{}');
+    }
+
+    const baseOptions = {
+      variant: 'q8',
+      modelPath,
+      audioPath: path.join(directory, 'audio.wav'),
+      checkpointPath,
+      checkpointKey: 'same-input',
+      device: 'cpu',
+      detectSpeechRegions: async () => ({
+        durationSeconds: 2,
+        speechSeconds: 2,
+        regions: [
+          { start: 0, end: 1, samples: new Float32Array([0.1]) },
+          { start: 1, end: 2, samples: new Float32Array([0.2]) }
+        ]
+      })
+    };
+
+    await assert.rejects(transcribeAudio({
+      ...baseOptions,
+      runWorker: async (job) => {
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: { text: 'một', chunks: [{ timestamp: [0, 1], text: 'một' }] }
+        });
+        throw new Error('simulated app exit');
+      }
+    }), /simulated app exit/);
+
+    let resumedRegions;
+    const result = await transcribeAudio({
+      ...baseOptions,
+      detectSpeechRegions: async () => {
+        throw new Error('VAD must be reused');
+      },
+      loadCheckpointSamples: (audioPath, regions) => regions.map((region) => ({
+        ...region,
+        samples: new Float32Array([0.3])
+      })),
+      runWorker: async (job) => {
+        resumedRegions = job.speechRegions.map((region) => region.checkpointIndex);
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: { text: 'hai', chunks: [{ timestamp: [1, 2], text: 'hai' }] }
+        });
+        return { text: 'hai', chunks: [] };
+      }
+    });
+
+    assert.deepEqual(resumedRegions, [1]);
+    assert.equal(result.text, 'một hai');
+    assert.deepEqual(result.chunks.map((chunk) => chunk.text), ['một', 'hai']);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('formats timestamped Whisper chunks as non-overlapping SRT cues', () => {
