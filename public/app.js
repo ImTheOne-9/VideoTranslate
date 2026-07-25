@@ -254,6 +254,67 @@ function renderAssetList(id, items) {
   }
 }
 
+function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-omnivoice') {
+  const select = $('voice-engine-select');
+  const capabilityText = $('voice-engine-capabilities');
+  if (!select) return;
+  const previousValue = select.value || defaultEngineId;
+  select.innerHTML = '';
+
+  for (const engine of voiceEngines) {
+    const option = document.createElement('option');
+    option.value = engine.id;
+    option.textContent = engine.id === 'current-omnivoice'
+      ? 'OmniVoice hiện tại'
+      : engine.name;
+    option.disabled = engine.status?.ready !== true;
+    if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
+    select.appendChild(option);
+  }
+
+  const preferred = voiceEngines.some((engine) => engine.id === previousValue && engine.status?.ready)
+    ? previousValue
+    : defaultEngineId;
+  select.value = preferred;
+
+  const updateDescription = () => {
+    const engine = voiceEngines.find((item) => item.id === select.value);
+    if (!engine || !capabilityText) return;
+    const capabilities = engine.capabilities || {};
+    const languageLabels = { vi: 'Việt', en: 'Anh', zh: 'Trung' };
+    const languages = (capabilities.languages || [])
+      .map((language) => languageLabels[language] || language)
+      .join(', ');
+    const devices = (capabilities.devices || []).map((device) => {
+      if (device === 'cpu') return 'CPU';
+      if (device.startsWith('vulkan')) return 'Vulkan';
+      if (device.startsWith('cuda')) return 'CUDA';
+      return device;
+    }).join(', ');
+    const features = [
+      capabilities.cloneVoice ? 'Clone giọng' : null,
+      languages || null,
+      devices || null,
+      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null
+    ].filter(Boolean);
+    capabilityText.textContent = engine.status?.ready
+      ? features.join(' • ')
+      : 'Engine chưa sẵn sàng. Hãy cài đủ CLI và model.';
+  };
+
+  select.onchange = updateDescription;
+  updateDescription();
+
+  const clonerSelect = $('cloner-voice-engine-select');
+  if (clonerSelect) {
+    const previousClonerValue = clonerSelect.value || preferred;
+    clonerSelect.innerHTML = select.innerHTML;
+    clonerSelect.value = voiceEngines.some(
+      (engine) => engine.id === previousClonerValue && engine.status?.ready
+    ) ? previousClonerValue : preferred;
+  }
+}
+
 async function loadAssets() {
   try {
     await checkLocalDependencies();
@@ -278,6 +339,7 @@ async function loadAssets() {
   renderAssetList('asset-voices', assets.voices);
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
+  renderVoiceEngineOptions(assets.voiceEngines || [], assets.defaultVoiceEngineId);
   const omiStatusEl = $('omi-status');
   if (omiStatusEl) {
     if (assets.omiConfigured) {
@@ -1388,6 +1450,16 @@ async function renderStudio(event) {
   }
 
   // Kiểm tra CUDA
+  if (voiceMode === 'omi') {
+    const voiceEngineId = data.get('voiceEngine') || assets.defaultVoiceEngineId || 'current-omnivoice';
+    const voiceEngine = (assets.voiceEngines || []).find((engine) => engine.id === voiceEngineId);
+    if (!voiceEngine?.status?.ready) {
+      toast('Voice engine đã chọn chưa sẵn sàng. Hãy kiểm tra CLI và model.', 'error');
+      return;
+    }
+    data.set('voiceEngine', voiceEngineId);
+  }
+
   if (voiceMode === 'omi' && omiDevice === 'cuda:0' && !dependencyStatus.cuda) {
     showDependencyModal('cuda', () => {
       const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
@@ -1887,6 +1959,12 @@ function renderQueueModalUI(queue, currentActiveId) {
       `;
     }
 
+    const voiceFallbackHtml = task.voiceExecution?.fallback
+      ? `<div style="font-size: 11px; color: #f59e0b;">
+          Voice engine đã chuyển từ ${window.OcrUi.escapeHtml(task.voiceExecution.requestedDevice || 'GPU')}
+          sang ${window.OcrUi.escapeHtml(task.voiceExecution.usedDevice || 'CPU')}.
+        </div>`
+      : '';
     const timeStr = new Date(task.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
     html += `
@@ -1905,6 +1983,7 @@ function renderQueueModalUI(queue, currentActiveId) {
           </div>
         </div>
         ${waitingMessageHtml}
+        ${voiceFallbackHtml}
         <!-- Progress Bar -->
         <div style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 4px; border-radius: 2px; overflow: hidden; position: relative;">
           <div style="width: ${progressBarPercent}%; height: 100%; background: ${progressBarColor}; transition: width 0.3s ease-out;"></div>
@@ -3237,8 +3316,11 @@ function renderCurrentConfigSummary() {
     const omiSteps = document.querySelector('input[name="omiSteps"]');
     const omiSeed = $('omi-seed-preset');
     const omiCustomSeed = $('omi-seed-input');
+    const voiceEngine = $('voice-engine-select');
+    const allowCpuFallback = $('voice-allow-cpu-fallback');
 
     let clonerParts = [];
+    if (voiceEngine) clonerParts.push(`Engine: ${getSelectedText(voiceEngine)}`);
     if (outputLang) clonerParts.push(`Ngôn ngữ: ${outputLang.options[outputLang.selectedIndex].text}`);
     if (omiDevice) clonerParts.push(`Thiết bị: ${getSelectedText(omiDevice)}`);
     if (omiSteps) clonerParts.push(`Bước (Steps): ${omiSteps.value}`);
@@ -3247,6 +3329,7 @@ function renderCurrentConfigSummary() {
     } else if (omiSeed) {
       clonerParts.push(`Seed: ${omiSeed.value}`);
     }
+    clonerParts.push(`Fallback CPU: ${allowCpuFallback?.checked ? 'Cho phép' : 'Không'}`);
     summary.push(`<div>🤖 <b>OmniVoice Cloner:</b> ${clonerParts.join(' | ')}</div>`);
   }
 

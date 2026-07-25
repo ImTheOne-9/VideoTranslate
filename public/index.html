@@ -1645,6 +1645,16 @@
                     <div id="omi-cloner-container" class="omi-cloner-container hidden">
                       <div class="omi-advanced-grid">
                         <div class="form-group">
+                          <label>Engine giọng nói</label>
+                          <select id="voice-engine-select" name="voiceEngine" class="premium-select">
+                            <option value="current-omnivoice">OmniVoice hiện tại</option>
+                          </select>
+                          <div id="voice-engine-capabilities"
+                            style="font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45;">
+                            Đang kiểm tra khả năng engine...
+                          </div>
+                        </div>
+                        <div class="form-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
                             <option value="cpu">CPU</option>
@@ -1652,6 +1662,12 @@
                           </select>
                         </div>
                       </div>
+
+                      <label class="premium-switch" style="margin-top: 8px;">
+                        <input type="checkbox" id="voice-allow-cpu-fallback" name="voiceAllowCpuFallback" value="true">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
+                      </label>
 
                       <div style="display: none;">
                         <span id="omi-steps-badge">40</span>
@@ -2487,12 +2503,22 @@
               placeholder="Gõ chính xác nội dung trong file ghi âm mẫu..."></textarea>
           </div>
           <div class="form-group" style="margin-bottom: 10px;">
-            <label style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
+            <label for="cloner-voice-engine-select" style="margin: 0 0 6px 0;">Engine giọng nói</label>
+            <select id="cloner-voice-engine-select" class="premium-select" style="margin: 0 0 8px 0;"
+              aria-label="Engine giọng nói">
+              <option value="current-omnivoice">OmniVoice hiện tại</option>
+            </select>
+            <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
             <select id="cloner-device" class="premium-select" style="margin: 0;">
               <option value="cpu">CPU (Mặc định)</option>
               <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
             </select>
           </div>
+          <label class="premium-switch" style="margin-bottom: 10px;">
+            <input type="checkbox" id="cloner-allow-cpu-fallback">
+            <span class="switch-slider"></span>
+            <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
+          </label>
           <div class="form-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">Nội dung câu nói muốn tạo</label>
             <textarea id="cloner-script" required class="premium-textarea" rows="3"

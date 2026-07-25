@@ -7,6 +7,11 @@ const anti = require('../lib/anti-dupe');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
 const { createRenderOrchestrator } = require('../lib/render-orchestrator');
 const {
+  DEFAULT_VOICE_ENGINE_ID,
+  VoiceEngineError,
+  voiceEngineRegistry
+} = require('../lib/voice-engines');
+const {
   createCheckpointSignature,
   getFileIdentity,
   isUsableFile,
@@ -768,13 +773,64 @@ async function executeRenderTask(task) {
       const refAudioPath = shared.resolveAssetPath('voice', body.savedVoiceFile);
       let refText = (body.refText || '').trim();
       let omiScript = (body.omiScript || '').trim();
-
-      if (!fs.existsSync(shared.OMNIVOICE_CLI_PATH)) {
-        return res.status(400).json({ error: `Thiếu omnivoice-cli.exe tại ${shared.OMNIVOICE_CLI_PATH}` });
+      const voiceEngineId = body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
+      const allowCpuFallback = body.voiceAllowCpuFallback === true
+        || body.voiceAllowCpuFallback === 'true'
+        || body.voiceAllowCpuFallback === 'on';
+      let voiceEngine;
+      try {
+        voiceEngine = voiceEngineRegistry.resolve(voiceEngineId, DEFAULT_VOICE_ENGINE_ID);
+        await voiceEngine.loadModel();
+      } catch (error) {
+        if (error instanceof VoiceEngineError) throw error;
+        throw new VoiceEngineError(`Không thể khởi động voice engine: ${error.message}`, {
+          code: error.code || 'VOICE_ENGINE_ERROR',
+          engineId: voiceEngineId,
+          cause: error
+        });
       }
-      if (!fs.existsSync(shared.OMNIVOICE_MODEL_PATH)) {
-        return res.status(400).json({ error: `Thiếu model GGUF tại ${shared.OMNIVOICE_MODEL_PATH}` });
-      }
+      const requestedVoiceDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
+      const onVoiceFallback = (detail) => {
+        task.voiceExecution = {
+          engineId: voiceEngine.id,
+          requestedDevice: detail.from,
+          usedDevice: detail.to,
+          fallback: true,
+          fallbackReason: detail.error
+        };
+        renderJobStore.saveTask(task);
+        shared.updateStudioProgress(
+          Math.max(40, Number(task.percent || 0)),
+          `Voice engine dang chuyen tu ${detail.from} sang CPU theo cau hinh da chon...`
+        );
+      };
+      const runVoiceEngine = async (options) => {
+        const method = options.referenceAudioPath && options.referenceText
+          ? 'cloneVoice'
+          : 'synthesize';
+        const result = await voiceEngine[method]({
+          ...options,
+          language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+          device: requestedVoiceDevice,
+          steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+          seed: options.seed || (
+            body.omiSeed && body.omiSeed.trim() !== ''
+              ? body.omiSeed
+              : String(Math.floor(Math.random() * 9999999))
+          ),
+          allowCpuFallback,
+          onFallback: onVoiceFallback
+        });
+        task.voiceExecution = {
+          engineId: result.engineId,
+          requestedDevice: result.requestedDevice,
+          usedDevice: result.usedDevice,
+          fallback: result.fallback,
+          language: result.language
+        };
+        renderJobStore.saveTask(task);
+        return result;
+      };
 
       let finalRefAudioPath = null;
       if (refAudioPath) {
@@ -926,7 +982,10 @@ async function executeRenderTask(task) {
           subtitle: srtContent,
           referenceAudio: getFileIdentity(refAudioPath),
           refText,
-          model: getFileIdentity(shared.OMNIVOICE_MODEL_PATH),
+          engineId: voiceEngine.id,
+          model: voiceEngine.id === DEFAULT_VOICE_ENGINE_ID
+            ? getFileIdentity(shared.OMNIVOICE_MODEL_PATH)
+            : voiceEngine.getCapabilities(),
           language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
           steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
           seed: body.omiSeed || '',
@@ -962,28 +1021,17 @@ async function executeRenderTask(task) {
 
           const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
 
-          const omnivoiceArgs = [
-            '--model', shared.OMNIVOICE_MODEL_PATH,
-            '--text', lineText,
-            '--output', chunkPath,
-            '--response-format', 'wav',
-            '--language', ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
-            '--device', usedDevice,
-          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-            '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
-            '--position-temperature', '1.0'
-          ];
-
-          if (finalRefAudioPath && refText) {
-            omnivoiceArgs.push('--ref-audio', finalRefAudioPath);
-            omnivoiceArgs.push('--ref-text', refText);
-          } else {
-            omnivoiceArgs.push('--instruct', 'female');
-          }
-
           console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Thời lượng sub: ${durationSec.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
           try {
-            await shared.runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(shared.OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
+            await runVoiceEngine({
+              text: lineText,
+              outputPath: chunkPath,
+              steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+              positionTemperature: 1,
+              referenceAudioPath: finalRefAudioPath,
+              referenceText: refText,
+              instruct: 'female'
+            });
             if (fs.existsSync(chunkPath)) {
               try {
                 const wavInfo = readWavInfo(chunkPath);
@@ -1162,26 +1210,9 @@ async function executeRenderTask(task) {
         omiScript = omiScript.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
         voicePath = path.join(workDir, `omnivoice_${timestamp}.wav`);
         const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
-        const omnivoiceArgs = [
-          '--model', shared.OMNIVOICE_MODEL_PATH,
-          '--text', omiScript,
-          '--output', voicePath,
-          '--response-format', 'wav',
-          '--language', ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
-          '--device', usedDevice,
-          '--num-step', body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
-          '--seed', (body.omiSeed && body.omiSeed.trim() !== '') ? body.omiSeed : String(Math.floor(Math.random() * 9999999)),
-          '--position-temperature', '1.5'
-        ];
-
-        if (finalRefAudioPath && refText) {
-          omnivoiceArgs.push('--ref-audio', finalRefAudioPath);
-          omnivoiceArgs.push('--ref-text', refText);
-        } else {
-          omnivoiceArgs.push('--instruct', 'female');
-          const estDuration = Math.max(1.5, omiScript.length * 0.075);
-          omnivoiceArgs.push('--duration', String(estDuration.toFixed(1)));
-        }
+        const estDuration = finalRefAudioPath && refText
+          ? null
+          : Math.max(1.5, omiScript.length * 0.075);
 
         console.log('\n======================================================================');
         console.log(`[OmniVoice] Kịch bản đang đọc (${body.omiLanguage || 'vi'}, Device: ${usedDevice}):\n${omiScript}`);
@@ -1192,7 +1223,16 @@ async function executeRenderTask(task) {
         console.log(`[OmniVoice] Đã xuất kịch bản thành file văn bản: ${path.join(shared.RENDERS_DIR, scriptOutName)}`);
 
         shared.updateStudioProgress(55, 'AI Cloner: Đang đọc toàn bộ kịch bản...');
-        await shared.runOmnivoiceCLI(omnivoiceArgs, { cwd: path.dirname(shared.OMNIVOICE_CLI_PATH) }, body.omiDevice || 'cpu');
+        await runVoiceEngine({
+          text: omiScript,
+          outputPath: voicePath,
+          steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '40',
+          positionTemperature: 1.5,
+          duration: estDuration ? Number(estDuration.toFixed(1)) : undefined,
+          referenceAudioPath: finalRefAudioPath,
+          referenceText: refText,
+          instruct: 'female'
+        });
         tempFiles.push(voicePath);
       }
     }
@@ -1758,6 +1798,7 @@ function createRenderQueueHandlers(dependencies = {}) {
             : 'Video Tải Lên'),
           result: task.result,
           translationReport: task.translationReport || null,
+          voiceExecution: task.voiceExecution || null,
           currentStage: task.currentStage || null,
           completedStages: Object.entries(task.stages || {})
             .filter(([, stage]) => stage.status === 'success')
@@ -2078,13 +2119,17 @@ module.exports = {
   },
 
   getStudioAssets: async (req, res) => {
+    const voiceEngines = await voiceEngineRegistry.describeAll();
+    const defaultVoiceEngine = voiceEngines.find((engine) => engine.id === DEFAULT_VOICE_ENGINE_ID);
     res.json({
       videos: shared.listFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       renders: shared.listFiles(shared.RENDERS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       voices: shared.listFiles(shared.VOICES_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       music: shared.listFiles(shared.MUSIC_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       subtitles: shared.listFiles(shared.SUBTITLES_DIR, ['.srt', '.vtt', '.ass']),
-      omiConfigured: fs.existsSync(shared.OMNIVOICE_CLI_PATH) && fs.existsSync(shared.OMNIVOICE_MODEL_PATH),
+      omiConfigured: defaultVoiceEngine?.status?.ready === true,
+      defaultVoiceEngineId: DEFAULT_VOICE_ENGINE_ID,
+      voiceEngines,
       omnivoice: {
         cliExists: fs.existsSync(shared.OMNIVOICE_CLI_PATH),
         modelExists: fs.existsSync(shared.OMNIVOICE_MODEL_PATH),

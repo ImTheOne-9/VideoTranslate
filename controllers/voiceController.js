@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const shared = require('../lib/shared-state');
+const {
+  DEFAULT_VOICE_ENGINE_ID,
+  voiceEngineRegistry
+} = require('../lib/voice-engines');
 
 // Trạng thái tiến trình cloner voice
 const clonerState = {
@@ -11,7 +14,8 @@ const clonerState = {
   percent: 0,
   error: null,
   tempFiles: [],
-  voiceFilename: null
+  voiceFilename: null,
+  engineId: DEFAULT_VOICE_ENGINE_ID
 };
 
 function resetClonerState() {
@@ -22,9 +26,21 @@ function resetClonerState() {
   clonerState.error = null;
   clonerState.tempFiles = [];
   clonerState.voiceFilename = null;
+  clonerState.engineId = DEFAULT_VOICE_ENGINE_ID;
 }
 
 module.exports = {
+  getVoiceEngines: async (req, res) => {
+    try {
+      res.json({
+        defaultEngineId: DEFAULT_VOICE_ENGINE_ID,
+        engines: await voiceEngineRegistry.describeAll()
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
   generateClonerVoice: async (req, res) => {
     const { voiceName, refText, script, device } = req.body;
     const refAudio = req.file;
@@ -82,77 +98,54 @@ module.exports = {
       clonerState.stage = 'Đang tải model AI...';
       clonerState.percent = 10;
 
-      // Chạy OmniVoice CLI và capture output để parse stage
-      const omnivoiceArgs = [
-        '--model', shared.OMNIVOICE_MODEL_PATH,
-        '--text', script.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim(),
-        '--output', voicePath,
-        '--response-format', 'wav',
-        '--language', 'vi',
-        '--device', device || process.env.OMNIVOICE_DEVICE || 'cpu',
-        '--num-step', process.env.OMNIVOICE_STEPS || '16',
-        '--seed', String(Math.floor(Math.random() * 9999999)),
-        '--ref-audio', refWavPath,
-        '--ref-text', refText,
-        '--position-temperature', '1.5'
-      ];
-
       console.log(`[OmniCloner] Đang tạo giọng "${baseName}"...`);
+      let selectedDevice = device || process.env.OMNIVOICE_DEVICE || 'cpu';
 
-      const cliPath = shared.OMNIVOICE_CLI_PATH;
-
-      async function spawnOmniVoice(args) {
-        return new Promise((resolve, reject) => {
-          const child = spawn(cliPath, args, {
-            cwd: path.dirname(cliPath),
-            stdio: ['ignore', 'pipe', 'pipe']
-          });
-          clonerState.process = child;
-
-          let stdoutLog = '';
-          child.stdout.on('data', (data) => {
-            const line = data.toString();
-            stdoutLog += line;
-            if (line.includes('model_load done')) {
-              clonerState.stage = 'Đã tải model, đang xử lý giọng mẫu...';
-              clonerState.percent = 30;
-            } else if (line.includes('reference_encode') || line.includes('reference_read')) {
-              clonerState.stage = 'Đang phân tích giọng mẫu...';
-              clonerState.percent = 50;
-            } else if (line.includes('generate')) {
-              clonerState.stage = 'Đang tạo giọng nói AI...';
-              clonerState.percent = 70;
-            }
-          });
-
-          child.stderr.on('data', (data) => {
-            const line = data.toString();
-            if (line.includes('generate')) {
-              clonerState.stage = 'Đang tạo giọng nói AI...';
-              clonerState.percent = 70;
-            } else if (line.includes('model_load')) {
-              clonerState.stage = 'Đang tải model AI...';
-              clonerState.percent = 10;
-            }
-          });
-
-          child.on('exit', (code) => {
-            if (code === 0 || code === null) resolve();
-            else reject(new Error(`OmniVoice CLI thoát với mã lỗi ${code}`));
-          });
-          child.on('error', reject);
+      const engineId = req.body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
+      const engine = voiceEngineRegistry.resolve(engineId, DEFAULT_VOICE_ENGINE_ID);
+      clonerState.engineId = engine.id;
+      const runSelectedVoiceEngine = async () => {
+        return engine.cloneVoice({
+          text: script,
+          outputPath: voicePath,
+          language: 'vi',
+          device: selectedDevice,
+          steps: process.env.OMNIVOICE_STEPS || '16',
+          seed: String(Math.floor(Math.random() * 9999999)),
+          referenceAudioPath: refWavPath,
+          referenceText: refText,
+          positionTemperature: 1.5,
+          skipRenderCheck: true,
+          streamProgress: true,
+          allowCpuFallback: false,
+          onProcess: (child) => {
+            clonerState.process = child;
+          },
+          onProgress: (progress) => {
+            clonerState.percent = progress.percent;
+            const stageLabels = {
+              model_loading: 'Đang tải model AI...',
+              model_loaded: 'Đã tải model, đang xử lý giọng mẫu...',
+              reference_processing: 'Đang phân tích giọng mẫu...',
+              synthesizing: 'Đang tạo giọng nói AI...'
+            };
+            clonerState.stage = stageLabels[progress.stage] || clonerState.stage;
+          }
         });
-      }
+      };
 
       try {
-        await spawnOmniVoice(omnivoiceArgs);
+        await runSelectedVoiceEngine();
       } catch (err) {
-        if (device && device !== 'cpu') {
+        const allowCpuFallback = req.body.allowCpuFallback === true
+          || req.body.allowCpuFallback === 'true'
+          || req.body.allowCpuFallback === 'on';
+        if (allowCpuFallback && device && device !== 'cpu') {
           console.warn(`[OmniCloner] Chạy bằng ${device} thất bại (${err.message}), thử lại với CPU...`);
           clonerState.stage = 'Đang thử lại với CPU...';
           clonerState.percent = 5;
-          omnivoiceArgs[omnivoiceArgs.indexOf('--device') + 1] = 'cpu';
-          await spawnOmniVoice(omnivoiceArgs);
+          selectedDevice = 'cpu';
+          await runSelectedVoiceEngine();
         } else {
           throw err;
         }
@@ -171,6 +164,7 @@ module.exports = {
 
       clonerState.stage = 'Hoàn tất!';
       clonerState.percent = 100;
+      clonerState.active = false;
 
       res.json({
         success: true,
@@ -179,6 +173,11 @@ module.exports = {
       });
 
     } catch (err) {
+      if (!clonerState.active) {
+        try { if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath); } catch (e) {}
+        try { if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath); } catch (e) {}
+        return res.json({ success: false, cancelled: true, message: 'Da huy tao giong' });
+      }
       console.error('Error generating Omni Cloner voice:', err.message);
       if (err.message !== 'Đã hủy') {
         try { if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath); } catch (e) {}
@@ -206,11 +205,17 @@ module.exports = {
       stage: clonerState.stage,
       percent: clonerState.percent,
       error: clonerState.error,
-      voiceFilename: clonerState.voiceFilename
+      voiceFilename: clonerState.voiceFilename,
+      engineId: clonerState.engineId
     });
   },
 
   cancelClonerVoice: async (req, res) => {
+    try {
+      await voiceEngineRegistry.cancel(clonerState.engineId || DEFAULT_VOICE_ENGINE_ID);
+    } catch (error) {
+      console.warn('[VoiceEngine] Cannot cancel selected engine:', error.message);
+    }
     if (clonerState.process) {
       try {
         clonerState.process.kill('SIGTERM');

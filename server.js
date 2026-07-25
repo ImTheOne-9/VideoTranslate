@@ -342,6 +342,7 @@ app.get('/api/anti-dupe-progress', antiDupeController.getProgress);
 app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 
 // 4. Voice and asset routes
+app.get('/api/voice-engines', voiceController.getVoiceEngines);
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);

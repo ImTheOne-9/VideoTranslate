@@ -49,6 +49,12 @@ test('render manifest persists resumable state without API keys', () => {
       blurBoxes: [{ id: 'blur-1', x: 0.1, y: 0.7, width: 0.8, height: 0.2 }],
       geminiApiKey: 'snapshot-secret'
     };
+    task.voiceExecution = {
+      engineId: 'current-omnivoice',
+      requestedDevice: 'vulkan:0',
+      usedDevice: 'cpu',
+      fallback: true
+    };
 
     store.saveTask(task);
 
@@ -62,6 +68,7 @@ test('render manifest persists resumable state without API keys', () => {
     assert.equal(restored.uiSnapshot._subMode, 'generate');
     assert.equal(restored.uiSnapshot.blurBoxes.length, 1);
     assert.equal(restored.stages.subtitle.status, 'success');
+    assert.deepEqual(restored.voiceExecution, task.voiceExecution);
   });
 });
 
