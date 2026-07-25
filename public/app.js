@@ -8392,7 +8392,7 @@ async function renderProjectsList() {
 const PROJECTS_PER_PAGE = 5;
 let projectsPage = 1;
 
-function renderPaginationControls(total, perPage, currentPage, container) {
+function renderProjectPaginationControls(total, perPage, currentPage, container) {
   if (!container || typeof container.appendChild !== 'function') return;
   const totalPages = Math.ceil(total / perPage);
   if (totalPages <= 1) return;
@@ -8542,7 +8542,7 @@ function filterAndRenderProjects() {
     if (filtered.length > PROJECTS_PER_PAGE && paginationRoot) {
       const paginationWrap = document.createElement('div');
       paginationWrap.className = 'project-pagination';
-      renderPaginationControls(filtered.length, PROJECTS_PER_PAGE, projectsPage, paginationWrap);
+      renderProjectPaginationControls(filtered.length, PROJECTS_PER_PAGE, projectsPage, paginationWrap);
       paginationRoot.appendChild(paginationWrap);
     }
   }
