@@ -5614,6 +5614,7 @@ function getGlobalAiSettings() {
     ninerouterApiKey: localStorage.getItem('global_ninerouter_key') || '',
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
+    opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -5622,7 +5623,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -5929,6 +5930,7 @@ function openGlobalSettingsModal() {
   if (ninerouterBaseUrlInput) {
     ninerouterBaseUrlInput.value = settings.ninerouterBaseUrl || 'http://localhost:20128/v1';
   }
+  if ($('global-opencode-model')) { $('global-opencode-model').value = settings.opencodeModel || 'DeepSeek V4 Flash (Free)'; }
   if (ninerouterInput) {
     ninerouterInput.value = settings.ninerouterApiKey;
   }
@@ -5987,6 +5989,14 @@ function toggleGlobalAiProviderFields() {
       loadNineRouterModels(key, baseUrl);
     } else {
       ninerouterFields.classList.add('hidden');
+    }
+  }
+  const opencodeFields = $('global-opencode-fields');
+  if (opencodeFields) {
+    if (val === 'opencode') {
+      opencodeFields.classList.remove('hidden');
+    } else {
+      opencodeFields.classList.add('hidden');
     }
   }
 }

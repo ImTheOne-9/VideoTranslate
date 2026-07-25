@@ -711,6 +711,7 @@ async function executeRenderTask(task) {
     const studioMarginH = Number(body.subtitleMarginH || 20);
     const studioMarginL = (body.subtitleMarginL !== undefined && body.subtitleMarginL !== '') ? Number(body.subtitleMarginL) : studioMarginH;
     const studioMarginR = (body.subtitleMarginR !== undefined && body.subtitleMarginR !== '') ? Number(body.subtitleMarginR) : studioMarginH;
+
     const studioBoxWidth = videoWidth - studioMarginL - studioMarginR;
     const targetLang = body.translateTargetLang || 'vi';
     const charWidthRatio = targetLang === 'zh' ? 1.0 : 0.5;
@@ -731,6 +732,7 @@ async function executeRenderTask(task) {
           ninerouterApiKey: body.ninerouterApiKey,
           ninerouterModel: body.ninerouterModel,
           ninerouterBaseUrl: body.ninerouterBaseUrl,
+          opencodeModel: body.opencodeModel,
           targetLang,
           translationProfile: body.translationProfile
         }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);

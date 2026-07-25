@@ -2938,7 +2938,7 @@
               <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
               <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
               <option value="ninerouter">🤖 9Router Local AI Proxy</option>
-              <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ &amp; Không cần mạng)</option>
+              <option value="opencode">⚡ OpenCode SDK (Tự động Server ngầm &amp; OpenCode Zen Models)</option>
             </select>
           </div>
 
@@ -3019,6 +3019,21 @@
               <select id="global-ninerouter-model" class="premium-select" style="margin: 0; height: 38px;">
                 <option value="">-- Đang quét các model từ 9Router... --</option>
               </select>
+            </div>
+          </div>
+          <!-- OpenCode SDK Fields -->
+          <div id="global-opencode-fields" class="hidden"
+            style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenCode Zen Model</label>
+              <select id="global-opencode-model" class="premium-select" style="margin: 0; height: 38px;">
+                <option value="DeepSeek V4 Flash (Free)" selected>DeepSeek V4 Flash (Free)</option>
+                <option value="Big Pickle (Free)">Big Pickle (Free)</option>
+                <option value="HY3 (Free)">HY3 (Free)</option>
+                <option value="MiMo V2.5 (Free)">MiMo V2.5 (Free)</option>
+                <option value="North Mini Code (Free)">North Mini Code (Free)</option>
+              </select>
+              <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">OpenCode SDK sẽ tự động kích hoạt ngầm máy chủ OpenCode Server tại cổng 4096 khi bạn dịch phụ đề.</p>
             </div>
           </div>
         </div>
