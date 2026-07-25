@@ -439,6 +439,7 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
     actionRequired: null,
     sourceVideoPath: null,
     forceWhisper: false,
+    translationReport: null,
     createdAt,
     body,
     files,
@@ -609,7 +610,7 @@ async function executeRenderTask(task) {
       const langNames = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
       shared.updateStudioProgress(35, `Đang dịch phụ đề sang ${langNames[targetLang] || 'Tiếng Việt'} bằng AI...`);
       const translatedPath = path.join(workDir, `translated_${timestamp}.srt`);
-      await translateSubtitles(subtitlePath, translatedPath, {
+      const translationResult = await translateSubtitles(subtitlePath, translatedPath, {
         aiProvider: body.aiProvider,
         geminiApiKey: body.geminiApiKey,
         geminiModel: body.geminiModel,
@@ -618,8 +619,10 @@ async function executeRenderTask(task) {
         ninerouterApiKey: body.ninerouterApiKey,
         ninerouterModel: body.ninerouterModel,
         ninerouterBaseUrl: body.ninerouterBaseUrl,
-        targetLang
+        targetLang,
+        translationProfile: body.translationProfile
       }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
+      task.translationReport = translationResult?.report || null;
       subtitlePath = translatedPath;
     } else if (subtitlePath && fs.existsSync(subtitlePath)) {
       shared.updateStudioProgress(35, 'Đang định dạng cấu trúc phụ đề...');
@@ -1480,7 +1483,8 @@ async function executeRenderTask(task) {
         success: true,
         message: 'Đã render video',
         file: outName,
-        url: `/renders/${encodeURIComponent(outName)}`
+        url: `/renders/${encodeURIComponent(outName)}`,
+        translationReport: task.translationReport || null
       });
     } else {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
@@ -1564,7 +1568,8 @@ function createRenderQueueHandlers(dependencies = {}) {
           videoName: task.body.mainVideoFile || (task.files.videoUpload?.[0]
             ? task.files.videoUpload[0].originalname
             : 'Video Tải Lên'),
-          result: task.result
+          result: task.result,
+          translationReport: task.translationReport || null
         })),
         currentActiveId: state.currentActiveTask ? state.currentActiveTask.id : null
       });
