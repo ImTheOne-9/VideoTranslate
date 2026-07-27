@@ -257,6 +257,7 @@ app.use(licenseMiddleware);
 // Controllers
 const downloadController = require('./controllers/downloadController');
 const studioController = require('./controllers/studioController');
+const segmentController = require('./controllers/segmentController');
 const voiceController = require('./controllers/voiceController');
 const systemController = require('./controllers/systemController');
 const antiDupeController = require('./controllers/antiDupeController');
@@ -318,6 +319,12 @@ app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
 app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
 app.post('/api/render-resume', studioController.resumeRenderTask);
+app.get('/api/render-tasks/:taskId/segments', segmentController.getSegments);
+app.put('/api/render-tasks/:taskId/segments', segmentController.updateSegments);
+app.post('/api/render-tasks/:taskId/segments/replace', segmentController.replaceText);
+app.post('/api/render-tasks/:taskId/segments/approve', segmentController.approveSegments);
+app.post('/api/render-tasks/:taskId/segments/:segmentId/regenerate', segmentController.regenerateSegment);
+app.get('/api/render-tasks/:taskId/segments/:segmentId/audio', segmentController.streamSegmentAudio);
 app.post('/api/cancel-queue-task', studioController.cancelQueueTask);
 app.post('/api/clear-queue', studioController.clearQueue);
 app.post('/api/cancel-render', studioController.cancelRender);
@@ -411,6 +418,41 @@ app.get('/api/license/hwid', systemController.getLicenseHwid);
 app.post('/api/license/activate', systemController.activateLicense);
 app.get('/api/update-status', systemController.getUpdateStatus);
 app.post('/api/quit-and-install', systemController.quitAndInstallUpdate);
+
+// Thông tin phiên bản app + changelog
+app.get('/api/app-version', (req, res) => {
+  try {
+    const pkg = require('./package.json');
+    const currentVersion = pkg.version;
+    
+    // Đọc changelog
+    let changelog = [];
+    try {
+      const changelogData = require('./changelog.json');
+      changelog = changelogData.versions || [];
+    } catch (_) { /* Không có file changelog */ }
+    
+    // Tìm changelog cho phiên bản hiện tại
+    const currentChangelog = changelog.find(v => v.version === currentVersion) || null;
+    
+    // Kiểm tra xem app vừa update xong không
+    const justUpdated = global.justUpdated || false;
+    
+    // Reset flag sau khi đã thông báo
+    if (global.justUpdated) {
+      global.justUpdated = false;
+    }
+    
+    res.json({
+      version: currentVersion,
+      changelog: currentChangelog,
+      allChangelog: changelog,
+      justUpdated
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Thông tin app: license + disk usage cho sidebar
 app.get('/api/app-info', async (req, res) => {

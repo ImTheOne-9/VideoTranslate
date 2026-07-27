@@ -134,21 +134,27 @@ module.exports = {
         });
       };
 
+      const voiceLockOwner = `voice-cloner:${Date.now()}`;
+      shared.acquireVoiceEngine(voiceLockOwner);
       try {
-        await runSelectedVoiceEngine();
-      } catch (err) {
-        const allowCpuFallback = req.body.allowCpuFallback === true
-          || req.body.allowCpuFallback === 'true'
-          || req.body.allowCpuFallback === 'on';
-        if (allowCpuFallback && device && device !== 'cpu') {
-          console.warn(`[OmniCloner] Chạy bằng ${device} thất bại (${err.message}), thử lại với CPU...`);
-          clonerState.stage = 'Đang thử lại với CPU...';
-          clonerState.percent = 5;
-          selectedDevice = 'cpu';
+        try {
           await runSelectedVoiceEngine();
-        } else {
-          throw err;
+        } catch (err) {
+          const allowCpuFallback = req.body.allowCpuFallback === true
+            || req.body.allowCpuFallback === 'true'
+            || req.body.allowCpuFallback === 'on';
+          if (allowCpuFallback && device && device !== 'cpu') {
+            console.warn(`[OmniCloner] Chạy bằng ${device} thất bại (${err.message}), thử lại với CPU...`);
+            clonerState.stage = 'Đang thử lại với CPU...';
+            clonerState.percent = 5;
+            selectedDevice = 'cpu';
+            await runSelectedVoiceEngine();
+          } else {
+            throw err;
+          }
         }
+      } finally {
+        shared.releaseVoiceEngine(voiceLockOwner);
       }
 
       if (!clonerState.active) {

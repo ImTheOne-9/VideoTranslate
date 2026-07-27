@@ -1,0 +1,109 @@
+{
+  "versions": [
+    {
+      "version": "1.0.34",
+      "date": "2026-07-27",
+      "title": "Duyệt lời thoại, checkpoint và khôi phục render",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Thêm màn hình Duyệt lời thoại trước khi tạo giọng. Khi bật \"Duyệt từng câu trước khi tạo giọng\", render sẽ tạm dừng sau bước tạo và dịch phụ đề để bạn kiểm tra nội dung trước khi tiếp tục."
+        },
+        {
+          "type": "feature",
+          "text": "Cho phép chỉnh từng câu gồm thời gian bắt đầu/kết thúc, bản dịch hoặc lời đọc và giọng mẫu riêng. Có thể đánh dấu Đã duyệt, Khóa câu, tìm kiếm, lọc, hoàn tác, làm lại và tìm-thay thế hàng loạt."
+        },
+        {
+          "type": "feature",
+          "text": "Thêm xem thử theo từng câu: phát đúng đoạn video tương ứng, nghe audio đã tạo và tạo lại giọng cho riêng một câu ngay trong màn hình duyệt."
+        },
+        {
+          "type": "feature",
+          "text": "Thêm nút \"Tạo tất cả câu chưa có audio\". Các câu được tạo tuần tự để tránh xung đột OmniVoice; có hiển thị tiến độ, tiếp tục khi một câu lỗi và hỗ trợ dừng sau câu hiện tại."
+        },
+        {
+          "type": "improve",
+          "text": "Tối ưu checkpoint giọng theo từng câu. Audio hợp lệ được tái sử dụng khi tiếp tục render; sửa nội dung hoặc đổi giọng chỉ tạo lại câu bị ảnh hưởng, còn thay đổi timestamp vẫn giữ audio để căn lại thời lượng."
+        },
+        {
+          "type": "improve",
+          "text": "Nâng cấp hàng đợi và khả năng khôi phục tác vụ. Trạng thái chờ duyệt, tiến độ các bước, video nguồn và cấu hình dự án được lưu lại để có thể mở lại ứng dụng và tiếp tục đúng giai đoạn."
+        },
+        {
+          "type": "improve",
+          "text": "Bổ sung kiểm tra revision và ghi dữ liệu segment an toàn để tránh ghi đè khi dữ liệu thay đổi ở nơi khác. Trạng thái audio, cảnh báo và số câu chưa lưu được đồng bộ trực tiếp trên giao diện."
+        },
+        {
+          "type": "fix",
+          "text": "Sửa lỗi tạo giọng nghe thử bị OmniVoice hiểu nhầm là render đã bị hủy khi tác vụ đang chờ duyệt."
+        },
+        {
+          "type": "fix",
+          "text": "Sửa lỗi bấm tạo giọng cho nhiều câu cùng lúc gây xung đột revision. Trong khi OmniVoice đang xử lý, các thao tác có thể thay đổi dữ liệu sẽ tạm khóa và tự mở lại khi hoàn tất."
+        },
+        {
+          "type": "fix",
+          "text": "Cải thiện thông báo khi file giọng mẫu đã bị xóa hoặc không còn tồn tại, thay cho lỗi kỹ thuật khó hiểu."
+        },
+        {
+          "type": "improve",
+          "text": "Hiển thị phiên bản ứng dụng và lịch sử cập nhật trong giao diện. Người dùng có thể mở mục \"Có gì mới?\" để xem các tính năng, cải tiến và lỗi đã sửa của từng phiên bản."
+        }
+      ]
+    },
+    {
+      "version": "1.0.33",
+      "date": "2026-07-20",
+      "title": "Lồng tiếng đa giọng và OCR phụ đề",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "OCR nhận dạng phụ đề từ video — Trích xuất phụ đề trực tiếp từ hình ảnh video khi không có file SRT, hỗ trợ chọn ngôn ngữ và điều chỉnh vùng nhận dạng trên màn hình xem trước."
+        },
+        {
+          "type": "feature",
+          "text": "Thêm giọng đọc tiếng Anh và tiếng Trung Quốc, hỗ trợ clone giọng và TTS cho nhiều ngôn ngữ hơn."
+        },
+        {
+          "type": "improve",
+          "text": "Nâng cấp luồng dịch phụ đề và hồ sơ dịch, giúp kiểm soát đại từ, tên riêng, thuật ngữ và văn phong nhất quán hơn."
+        },
+        {
+          "type": "improve",
+          "text": "Chuyển sang Whisper ONNX timestamp với các lựa chọn Small Q8, Small FP32 và Medium Q8; bổ sung VAD và checkpoint theo vùng giọng nói."
+        },
+        {
+          "type": "improve",
+          "text": "Chuyển tách nhạc nền sang MDX ONNX, không còn phụ thuộc Python hoặc PyTorch."
+        }
+      ]
+    },
+    {
+      "version": "1.0.32",
+      "date": "2026-07-14",
+      "title": "Băm cảnh và chống trùng lặp video",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Băm cảnh (Scene Hashing) — Tự động phân tích và cắt video theo từng cảnh để hạn chế nội dung trùng lặp."
+        },
+        {
+          "type": "feature",
+          "text": "Cắt đầu và cuối video — Cho phép bỏ phần intro hoặc outro của video nguồn trước khi render."
+        },
+        {
+          "type": "feature",
+          "text": "Hỗ trợ tải video từ Bilibili và Youku."
+        },
+        {
+          "type": "improve",
+          "text": "Làm mới sidebar và bổ sung danh sách dự án gần đây để mở lại dự án nhanh hơn."
+        },
+        {
+          "type": "improve",
+          "text": "Tăng tốc quá trình tách giọng video gốc bằng GPU khi thiết bị hỗ trợ."
+        }
+      ]
+    }
+  ]
+}

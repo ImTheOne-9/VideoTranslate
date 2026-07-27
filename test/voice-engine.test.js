@@ -104,6 +104,25 @@ test('CPU fallback is passed to the runner only after explicit opt-in', async ()
   assert.equal(result.fallback, true);
 });
 
+test('preview synthesis can explicitly bypass the active render guard', async () => {
+  let receivedBehavior = null;
+  const engine = createReadyEngine({
+    runCli: async (args, options, device, behavior) => {
+      receivedBehavior = behavior;
+      return {};
+    }
+  });
+
+  await engine.synthesize({
+    text: 'Nghe thu mot cau',
+    outputPath: 'D:\\work\\preview.wav',
+    device: 'vulkan:0',
+    skipRenderCheck: true
+  });
+
+  assert.equal(receivedBehavior.skipRenderCheck, true);
+});
+
 test('cloneVoice rejects incomplete reference input before invoking the CLI', async () => {
   let called = false;
   const engine = createReadyEngine({

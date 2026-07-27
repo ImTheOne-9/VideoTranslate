@@ -136,6 +136,15 @@
           <div class="sidebar-user-expiry" id="sidebar-user-expiry"></div>
         </div>
       </div>
+
+      <!-- VERSION INFO -->
+      <div class="sidebar-version" id="sidebar-version-block">
+        <span id="sidebar-version-text" class="sidebar-version-text">v--</span>
+        <button type="button" class="sidebar-changelog-btn" onclick="openChangelogModal()" title="Xem lịch sử cập nhật">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span class="sidebar-changelog-label">Có gì mới?</span>
+        </button>
+      </div>
     </aside>
 
     <main class="workspace">
@@ -1667,6 +1676,11 @@
                         <input type="checkbox" id="voice-allow-cpu-fallback" name="voiceAllowCpuFallback" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
+                      </label>
+                      <label class="premium-switch" style="margin-top: 8px;">
+                        <input type="checkbox" id="segment-review-enabled" name="segmentReviewEnabled" value="true">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label">Duyệt từng câu trước khi tạo giọng</span>
                       </label>
 
                       <div style="display: none;">
@@ -3564,6 +3578,105 @@
     </div>
   </div>
 
+  <div id="segment-editor-modal" class="segment-editor-overlay hidden" aria-hidden="true">
+    <section class="segment-editor-shell" aria-labelledby="segment-editor-title">
+      <header class="segment-editor-header">
+        <div class="segment-editor-heading">
+          <h2 id="segment-editor-title">Duyệt lời thoại</h2>
+          <div id="segment-editor-summary" class="segment-editor-summary">Đang tải segment...</div>
+        </div>
+        <div class="segment-editor-header-actions">
+          <button type="button" id="segment-editor-save" class="ghost-btn" title="Lưu các câu đã thay đổi (Ctrl+S)">
+            Lưu thay đổi
+          </button>
+          <button type="button" id="segment-editor-generate-missing" class="ghost-btn"
+            title="Tạo lần lượt audio cho tất cả câu chưa có audio">
+            Tạo tất cả câu chưa có audio
+          </button>
+          <button type="button" id="segment-editor-approve" class="premium-render-btn">Duyệt và tiếp tục</button>
+          <button type="button" id="segment-editor-close" class="icon-btn" title="Đóng" aria-label="Đóng">&times;</button>
+        </div>
+      </header>
+
+      <div class="segment-editor-toolbar">
+        <div class="segment-editor-toolbar-main">
+          <div class="segment-editor-search-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input type="search" id="segment-editor-search" class="premium-input"
+              placeholder="Tìm trong lời gốc hoặc bản dịch">
+          </div>
+          <select id="segment-editor-filter" class="premium-select" aria-label="Lọc câu thoại">
+            <option value="all">Tất cả câu thoại</option>
+            <option value="warnings">Có cảnh báo</option>
+            <option value="unapproved">Chưa duyệt</option>
+            <option value="locked">Đã khóa</option>
+          </select>
+          <div class="segment-editor-history">
+            <button type="button" id="segment-editor-undo" class="icon-btn" title="Hoàn tác (Ctrl+Z)"
+              aria-label="Hoàn tác">↶</button>
+            <button type="button" id="segment-editor-redo" class="icon-btn" title="Làm lại (Ctrl+Y)"
+              aria-label="Làm lại">↷</button>
+          </div>
+        </div>
+        <details class="segment-editor-replace-panel">
+          <summary>Tìm và thay thế</summary>
+          <div class="segment-editor-replace-fields">
+            <input type="text" id="segment-editor-replace-from" class="premium-input" placeholder="Nội dung cần tìm">
+            <span aria-hidden="true">→</span>
+            <input type="text" id="segment-editor-replace-to" class="premium-input" placeholder="Nội dung thay thế">
+            <button type="button" id="segment-editor-replace" class="ghost-btn">Thay tất cả</button>
+          </div>
+        </details>
+      </div>
+
+      <div id="segment-editor-error" class="segment-editor-error hidden"></div>
+      <aside id="segment-editor-video-popover" class="segment-editor-video-popover hidden" aria-label="Xem đoạn video">
+        <header>
+          <strong id="segment-editor-video-title">Xem đoạn video</strong>
+          <button type="button" id="segment-editor-video-close" class="icon-btn"
+            title="Đóng video xem trước" aria-label="Đóng video xem trước">&times;</button>
+        </header>
+        <video id="segment-editor-video" controls preload="metadata"></video>
+      </aside>
+      <div class="segment-editor-table-wrap">
+        <table class="segment-editor-table">
+          <colgroup>
+            <col class="segment-col-index">
+            <col class="segment-col-time">
+            <col class="segment-col-source">
+            <col class="segment-col-text">
+            <col class="segment-col-voice">
+            <col class="segment-col-duration">
+            <col class="segment-col-status">
+            <col class="segment-col-actions">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Thời gian</th>
+              <th>Nội dung gốc</th>
+              <th>Bản dịch / lời đọc</th>
+              <th>Giọng</th>
+              <th>Thời lượng</th>
+              <th>Trạng thái</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="segment-editor-body"></tbody>
+        </table>
+      </div>
+
+      <footer class="segment-editor-footer">
+        <span id="segment-editor-page-info"></span>
+        <div class="segment-editor-pagination">
+          <button type="button" id="segment-editor-prev" class="icon-btn" title="Trang trước" aria-label="Trang trước">‹</button>
+          <button type="button" id="segment-editor-next" class="icon-btn" title="Trang sau" aria-label="Trang sau">›</button>
+        </div>
+      </footer>
+      <audio id="segment-editor-audio" preload="none"></audio>
+    </section>
+  </div>
+
   <!-- Modal Hàng đợi Render -->
   <div id="render-queue-modal" class="fb-modal-overlay hidden" style="z-index: 10002;">
     <div class="fb-modal-content" style="width: 600px; max-width: 95%;">
@@ -3597,6 +3710,12 @@
       <p id="update-desc" style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">Đang kiểm tra
         thông tin phiên bản mới...</p>
 
+      <!-- Danh sách thay đổi của phiên bản mới -->
+      <div id="update-changelog-preview" class="hidden"
+        style="text-align: left; max-height: 200px; overflow-y: auto; margin-bottom: 16px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+        <!-- Render bằng JS -->
+      </div>
+
       <!-- Thanh tiến trình tải xuống -->
       <div id="update-progress-container" class="hidden"
         style="width: 100%; background: rgba(255, 255, 255, 0.05); height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 20px;">
@@ -3611,6 +3730,39 @@
           ngay</button>
         <button type="button" id="update-close-btn" class="premium-render-btn ghost-btn" style="margin: 0; flex: 1;"
           onclick="closeUpdateModal()">Bỏ qua</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Lịch sử cập nhật (Changelog) -->
+  <div id="changelog-modal" class="fb-modal-overlay hidden" style="z-index: 10004;">
+    <div class="fb-modal-content" style="width: 560px; max-width: 90%; max-height: 80vh;">
+      <div class="fb-modal-header">
+        <h3 style="color: var(--text); display: flex; align-items: center; gap: 8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Lịch sử cập nhật
+        </h3>
+        <button class="fb-modal-close" onclick="closeChangelogModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" id="changelog-modal-body" style="padding: 20px; overflow-y: auto; max-height: calc(80vh - 60px);">
+        <!-- Render bằng JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal What's New (hiện sau khi update xong) -->
+  <div id="whats-new-modal" class="fb-modal-overlay hidden" style="z-index: 10006;">
+    <div class="fb-modal-content" style="width: 520px; max-width: 90%; text-align: center; padding: 0;">
+      <div style="padding: 30px 25px 0 25px;">
+        <div style="font-size: 56px; margin-bottom: 12px;">🎉</div>
+        <h3 id="whats-new-title" style="margin: 0 0 6px 0; font-size: 20px; font-weight: 800; color: var(--text);">Chào mừng phiên bản mới!</h3>
+        <p id="whats-new-subtitle" style="margin: 0 0 16px 0; font-size: 13px; color: var(--muted); line-height: 1.5;">Ứng dụng đã được cập nhật thành công.</p>
+      </div>
+      <div id="whats-new-body" style="text-align: left; padding: 0 25px 16px 25px; max-height: 300px; overflow-y: auto;">
+        <!-- Render bằng JS -->
+      </div>
+      <div style="padding: 0 25px 25px 25px;">
+        <button type="button" class="premium-render-btn" style="width: 100%; margin: 0; background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: white; font-weight: 700;" onclick="closeWhatsNewModal()">Bắt đầu sử dụng</button>
       </div>
     </div>
   </div>
@@ -3644,7 +3796,8 @@
   <script src="js/ui-utils.js"></script>
   <script src="js/anti-dupe-module.js"></script>
   <script src="js/ocr-ui.js"></script>
-<script src="app.js"></script>
+  <script src="app.js"></script>
+  <script src="js/segment-editor.js"></script>
 </body>
 
 </html>

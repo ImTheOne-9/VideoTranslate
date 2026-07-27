@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.32",
+  "version": "1.0.34",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -65,7 +65,8 @@
       "index.js",
       "whisper-onnx-child-runtime.js",
       "logo.ico",
-      "package.json"
+      "package.json",
+      "changelog.json"
     ],
     "extraResources": [
       {
