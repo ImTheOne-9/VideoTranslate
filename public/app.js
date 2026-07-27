@@ -1755,7 +1755,20 @@ function updateMainResultUI(queue, currentActiveId) {
       </div>
     `;
   } else if (targetTask.status === 'waiting_input') {
-    if (targetTask.actionRequired === 'render_resume') {
+    if (targetTask.actionRequired === 'segment_review') {
+      const review = targetTask.segmentReview || {};
+      const reviewText = `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
+        + `${Number(review.warnings || 0) ? ` • ${Number(review.warnings)} câu có cảnh báo` : ''}`;
+      html = `
+        <div class="render-loading-state ocr-waiting-state">
+          <h3>Cần duyệt lời thoại</h3>
+          <p>${reviewText}</p>
+          <div class="ocr-fallback-actions">
+            <button type="button" class="premium-render-btn" onclick="openSegmentEditor('${targetTask.id}')">Mở trình chỉnh segment</button>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+          </div>
+        </div>`;
+    } else if (targetTask.actionRequired === 'render_resume') {
       const resumeMessage = window.OcrUi.escapeHtml(
         targetTask.step || 'Tác vụ đã được khôi phục từ lần chạy trước.'
       );
@@ -1933,7 +1946,15 @@ function renderQueueModalUI(queue, currentActiveId) {
 
     let actionHtml = '';
     let waitingMessageHtml = '';
-    if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
+    if (isWaiting && task.actionRequired === 'segment_review') {
+      const review = task.segmentReview || {};
+      waitingMessageHtml = `<div class="queue-ocr-error">`
+        + `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
+        + `${Number(review.warnings || 0) ? ` • ${Number(review.warnings)} cảnh báo` : ''}</div>`;
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="openSegmentEditor('${task.id}')">Duyệt câu</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
       const waitingMessage = window.OcrUi.escapeHtml(window.OcrUi.getOcrFallbackAction(task).message);
       waitingMessageHtml = `<div class="queue-ocr-error">${waitingMessage}</div>`;
       actionHtml = `
