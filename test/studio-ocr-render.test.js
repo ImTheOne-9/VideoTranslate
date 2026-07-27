@@ -9,12 +9,14 @@ const { withTempDir } = require('./helpers/temp-dir');
 const {
   applyRenderTaskFailure,
   applyRenderTaskSuccess,
+  cleanupLegacyCheckpointFiles,
   cleanupRenderWorkDir,
   createAutomaticSubtitleProgressHandler,
   createAutomaticSubtitleResolver,
   createRenderQueueHandlers,
   createRenderQueueTask,
   createRenderSourceResolver,
+  createVoiceChunkCheckpoint,
   findNextPendingRenderTask
 } = studioController;
 
@@ -511,6 +513,56 @@ test('valid resume prepares the task and triggers queue processing exactly once'
   assert.equal(state.renderQueue.length, 1);
 });
 
+test('checkpoint resume merges current AI credentials and keeps completed stages', async () => {
+  const task = {
+    id: 'checkpoint-resume',
+    status: 'waiting_input',
+    actionRequired: 'render_resume',
+    error: 'App was closed',
+    step: 'Tác vụ đã được khôi phục',
+    body: { aiProvider: 'gemini', translateVi: 'true' },
+    stages: {
+      subtitle: { status: 'success', output: { subtitlePath: 'saved.srt' } },
+      translation: { status: 'error', error: 'App was closed' }
+    }
+  };
+  const state = createQueueState([task]);
+  const saved = [];
+  let processCalls = 0;
+  const handlers = createQueueHandlers(state, {
+    jobStore: {
+      saveTask(candidate) {
+        saved.push(candidate.status);
+      },
+      removeTask() {}
+    },
+    processNextRenderTask: () => {
+      processCalls += 1;
+      return Promise.resolve();
+    }
+  });
+  const response = createResponse();
+
+  await handlers.resumeRenderTask({
+    body: {
+      taskId: task.id,
+      settings: {
+        geminiApiKey: 'fresh-key',
+        geminiModel: 'gemini-current'
+      }
+    }
+  }, response);
+
+  assert.equal(task.status, 'pending');
+  assert.equal(task.actionRequired, null);
+  assert.equal(task.body.geminiApiKey, 'fresh-key');
+  assert.equal(task.body.geminiModel, 'gemini-current');
+  assert.equal(task.stages.subtitle.status, 'success');
+  assert.equal(processCalls, 1);
+  assert.deepEqual(saved, ['pending']);
+  assert.deepEqual(response.jsonCalls[0].completedStages, ['subtitle']);
+});
+
 test('queue response exposes actionRequired and waiting task errors', async () => {
   const waitingTask = {
     id: 'waiting',
@@ -576,7 +628,18 @@ test('new render queue tasks start with resumable OCR fields', () => {
   requireFunction(createRenderQueueTask, 'createRenderQueueTask');
   const task = createRenderQueueTask({
     taskId: 'task-new',
-    body: { projectName: 'Example' },
+    body: {
+      projectName: 'Example',
+      subtitleMode: 'generate',
+      voiceMode: 'omi',
+      uiSnapshot: JSON.stringify({
+        subtitleMode: 'generate',
+        savedVoiceFile: 'selected.wav',
+        reactionMode: 'library',
+        savedReactionFile: 'reaction.mp4',
+        blurBoxes: [{ id: 'blur-1' }]
+      })
+    },
     files: {},
     taskDir: 'uploads/task-new',
     createdAt: new Date('2026-07-17T00:00:00Z')
@@ -585,6 +648,51 @@ test('new render queue tasks start with resumable OCR fields', () => {
   assert.equal(task.actionRequired, null);
   assert.equal(task.sourceVideoPath, null);
   assert.equal(task.forceWhisper, false);
+  assert.deepEqual(task.stages, {});
+  assert.equal(task.currentStage, null);
+  assert.equal(task.body.uiSnapshot, undefined);
+  assert.equal(task.uiSnapshot.savedVoiceFile, 'selected.wav');
+  assert.equal(task.uiSnapshot._reactionMode, 'library');
+  assert.deepEqual(task.uiSnapshot.blurBoxes, [{ id: 'blur-1' }]);
+});
+
+test('voice chunk checkpoint reuses valid chunks and invalidates changed input', async () => {
+  requireFunction(createVoiceChunkCheckpoint, 'createVoiceChunkCheckpoint');
+  await withTempDir('studio-voice-checkpoint-', async (directory) => {
+    const first = createVoiceChunkCheckpoint(directory, 'signature-a');
+    const chunkPath = first.getChunkPath(0);
+    fs.writeFileSync(chunkPath, Buffer.alloc(64));
+    first.markChunk(0, { filePath: chunkPath, startMs: 0 });
+
+    const restored = createVoiceChunkCheckpoint(directory, 'signature-a');
+    assert.equal(restored.hasChunk(0), true);
+    assert.equal(restored.getChunkPath(0), chunkPath);
+
+    const invalidated = createVoiceChunkCheckpoint(directory, 'signature-b');
+    assert.equal(invalidated.hasChunk(0), false);
+    assert.equal(fs.existsSync(chunkPath), false);
+  });
+});
+
+test('legacy timestamped checkpoint files are removed without touching stable outputs', async () => {
+  requireFunction(cleanupLegacyCheckpointFiles, 'cleanupLegacyCheckpointFiles');
+  await withTempDir('studio-legacy-checkpoints-', async (directory) => {
+    const legacy = [
+      'chunk_0_1784878427678.wav',
+      'ref_voice_1784878427678.wav',
+      'instrumental_1784878427678.wav'
+    ];
+    for (const name of legacy) fs.writeFileSync(path.join(directory, name), 'old');
+    fs.writeFileSync(path.join(directory, 'instrumental.wav'), 'stable');
+    fs.writeFileSync(path.join(directory, 'translated.srt'), 'subtitle');
+
+    const removed = cleanupLegacyCheckpointFiles(directory);
+
+    assert.equal(removed.length, legacy.length);
+    for (const name of legacy) assert.equal(fs.existsSync(path.join(directory, name)), false);
+    assert.equal(fs.existsSync(path.join(directory, 'instrumental.wav')), true);
+    assert.equal(fs.existsSync(path.join(directory, 'translated.srt')), true);
+  });
 });
 
 test('render attempt work directory cleanup has valid function scope and removes directories', async () => {
@@ -605,7 +713,7 @@ test('render attempt work directory cleanup has valid function scope and removes
   const executeSource = source.slice(executeStart, executeEnd);
   const declaration = executeSource.indexOf('let workDir = null;');
   const tryBlock = executeSource.indexOf('\n  try {');
-  const assignment = executeSource.indexOf('workDir = path.join(');
+  const assignment = executeSource.indexOf('workDir = task.workDir || renderJobStore.getWorkDir(task.id)');
   const catchBlock = executeSource.indexOf('\n  } catch (error) {');
   const finallyBlock = executeSource.indexOf('\n  } finally {');
   const cleanupCall = executeSource.indexOf('cleanupRenderWorkDir(workDir', finallyBlock);
@@ -613,7 +721,8 @@ test('render attempt work directory cleanup has valid function scope and removes
   assert.ok(declaration >= 0 && declaration < tryBlock, 'workDir is function-scoped before try');
   assert.ok(assignment > tryBlock, 'workDir is assigned inside the attempt');
   assert.ok(catchBlock > assignment && finallyBlock > catchBlock, 'waiting/error catch flows into finally');
-  assert.ok(cleanupCall > finallyBlock, 'finally cleans the attempt directory');
+  assert.ok(cleanupCall > finallyBlock, 'finally cleans completed or cancelled work directories');
+  assert.match(executeSource.slice(finallyBlock), /task\.status === 'success' \|\| task\.status === 'failed'/);
   assert.doesNotMatch(executeSource, /const workDir\s*=/);
 });
 
@@ -623,13 +732,13 @@ test('large render function persists source before work and delegates only gener
   const executeEnd = source.indexOf('\nlet _processingNext', executeStart);
   const executeSource = source.slice(executeStart, executeEnd);
   const sourceResolution = executeSource.indexOf('resolveRenderSource(task)');
-  const videoInspection = executeSource.indexOf('getVideoDimensions(sourceVideo)');
+  const videoInspection = executeSource.indexOf('getVideoDimensions(sourceVideoPath)');
   const generateStart = executeSource.indexOf("} else if (subtitleMode === 'generate') {");
   const generateEnd = executeSource.indexOf('\n    }\n\n    let originalIsChinese', generateStart);
   const generateSource = executeSource.slice(generateStart, generateEnd);
 
   assert.ok(sourceResolution >= 0 && sourceResolution < videoInspection);
-  assert.match(generateSource, /subtitlePath\s*=\s*await resolveRenderAutomaticSubtitle\(\{/);
+  assert.match(generateSource, /resolvedSubtitlePath\s*=\s*await resolveRenderAutomaticSubtitle\(\{/);
   assert.doesNotMatch(generateSource, /extractAudioAndTranscribe/);
 });
 
@@ -638,11 +747,12 @@ test('server registers the exact resume route while preserving existing queue ro
   const routes = source
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => /^app\.(?:get|post)\('\/api\/(?:render-queue-status|render-use-whisper|cancel-queue-task|clear-queue|cancel-render)'/.test(line));
+    .filter((line) => /^app\.(?:get|post)\('\/api\/(?:render-queue-status|render-use-whisper|render-resume|cancel-queue-task|clear-queue|cancel-render)'/.test(line));
 
   assert.deepEqual(routes, [
     "app.get('/api/render-queue-status', studioController.getQueueStatus);",
     "app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);",
+    "app.post('/api/render-resume', studioController.resumeRenderTask);",
     "app.post('/api/cancel-queue-task', studioController.cancelQueueTask);",
     "app.post('/api/clear-queue', studioController.clearQueue);",
     "app.post('/api/cancel-render', studioController.cancelRender);"

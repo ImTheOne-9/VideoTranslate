@@ -446,6 +446,8 @@ async function generateOmniClonerVoice(event) {
   formData.append('refText', refText);
   formData.append('script', script);
   formData.append('device', $('cloner-device').value);
+  formData.append('voiceEngine', $('cloner-voice-engine-select')?.value || 'current-omnivoice');
+  formData.append('allowCpuFallback', $('cloner-allow-cpu-fallback')?.checked ? 'true' : 'false');
 
   // Bắt đầu polling tiến trình
   clonerPollInterval = setInterval(async () => {

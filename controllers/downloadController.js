@@ -316,7 +316,7 @@ module.exports = {
     });
 
     try {
-      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, translateTargetLang } = req.query;
+      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, translateTargetLang } = req.query;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
       if (!shared.isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -372,7 +372,7 @@ module.exports = {
         const dlTargetLang = translateTargetLang || 'vi';
         const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -642,7 +642,7 @@ module.exports = {
           const dlTargetLang = translateTargetLang || 'vi';
           const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
           const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
-          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
+          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
           let hasSubtitles = false;
           try {
