@@ -338,7 +338,24 @@ app.whenReady().then(async () => {
       loadingWin = null;
     }
 
-    // 7. Tự động kiểm tra cập nhật (chỉ chạy khi ứng dụng đã đóng gói)
+    // 7. Phát hiện "vừa update xong" bằng cách so sánh phiên bản
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const pkg = require('./package.json');
+      const versionFile = path.join(app.getPath('userData'), 'last-version.txt');
+      let lastVersion = null;
+      try { lastVersion = fs.readFileSync(versionFile, 'utf8').trim(); } catch (_) {}
+      if (lastVersion && lastVersion !== pkg.version) {
+        global.justUpdated = true;
+        console.log(`[Update] Phát hiện phiên bản mới: ${lastVersion} → ${pkg.version}`);
+      }
+      fs.writeFileSync(versionFile, pkg.version, 'utf8');
+    } catch (vErr) {
+      console.error('Lỗi khi kiểm tra phiên bản:', vErr.message);
+    }
+
+    // 8. Tự động kiểm tra cập nhật (chỉ chạy khi ứng dụng đã đóng gói)
     if (app.isPackaged) {
       try {
         const { autoUpdater } = require('electron-updater');
@@ -352,7 +369,7 @@ app.whenReady().then(async () => {
         });
 
         autoUpdater.on('update-available', (info) => {
-          global.updateStatus = { status: 'available', percent: 0, error: null };
+          global.updateStatus = { status: 'available', percent: 0, error: null, newVersion: info.version || null };
           // Bắt đầu tải bản cập nhật sau khi phát hiện có bản mới
           autoUpdater.downloadUpdate().catch(err => {
             console.error('Lỗi khi tải bản cập nhật:', err.message);
@@ -369,6 +386,7 @@ app.whenReady().then(async () => {
 
         autoUpdater.on('download-progress', (progressObj) => {
           global.updateStatus = { 
+            ...global.updateStatus,
             status: 'downloading', 
             percent: Math.round(progressObj.percent), 
             error: null 
@@ -376,7 +394,7 @@ app.whenReady().then(async () => {
         });
 
         autoUpdater.on('update-downloaded', (info) => {
-          global.updateStatus = { status: 'downloaded', percent: 100, error: null };
+          global.updateStatus = { ...global.updateStatus, status: 'downloaded', percent: 100, error: null, newVersion: info.version || global.updateStatus?.newVersion || null };
         });
 
         autoUpdater.checkForUpdates().catch(err => {

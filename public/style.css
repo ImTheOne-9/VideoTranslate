@@ -3828,6 +3828,156 @@ select option {
   margin: 0;
 }
 
+/* ---- Sidebar Version Badge ---- */
+.sidebar-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 2px;
+  -webkit-app-region: no-drag;
+}
+.sidebar-version-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+}
+.sidebar-changelog-btn {
+  height: 24px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.15));
+  border: 1px solid rgba(139,92,246,0.25);
+  color: var(--accent-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0 8px;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font);
+  letter-spacing: 0.2px;
+}
+.sidebar-changelog-btn:hover {
+  background: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(59,130,246,0.3));
+  border-color: rgba(139,92,246,0.5);
+  color: #c4b5fd;
+  box-shadow: 0 0 12px rgba(139,92,246,0.2);
+  transform: translateY(-1px);
+}
+.sidebar-changelog-label {
+  white-space: nowrap;
+}
+.app-shell.sidebar-collapsed .sidebar-version {
+  justify-content: center;
+}
+.app-shell.sidebar-collapsed .sidebar-version-text {
+  display: none;
+}
+.app-shell.sidebar-collapsed .sidebar-changelog-label {
+  display: none;
+}
+.app-shell.sidebar-collapsed .sidebar-changelog-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+/* ---- Changelog Modal Styles ---- */
+.changelog-version-card {
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+  transition: border-color 0.2s;
+}
+.changelog-version-card:hover {
+  border-color: var(--border-2);
+}
+.changelog-version-card.current {
+  border-color: var(--accent);
+  background: rgba(59,130,246,0.04);
+}
+.changelog-version-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.changelog-version-tag {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.changelog-version-date {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.changelog-version-title {
+  font-size: 13px;
+  color: var(--accent-2);
+  font-weight: 600;
+  font-style: italic;
+}
+.changelog-current-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: white;
+  background: var(--accent);
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.changelog-changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.changelog-change-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--secondary-text);
+  line-height: 1.5;
+}
+.changelog-type-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.changelog-type-badge.feature {
+  background: rgba(34,197,94,0.12);
+  color: #22c55e;
+}
+.changelog-type-badge.fix {
+  background: rgba(239,68,68,0.12);
+  color: #ef4444;
+}
+.changelog-type-badge.improve {
+  background: rgba(59,130,246,0.12);
+  color: #3b82f6;
+}
+
 /* Dropdown actions menu in project list */
 .project-action-dropdown {
   position: relative;

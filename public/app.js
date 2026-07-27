@@ -7657,9 +7657,77 @@ window.closeSetupModal = closeSetupModal;
 window.startSetupDownload = startSetupDownload;
 
 // ==========================================
-// AUTO-UPDATE FEATURE HANDLER
+// AUTO-UPDATE FEATURE HANDLER + VERSION & CHANGELOG
 // ==========================================
 let updatePollInterval = null;
+let _cachedAppVersionData = null;
+
+// --- Hàm tiện ích: render danh sách thay đổi thành HTML ---
+function renderChangelogHTML(versions, currentVersion) {
+  if (!versions || !versions.length) return '<p style="color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">Chưa có thông tin lịch sử cập nhật.</p>';
+  const typeLabels = { feature: { label: 'Mới', icon: '🆕' }, fix: { label: 'Sửa lỗi', icon: '🐛' }, improve: { label: 'Cải thiện', icon: '⚡' } };
+  return versions.map(v => {
+    const isCurrent = v.version === currentVersion;
+    const changesHTML = (v.changes || []).map(c => {
+      const t = typeLabels[c.type] || { label: c.type, icon: '📌' };
+      return `<li class="changelog-change-item"><span class="changelog-type-badge ${c.type || ''}">${t.icon} ${t.label}</span><span>${c.text}</span></li>`;
+    }).join('');
+    return `<div class="changelog-version-card ${isCurrent ? 'current' : ''}"><div class="changelog-version-header"><span class="changelog-version-tag">📦 v${v.version}</span>${isCurrent ? '<span class="changelog-current-badge">Hiện tại</span>' : ''}<span class="changelog-version-date">${v.date || ''}</span></div>${v.title ? `<div class="changelog-version-title">"${v.title}"</div>` : ''}<ul class="changelog-changes-list" style="margin-top: 8px;">${changesHTML}</ul></div>`;
+  }).join('');
+}
+
+function renderSingleVersionChangelog(versionData) {
+  if (!versionData || !versionData.changes || !versionData.changes.length) return '';
+  const typeLabels = { feature: { label: 'Mới', icon: '🆕' }, fix: { label: 'Sửa lỗi', icon: '🐛' }, improve: { label: 'Cải thiện', icon: '⚡' } };
+  return `<div style="margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Nội dung cập nhật:</div><ul class="changelog-changes-list">${versionData.changes.map(c => {
+    const t = typeLabels[c.type] || { label: c.type, icon: '📌' };
+    return `<li class="changelog-change-item"><span class="changelog-type-badge ${c.type || ''}">${t.icon} ${t.label}</span><span>${c.text}</span></li>`;
+  }).join('')}</ul>`;
+}
+
+async function fetchAndDisplayVersion() {
+  try {
+    const res = await fetch('/api/app-version');
+    if (!res.ok) return;
+    const data = await res.json();
+    _cachedAppVersionData = data;
+    const versionEl = document.getElementById('sidebar-version-text');
+    if (versionEl && data.version) versionEl.textContent = `v${data.version}`;
+    if (data.justUpdated && data.changelog) showWhatsNewModal(data.version, data.changelog);
+  } catch (err) { console.error('[Version] Lỗi khi lấy thông tin phiên bản:', err); }
+}
+
+function showWhatsNewModal(version, changelog) {
+  const modal = document.getElementById('whats-new-modal');
+  const titleEl = document.getElementById('whats-new-title');
+  const subtitleEl = document.getElementById('whats-new-subtitle');
+  const bodyEl = document.getElementById('whats-new-body');
+  if (!modal || !bodyEl) return;
+  if (titleEl) titleEl.textContent = `Chào mừng phiên bản v${version}!`;
+  if (subtitleEl) subtitleEl.textContent = changelog.title ? `"${changelog.title}" — Ứng dụng đã được cập nhật thành công.` : 'Ứng dụng đã được cập nhật thành công.';
+  bodyEl.innerHTML = renderSingleVersionChangelog(changelog);
+  modal.classList.remove('hidden');
+}
+
+function closeWhatsNewModal() { const m = document.getElementById('whats-new-modal'); if (m) m.classList.add('hidden'); }
+window.closeWhatsNewModal = closeWhatsNewModal;
+
+async function openChangelogModal() {
+  const modal = document.getElementById('changelog-modal');
+  const body = document.getElementById('changelog-modal-body');
+  if (!modal || !body) return;
+  let data = _cachedAppVersionData;
+  if (!data) { try { const res = await fetch('/api/app-version'); if (res.ok) data = await res.json(); } catch (_) {} }
+  if (data && data.allChangelog && data.allChangelog.length) {
+    body.innerHTML = renderChangelogHTML(data.allChangelog, data.version);
+  } else {
+    body.innerHTML = '<p style="color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">Chưa có thông tin lịch sử cập nhật.</p>';
+  }
+  modal.classList.remove('hidden');
+}
+function closeChangelogModal() { const m = document.getElementById('changelog-modal'); if (m) m.classList.add('hidden'); }
+window.openChangelogModal = openChangelogModal;
+window.closeChangelogModal = closeChangelogModal;
 
 function startUpdateMonitoring() {
   const modal = document.getElementById('app-update-modal');
@@ -7670,6 +7738,7 @@ function startUpdateMonitoring() {
   const progressBar = document.getElementById('update-progress-bar');
   const actionBtn = document.getElementById('update-action-btn');
   const closeBtn = document.getElementById('update-close-btn');
+  const changelogPreview = document.getElementById('update-changelog-preview');
 
   if (!modal) return;
 
@@ -7688,16 +7757,22 @@ function startUpdateMonitoring() {
       } else if (data.status === 'available') {
         modal.classList.remove('hidden');
         icon.textContent = '🔄';
-        title.textContent = 'Phát hiện bản cập nhật mới!';
+        const vt1 = data.newVersion ? ` v${data.newVersion}` : '';
+        title.textContent = `Phát hiện bản cập nhật mới${vt1}!`;
         desc.textContent = 'Đang chuẩn bị tải xuống tệp cài đặt mới từ máy chủ...';
         progressContainer.classList.remove('hidden');
         progressBar.style.width = '0%';
         actionBtn.classList.add('hidden');
-        closeBtn.classList.add('hidden'); // Khóa nút đóng để đảm bảo tải liền mạch
+        closeBtn.classList.add('hidden');
+        if (changelogPreview && _cachedAppVersionData && _cachedAppVersionData.allChangelog && data.newVersion) {
+          const nvd = _cachedAppVersionData.allChangelog.find(v => v.version === data.newVersion);
+          if (nvd) { changelogPreview.innerHTML = renderSingleVersionChangelog(nvd); changelogPreview.classList.remove('hidden'); }
+        }
       } else if (data.status === 'downloading') {
         modal.classList.remove('hidden');
         icon.textContent = '⏳';
-        title.textContent = 'Đang tải bản cập nhật mới';
+        const vt2 = data.newVersion ? ` v${data.newVersion}` : '';
+        title.textContent = `Đang tải bản cập nhật${vt2}`;
         desc.textContent = `Vui lòng chờ, ứng dụng đang được tải về (${data.percent}%)...`;
         progressContainer.classList.remove('hidden');
         progressBar.style.width = `${data.percent}%`;
@@ -7706,7 +7781,8 @@ function startUpdateMonitoring() {
       } else if (data.status === 'downloaded') {
         modal.classList.remove('hidden');
         icon.textContent = '🎉';
-        title.textContent = 'Đã tải xong bản cập nhật!';
+        const vt3 = data.newVersion ? ` v${data.newVersion}` : '';
+        title.textContent = `Đã tải xong bản cập nhật${vt3}!`;
         desc.textContent = 'Phiên bản mới đã sẵn sàng. Vui lòng bấm nút bên dưới để khởi động lại và nâng cấp ứng dụng ngay.';
         progressContainer.classList.add('hidden');
         actionBtn.classList.remove('hidden');
@@ -7761,8 +7837,10 @@ function closeUpdateModal() {
   }
 }
 
-// Theo dõi cập nhật sau khi tải trang
+// Khởi tạo khi tải trang
 document.addEventListener('DOMContentLoaded', () => {
+  // Fetch phiên bản + kiểm tra What's New ngay lập tức
+  fetchAndDisplayVersion();
   // Trì hoãn 5 giây sau khi khởi động để nhường tài nguyên cho quá trình tải models
   setTimeout(startUpdateMonitoring, 5000);
 });

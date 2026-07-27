@@ -419,6 +419,41 @@ app.post('/api/license/activate', systemController.activateLicense);
 app.get('/api/update-status', systemController.getUpdateStatus);
 app.post('/api/quit-and-install', systemController.quitAndInstallUpdate);
 
+// Thông tin phiên bản app + changelog
+app.get('/api/app-version', (req, res) => {
+  try {
+    const pkg = require('./package.json');
+    const currentVersion = pkg.version;
+    
+    // Đọc changelog
+    let changelog = [];
+    try {
+      const changelogData = require('./changelog.json');
+      changelog = changelogData.versions || [];
+    } catch (_) { /* Không có file changelog */ }
+    
+    // Tìm changelog cho phiên bản hiện tại
+    const currentChangelog = changelog.find(v => v.version === currentVersion) || null;
+    
+    // Kiểm tra xem app vừa update xong không
+    const justUpdated = global.justUpdated || false;
+    
+    // Reset flag sau khi đã thông báo
+    if (global.justUpdated) {
+      global.justUpdated = false;
+    }
+    
+    res.json({
+      version: currentVersion,
+      changelog: currentChangelog,
+      allChangelog: changelog,
+      justUpdated
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Thông tin app: license + disk usage cho sidebar
 app.get('/api/app-info', async (req, res) => {
   const result = { license: { valid: false }, disk: { usedByApp: 0, total: 0, free: 0 } };
