@@ -1242,7 +1242,8 @@ aside .sidebar-settings-btn.active {
 .voice-tab-btn,
 .music-tab-btn,
 .sub-tab-btn,
-.settings-tab-btn {
+.settings-tab-btn,
+.smart-fit-mode-btn {
   flex: 1;
   background: transparent;
   color: var(--muted);
@@ -1263,7 +1264,8 @@ aside .sidebar-settings-btn.active {
 .voice-tab-btn:hover,
 .music-tab-btn:hover,
 .sub-tab-btn:hover,
-.settings-tab-btn:hover {
+.settings-tab-btn:hover,
+.smart-fit-mode-btn:hover {
   color: var(--text);
   background: rgba(255,255,255,0.05);
 }
@@ -1282,7 +1284,8 @@ aside .sidebar-settings-btn.active {
 /* Accent blue background for equal-choice segmented controls */
 .source-tab-btn.active,
 .reaction-tab-btn.active,
-.music-tab-btn.active {
+.music-tab-btn.active,
+.smart-fit-mode-btn.active {
   background: var(--accent) !important;
   color: white !important;
   border-color: transparent !important;
@@ -4877,6 +4880,26 @@ select option {
 .segment-editor-warning {
   color: #fbbf24;
   font-size: 11px;
+}
+
+.smart-fit-control {
+  margin-top: 12px;
+}
+
+.smart-fit-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.smart-fit-tabs .smart-fit-mode-btn {
+  min-width: 0;
+  white-space: normal;
+}
+
+.segment-editor-fit-result {
+  color: #77b7ff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .segment-editor-row-actions {

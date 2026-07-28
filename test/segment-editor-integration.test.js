@@ -70,3 +70,28 @@ test('voice engine lock covers render, cloner, and segment preview paths', () =>
   assert.match(segment, /skipRenderCheck: true/);
   assert.match(segment, /error\.manifest = toPublicManifest\(manifest\)/);
 });
+
+test('Smart Fit is wired through render, checkpoints, API, and segment editor controls', () => {
+  const html = read('public/index.html');
+  const app = read('public/app.js');
+  const editor = read('public/js/segment-editor.js');
+  const server = read('server.js');
+  const studio = read('controllers/studioController.js');
+  const segment = read('controllers/segmentController.js');
+
+  assert.match(html, /name="smartFitMode"/);
+  assert.match(html, /id="segment-editor-fit-mode"/);
+  assert.match(app, /function setSmartFitMode/);
+  assert.match(server, /segments\/smart-fit/);
+  assert.match(editor, /async function updateSmartFitMode/);
+  assert.match(editor, /variant=\$\{encodeURIComponent\(variant\)\}/);
+  assert.match(studio, /getRawChunkPath/);
+  assert.match(studio, /getFittedChunkPath/);
+  assert.match(studio, /createSmartFitSignature/);
+  assert.match(segment, /createFittedVoiceChunk/);
+  assert.match(segment, /getRawAudioPath/);
+  assert.match(studio, /rawAudioDurationMs: rawDurationMs/);
+  assert.match(segment, /rawAudioDurationMs: rawDurationMs/);
+  assert.doesNotMatch(studio, /^\s*rawAudioDurationMs,$/m);
+  assert.doesNotMatch(segment, /^\s*rawAudioDurationMs,$/m);
+});

@@ -13,7 +13,12 @@ const {
   isUsableFile
 } = require('../lib/checkpoint-utils');
 const { resolveVoiceReference } = require('../lib/voice-reference-helper');
-const { readWavDurationMs } = require('../lib/voice-audio-fit');
+const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
+const {
+  createSmartFitSignature,
+  normalizeSmartFitMode,
+  planSmartFit
+} = require('../lib/smart-fit-service');
 const {
   SegmentRevisionConflictError,
   SegmentService,
@@ -57,6 +62,7 @@ function toPublicManifest(manifest) {
     reviewRequired: manifest.reviewRequired,
     reviewStatus: manifest.reviewStatus,
     durationMs: manifest.durationMs,
+    smartFit: manifest.smartFit,
     createdAt: manifest.createdAt,
     updatedAt: manifest.updatedAt,
     segments: manifest.segments
@@ -136,6 +142,24 @@ async function replaceText(req, res) {
   }
 }
 
+async function updateSmartFit(req, res) {
+  try {
+    const task = requireTask(req);
+    requireSourceVideo(task);
+    const manifest = segmentService.updateSmartFitMode(
+      task.workDir,
+      req.body?.revision,
+      req.body?.mode
+    );
+    task.body ||= {};
+    task.body.smartFitMode = manifest.smartFit.mode;
+    saveTaskSummary(task, manifest);
+    return res.json({ success: true, manifest: toPublicManifest(manifest) });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
 async function approveSegments(req, res) {
   try {
     const task = requireTask(req);
@@ -195,6 +219,7 @@ async function regenerateSegment(req, res) {
       audioFile: null,
       audioDurationMs: null,
       audioSignature: null,
+      fit: null,
       error: null
     });
     saveTaskSummary(task, manifest);
@@ -211,16 +236,29 @@ async function regenerateSegment(req, res) {
       whisperOnnxVariant: task.body.whisperOnnxVariant || 'q8',
       language: task.body.ocrLanguage || ''
     });
-    const previewDir = path.join(task.workDir, 'segments', 'previews');
-    fs.mkdirSync(previewDir, { recursive: true });
-    const outputPath = path.join(previewDir, `${segment.id}.wav`);
+    const rawDir = path.join(task.workDir, 'segments', 'previews', 'raw');
+    const fittedDir = path.join(task.workDir, 'segments', 'previews', 'fitted');
+    fs.mkdirSync(rawDir, { recursive: true });
+    fs.mkdirSync(fittedDir, { recursive: true });
+    const rawPath = path.join(rawDir, `${segment.id}.wav`);
+    const outputPath = path.join(fittedDir, `${segment.id}.wav`);
     const language = ['vi', 'en', 'zh'].includes(task.body.omiLanguage)
       ? task.body.omiLanguage
       : 'vi';
-    const method = reference.audioPath && reference.text ? 'cloneVoice' : 'synthesize';
-    await engine[method]({
+    const rawSignature = createCheckpointSignature({
       text: segment.text,
-      outputPath,
+      voiceFile: segment.voiceFile || task.body.savedVoiceFile || '',
+      referenceAudio: getFileIdentity(reference.audioPath),
+      referenceText: reference.text,
+      engineId,
+      steps: task.body.omiSteps || '16',
+      language
+    });
+    const rawReady = segment.rawAudioSignature === rawSignature && isUsableFile(rawPath, 44);
+    const method = reference.audioPath && reference.text ? 'cloneVoice' : 'synthesize';
+    if (!rawReady) await engine[method]({
+      text: segment.text,
+      outputPath: rawPath,
       language,
       device: task.body.omiDevice || 'cpu',
       steps: task.body.omiSteps || '16',
@@ -232,23 +270,48 @@ async function regenerateSegment(req, res) {
       allowCpuFallback: task.body.voiceAllowCpuFallback === 'true'
         || task.body.voiceAllowCpuFallback === true
     });
-    if (!isUsableFile(outputPath, 44)) {
+    if (!isUsableFile(rawPath, 44)) {
       throw new Error('Voice engine không tạo được audio segment');
     }
-    const audioSignature = createCheckpointSignature({
-      text: segment.text,
-      voiceFile: segment.voiceFile || task.body.savedVoiceFile || '',
-      referenceAudio: getFileIdentity(reference.audioPath),
-      referenceText: reference.text,
-      engineId,
-      steps: task.body.omiSteps || '16',
-      language
+    const segmentIndex = manifest.segments.findIndex((item) => item.id === segment.id);
+    const nextStartMs = manifest.segments[segmentIndex + 1]?.startMs;
+    const smartFitMode = normalizeSmartFitMode(manifest.smartFit?.mode);
+    const rawDurationMs = readWavDurationMs(rawPath);
+    const audioSignature = createSmartFitSignature({
+      rawSignature,
+      rawFile: getFileIdentity(rawPath),
+      mode: smartFitMode,
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      nextStartMs,
+      timelineEndMs: manifest.durationMs
     });
+    const fitPlan = planSmartFit({
+      mode: smartFitMode,
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      nextStartMs,
+      timelineEndMs: manifest.durationMs,
+      rawDurationMs
+    });
+    await createFittedVoiceChunk({
+      rawPath,
+      outputPath,
+      fitPlan,
+      ffmpegPath: shared.FFMPEG_PATH,
+      runExecFile: shared.runExecFile,
+      label: `Segment ${segmentIndex + 1}`
+    });
+    const fittedDurationMs = readWavDurationMs(outputPath);
     manifest = segmentService.setSegmentAudio(task.workDir, segment.id, {
       status: 'ready',
+      rawAudioFile: path.relative(task.workDir, rawPath),
+      rawAudioDurationMs: rawDurationMs,
+      rawAudioSignature: rawSignature,
       audioFile: path.relative(task.workDir, outputPath),
-      audioDurationMs: readWavDurationMs(outputPath),
-      audioSignature
+      audioDurationMs: fittedDurationMs,
+      audioSignature,
+      fit: { ...fitPlan, fittedDurationMs, signature: audioSignature }
     });
     saveTaskSummary(task, manifest);
     return res.json({ success: true, manifest: toPublicManifest(manifest) });
@@ -273,7 +336,9 @@ async function regenerateSegment(req, res) {
 async function streamSegmentAudio(req, res) {
   try {
     const task = requireTask(req);
-    const audioPath = segmentService.getAudioPath(task.workDir, req.params.segmentId);
+    const audioPath = req.query.variant === 'raw'
+      ? segmentService.getRawAudioPath(task.workDir, req.params.segmentId)
+      : segmentService.getAudioPath(task.workDir, req.params.segmentId);
     if (!audioPath) {
       throw new SegmentServiceError('Segment chưa có audio nghe thử', 'SEGMENT_AUDIO_MISSING', 404);
     }
@@ -311,5 +376,6 @@ module.exports = {
   regenerateSegment,
   replaceText,
   streamSegmentAudio,
+  updateSmartFit,
   updateSegments
 };

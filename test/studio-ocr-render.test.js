@@ -661,16 +661,22 @@ test('voice chunk checkpoint reuses valid chunks and invalidates changed input',
   await withTempDir('studio-voice-checkpoint-', async (directory) => {
     const first = createVoiceChunkCheckpoint(directory, 'signature-a');
     const chunkPath = first.getChunkPath(0);
+    const fittedPath = first.getFittedChunkPath(0);
     fs.writeFileSync(chunkPath, Buffer.alloc(64));
+    fs.writeFileSync(fittedPath, Buffer.alloc(64));
     first.markChunk(0, { filePath: chunkPath, startMs: 0 });
+    first.markFittedChunk(0, { filePath: fittedPath, signature: 'fit-a' });
 
     const restored = createVoiceChunkCheckpoint(directory, 'signature-a');
     assert.equal(restored.hasChunk(0), true);
+    assert.equal(restored.hasFittedChunk(0, 'fit-a'), true);
+    assert.equal(restored.hasFittedChunk(0, 'fit-b'), false);
     assert.equal(restored.getChunkPath(0), chunkPath);
 
     const invalidated = createVoiceChunkCheckpoint(directory, 'signature-b');
     assert.equal(invalidated.hasChunk(0), false);
     assert.equal(fs.existsSync(chunkPath), false);
+    assert.equal(fs.existsSync(fittedPath), false);
   });
 });
 

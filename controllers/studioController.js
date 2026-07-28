@@ -8,7 +8,12 @@ const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store
 const { createRenderOrchestrator } = require('../lib/render-orchestrator');
 const { SegmentService } = require('../lib/segment-service');
 const { resolveVoiceReference } = require('../lib/voice-reference-helper');
-const { fitVoiceChunkToDuration } = require('../lib/voice-audio-fit');
+const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
+const {
+  createSmartFitSignature,
+  normalizeSmartFitMode,
+  planSmartFit
+} = require('../lib/smart-fit-service');
 const {
   DEFAULT_VOICE_ENGINE_ID,
   VoiceEngineError,
@@ -474,22 +479,27 @@ function createVoiceChunkCheckpoint(workDir, signature, dependencies = {}) {
   const fileSystem = dependencies.fs || fs;
   const voiceDir = path.join(workDir, 'voice');
   const chunksDir = path.join(voiceDir, 'chunks');
+  const rawDir = path.join(chunksDir, 'raw');
+  const fittedDir = path.join(chunksDir, 'fitted');
   const statePath = path.join(voiceDir, 'checkpoint.json');
   let state = readJsonFile(statePath);
 
-  if (state?.version !== 2 || state.globalSignature !== signature) {
+  if (state?.version !== 3 || state.globalSignature !== signature) {
     if (fileSystem.existsSync(voiceDir)) {
       fileSystem.rmSync(voiceDir, { recursive: true, force: true });
     }
     state = {
-      version: 2,
+      version: 3,
       globalSignature: signature,
       completed: {},
+      fitted: {},
       createdAt: new Date().toISOString()
     };
   }
   state.completed ||= {};
-  fileSystem.mkdirSync(chunksDir, { recursive: true });
+  state.fitted ||= {};
+  fileSystem.mkdirSync(rawDir, { recursive: true });
+  fileSystem.mkdirSync(fittedDir, { recursive: true });
 
   const save = () => {
     state.updatedAt = new Date().toISOString();
@@ -503,23 +513,39 @@ function createVoiceChunkCheckpoint(workDir, signature, dependencies = {}) {
     if (!value) throw new Error('Mã checkpoint giọng nói không hợp lệ');
     return value;
   };
-  const getChunkPath = (key) => path.join(chunksDir, `chunk_${normalizeKey(key)}.wav`);
+  const getRawChunkPath = (key) => path.join(rawDir, `chunk_${normalizeKey(key)}.wav`);
+  const getFittedChunkPath = (key) => path.join(fittedDir, `chunk_${normalizeKey(key)}.wav`);
+  const getChunkPath = getRawChunkPath;
   save();
 
   return {
     state,
     statePath,
     getChunkPath,
+    getRawChunkPath,
+    getFittedChunkPath,
     hasChunk(key, entrySignature = null) {
       const entry = state.completed[String(key)];
       return Boolean(
         entry
         && (!entrySignature || entry.signature === entrySignature)
-        && isUsableFile(getChunkPath(key), 44)
+        && isUsableFile(getRawChunkPath(key), 44)
       );
     },
     markChunk(key, entry) {
       state.completed[String(key)] = entry;
+      save();
+    },
+    hasFittedChunk(key, fitSignature = null) {
+      const entry = state.fitted[String(key)];
+      return Boolean(
+        entry
+        && (!fitSignature || entry.signature === fitSignature)
+        && isUsableFile(getFittedChunkPath(key), 44)
+      );
+    },
+    markFittedChunk(key, entry) {
+      state.fitted[String(key)] = entry;
       save();
     }
   };
@@ -811,7 +837,8 @@ async function executeRenderTask(task) {
         durationMs: totalDuration * 1000,
         reviewRequired: segmentReviewEnabled,
         defaultVoiceFile: body.savedVoiceFile || '',
-        defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID
+        defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID,
+        smartFitMode: body.smartFitMode
       });
       task.segmentReview = segmentService.summarize(segmentManifest);
       renderJobStore.saveTask(task);
@@ -1057,7 +1084,7 @@ async function executeRenderTask(task) {
         }
 
         const voiceCheckpointSignature = createCheckpointSignature({
-          version: 2,
+          version: 3,
           referenceAudio: getFileIdentity(refAudioPath),
           refText,
           engineId: voiceEngine.id,
@@ -1111,24 +1138,28 @@ async function executeRenderTask(task) {
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi'
           });
-          const chunkPath = voiceCheckpoint.getChunkPath(checkpointKey);
+          const rawChunkPath = voiceCheckpoint.getRawChunkPath(checkpointKey);
+          const fittedChunkPath = voiceCheckpoint.getFittedChunkPath(checkpointKey);
+          const nextGroup = groups[idx + 1];
+          const nextStartMs = nextGroup ? srtTimeToMs(nextGroup[0].startTime) : null;
+          const smartFitMode = normalizeSmartFitMode(
+            segmentManifest?.smartFit?.mode || body.smartFitMode
+          );
+          let hasRawChunk = voiceCheckpoint.hasChunk(checkpointKey, chunkSignature);
 
-          if (voiceCheckpoint.hasChunk(checkpointKey, chunkSignature)) {
+          if (hasRawChunk) {
             shared.updateStudioProgress(
               progressPercent,
               `AI Cloner: Dùng lại câu thoại ${idx + 1}/${groups.length} từ checkpoint...`
             );
-            voiceChunks.push({ filePath: chunkPath, startMs });
-            continue;
           }
 
-          let reusedSegmentPreview = false;
-          if (segment?.audioSignature === chunkSignature) {
-            const previewPath = segmentService.getAudioPath(workDir, segment.id);
-            if (previewPath && path.resolve(previewPath) !== path.resolve(chunkPath)) {
-              fs.mkdirSync(path.dirname(chunkPath), { recursive: true });
-              fs.copyFileSync(previewPath, chunkPath);
-              reusedSegmentPreview = true;
+          if (!hasRawChunk && segment?.rawAudioSignature === chunkSignature) {
+            const previewPath = segmentService.getRawAudioPath(workDir, segment.id);
+            if (previewPath && path.resolve(previewPath) !== path.resolve(rawChunkPath)) {
+              fs.mkdirSync(path.dirname(rawChunkPath), { recursive: true });
+              fs.copyFileSync(previewPath, rawChunkPath);
+              hasRawChunk = true;
               shared.updateStudioProgress(
                 progressPercent,
                 `AI Cloner: Dùng audio đã duyệt cho câu ${idx + 1}/${groups.length}...`
@@ -1136,7 +1167,7 @@ async function executeRenderTask(task) {
             }
           }
 
-          if (!reusedSegmentPreview) {
+          if (!hasRawChunk) {
             shared.updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
           }
 
@@ -1144,10 +1175,10 @@ async function executeRenderTask(task) {
 
           console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Thời lượng sub: ${durationSec.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
           try {
-            if (!reusedSegmentPreview) {
+            if (!hasRawChunk) {
               await runVoiceEngine({
                 text: lineText,
-                outputPath: chunkPath,
+                outputPath: rawChunkPath,
                 steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
                 positionTemperature: 1,
                 referenceAudioPath: segmentReferenceAudioPath,
@@ -1155,40 +1186,71 @@ async function executeRenderTask(task) {
                 instruct: 'female'
               });
             }
-            if (fs.existsSync(chunkPath)) {
+            if (fs.existsSync(rawChunkPath)) {
+              voiceCheckpoint.markChunk(checkpointKey, {
+                filePath: rawChunkPath,
+                startMs,
+                endMs,
+                signature: chunkSignature,
+                textSignature: createCheckpointSignature(lineText)
+              });
+              let rawDurationMs;
+              let fitSignature;
+              let fitPlan;
               try {
-                const subtitleDurationMs = endMs - startMs;
-                const maxAllowedDurationMs = Math.max(200, subtitleDurationMs - 50);
-                await fitVoiceChunkToDuration({
-                  filePath: chunkPath,
-                  maxDurationMs: maxAllowedDurationMs,
-                  ffmpegPath: shared.FFMPEG_PATH,
-                  runExecFile: shared.runExecFile,
-                  label: `Nhóm câu ${idx + 1}`
+                rawDurationMs = readWavDurationMs(rawChunkPath);
+                fitSignature = createSmartFitSignature({
+                  rawSignature: chunkSignature,
+                  rawFile: getFileIdentity(rawChunkPath),
+                  mode: smartFitMode,
+                  startMs,
+                  endMs,
+                  nextStartMs,
+                  timelineEndMs: totalDuration * 1000
                 });
+                fitPlan = planSmartFit({
+                  mode: smartFitMode,
+                  startMs,
+                  endMs,
+                  nextStartMs,
+                  timelineEndMs: totalDuration * 1000,
+                  rawDurationMs
+                });
+                if (!voiceCheckpoint.hasFittedChunk(checkpointKey, fitSignature)) {
+                  await createFittedVoiceChunk({
+                    rawPath: rawChunkPath,
+                    outputPath: fittedChunkPath,
+                    fitPlan,
+                    ffmpegPath: shared.FFMPEG_PATH,
+                    runExecFile: shared.runExecFile,
+                    label: `Nhóm câu ${idx + 1}`
+                  });
+                }
               } catch (speedUpErr) {
                 console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
                 throw speedUpErr;
               }
 
               voiceChunks.push({
-                filePath: chunkPath,
+                filePath: fittedChunkPath,
                 startMs: startMs
               });
-              voiceCheckpoint.markChunk(checkpointKey, {
-                filePath: chunkPath,
-                startMs,
-                endMs,
-                signature: chunkSignature,
-                textSignature: createCheckpointSignature(lineText)
+              voiceCheckpoint.markFittedChunk(checkpointKey, {
+                filePath: fittedChunkPath,
+                signature: fitSignature,
+                plan: fitPlan
               });
               if (segment) {
-                const wavInfo = readWavInfo(chunkPath);
+                const fittedDurationMs = readWavDurationMs(fittedChunkPath);
                 segmentManifest = segmentService.setSegmentAudio(workDir, segment.id, {
                   status: 'ready',
-                  audioFile: path.relative(workDir, chunkPath),
-                  audioDurationMs: Math.round(wavInfo.dataSize / wavInfo.bytesPerMs),
-                  audioSignature: chunkSignature
+                  rawAudioFile: path.relative(workDir, rawChunkPath),
+                  rawAudioDurationMs: rawDurationMs,
+                  rawAudioSignature: chunkSignature,
+                  audioFile: path.relative(workDir, fittedChunkPath),
+                  audioDurationMs: fittedDurationMs,
+                  audioSignature: fitSignature,
+                  fit: { ...fitPlan, fittedDurationMs, signature: fitSignature }
                 });
                 task.segmentReview = segmentService.summarize(segmentManifest);
                 renderJobStore.saveTask(task);

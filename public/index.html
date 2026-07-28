@@ -1683,6 +1683,20 @@
                         <span class="switch-label">Duyệt từng câu trước khi tạo giọng</span>
                       </label>
 
+                      <div class="form-group smart-fit-control">
+                        <label>Smart Fit thời lượng</label>
+                        <div class="studio-source-tabs smart-fit-tabs" role="group"
+                          aria-label="Chế độ Smart Fit thời lượng">
+                          <button type="button" class="smart-fit-mode-btn" data-smart-fit-mode="natural"
+                            title="Ưu tiên giọng tự nhiên, giới hạn tăng tốc 1.15x">Tự nhiên</button>
+                          <button type="button" class="smart-fit-mode-btn active" data-smart-fit-mode="cue"
+                            title="Tăng tốc đủ để giữ toàn bộ lời thoại trong cue, không giới hạn tốc độ">Khớp cue</button>
+                          <button type="button" class="smart-fit-mode-btn" data-smart-fit-mode="cinematic"
+                            title="Ưu tiên nhịp kể chuyện và cảnh báo câu cần viết ngắn">Điện ảnh</button>
+                        </div>
+                        <input type="hidden" id="smart-fit-mode" name="smartFitMode" value="cue">
+                      </div>
+
                       <div style="display: none;">
                         <span id="omi-steps-badge">40</span>
                         <input type="range" name="omiSteps" id="omi-steps-slider" value="40" min="10" max="50" step="1">
@@ -3610,6 +3624,13 @@
             <option value="warnings">Có cảnh báo</option>
             <option value="unapproved">Chưa duyệt</option>
             <option value="locked">Đã khóa</option>
+          </select>
+          <select id="segment-editor-fit-mode" class="premium-select"
+            aria-label="Chế độ Smart Fit thời lượng"
+            title="Đổi chế độ sẽ giữ audio gốc và tạo lại bản khớp thời gian">
+            <option value="natural">Smart Fit: Tự nhiên</option>
+            <option value="cue">Smart Fit: Khớp cue</option>
+            <option value="cinematic">Smart Fit: Điện ảnh</option>
           </select>
           <div class="segment-editor-history">
             <button type="button" id="segment-editor-undo" class="icon-btn" title="Hoàn tác (Ctrl+Z)"

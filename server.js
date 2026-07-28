@@ -322,6 +322,7 @@ app.post('/api/render-resume', studioController.resumeRenderTask);
 app.get('/api/render-tasks/:taskId/segments', segmentController.getSegments);
 app.put('/api/render-tasks/:taskId/segments', segmentController.updateSegments);
 app.post('/api/render-tasks/:taskId/segments/replace', segmentController.replaceText);
+app.post('/api/render-tasks/:taskId/segments/smart-fit', segmentController.updateSmartFit);
 app.post('/api/render-tasks/:taskId/segments/approve', segmentController.approveSegments);
 app.post('/api/render-tasks/:taskId/segments/:segmentId/regenerate', segmentController.regenerateSegment);
 app.get('/api/render-tasks/:taskId/segments/:segmentId/audio', segmentController.streamSegmentAudio);
