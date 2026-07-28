@@ -70,3 +70,53 @@ test('voice engine lock covers render, cloner, and segment preview paths', () =>
   assert.match(segment, /skipRenderCheck: true/);
   assert.match(segment, /error\.manifest = toPublicManifest\(manifest\)/);
 });
+
+test('reviewed segment audio and render use the same stable synthesis signature', () => {
+  const studio = read('controllers/studioController.js');
+  const segment = read('controllers/segmentController.js');
+  const helper = read('lib/voice-reference-helper.js');
+
+  assert.match(studio, /createVoiceAudioSignature\(\{/);
+  assert.match(segment, /createVoiceAudioSignature\(\{/);
+  assert.match(studio, /referenceIdentity: segmentReferenceIdentity/);
+  assert.match(segment, /referenceIdentity: reference\.sourceIdentity/);
+  assert.match(segment, /positionTemperature: 1/);
+  assert.match(helper, /VOICE_AUDIO_SIGNATURE_VERSION = 2/);
+  assert.match(studio, /Dùng lại audio/);
+});
+
+test('Smart Fit is wired through render, checkpoints, API, and segment editor controls', () => {
+  const html = read('public/index.html');
+  const app = read('public/app.js');
+  const editor = read('public/js/segment-editor.js');
+  const server = read('server.js');
+  const studio = read('controllers/studioController.js');
+  const segment = read('controllers/segmentController.js');
+
+  assert.match(html, /name="smartFitMode"/);
+  assert.match(html, /id="segment-editor-fit-mode"/);
+  assert.match(app, /function setSmartFitMode/);
+  assert.match(server, /segments\/smart-fit/);
+  assert.match(editor, /async function updateSmartFitMode/);
+  assert.match(editor, /variant=\$\{encodeURIComponent\(variant\)\}/);
+  assert.match(studio, /getRawChunkPath/);
+  assert.match(studio, /getFittedChunkPath/);
+  assert.match(studio, /createSmartFitSignature/);
+  assert.match(segment, /createFittedVoiceChunk/);
+  assert.match(segment, /getRawAudioPath/);
+  assert.match(studio, /rawAudioDurationMs: rawDurationMs/);
+  assert.match(segment, /rawAudioDurationMs: rawDurationMs/);
+  assert.doesNotMatch(studio, /^\s*rawAudioDurationMs,$/m);
+  assert.doesNotMatch(segment, /^\s*rawAudioDurationMs,$/m);
+});
+
+test('segment editor presents audio QC as readable labeled metrics', () => {
+  const segmentEditor = read('public/js/segment-editor.js');
+  const styles = read('public/style.css');
+  assert.match(segmentEditor, /function renderAudioQuality/);
+  assert.match(segmentEditor, /Chất lượng audio/);
+  assert.match(segmentEditor, /Âm lượng/);
+  assert.match(segmentEditor, /Cần kiểm tra/);
+  assert.match(styles, /\.segment-editor-qc\.is-good/);
+  assert.match(styles, /\.segment-editor-qc\.is-warning/);
+});

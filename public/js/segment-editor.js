@@ -60,7 +60,12 @@
       overlap: 'Chồng thời gian',
       outside_video: 'Vượt thời lượng video',
       audio_too_long: 'Audio dài hơn cue',
-      tts_error: 'Tạo giọng lỗi'
+      audio_silent: 'Audio gần như im lặng',
+      audio_clipping: 'Audio bị vỡ tiếng',
+      audio_too_quiet: 'Audio quá nhỏ',
+      tts_error: 'Tạo giọng lỗi',
+      smart_fit_trimmed: 'Smart Fit phải cắt phần vượt',
+      smart_fit_rewrite_recommended: 'Nên viết ngắn câu này'
     }[code] || code;
   }
 
@@ -71,6 +76,45 @@
       ready: 'Đã có audio',
       error: 'Lỗi'
     }[status] || status;
+  }
+
+  function fitStatusLabel(fit) {
+    if (!fit) return '';
+    return {
+      unchanged: 'Giữ nguyên',
+      borrowed: 'Mượn khoảng nghỉ',
+      sped_up: `Tăng tốc ${Number(fit.speed || 1).toFixed(2)}x`,
+      trimmed: `Đã cắt ${durationLabel(fit.trimmedMs)}`,
+      rewrite_recommended: `Vượt giới hạn ${Number(fit.maxSpeed || 1.2).toFixed(2)}x`
+    }[fit.status] || fit.status;
+  }
+
+  function renderAudioQuality(audioQuality) {
+    if (!audioQuality) return '';
+    const warnings = Array.isArray(audioQuality.warnings) ? audioQuality.warnings : [];
+    const hasWarning = warnings.length > 0;
+    const formatMetric = (value) => (
+      Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} dB` : '—'
+    );
+    return `
+      <div class="segment-editor-qc ${hasWarning ? 'is-warning' : 'is-good'}"
+        title="Kiểm tra chất lượng audio sau khi chuẩn hóa">
+        <div class="segment-editor-qc-header">
+          <span>Chất lượng audio</span>
+          <strong><i aria-hidden="true"></i>${hasWarning ? 'Cần kiểm tra' : 'Đạt'}</strong>
+        </div>
+        <div class="segment-editor-qc-metric"
+          title="Mức âm lượng trung bình của câu sau khi chuẩn hóa">
+          <span>Âm lượng</span>
+          <strong>${formatMetric(audioQuality.rmsDbfs)}</strong>
+        </div>
+        <div class="segment-editor-qc-metric"
+          title="Đỉnh âm lượng lớn nhất; càng gần 0 dB thì tín hiệu càng lớn">
+          <span>Đỉnh</span>
+          <strong>${formatMetric(audioQuality.peakDbfs)}</strong>
+        </div>
+      </div>
+    `;
   }
 
   function showError(message) {
@@ -145,6 +189,7 @@
     const disabled = segment.locked || generationInProgress ? ' disabled' : '';
     const dirty = state.patches.has(segment.id);
     const audioReady = segment.status === 'ready' && segment.audioFile;
+    const rawAudioReady = Boolean(segment.rawAudioFile);
     const regenerating = state.regenerating.has(segment.id);
     const statusClass = segment.status === 'ready'
       ? 'is-ready'
@@ -181,12 +226,14 @@
         <td class="segment-editor-duration">
           <div><span>Câu</span><strong>${durationLabel(cueDuration)}</strong></div>
           <div><span>Audio</span><strong>${segment.audioDurationMs ? durationLabel(segment.audioDurationMs) : '—'}</strong></div>
+          ${renderAudioQuality(segment.audioQuality)}
         </td>
         <td>
           <div class="segment-editor-status">
             <span class="segment-editor-status-chip ${statusClass}">
               ${escapeHtml(regenerating ? 'Đang tạo' : statusLabel(segment.status))}
             </span>
+            ${segment.fit ? `<span class="segment-editor-fit-result">${escapeHtml(fitStatusLabel(segment.fit))}</span>` : ''}
             ${warnings.map((warning) => `<span class="segment-editor-warning">${escapeHtml(warning)}</span>`).join('')}
             ${segment.error ? `<span class="segment-editor-warning">${escapeHtml(segment.error)}</span>` : ''}
           </div>
@@ -197,6 +244,8 @@
               title="Đưa video xem trước tới đầu câu này" aria-label="Xem vị trí câu trên video">▶</button>
             <button type="button" class="icon-btn" data-action="play"
               title="Nghe audio đã tạo của câu này" aria-label="Nghe audio câu này"${audioReady ? '' : ' disabled'}>♪</button>
+            <button type="button" class="icon-btn" data-action="play-raw"
+              title="Nghe audio gốc trước Smart Fit" aria-label="Nghe audio gốc"${rawAudioReady ? '' : ' disabled'}>G</button>
             <button type="button" class="icon-btn" data-action="regenerate"
               title="Tạo lại giọng cho riêng câu này" aria-label="Tạo lại giọng câu này"
               ${disabled || generationInProgress ? ' disabled' : ''}>↻</button>
@@ -240,11 +289,14 @@
         <span class="${warningCount ? 'has-warning' : ''}"><strong>${warningCount}</strong> cảnh báo</span>
         <span class="${state.patches.size ? 'has-changes' : ''}"><strong>${state.patches.size}</strong> chưa lưu</span>`;
     }
+    const fitModeSelect = el('segment-editor-fit-mode');
+    if (fitModeSelect) fitModeSelect.value = state.manifest?.smartFit?.mode || 'cue';
     const pageInfo = el('segment-editor-page-info');
     if (pageInfo) pageInfo.textContent = `Trang ${state.page}/${totalPages} • ${items.length} segment`;
     if (el('segment-editor-prev')) el('segment-editor-prev').disabled = state.page <= 1;
     if (el('segment-editor-next')) el('segment-editor-next').disabled = state.page >= totalPages;
     const generationInProgress = state.batchGenerating || state.regenerating.size > 0;
+    if (fitModeSelect) fitModeSelect.disabled = generationInProgress;
     if (el('segment-editor-undo')) {
       el('segment-editor-undo').disabled = generationInProgress || state.undo.length === 0;
     }
@@ -359,6 +411,21 @@
     notify('Đã thay thế nội dung trong các câu chưa khóa.', 'success');
   }
 
+  async function updateSmartFitMode(mode) {
+    if (!state.manifest || mode === state.manifest.smartFit?.mode) return;
+    if (state.patches.size) await save();
+    const data = await api(
+      `/api/render-tasks/${encodeURIComponent(state.taskId)}/segments/smart-fit`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ revision: state.manifest.revision, mode })
+      }
+    );
+    state.manifest = data.manifest;
+    render();
+    notify('Đã đổi Smart Fit. Audio gốc được giữ lại; hãy tạo lại các bản khớp thời gian.', 'success');
+  }
+
   async function approveAndContinue() {
     try {
       await save();
@@ -419,11 +486,12 @@
     closeVideoPreview();
   }
 
-  async function playSegment(segmentId) {
+  async function playSegment(segmentId, variant = 'fitted') {
     const audio = el('segment-editor-audio');
     if (!audio) return;
     audio.src = `/api/render-tasks/${encodeURIComponent(state.taskId)}/segments/`
-      + `${encodeURIComponent(segmentId)}/audio?revision=${state.manifest.revision}`;
+      + `${encodeURIComponent(segmentId)}/audio?revision=${state.manifest.revision}`
+      + `&variant=${encodeURIComponent(variant)}`;
     await audio.play();
   }
 
@@ -580,6 +648,12 @@
       state.page = 1;
       render();
     });
+    el('segment-editor-fit-mode')?.addEventListener('change', (event) => {
+      updateSmartFitMode(event.target.value).catch((error) => {
+        showError(error.message);
+        render();
+      });
+    });
 
     el('segment-editor-body')?.addEventListener('change', (event) => {
       const row = event.target.closest('tr[data-segment-id]');
@@ -608,6 +682,9 @@
         seekSegment(row.dataset.segmentId).catch((error) => showError(error.message));
       }
       if (button.dataset.action === 'play') playSegment(row.dataset.segmentId).catch((error) => showError(error.message));
+      if (button.dataset.action === 'play-raw') {
+        playSegment(row.dataset.segmentId, 'raw').catch((error) => showError(error.message));
+      }
       if (button.dataset.action === 'regenerate') requestRegenerate(row.dataset.segmentId);
     });
 

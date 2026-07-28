@@ -3391,6 +3391,7 @@ function submitSaveTemplate(event) {
     savedVoiceFile: $('saved-voice-select').value,
     omiLanguage: document.getElementById('global-output-lang')?.value || 'vi',
     omiDevice: document.querySelector('select[name="omiDevice"]').value,
+    smartFitMode: $('smart-fit-mode')?.value || 'cue',
     omiSteps: document.querySelector('input[name="omiSteps"]').value,
     omiSeed: $('omi-seed-preset').value,
     omiCustomSeed: $('omi-seed-input').value,
@@ -3633,6 +3634,7 @@ function loadStudioTemplate(templateName) {
     globalLangSel.value = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
   }
   document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
+  setSmartFitMode(template.smartFitMode || 'cue');
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
@@ -4625,6 +4627,19 @@ document.querySelectorAll('.music-tab-btn').forEach(btn => {
       input.dispatchEvent(new Event('change'));
     }
   });
+});
+
+function setSmartFitMode(mode = 'cue') {
+  const normalized = ['natural', 'cue', 'cinematic'].includes(mode) ? mode : 'cue';
+  document.querySelectorAll('.smart-fit-mode-btn').forEach((button) => {
+    button.classList.toggle('active', button.dataset.smartFitMode === normalized);
+  });
+  const input = $('smart-fit-mode');
+  if (input) input.value = normalized;
+}
+
+document.querySelectorAll('.smart-fit-mode-btn').forEach((button) => {
+  button.addEventListener('click', () => setSmartFitMode(button.dataset.smartFitMode));
 });
 // Live updating Omi Steps badge
 const stepsSlider = document.getElementById('omi-steps-slider');
@@ -6964,6 +6979,7 @@ function resetStudioConfig() {
 
   const omiDevice = document.querySelector('select[name="omiDevice"]');
   if (omiDevice) omiDevice.value = 'vulkan:0';
+  setSmartFitMode('cue');
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
@@ -7904,6 +7920,7 @@ function deserializeStudioForm(obj) {
     }
   }
   loadTranslationProfileFromHidden();
+  setSmartFitMode(obj.smartFitMode || 'cue');
 
   // Khôi phục thuộc tính customGeometry cho Reaction PIP
   const pipEl = $('preview-reaction-pip');
@@ -8055,6 +8072,7 @@ function resetStudioForm() {
   if (voiceBtn) voiceBtn.click();
   const musicBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
   if (musicBtn) musicBtn.click();
+  setSmartFitMode('cue');
 
   const previewVideo = $('studio-video-preview');
   if (previewVideo) {

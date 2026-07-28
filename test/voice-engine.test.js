@@ -83,6 +83,43 @@ test('adapter maps generic synthesis options to current OmniVoice CLI arguments'
   assert.equal(result.fallback, false);
 });
 
+test('adapter prefers the persistent server and reports prompt-cache capability', async () => {
+  let runCliCalled = false;
+  let serverOptions = null;
+  const engine = createReadyEngine({
+    runCli: async () => {
+      runCliCalled = true;
+    },
+    serverManager: {
+      isAvailable: (device) => device === 'vulkan:0',
+      synthesize: async (options) => {
+        serverOptions = options;
+        return {
+          device: 'vulkan:0',
+          fallback: false,
+          persistentRuntime: true,
+          referencePromptCache: true
+        };
+      }
+    }
+  });
+
+  const result = await engine.cloneVoice({
+    text: 'Cau thu nghiem',
+    outputPath: 'D:\\work\\server.wav',
+    language: 'vi',
+    device: 'vulkan:0',
+    referenceAudioPath: 'D:\\work\\ref.wav',
+    referenceText: 'Giong mau'
+  });
+
+  assert.equal(runCliCalled, false);
+  assert.equal(serverOptions.modelPath, 'C:\\models\\omnivoice.gguf');
+  assert.equal(result.persistentRuntime, true);
+  assert.equal(result.referencePromptCache, true);
+  assert.deepEqual(engine.getCapabilities().persistentDevices, ['vulkan:0']);
+});
+
 test('CPU fallback is passed to the runner only after explicit opt-in', async () => {
   const calls = [];
   const engine = createReadyEngine({
