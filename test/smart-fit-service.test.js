@@ -186,7 +186,7 @@ test('builds valid chained atempo filters', () => {
   );
 });
 
-test('creates fitted copies without modifying the raw WAV', async (t) => {
+test('normalizes fitted copies without modifying the raw WAV', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'smart-fit-audio-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const rawPath = path.join(directory, 'raw.wav');
@@ -204,8 +204,12 @@ test('creates fitted copies without modifying the raw WAV', async (t) => {
       rawDurationMs: 1000
     }),
     ffmpegPath: 'ffmpeg',
-    runExecFile: async () => {
-      throw new Error('FFmpeg should not run for unchanged audio');
+    runExecFile: async (_command, args) => {
+      const filter = args[args.indexOf('-filter:a') + 1];
+      assert.match(filter, /loudnorm=I=-18:LRA=7:TP=-1\.5/);
+      assert.match(filter, /alimiter=/);
+      assert.match(filter, /aresample=24000/);
+      fs.copyFileSync(rawPath, args.at(-1));
     }
   });
 

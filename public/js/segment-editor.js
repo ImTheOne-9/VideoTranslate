@@ -60,6 +60,9 @@
       overlap: 'Chồng thời gian',
       outside_video: 'Vượt thời lượng video',
       audio_too_long: 'Audio dài hơn cue',
+      audio_silent: 'Audio gần như im lặng',
+      audio_clipping: 'Audio bị vỡ tiếng',
+      audio_too_quiet: 'Audio quá nhỏ',
       tts_error: 'Tạo giọng lỗi',
       smart_fit_trimmed: 'Smart Fit phải cắt phần vượt',
       smart_fit_rewrite_recommended: 'Nên viết ngắn câu này'
@@ -84,6 +87,34 @@
       trimmed: `Đã cắt ${durationLabel(fit.trimmedMs)}`,
       rewrite_recommended: `Vượt giới hạn ${Number(fit.maxSpeed || 1.2).toFixed(2)}x`
     }[fit.status] || fit.status;
+  }
+
+  function renderAudioQuality(audioQuality) {
+    if (!audioQuality) return '';
+    const warnings = Array.isArray(audioQuality.warnings) ? audioQuality.warnings : [];
+    const hasWarning = warnings.length > 0;
+    const formatMetric = (value) => (
+      Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} dB` : '—'
+    );
+    return `
+      <div class="segment-editor-qc ${hasWarning ? 'is-warning' : 'is-good'}"
+        title="Kiểm tra chất lượng audio sau khi chuẩn hóa">
+        <div class="segment-editor-qc-header">
+          <span>Chất lượng audio</span>
+          <strong><i aria-hidden="true"></i>${hasWarning ? 'Cần kiểm tra' : 'Đạt'}</strong>
+        </div>
+        <div class="segment-editor-qc-metric"
+          title="Mức âm lượng trung bình của câu sau khi chuẩn hóa">
+          <span>Âm lượng</span>
+          <strong>${formatMetric(audioQuality.rmsDbfs)}</strong>
+        </div>
+        <div class="segment-editor-qc-metric"
+          title="Đỉnh âm lượng lớn nhất; càng gần 0 dB thì tín hiệu càng lớn">
+          <span>Đỉnh</span>
+          <strong>${formatMetric(audioQuality.peakDbfs)}</strong>
+        </div>
+      </div>
+    `;
   }
 
   function showError(message) {
@@ -195,6 +226,7 @@
         <td class="segment-editor-duration">
           <div><span>Câu</span><strong>${durationLabel(cueDuration)}</strong></div>
           <div><span>Audio</span><strong>${segment.audioDurationMs ? durationLabel(segment.audioDurationMs) : '—'}</strong></div>
+          ${renderAudioQuality(segment.audioQuality)}
         </td>
         <td>
           <div class="segment-editor-status">

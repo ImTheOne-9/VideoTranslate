@@ -8,12 +8,15 @@ const {
   voiceEngineRegistry
 } = require('../lib/voice-engines/index');
 const {
-  createCheckpointSignature,
   getFileIdentity,
   isUsableFile
 } = require('../lib/checkpoint-utils');
-const { resolveVoiceReference } = require('../lib/voice-reference-helper');
+const {
+  createVoiceAudioSignature,
+  resolveVoiceReference
+} = require('../lib/voice-reference-helper');
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
+const { analyzeWavFile } = require('../lib/audio-quality');
 const {
   createSmartFitSignature,
   normalizeSmartFitMode,
@@ -245,14 +248,16 @@ async function regenerateSegment(req, res) {
     const language = ['vi', 'en', 'zh'].includes(task.body.omiLanguage)
       ? task.body.omiLanguage
       : 'vi';
-    const rawSignature = createCheckpointSignature({
+    const rawSignature = createVoiceAudioSignature({
       text: segment.text,
       voiceFile: segment.voiceFile || task.body.savedVoiceFile || '',
-      referenceAudio: getFileIdentity(reference.audioPath),
+      referenceIdentity: reference.sourceIdentity,
       referenceText: reference.text,
       engineId,
       steps: task.body.omiSteps || '16',
-      language
+      language,
+      seed: task.body.omiSeed || '',
+      positionTemperature: 1
     });
     const rawReady = segment.rawAudioSignature === rawSignature && isUsableFile(rawPath, 44);
     const method = reference.audioPath && reference.text ? 'cloneVoice' : 'synthesize';
@@ -263,6 +268,7 @@ async function regenerateSegment(req, res) {
       device: task.body.omiDevice || 'cpu',
       steps: task.body.omiSteps || '16',
       seed: task.body.omiSeed || String(Math.floor(Math.random() * 9999999)),
+      positionTemperature: 1,
       referenceAudioPath: reference.audioPath,
       referenceText: reference.text,
       instruct: 'female',
@@ -302,7 +308,8 @@ async function regenerateSegment(req, res) {
       runExecFile: shared.runExecFile,
       label: `Segment ${segmentIndex + 1}`
     });
-    const fittedDurationMs = readWavDurationMs(outputPath);
+    const audioQuality = analyzeWavFile(outputPath);
+    const fittedDurationMs = audioQuality.durationMs;
     manifest = segmentService.setSegmentAudio(task.workDir, segment.id, {
       status: 'ready',
       rawAudioFile: path.relative(task.workDir, rawPath),
@@ -311,6 +318,7 @@ async function regenerateSegment(req, res) {
       audioFile: path.relative(task.workDir, outputPath),
       audioDurationMs: fittedDurationMs,
       audioSignature,
+      audioQuality,
       fit: { ...fitPlan, fittedDurationMs, signature: audioSignature }
     });
     saveTaskSummary(task, manifest);

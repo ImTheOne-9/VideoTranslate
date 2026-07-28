@@ -7,8 +7,13 @@ const anti = require('../lib/anti-dupe');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
 const { createRenderOrchestrator } = require('../lib/render-orchestrator');
 const { SegmentService } = require('../lib/segment-service');
-const { resolveVoiceReference } = require('../lib/voice-reference-helper');
+const {
+  createLegacyVoiceAudioSignature,
+  createVoiceAudioSignature,
+  resolveVoiceReference
+} = require('../lib/voice-reference-helper');
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
+const { analyzeWavFile } = require('../lib/audio-quality');
 const {
   createSmartFitSignature,
   normalizeSmartFitMode,
@@ -919,7 +924,9 @@ async function executeRenderTask(task) {
             requestedDevice: result.requestedDevice,
             usedDevice: result.usedDevice,
             fallback: result.fallback,
-            language: result.language
+            language: result.language,
+            persistentRuntime: result.persistentRuntime === true,
+            referencePromptCache: result.referencePromptCache === true
           };
           renderJobStore.saveTask(task);
           return result;
@@ -1097,6 +1104,18 @@ async function executeRenderTask(task) {
           positionTemperature: '1.0'
         });
         const voiceCheckpoint = createVoiceChunkCheckpoint(workDir, voiceCheckpointSignature);
+        let defaultPreviewReference = null;
+        if (segmentManifest && body.savedVoiceFile) {
+          defaultPreviewReference = await resolveVoiceReference({
+            voiceFile: body.savedVoiceFile,
+            defaultVoiceFile: body.savedVoiceFile,
+            providedText: refText,
+            workDir,
+            whisperModel: body.whisperModel || 'small',
+            whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
+            language: body.ocrLanguage || ''
+          });
+        }
 
         for (let idx = 0; idx < groups.length; idx++) {
           if (!shared.state.isStudioRendering || task.status === 'failed' || (task.step && task.step.includes('hủy'))) {
@@ -1115,6 +1134,8 @@ async function executeRenderTask(task) {
           const checkpointKey = segment?.id || idx;
           let segmentReferenceAudioPath = finalRefAudioPath;
           let segmentReferenceText = refText;
+          let segmentReferenceIdentity = getFileIdentity(refAudioPath);
+          let legacyReferenceAudioPath = defaultPreviewReference?.audioPath || finalRefAudioPath;
           const segmentVoiceFile = segment?.voiceFile || body.savedVoiceFile || '';
           if (segment && segmentVoiceFile && segmentVoiceFile !== body.savedVoiceFile) {
             const segmentReference = await resolveVoiceReference({
@@ -1128,16 +1149,31 @@ async function executeRenderTask(task) {
             });
             segmentReferenceAudioPath = segmentReference.audioPath;
             segmentReferenceText = segmentReference.text;
+            segmentReferenceIdentity = segmentReference.sourceIdentity;
+            legacyReferenceAudioPath = segmentReference.audioPath;
           }
-          const chunkSignature = createCheckpointSignature({
+          const chunkSignature = createVoiceAudioSignature({
             text: lineText,
             voiceFile: segmentVoiceFile,
-            referenceAudio: getFileIdentity(segmentReferenceAudioPath),
+            referenceIdentity: segmentReferenceIdentity,
             referenceText: segmentReferenceText,
             engineId: voiceEngine.id,
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-            language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi'
+            language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+            seed: body.omiSeed || '',
+            positionTemperature: 1
           });
+          const legacyChunkSignature = segment
+            ? createLegacyVoiceAudioSignature({
+                text: lineText,
+                voiceFile: segmentVoiceFile,
+                referenceAudioPath: legacyReferenceAudioPath,
+                referenceText: segmentReferenceText,
+                engineId: voiceEngine.id,
+                steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+                language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi'
+              })
+            : null;
           const rawChunkPath = voiceCheckpoint.getRawChunkPath(checkpointKey);
           const fittedChunkPath = voiceCheckpoint.getFittedChunkPath(checkpointKey);
           const nextGroup = groups[idx + 1];
@@ -1154,7 +1190,11 @@ async function executeRenderTask(task) {
             );
           }
 
-          if (!hasRawChunk && segment?.rawAudioSignature === chunkSignature) {
+          const reusableSegmentAudio = segment && (
+            segment.rawAudioSignature === chunkSignature
+            || segment.rawAudioSignature === legacyChunkSignature
+          );
+          if (!hasRawChunk && reusableSegmentAudio) {
             const previewPath = segmentService.getRawAudioPath(workDir, segment.id);
             if (previewPath && path.resolve(previewPath) !== path.resolve(rawChunkPath)) {
               fs.mkdirSync(path.dirname(rawChunkPath), { recursive: true });
@@ -1173,7 +1213,12 @@ async function executeRenderTask(task) {
 
           const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
 
-          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Thời lượng sub: ${durationSec.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
+          console.log(
+            `[OmniVoice-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
+            + ` ${idx + 1}/${groups.length}: "${lineText}"`
+            + ` (Thời lượng sub: ${durationSec.toFixed(2)}s,`
+            + ` Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`
+          );
           try {
             if (!hasRawChunk) {
               await runVoiceEngine({
@@ -1235,13 +1280,16 @@ async function executeRenderTask(task) {
                 filePath: fittedChunkPath,
                 startMs: startMs
               });
+              const fittedQuality = analyzeWavFile(fittedChunkPath);
               voiceCheckpoint.markFittedChunk(checkpointKey, {
                 filePath: fittedChunkPath,
                 signature: fitSignature,
-                plan: fitPlan
+                plan: fitPlan,
+                quality: fittedQuality
               });
               if (segment) {
-                const fittedDurationMs = readWavDurationMs(fittedChunkPath);
+                const audioQuality = fittedQuality;
+                const fittedDurationMs = audioQuality.durationMs;
                 segmentManifest = segmentService.setSegmentAudio(workDir, segment.id, {
                   status: 'ready',
                   rawAudioFile: path.relative(workDir, rawChunkPath),
@@ -1250,6 +1298,7 @@ async function executeRenderTask(task) {
                   audioFile: path.relative(workDir, fittedChunkPath),
                   audioDurationMs: fittedDurationMs,
                   audioSignature: fitSignature,
+                  audioQuality,
                   fit: { ...fitPlan, fittedDurationMs, signature: fitSignature }
                 });
                 task.segmentReview = segmentService.summarize(segmentManifest);
@@ -1741,7 +1790,11 @@ async function executeRenderTask(task) {
         }
         mixLabels.push(`[${label}]`);
       });
-      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0,dynaudnorm=p=0.95:m=1[aout]`);
+      audioFilters.push(
+        `${mixLabels.join('')}amix=inputs=${mixLabels.length}`
+        + ':duration=first:dropout_transition=0:normalize=0,'
+        + 'alimiter=limit=0.891:attack=5:release=50:level=disabled[aout]'
+      );
       filterComplex.push(audioFilters.join(';'));
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;

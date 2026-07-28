@@ -12,6 +12,7 @@ const sharedState = fs.readFileSync(path.join(root, 'lib', 'shared-state.js'), '
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
 test('studio render resolves the configured voice engine instead of invoking OmniVoice CLI directly', () => {
   assert.match(studioController, /voiceEngineRegistry\.resolve\(voiceEngineId, DEFAULT_VOICE_ENGINE_ID\)/);
@@ -42,4 +43,9 @@ test('studio UI exposes engine selection, capabilities, and CPU fallback control
   assert.match(app, /function renderVoiceEngineOptions/);
   assert.match(app, /assets\.voiceEngines/);
   assert.match(app, /Voice engine đã chọn chưa sẵn sàng/);
+});
+
+test('packaging includes persistent OmniVoice server variants', () => {
+  const filters = packageJson.build.extraResources.flatMap((resource) => resource.filter || []);
+  assert.ok(filters.includes('omnivoice/omnivoice-server-*.exe'));
 });

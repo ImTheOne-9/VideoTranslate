@@ -131,6 +131,12 @@ test('timing changes preserve raw audio, invalidate fitted audio, and update rev
     audioFile: path.relative(fixture.workDir, audioPath),
     audioDurationMs: 1000,
     audioSignature: 'same-audio',
+    audioQuality: {
+      version: 1,
+      rmsDbfs: -40,
+      peakDbfs: -10,
+      warnings: ['audio_too_quiet']
+    },
     fit: { mode: 'cue', status: 'sped_up', effectiveEndMs: 2000 }
   });
 
@@ -141,6 +147,7 @@ test('timing changes preserve raw audio, invalidate fitted audio, and update rev
   }]);
 
   assert.equal(updated.segments[0].audioFile, null);
+  assert.equal(updated.segments[0].audioQuality, null);
   assert.equal(fs.existsSync(audioPath), false);
   assert.equal(updated.segments[0].rawAudioFile, path.relative(fixture.workDir, rawAudioPath));
   assert.equal(fs.existsSync(rawAudioPath), true);
@@ -164,6 +171,12 @@ test('changing Smart Fit mode invalidates fitted audio but preserves raw checkpo
     audioFile: path.relative(fixture.workDir, fittedPath),
     audioDurationMs: 1000,
     audioSignature: 'fit-signature',
+    audioQuality: {
+      version: 1,
+      rmsDbfs: -18,
+      peakDbfs: -1.5,
+      warnings: []
+    },
     fit: { mode: 'cue', status: 'sped_up' }
   });
 
@@ -176,9 +189,36 @@ test('changing Smart Fit mode invalidates fitted audio but preserves raw checkpo
   assert.equal(updated.smartFit.mode, 'natural');
   assert.equal(updated.segments[0].status, 'pending');
   assert.equal(updated.segments[0].audioFile, null);
+  assert.equal(updated.segments[0].audioQuality, null);
   assert.equal(fs.existsSync(fittedPath), false);
   assert.equal(updated.segments[0].rawAudioFile, path.relative(fixture.workDir, rawPath));
   assert.equal(fs.existsSync(rawPath), true);
+});
+
+test('persists audio QC metrics and exposes their warnings on the segment', (t) => {
+  const fixture = createFixture();
+  t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
+  const segment = fixture.manifest.segments[0];
+  const quality = {
+    version: 1,
+    sampleRate: 24000,
+    channels: 1,
+    durationMs: 1000,
+    rmsDbfs: -38.5,
+    peakDbfs: -12,
+    warnings: ['audio_too_quiet']
+  };
+
+  const updated = fixture.service.setSegmentAudio(fixture.workDir, segment.id, {
+    status: 'ready',
+    audioDurationMs: 1000,
+    audioQuality: quality
+  });
+  const reloaded = fixture.service.load(fixture.workDir);
+
+  assert.deepEqual(updated.segments[0].audioQuality, quality);
+  assert.deepEqual(reloaded.segments[0].audioQuality, quality);
+  assert.ok(reloaded.segments[0].warnings.includes('audio_too_quiet'));
 });
 
 test('reviewed SRT extends only into the safe borrowed gap', (t) => {
