@@ -1,6 +1,49 @@
 {
   "versions": [
     {
+      "version": "1.0.35",
+      "date": "2026-07-28",
+      "title": "Smart Fit thời lượng và khớp lời thoại",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Thêm Smart Fit cho từng câu lồng tiếng với ba chế độ Tự nhiên, Khớp cue và Điện ảnh, cho phép lựa chọn cách cân bằng giữa độ tự nhiên của giọng đọc và thời lượng câu thoại."
+        },
+        {
+          "type": "feature",
+          "text": "Tách riêng audio gốc và audio đã căn thời lượng. Người dùng có thể nghe so sánh hai phiên bản, thay đổi timestamp hoặc chế độ Smart Fit mà không phải tạo lại giọng gốc."
+        },
+        {
+          "type": "feature",
+          "text": "Bổ sung trạng thái Smart Fit theo từng câu trong màn hình Duyệt lời thoại, gồm giữ nguyên, mượn khoảng nghỉ, tăng tốc, cắt phần vượt và đề xuất viết ngắn."
+        },
+        {
+          "type": "improve",
+          "text": "Khôi phục cơ chế tăng tốc không giới hạn cho chế độ Khớp cue. Toàn bộ lời thoại được giữ trong đúng thời gian cue, không mượn khoảng nghỉ, không lấn sang câu tiếp theo và không cắt mất nội dung."
+        },
+        {
+          "type": "improve",
+          "text": "Hỗ trợ tốc độ lớn hơn 2x bằng cách tự động tạo chuỗi bộ lọc FFmpeg atempo hợp lệ, kể cả khi audio dài gấp nhiều lần thời lượng cue."
+        },
+        {
+          "type": "improve",
+          "text": "Giữ giới hạn tốc độ và cách xử lý ưu tiên chất lượng giọng cho chế độ Tự nhiên và Điện ảnh; các câu quá dài vẫn được cảnh báo để người dùng xem lại."
+        },
+        {
+          "type": "fix",
+          "text": "Sửa lỗi tạo audio từng câu báo rawAudioDurationMs is not defined."
+        },
+        {
+          "type": "fix",
+          "text": "Sửa lỗi Smart Fit nhận nhầm phần thời gian còn lại của video là khoảng nghỉ khi câu tiếp theo bắt đầu đúng tại thời điểm cue hiện tại kết thúc."
+        },
+        {
+          "type": "improve",
+          "text": "Nâng phiên bản checkpoint Smart Fit để các kết quả cũ được nhận diện và tạo lại theo logic căn thời lượng mới mà vẫn bảo toàn audio gốc."
+        }
+      ]
+    },
+    {
       "version": "1.0.34",
       "date": "2026-07-27",
       "title": "Duyệt lời thoại, checkpoint và khôi phục render",
