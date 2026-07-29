@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home, Eye, EyeOff, Link2, ToggleLeft, ToggleRight, BarChart3, ShoppingBag, BadgePercent, ExternalLink, ChevronUp, ChevronDown, RefreshCcw } from 'lucide-react';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home, Eye, EyeOff, Link2, ToggleLeft, ToggleRight, BarChart3, ShoppingBag, BadgePercent, ExternalLink, ChevronUp, ChevronDown, RefreshCcw, Shield, Unlock, Filter } from 'lucide-react';
 
 export default function Admin({ showToast }) {
   const [adminUser, setAdminUser] = useState(null);
@@ -115,6 +115,17 @@ export default function Admin({ showToast }) {
   const [isCreateLinkModalOpen, setIsCreateLinkModalOpen] = useState(false);
   const [newLinkEmail, setNewLinkEmail] = useState('');
   const [creatingLink, setCreatingLink] = useState(false);
+
+  // Security / Auth Logs states
+  const [authLogs, setAuthLogs] = useState([]);
+  const [authLogTotal, setAuthLogTotal] = useState(0);
+  const [authLogPage, setAuthLogPage] = useState(1);
+  const [authLogLimit, setAuthLogLimit] = useState(20);
+  const [authLogTotalPages, setAuthLogTotalPages] = useState(1);
+  const [loadingAuthLogs, setLoadingAuthLogs] = useState(false);
+  const [authLogFilter, setAuthLogFilter] = useState({ type: '', email: '', ip: '' });
+  const [authStats, setAuthStats] = useState(null);
+  const [loadingAuthStats, setLoadingAuthStats] = useState(false);
 
   const getPageNumbers = (curr, total) => {
     const pages = [];
@@ -232,6 +243,22 @@ export default function Admin({ showToast }) {
       loadAffiliateData();
     }
   }, [adminUser, activeMainTab, affOrdersPage]);
+
+  // Load security data when switching to security tab or page/limit changes
+  useEffect(() => {
+    if (adminUser && activeMainTab === 'security') {
+      loadAuthStats();
+      loadAuthLogs();
+    }
+  }, [adminUser, activeMainTab, authLogPage, authLogLimit]);
+
+  // Reload auth logs when filters or limit change (reset to page 1)
+  useEffect(() => {
+    if (adminUser && activeMainTab === 'security') {
+      if (authLogPage === 1) loadAuthLogs();
+      else setAuthLogPage(1);
+    }
+  }, [authLogFilter, authLogLimit]);
 
   const loadAffiliateData = async () => {
     setLoadingAff(true);
@@ -928,6 +955,80 @@ export default function Admin({ showToast }) {
     return names.length > 1 ? (names[0][0] + names[names.length - 1][0]).toUpperCase() : names[0][0].toUpperCase();
   };
 
+  // ==========================================
+  // Security / Auth Logs Functions
+  // ==========================================
+  const loadAuthStats = async () => {
+    setLoadingAuthStats(true);
+    try {
+      const res = await fetch('/api/admin/auth-logs/stats', { credentials: 'include' });
+      if (res.status === 401) { setAdminUser(null); setIsAuthModalOpen(true); return; }
+      const data = await res.json();
+      if (data.success) setAuthStats(data);
+    } catch (err) {
+      console.error('Lỗi load auth stats:', err);
+    } finally {
+      setLoadingAuthStats(false);
+    }
+  };
+
+  const loadAuthLogs = async () => {
+    setLoadingAuthLogs(true);
+    try {
+      const params = new URLSearchParams({ page: authLogPage, limit: authLogLimit });
+      if (authLogFilter.type) params.set('type', authLogFilter.type);
+      if (authLogFilter.email) params.set('email', authLogFilter.email);
+      if (authLogFilter.ip) params.set('ip', authLogFilter.ip);
+      const res = await fetch(`/api/admin/auth-logs?${params}`, { credentials: 'include' });
+      if (res.status === 401) { setAdminUser(null); setIsAuthModalOpen(true); return; }
+      const data = await res.json();
+      if (data.success) {
+        setAuthLogs(data.logs);
+        setAuthLogTotal(data.total);
+        setAuthLogTotalPages(data.totalPages);
+      }
+    } catch (err) {
+      console.error('Lỗi load auth logs:', err);
+    } finally {
+      setLoadingAuthLogs(false);
+    }
+  };
+
+  const handleUnlockAccount = async (email) => {
+    if (!confirm(`Mở khóa tài khoản ${email}?`)) return;
+    try {
+      const res = await fetch('/api/admin/unlock-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast?.('Đã mở khóa tài khoản ' + email, 'success');
+        loadAuthStats();
+      } else {
+        showToast?.(data.error || 'Lỗi', 'error');
+      }
+    } catch (err) {
+      showToast?.('Lỗi mở khóa: ' + err.message, 'error');
+    }
+  };
+
+  // Auth log type display helpers
+  const authLogTypeLabels = {
+    register_success: { label: 'Đăng ký OK', color: 'bg-emerald-500/20 text-emerald-400' },
+    register_blocked_email: { label: 'ĐK chặn Email', color: 'bg-red-500/20 text-red-400' },
+    register_blocked_ip: { label: 'ĐK chặn IP', color: 'bg-red-500/20 text-red-400' },
+    register_blocked_hwid: { label: 'ĐK chặn HWID', color: 'bg-red-500/20 text-red-400' },
+    login_success: { label: 'Đăng nhập OK', color: 'bg-emerald-500/20 text-emerald-400' },
+    login_failed: { label: 'Sai mật khẩu', color: 'bg-amber-500/20 text-amber-400' },
+    login_locked: { label: 'Khóa TK', color: 'bg-red-500/20 text-red-400' },
+    admin_login_success: { label: 'Admin OK', color: 'bg-blue-500/20 text-blue-400' },
+    admin_login_failed: { label: 'Admin sai', color: 'bg-amber-500/20 text-amber-400' },
+    admin_login_locked: { label: 'Admin khóa', color: 'bg-red-500/20 text-red-400' },
+  };
+
   // Role check helpers
   const isSale = adminUser?.role === 'sale';
   const isAdminFull = adminUser?.role === 'admin' || !adminUser; // legacy token also treated as admin
@@ -1041,6 +1142,17 @@ export default function Admin({ showToast }) {
             >
               <Settings className="h-4 w-4" />
               <span>Cấu hình Link tải</span>
+            </button>
+          )}
+          {!isSale && (
+            <button 
+              onClick={() => setActiveMainTab('security')}
+              className={`pb-3 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                activeMainTab === 'security' ? 'border-rose-500 text-rose-400' : 'border-transparent text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Shield className="h-4 w-4" />
+              <span>Kiểm soát</span>
             </button>
           )}
         </div>
@@ -2281,6 +2393,378 @@ export default function Admin({ showToast }) {
               </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* ========== SECURITY / AUTH LOGS TAB ========== */}
+        {activeMainTab === 'security' && (
+          <div className="space-y-6">
+            {/* Stats Cards — 4 main cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* ĐK bị chặn */}
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between group hover:border-red-500/20 transition-colors">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">ĐK bị chặn (24h)</p>
+                  <h3 className="text-2xl font-bold mt-1 text-red-400">
+                    {authStats ? ((authStats.stats24h?.register_blocked_email || 0) + (authStats.stats24h?.register_blocked_ip || 0) + (authStats.stats24h?.register_blocked_hwid || 0)) : '—'}
+                  </h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center text-red-400 group-hover:bg-red-500/20 transition-colors">
+                  <UserX className="h-5 w-5" />
+                </div>
+              </div>
+
+              {/* Login thất bại */}
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between group hover:border-amber-500/20 transition-colors">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Login thất bại (24h)</p>
+                  <h3 className="text-2xl font-bold mt-1 text-amber-400">
+                    {authStats ? (authStats.stats24h?.login_failed || 0) : '—'}
+                  </h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/20 transition-colors">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+              </div>
+
+              {/* Admin thất bại */}
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between group hover:border-orange-500/20 transition-colors">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Admin thất bại (24h)</p>
+                  <h3 className="text-2xl font-bold mt-1 text-orange-400">
+                    {authStats ? (authStats.stats24h?.admin_login_failed || 0) : '—'}
+                  </h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-400 group-hover:bg-orange-500/20 transition-colors">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+              </div>
+
+              {/* TK đang bị khóa */}
+              <div className="p-5 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center justify-between group hover:border-rose-500/20 transition-colors">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">TK đang bị khóa</p>
+                  <h3 className="text-2xl font-bold mt-1 text-rose-400">
+                    {authStats ? authStats.lockedCount : '—'}
+                  </h3>
+                </div>
+                <div className="h-10 w-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 transition-colors">
+                  <Lock className="h-5 w-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Top IP + Đăng ký/Đăng nhập thành công */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Đăng ký thành công */}
+              <div className="p-4 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center gap-4">
+                <div className="h-9 w-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 shrink-0">
+                  <UserCheck className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Đăng ký thành công (24h)</p>
+                  <div className="mt-0.5">
+                    <span className="text-2xl font-bold text-emerald-400">{authStats?.stats24h?.register_success || 0}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Đăng nhập thành công */}
+              <div className="p-4 bg-zinc-900/60 border border-zinc-900 rounded-xl flex items-center gap-4">
+                <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0">
+                  <CheckCircle className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Login thành công (24h)</p>
+                  <div className="mt-0.5">
+                    <span className="text-2xl font-bold text-blue-400">{authStats?.stats24h?.login_success || 0}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top IP vi phạm */}
+              <div className="p-4 bg-zinc-900/60 border border-zinc-900 rounded-xl">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2.5 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3 w-3 text-red-400" /> Top IP vi phạm (24h)
+                </p>
+                {authStats?.topIPs24h?.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {authStats.topIPs24h.slice(0, 3).map((item, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${i === 0 ? 'bg-red-400' : i === 1 ? 'bg-orange-400' : 'bg-amber-400'}`} />
+                          <span className="text-xs text-zinc-300 font-mono truncate max-w-[140px]">{item.ip}</span>
+                        </div>
+                        <span className="text-xs text-red-400 font-bold bg-red-500/10 px-2 py-0.5 rounded-full">{item.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-600 italic">Không có vi phạm</p>
+                )}
+              </div>
+            </div>
+
+            {/* Locked Accounts Alert Section */}
+            {authStats?.lockedAccounts?.length > 0 && (
+              <div className="bg-gradient-to-r from-red-500/5 to-orange-500/5 border border-red-500/15 rounded-xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-red-500/10 flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-red-500/15 flex items-center justify-center">
+                    <Lock className="h-3.5 w-3.5 text-red-400" />
+                  </div>
+                  <h3 className="text-sm font-bold text-red-400">
+                    Tài khoản đang bị khóa tạm
+                    <span className="ml-2 text-xs font-normal bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full">{authStats.lockedAccounts.length}</span>
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm text-zinc-300">
+                    <thead>
+                      <tr className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                        <th className="px-5 py-2.5">Email</th>
+                        <th className="px-5 py-2.5">Tên</th>
+                        <th className="px-5 py-2.5">Role</th>
+                        <th className="px-5 py-2.5">Sai lần</th>
+                        <th className="px-5 py-2.5">Khóa đến</th>
+                        <th className="px-5 py-2.5 text-right">Hành động</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {authStats.lockedAccounts.map((acc, i) => (
+                        <tr key={i} className="border-t border-red-500/5 hover:bg-red-500/5 transition-colors">
+                          <td className="px-5 py-2.5 font-mono text-xs text-zinc-200">{acc.email}</td>
+                          <td className="px-5 py-2.5 text-xs">{acc.fullName}</td>
+                          <td className="px-5 py-2.5">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${acc.role === 'admin' ? 'bg-purple-500/20 text-purple-400' : acc.role === 'sale' ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-700 text-zinc-400'}`}>
+                              {acc.role}
+                            </span>
+                          </td>
+                          <td className="px-5 py-2.5">
+                            <span className="text-xs text-red-400 font-bold bg-red-500/10 px-2 py-0.5 rounded-full">{acc.failedLoginAttempts}/{5}</span>
+                          </td>
+                          <td className="px-5 py-2.5 text-xs text-zinc-400">
+                            <Clock className="h-3 w-3 inline mr-1 -mt-0.5" />
+                            {new Date(acc.lockUntil).toLocaleString('vi-VN')}
+                          </td>
+                          <td className="px-5 py-2.5 text-right">
+                            <button onClick={() => handleUnlockAccount(acc.email)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 rounded-lg text-xs font-semibold transition-all cursor-pointer">
+                              <Unlock className="h-3 w-3" /> Mở khóa
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Filter Bar — wrapped in card */}
+            <div className="bg-zinc-900/40 border border-zinc-900 rounded-xl p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
+                  <Filter className="h-3.5 w-3.5" /> Bộ lọc
+                </div>
+                <div className="h-4 w-px bg-zinc-800" />
+                <select
+                  value={authLogFilter.type}
+                  onChange={(e) => setAuthLogFilter(prev => ({ ...prev, type: e.target.value }))}
+                  className="bg-zinc-800/60 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-rose-500/50 cursor-pointer hover:bg-zinc-800 transition-colors"
+                >
+                  <option value="">Tất cả loại</option>
+                  <optgroup label="— Đăng ký —">
+                    <option value="register_success">✅ Đăng ký thành công</option>
+                    <option value="register_blocked_email">🔴 Chặn: Email trùng</option>
+                    <option value="register_blocked_ip">🔴 Chặn: IP trùng</option>
+                    <option value="register_blocked_hwid">🔴 Chặn: HWID trùng</option>
+                  </optgroup>
+                  <optgroup label="— Đăng nhập —">
+                    <option value="login_success">✅ Đăng nhập OK</option>
+                    <option value="login_failed">🟡 Sai mật khẩu</option>
+                    <option value="login_locked">🔴 Khóa tài khoản</option>
+                  </optgroup>
+                  <optgroup label="— Admin —">
+                    <option value="admin_login_success">🔵 Admin đăng nhập OK</option>
+                    <option value="admin_login_failed">🟡 Admin sai mật khẩu</option>
+                    <option value="admin_login_locked">🔴 Admin bị khóa</option>
+                  </optgroup>
+                </select>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3 w-3 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Tìm theo email..."
+                    value={authLogFilter.email}
+                    onChange={(e) => setAuthLogFilter(prev => ({ ...prev, email: e.target.value }))}
+                    className="bg-zinc-800/60 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg pl-7 pr-3 py-2 w-44 focus:outline-none focus:ring-1 focus:ring-rose-500/50 hover:bg-zinc-800 transition-colors"
+                  />
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3 w-3 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Tìm theo IP..."
+                    value={authLogFilter.ip}
+                    onChange={(e) => setAuthLogFilter(prev => ({ ...prev, ip: e.target.value }))}
+                    className="bg-zinc-800/60 border border-zinc-700/50 text-zinc-300 text-xs rounded-lg pl-7 pr-3 py-2 w-36 focus:outline-none focus:ring-1 focus:ring-rose-500/50 hover:bg-zinc-800 transition-colors"
+                  />
+                </div>
+                {(authLogFilter.type || authLogFilter.email || authLogFilter.ip) && (
+                  <button
+                    onClick={() => { setAuthLogFilter({ type: '', email: '', ip: '' }); }}
+                    className="flex items-center gap-1 text-xs text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
+                  >
+                    <X className="h-3 w-3" /> Xóa bộ lọc
+                  </button>
+                )}
+                <button
+                  onClick={() => { loadAuthStats(); loadAuthLogs(); }}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 rounded-lg transition-all cursor-pointer"
+                >
+                  <RefreshCcw className={`h-3 w-3 ${loadingAuthLogs || loadingAuthStats ? 'animate-spin' : ''}`} /> Làm mới
+                </button>
+              </div>
+            </div>
+
+            {/* Auth Logs Table */}
+            <div className="bg-zinc-900/40 border border-zinc-900 rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-zinc-900 flex justify-between items-center">
+                <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-rose-400" />
+                  Nhật ký kiểm soát truy cập
+                </h3>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-3 py-1 rounded-full">{authLogTotal} bản ghi</span>
+              </div>
+              {loadingAuthLogs ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <Loader2 className="h-6 w-6 animate-spin text-rose-400" />
+                  <span className="text-xs text-zinc-500">Đang tải dữ liệu...</span>
+                </div>
+              ) : authLogs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-2">
+                  <Shield className="h-8 w-8 text-zinc-700" />
+                  <p className="text-sm text-zinc-500">Không có bản ghi nào</p>
+                  <p className="text-xs text-zinc-600">Các sự kiện đăng nhập/đăng ký sẽ hiển thị ở đây</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm text-zinc-300">
+                    <thead className="bg-zinc-900/80 sticky top-0">
+                      <tr className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 w-[130px]">Sự kiện</th>
+                        <th className="px-5 py-3">Email</th>
+                        <th className="px-5 py-3">IP</th>
+                        <th className="px-5 py-3">HWID</th>
+                        <th className="px-5 py-3">Chi tiết</th>
+                        <th className="px-5 py-3">TK liên quan</th>
+                        <th className="px-5 py-3 text-right">Thời gian</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {authLogs.map((log, i) => {
+                        const typeInfo = authLogTypeLabels[log.type] || { label: log.type, color: 'bg-zinc-700 text-zinc-400' };
+                        const isError = log.type.includes('blocked') || log.type.includes('locked');
+                        const isWarning = log.type.includes('failed');
+                        const borderColor = isError ? 'border-l-red-500/60' : isWarning ? 'border-l-amber-500/60' : 'border-l-emerald-500/40';
+                        return (
+                          <tr key={i} className={`border-t border-zinc-900/40 border-l-2 ${borderColor} hover:bg-zinc-800/30 transition-colors`}>
+                            <td className="px-5 py-3">
+                              <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold whitespace-nowrap ${typeInfo.color}`}>
+                                {typeInfo.label}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 font-mono text-xs text-zinc-300 max-w-[180px] truncate">{log.email || '—'}</td>
+                            <td className="px-5 py-3 font-mono text-xs text-zinc-400">{log.ip || '—'}</td>
+                            <td className="px-5 py-3 font-mono text-[10px] text-zinc-500 max-w-[100px] truncate" title={log.hwid || ''}>
+                              {log.hwid ? log.hwid.substring(0, 10) + '…' : '—'}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-zinc-400 max-w-[220px]">
+                              <span className="truncate block" title={log.reason || ''}>{log.reason || '—'}</span>
+                            </td>
+                            <td className="px-5 py-3 text-xs">
+                              {log.existingEmail ? (
+                                <span className="inline-flex items-center gap-1 text-amber-400 font-mono bg-amber-500/10 px-2 py-0.5 rounded-full">
+                                  <ArrowRight className="h-2.5 w-2.5" /> {log.existingEmail}
+                                </span>
+                              ) : <span className="text-zinc-600">—</span>}
+                            </td>
+                            <td className="px-5 py-3 text-[11px] text-zinc-500 whitespace-nowrap text-right">{new Date(log.createdAt).toLocaleString('vi-VN')}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Pagination Footer */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-3 border-t border-zinc-900 bg-zinc-900/40 text-xs">
+                <div className="flex items-center gap-3 text-zinc-400">
+                  <span>
+                    Hiển thị <span className="font-semibold text-zinc-200">{authLogs.length > 0 ? (authLogPage - 1) * authLogLimit + 1 : 0}</span> - <span className="font-semibold text-zinc-200">{Math.min(authLogPage * authLogLimit, authLogTotal)}</span> trong tổng số <span className="font-semibold text-zinc-200">{authLogTotal}</span> bản ghi
+                  </span>
+                  <div className="flex items-center gap-1.5 ml-2">
+                    <span className="text-zinc-500">Xem:</span>
+                    <select
+                      value={authLogLimit}
+                      onChange={(e) => {
+                        setAuthLogLimit(Number(e.target.value));
+                        setAuthLogPage(1);
+                      }}
+                      className="bg-zinc-800 border border-zinc-700/60 text-zinc-300 text-xs rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
+                    >
+                      <option value={10}>10 / trang</option>
+                      <option value={20}>20 / trang</option>
+                      <option value={50}>50 / trang</option>
+                      <option value={100}>100 / trang</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setAuthLogPage(1)}
+                    disabled={authLogPage <= 1}
+                    className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 cursor-pointer transition-colors"
+                    title="Trang đầu"
+                  >
+                    Đầu
+                  </button>
+                  <button
+                    onClick={() => setAuthLogPage(p => Math.max(1, p - 1))}
+                    disabled={authLogPage <= 1}
+                    className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 cursor-pointer transition-colors"
+                  >
+                    Trước
+                  </button>
+                  {getPageNumbers(authLogPage, authLogTotalPages).map((p, i) =>
+                    p === '...' ? <span key={i} className="text-zinc-600 text-xs px-1">…</span> : (
+                      <button
+                        key={i}
+                        onClick={() => setAuthLogPage(p)}
+                        className={`px-3 py-1.5 text-xs rounded-lg cursor-pointer transition-colors ${authLogPage === p ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 font-semibold' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'}`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                  <button
+                    onClick={() => setAuthLogPage(p => Math.min(authLogTotalPages, p + 1))}
+                    disabled={authLogPage >= authLogTotalPages}
+                    className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 cursor-pointer transition-colors"
+                  >
+                    Sau
+                  </button>
+                  <button
+                    onClick={() => setAuthLogPage(authLogTotalPages)}
+                    disabled={authLogPage >= authLogTotalPages}
+                    className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 cursor-pointer transition-colors"
+                    title="Trang cuối"
+                  >
+                    Cuối
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
