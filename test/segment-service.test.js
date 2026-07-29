@@ -36,6 +36,10 @@ function createFixture(options = {}) {
   ];
   writeSrt(sourcePath, sourceCues);
   writeSrt(finalPath, finalCues);
+  const asrMetadataPath = path.join(workDir, 'source.srt.asr.json');
+  if (options.asrMetadata) {
+    fs.writeFileSync(asrMetadataPath, JSON.stringify(options.asrMetadata), 'utf8');
+  }
   const service = new SegmentService();
   const manifest = service.createOrLoad({
     taskId: 'task_segments',
@@ -45,9 +49,10 @@ function createFixture(options = {}) {
     durationMs: 10000,
     reviewRequired: true,
     defaultVoiceFile: 'voice.wav',
-    defaultEngineId: 'current-omnivoice'
+    defaultEngineId: 'current-omnivoice',
+    asrMetadataPath: options.asrMetadata ? asrMetadataPath : null
   });
-  return { finalPath, manifest, service, sourcePath, workDir };
+  return { asrMetadataPath, finalPath, manifest, service, sourcePath, workDir };
 }
 
 test('creates a versioned segment manifest and reviewed SRT from grouped cues', (t) => {
@@ -78,6 +83,84 @@ test('reloading unchanged subtitle inputs preserves immutable segment IDs', (t) 
   });
 
   assert.deepEqual(restored.segments.map((segment) => segment.id), ids);
+});
+
+test('maps optional ASR metadata into segments without changing manifest version', (t) => {
+  const fixture = createFixture({
+    asrMetadata: {
+      version: 1,
+      engineId: 'whisper-onnx',
+      variant: 'medium-q8',
+      language: 'auto',
+      languageMode: 'auto',
+      timestampLevel: 'segment',
+      cues: [
+        {
+          id: '1',
+          qualityScore: 92,
+          modelConfidence: null,
+          warnings: [],
+          words: [{ text: 'xin', startMs: 0, endMs: 400 }]
+        },
+        {
+          id: '2',
+          qualityScore: 48,
+          modelConfidence: 0.48,
+          warnings: ['asr_low_confidence']
+        }
+      ]
+    }
+  });
+  t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
+
+  assert.equal(fixture.manifest.version, 1);
+  assert.equal(fixture.manifest.asr.engineId, 'whisper-onnx');
+  assert.equal(fixture.manifest.asr.languageMode, 'auto');
+  assert.equal(fixture.manifest.segments[0].asr.qualityScore, 48);
+  assert.equal(fixture.manifest.segments[0].asr.modelConfidence, 0.48);
+  assert.ok(fixture.manifest.segments[0].warnings.includes('asr_low_confidence'));
+});
+
+test('single-segment ASR retry updates source text and marks translated text stale', (t) => {
+  const fixture = createFixture({
+    asrMetadata: {
+      version: 1,
+      engineId: 'whisper-onnx',
+      cues: [{ id: '1', qualityScore: 90, warnings: [] }]
+    }
+  });
+  t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
+  const segment = fixture.manifest.segments[0];
+
+  const updated = fixture.service.setSegmentAsrResult(
+    fixture.workDir,
+    segment.id,
+    fixture.manifest.revision,
+    {
+      text: 'Nội dung gốc đã nhận dạng lại',
+      modelConfidence: 0.88,
+      qualityScore: 88,
+      qualitySource: 'model',
+      warnings: [],
+      words: [{ text: 'Nội dung', startMs: 0, endMs: 500 }]
+    }
+  );
+
+  assert.equal(updated.segments[0].sourceText, 'Nội dung gốc đã nhận dạng lại');
+  assert.equal(updated.segments[0].text, segment.text);
+  assert.equal(updated.segments[0].asr.retryCount, 1);
+  assert.equal(updated.segments[0].asr.translationStale, true);
+  assert.ok(updated.segments[0].warnings.includes('asr_translation_stale'));
+});
+
+test('legacy manifests without ASR metadata still load unchanged', (t) => {
+  const fixture = createFixture();
+  t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
+  const loaded = fixture.service.load(fixture.workDir);
+
+  assert.equal(loaded.version, 1);
+  assert.equal(loaded.asr, null);
+  assert.equal(loaded.segments[0].asr, null);
 });
 
 test('text changes invalidate only the edited segment audio', (t) => {

@@ -30,12 +30,12 @@ async function transcribe(job) {
   );
   await send({ type: 'stage', stage: 'transcribing', device: job.device });
   const transcribeOptions = {
-    return_timestamps: true,
+    return_timestamps: job.timestampLevel === 'word' ? 'word' : true,
     chunk_length_s: 30,
     stride_length_s: 5,
-    language: job.language,
     task: 'transcribe'
   };
+  if (job.language) transcribeOptions.language = job.language;
 
   if (!Array.isArray(job.speechRegions)) {
     const result = await transcriber(samples, transcribeOptions);

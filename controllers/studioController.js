@@ -368,6 +368,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       durationMs: options.totalDuration * 1000,
       whisperModel: body.whisperModel || 'small',
       whisperOnnxVariant,
+      ...(body.whisperLanguage ? { whisperLanguage: body.whisperLanguage } : {}),
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
@@ -843,7 +844,10 @@ async function executeRenderTask(task) {
         reviewRequired: segmentReviewEnabled,
         defaultVoiceFile: body.savedVoiceFile || '',
         defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID,
-        smartFitMode: body.smartFitMode
+        smartFitMode: body.smartFitMode,
+        asrMetadataPath: fs.existsSync(`${sourceSubtitlePath}.asr.json`)
+          ? `${sourceSubtitlePath}.asr.json`
+          : null
       });
       task.segmentReview = segmentService.summarize(segmentManifest);
       renderJobStore.saveTask(task);

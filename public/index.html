@@ -1066,7 +1066,7 @@
                       </div>
 
 
-                      <div class="form-group">
+                      <div class="form-group ocr-engine-settings">
                         <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
                         <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
                           <option value="">Chọn ngôn ngữ...</option>
@@ -1076,6 +1076,18 @@
                           <option value="japan">Nhật</option>
                           <option value="korean">Hàn</option>
                         </select>
+                      </div>
+                      <div class="form-group whisper-engine-settings">
+                        <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
+                        <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
+                          <option value="auto">Tự động phát hiện</option>
+                          <option value="ch">Trung</option>
+                          <option value="vi">Việt</option>
+                          <option value="en">Anh</option>
+                          <option value="japan">Nhật</option>
+                          <option value="korean">Hàn</option>
+                        </select>
+                        <span class="form-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
                       </div>
                       <details class="ocr-region-details ocr-engine-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
@@ -3622,6 +3634,7 @@
           <select id="segment-editor-filter" class="premium-select" aria-label="Lọc câu thoại">
             <option value="all">Tất cả câu thoại</option>
             <option value="warnings">Có cảnh báo</option>
+            <option value="asr-review">ASR cần kiểm tra</option>
             <option value="unapproved">Chưa duyệt</option>
             <option value="locked">Đã khóa</option>
           </select>

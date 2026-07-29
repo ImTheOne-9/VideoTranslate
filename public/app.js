@@ -1414,7 +1414,7 @@ async function renderStudio(event) {
   data.set('ocrMode', ocrMode);
 
   if (subMode === 'generate') {
-    if (!data.get('ocrLanguage')) {
+    if (subtitleEngine !== 'whisper' && !data.get('ocrLanguage')) {
       toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
       return;
     }

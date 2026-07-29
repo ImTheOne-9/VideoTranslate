@@ -8,6 +8,11 @@ const {
   voiceEngineRegistry
 } = require('../lib/voice-engines/index');
 const {
+  DEFAULT_ASR_ENGINE_ID,
+  asrEngineRegistry,
+  resolveWhisperModelPath
+} = require('../lib/asr-engines/index');
+const {
   getFileIdentity,
   isUsableFile
 } = require('../lib/checkpoint-utils');
@@ -30,6 +35,8 @@ const {
 
 const segmentService = new SegmentService();
 const renderJobStore = new RenderJobStore(shared.RENDER_JOBS_DIR);
+const activeAsrRetries = new Map();
+const cancelledAsrOwners = new Set();
 
 function getTask(taskId) {
   return shared.state.renderQueue.find((task) => task.id === taskId)
@@ -66,6 +73,16 @@ function toPublicManifest(manifest) {
     reviewStatus: manifest.reviewStatus,
     durationMs: manifest.durationMs,
     smartFit: manifest.smartFit,
+    asr: manifest.asr
+      ? {
+          version: manifest.asr.version,
+          engineId: manifest.asr.engineId,
+          variant: manifest.asr.variant,
+          language: manifest.asr.language,
+          languageMode: manifest.asr.languageMode,
+          timestampLevel: manifest.asr.timestampLevel
+        }
+      : null,
     createdAt: manifest.createdAt,
     updatedAt: manifest.updatedAt,
     segments: manifest.segments
@@ -341,6 +358,134 @@ async function regenerateSegment(req, res) {
   }
 }
 
+async function retryAsrSegment(req, res) {
+  let task;
+  let segment;
+  let owner;
+  try {
+    task = requireTask(req);
+    requireSourceVideo(task);
+    if (task.status !== 'waiting_input' || task.actionRequired !== 'segment_review') {
+      throw new SegmentServiceError(
+        'Chỉ có thể nhận dạng lại khi tác vụ đang chờ duyệt lời thoại',
+        'SEGMENT_REVIEW_NOT_WAITING',
+        409
+      );
+    }
+    const manifest = segmentService.load(task.workDir);
+    if (!manifest?.asr || manifest.asr.engineId !== DEFAULT_ASR_ENGINE_ID) {
+      throw new SegmentServiceError(
+        'Task này không có dữ liệu nguồn từ Whisper ONNX',
+        'ASR_METADATA_MISSING',
+        409
+      );
+    }
+    if (Number(req.body?.revision) !== Number(manifest.revision)) {
+      throw new SegmentRevisionConflictError(manifest.revision);
+    }
+    segment = manifest.segments.find((item) => item.id === req.params.segmentId);
+    if (!segment) {
+      throw new SegmentServiceError('Không tìm thấy segment', 'SEGMENT_NOT_FOUND', 404);
+    }
+    if (segment.locked) {
+      throw new SegmentServiceError('Segment đã bị khóa', 'SEGMENT_LOCKED', 409);
+    }
+    if (activeAsrRetries.has(task.id)) {
+      throw new SegmentServiceError(
+        'Whisper đang nhận dạng lại một câu khác trong task này',
+        'ASR_ENGINE_BUSY',
+        409
+      );
+    }
+
+    const audioPath = path.join(task.workDir, 'audio.wav');
+    if (!isUsableFile(audioPath, 44)) {
+      throw new SegmentServiceError(
+        'Không tìm thấy audio Whisper đã trích xuất của task',
+        'ASR_AUDIO_MISSING',
+        409
+      );
+    }
+
+    owner = `asr-retry:${task.id}:${segment.id}`;
+    activeAsrRetries.set(task.id, owner);
+    const engine = asrEngineRegistry.resolve(manifest.asr.engineId, DEFAULT_ASR_ENGINE_ID);
+    const variant = manifest.asr.variant || task.body?.whisperOnnxVariant || 'q8';
+    const result = await engine.transcribeSegment({
+      audioPath,
+      modelPath: resolveWhisperModelPath(variant),
+      variant,
+      language: req.body?.language || manifest.asr.language || 'auto',
+      device: process.env.WHISPER_ONNX_DEVICE || 'cpu',
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      owner
+    });
+    if (!result.text) {
+      throw new SegmentServiceError(
+        'Whisper không nhận dạng được lời nói trong khoảng thời gian này',
+        'ASR_EMPTY_RESULT',
+        422
+      );
+    }
+    const updated = segmentService.setSegmentAsrResult(
+      task.workDir,
+      segment.id,
+      manifest.revision,
+      result
+    );
+    saveTaskSummary(task, updated);
+    return res.json({ success: true, manifest: toPublicManifest(updated) });
+  } catch (error) {
+    if (owner && cancelledAsrOwners.has(owner)) {
+      cancelledAsrOwners.delete(owner);
+      return sendError(res, new SegmentServiceError(
+        'Đã dừng nhận dạng lại bằng Whisper',
+        'ASR_CANCELLED',
+        409
+      ));
+    }
+    if (owner && task?.workDir && segment?.id && Number.isFinite(Number(req.body?.revision))) {
+      try {
+        const manifest = segmentService.setSegmentAsrResult(
+          task.workDir,
+          segment.id,
+          req.body.revision,
+          { status: 'error', error: error.message }
+        );
+        saveTaskSummary(task, manifest);
+        error.currentRevision = manifest.revision;
+        error.manifest = toPublicManifest(manifest);
+      } catch {}
+    }
+    return sendError(res, error);
+  } finally {
+    if (task?.id && activeAsrRetries.get(task.id) === owner) activeAsrRetries.delete(task.id);
+  }
+}
+
+async function cancelAsrRetry(req, res) {
+  try {
+    const task = requireTask(req);
+    const owner = activeAsrRetries.get(task.id);
+    if (!owner || !owner.endsWith(`:${req.params.segmentId}`)) {
+      return res.json({ success: true, cancelled: false });
+    }
+    const manifest = segmentService.load(task.workDir);
+    const engine = asrEngineRegistry.resolve(
+      manifest?.asr?.engineId,
+      DEFAULT_ASR_ENGINE_ID
+    );
+    cancelledAsrOwners.add(owner);
+    const cancelled = await engine.cancel(owner);
+    if (!cancelled) cancelledAsrOwners.delete(owner);
+    activeAsrRetries.delete(task.id);
+    return res.json({ success: true, cancelled });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
 async function streamSegmentAudio(req, res) {
   try {
     const task = requireTask(req);
@@ -380,9 +525,11 @@ async function streamSegmentAudio(req, res) {
 
 module.exports = {
   approveSegments,
+  cancelAsrRetry,
   getSegments,
   regenerateSegment,
   replaceText,
+  retryAsrSegment,
   streamSegmentAudio,
   updateSmartFit,
   updateSegments

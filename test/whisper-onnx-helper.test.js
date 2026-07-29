@@ -9,9 +9,12 @@ const {
   combineRegionResults,
   chunksToSrt,
   formatSrtTime,
+  normalizeWhisperChunks,
   normalizeLanguage,
+  normalizeWhisperLanguage,
   resolveWorkerModulePaths,
-  transcribeAudio
+  transcribeAudio,
+  transcribeToSrt
 } = require('../lib/whisper-onnx-helper');
 const { getWhisperOnnxConfig } = require('../lib/model-downloader');
 
@@ -130,6 +133,17 @@ test('maps application language identifiers to Whisper language names', () => {
   assert.equal(normalizeLanguage('japan'), 'japanese');
   assert.equal(normalizeLanguage('korean'), 'korean');
   assert.equal(normalizeLanguage(), 'vietnamese');
+  assert.equal(normalizeWhisperLanguage('auto'), null);
+  assert.equal(normalizeWhisperLanguage('ch'), 'chinese');
+});
+
+test('Whisper child supports word timestamps and omits language for auto detection', () => {
+  const root = path.join(__dirname, '..');
+  for (const file of ['lib/whisper-onnx-child.js', 'whisper-onnx-child-runtime.js']) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.match(source, /timestampLevel === 'word' \? 'word' : true/);
+    assert.match(source, /if \(job\.language\) transcribeOptions\.language = job\.language/);
+  }
 });
 
 test('combines persisted Whisper region results in original order', () => {
@@ -288,4 +302,67 @@ test('removes repeated boundary hallucinations without dropping short valid cues
   assert.doesNotMatch(srt, /AI vậy/);
   assert.match(srt, /00:02:06,000 --> 00:02:09,000\nNhỏ tuổi/);
   assert.match(srt, /00:02:09,000 --> 00:02:10,000\nMấy tuổi rồi\?/);
+});
+
+test('normalizes ASR cues with quality metadata without changing timing', () => {
+  const [cue] = normalizeWhisperChunks([
+    { timestamp: [1, 2], text: ' Xin chào ', confidence: 0.4 }
+  ]);
+  assert.equal(cue.text, 'Xin chào');
+  assert.equal(cue.start, 1);
+  assert.equal(cue.end, 2);
+  assert.equal(cue.modelConfidence, 0.4);
+  assert.ok(cue.warnings.includes('asr_low_confidence'));
+});
+
+test('writes backward-compatible SRT plus optional ASR sidecar metadata', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-asr-sidecar-'));
+  try {
+    const modelPath = path.join(directory, 'model');
+    const outputPath = path.join(directory, 'audio.srt');
+    fs.mkdirSync(path.join(modelPath, 'onnx'), { recursive: true });
+    for (const file of [
+      'config.json',
+      'generation_config.json',
+      'preprocessor_config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ]) {
+      fs.writeFileSync(path.join(modelPath, file), '{}');
+    }
+
+    const result = await transcribeToSrt({
+      variant: 'q8',
+      modelPath,
+      audioPath: path.join(directory, 'audio.wav'),
+      outputPath,
+      language: 'auto',
+      useVad: false,
+      speechRegions: [{ start: 0, end: 2, samples: new Float32Array([0.1]) }],
+      runWorker: async (job) => {
+        assert.equal(job.language, null);
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: {
+            text: 'xin chào',
+            chunks: [{ text: 'xin chào', timestamp: [0, 2], confidence: 0.8 }]
+          }
+        });
+        return {};
+      }
+    });
+
+    assert.equal(fs.existsSync(outputPath), true);
+    assert.equal(result.metadataPath, `${outputPath}.asr.json`);
+    const metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf8'));
+    assert.equal(metadata.version, 1);
+    assert.equal(metadata.engineId, 'whisper-onnx');
+    assert.equal(metadata.languageMode, 'auto');
+    assert.equal(metadata.cues[0].qualityScore, 80);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

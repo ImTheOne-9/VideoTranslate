@@ -12,6 +12,7 @@
     redo: [],
     loading: false,
     regenerating: new Set(),
+    asrRetrying: new Set(),
     batchGenerating: false,
     batchProgress: null,
     stopBatchRequested: false,
@@ -65,7 +66,14 @@
       audio_too_quiet: 'Audio quá nhỏ',
       tts_error: 'Tạo giọng lỗi',
       smart_fit_trimmed: 'Smart Fit phải cắt phần vượt',
-      smart_fit_rewrite_recommended: 'Nên viết ngắn câu này'
+      smart_fit_rewrite_recommended: 'Nên viết ngắn câu này',
+      asr_invalid_timestamp: 'ASR có timestamp không hợp lệ',
+      asr_cue_too_short: 'ASR tạo câu quá ngắn',
+      asr_dense_text: 'ASR dồn quá nhiều chữ',
+      asr_repeated_text: 'ASR có nội dung lặp',
+      asr_low_confidence: 'Whisper có độ tin cậy thấp',
+      asr_translation_stale: 'Bản dịch cần cập nhật theo lời gốc mới',
+      asr_retry_error: 'Nhận dạng lại bằng Whisper bị lỗi'
     }[code] || code;
   }
 
@@ -113,6 +121,28 @@
           <span>Đỉnh</span>
           <strong>${formatMetric(audioQuality.peakDbfs)}</strong>
         </div>
+      </div>
+    `;
+  }
+
+  function renderAsrQuality(asr) {
+    if (!asr) return '';
+    const score = asr.qualityScore !== null
+      && asr.qualityScore !== undefined
+      && Number.isFinite(Number(asr.qualityScore))
+      ? `${Math.round(Number(asr.qualityScore))}/100`
+      : 'Chưa có';
+    const confidence = asr.modelConfidence !== null
+      && asr.modelConfidence !== undefined
+      && Number.isFinite(Number(asr.modelConfidence))
+      ? `${Math.round(Number(asr.modelConfidence) * 100)}%`
+      : 'Không có từ model';
+    const warningCount = Array.isArray(asr.warnings) ? asr.warnings.length : 0;
+    return `
+      <div class="segment-editor-asr-quality ${warningCount ? 'is-warning' : 'is-good'}">
+        <span>ASR ${escapeHtml(score)}</span>
+        <span title="Độ tin cậy do model trả về">${escapeHtml(confidence)}</span>
+        ${asr.words?.length ? `<span>${asr.words.length} từ có timestamp</span>` : ''}
       </div>
     `;
   }
@@ -165,6 +195,9 @@
           return false;
         }
         if (state.filter === 'warnings') return segment.warnings?.length > 0;
+        if (state.filter === 'asr-review') {
+          return (segment.warnings || []).some((warning) => warning.startsWith('asr_'));
+        }
         if (state.filter === 'unapproved') return !segment.approved;
         if (state.filter === 'locked') return segment.locked;
         return true;
@@ -185,12 +218,15 @@
   function renderRow(segment, displayIndex) {
     const cueDuration = segment.endMs - segment.startMs;
     const warnings = (segment.warnings || []).map(warningLabel);
-    const generationInProgress = state.batchGenerating || state.regenerating.size > 0;
+    const generationInProgress = state.batchGenerating
+      || state.regenerating.size > 0
+      || state.asrRetrying.size > 0;
     const disabled = segment.locked || generationInProgress ? ' disabled' : '';
     const dirty = state.patches.has(segment.id);
     const audioReady = segment.status === 'ready' && segment.audioFile;
     const rawAudioReady = Boolean(segment.rawAudioFile);
     const regenerating = state.regenerating.has(segment.id);
+    const asrRetrying = state.asrRetrying.has(segment.id);
     const statusClass = segment.status === 'ready'
       ? 'is-ready'
       : segment.status === 'error'
@@ -216,7 +252,10 @@
             </label>
           </div>
         </td>
-        <td><div class="segment-editor-source">${escapeHtml(segment.sourceText || '')}</div></td>
+        <td>
+          <div class="segment-editor-source">${escapeHtml(segment.sourceText || '')}</div>
+          ${renderAsrQuality(segment.asr)}
+        </td>
         <td><textarea data-field="text" aria-label="Bản dịch câu ${displayIndex + 1}"${disabled}>${escapeHtml(segment.text)}</textarea></td>
         <td>
           <select data-field="voiceFile" aria-label="Giọng đọc câu ${displayIndex + 1}"${disabled}>
@@ -249,6 +288,13 @@
             <button type="button" class="icon-btn" data-action="regenerate"
               title="Tạo lại giọng cho riêng câu này" aria-label="Tạo lại giọng câu này"
               ${disabled || generationInProgress ? ' disabled' : ''}>↻</button>
+            ${state.manifest?.asr ? `
+              <button type="button" class="icon-btn segment-editor-asr-btn"
+                data-action="${asrRetrying ? 'asr-cancel' : 'asr-retry'}"
+                title="${asrRetrying ? 'Dừng nhận dạng lại câu này' : 'Nhận dạng lại lời gốc của riêng câu này bằng Whisper'}"
+                aria-label="${asrRetrying ? 'Dừng nhận dạng lại' : 'Nhận dạng lại bằng Whisper'}"
+                ${generationInProgress && !asrRetrying ? ' disabled' : ''}>${asrRetrying ? '■' : 'ASR'}</button>
+            ` : ''}
           </div>
           <div class="segment-editor-row-flags">
             <label class="segment-editor-check">
@@ -295,7 +341,9 @@
     if (pageInfo) pageInfo.textContent = `Trang ${state.page}/${totalPages} • ${items.length} segment`;
     if (el('segment-editor-prev')) el('segment-editor-prev').disabled = state.page <= 1;
     if (el('segment-editor-next')) el('segment-editor-next').disabled = state.page >= totalPages;
-    const generationInProgress = state.batchGenerating || state.regenerating.size > 0;
+    const generationInProgress = state.batchGenerating
+      || state.regenerating.size > 0
+      || state.asrRetrying.size > 0;
     if (fitModeSelect) fitModeSelect.disabled = generationInProgress;
     if (el('segment-editor-undo')) {
       el('segment-editor-undo').disabled = generationInProgress || state.undo.length === 0;
@@ -548,6 +596,48 @@
     }
   }
 
+  async function requestAsrRetry(segmentId) {
+    if (state.batchGenerating || state.regenerating.size > 0 || state.asrRetrying.size > 0) {
+      notify('Hãy chờ tác vụ audio hiện tại hoàn tất.', 'info');
+      return;
+    }
+    state.asrRetrying.add(segmentId);
+    showError('');
+    render();
+    try {
+      await save();
+      const data = await api(
+        `/api/render-tasks/${encodeURIComponent(state.taskId)}/segments/${encodeURIComponent(segmentId)}/asr-retry`,
+        { method: 'POST', body: JSON.stringify({ revision: state.manifest.revision }) }
+      );
+      state.manifest = data.manifest;
+      render();
+      notify('Đã nhận dạng lại lời gốc của câu này.', 'success');
+    } catch (error) {
+      if (error.code === 'ASR_CANCELLED') {
+        notify('Đã dừng nhận dạng lại bằng Whisper.', 'info');
+        return;
+      }
+      if (error.manifest) state.manifest = error.manifest;
+      showError(error.message);
+    } finally {
+      state.asrRetrying.delete(segmentId);
+      render();
+    }
+  }
+
+  async function cancelAsrRetry(segmentId) {
+    try {
+      await api(
+        `/api/render-tasks/${encodeURIComponent(state.taskId)}/segments/${encodeURIComponent(segmentId)}/asr-cancel`,
+        { method: 'POST', body: '{}' }
+      );
+      notify('Đã gửi yêu cầu dừng Whisper.', 'info');
+    } catch (error) {
+      showError(error.message);
+    }
+  }
+
   async function regenerateMissing() {
     if (state.batchGenerating) {
       state.stopBatchRequested = true;
@@ -686,6 +776,8 @@
         playSegment(row.dataset.segmentId, 'raw').catch((error) => showError(error.message));
       }
       if (button.dataset.action === 'regenerate') requestRegenerate(row.dataset.segmentId);
+      if (button.dataset.action === 'asr-retry') requestAsrRetry(row.dataset.segmentId);
+      if (button.dataset.action === 'asr-cancel') cancelAsrRetry(row.dataset.segmentId);
     });
 
     document.addEventListener('keydown', (event) => {
