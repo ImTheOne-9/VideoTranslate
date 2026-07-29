@@ -15,6 +15,10 @@ const {
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
 const { analyzeWavFile } = require('../lib/audio-quality');
 const {
+  buildAudioMixGraph,
+  normalizeAudioMasteringConfig
+} = require('../lib/audio-mastering');
+const {
   createSmartFitSignature,
   normalizeSmartFitMode,
   planSmartFit
@@ -646,6 +650,14 @@ async function executeRenderTask(task) {
     task.step = 'Khởi tạo thư mục làm việc...';
 
     const body = task.body;
+    const audioMastering = normalizeAudioMasteringConfig(body);
+    const voiceProcessing = {
+      enabled: audioMastering.enabled,
+      voiceLufs: audioMastering.voiceLufs,
+      truePeakDb: audioMastering.truePeakDb,
+      loudnessRange: audioMastering.loudnessRange,
+      crossfadeMs: audioMastering.crossfadeMs
+    };
     const files = task.files || {};
     const timestamp = Date.now();
     renderJobStore.ensureJob(task.id);
@@ -1255,7 +1267,8 @@ async function executeRenderTask(task) {
                   startMs,
                   endMs,
                   nextStartMs,
-                  timelineEndMs: totalDuration * 1000
+                  timelineEndMs: totalDuration * 1000,
+                  audioProcessing: voiceProcessing
                 });
                 fitPlan = planSmartFit({
                   mode: smartFitMode,
@@ -1272,6 +1285,12 @@ async function executeRenderTask(task) {
                     fitPlan,
                     ffmpegPath: shared.FFMPEG_PATH,
                     runExecFile: shared.runExecFile,
+                    normalizationOptions: {
+                      integratedLufs: audioMastering.voiceLufs,
+                      loudnessRange: audioMastering.loudnessRange,
+                      truePeakDb: audioMastering.truePeakDb,
+                      fadeMs: audioMastering.crossfadeMs
+                    },
                     label: `Nhóm câu ${idx + 1}`
                   });
                 }
@@ -1348,7 +1367,10 @@ async function executeRenderTask(task) {
 
             // Fade-in và fade-out tất cả chunk để tránh tiếng "tách" giữa các câu
             const totalSamples = dataSize / 2;
-            const fadeSamples = Math.min(360, Math.floor(totalSamples / 2));
+            const fadeSamples = Math.min(
+              Math.round(combinedSampleRate * audioMastering.crossfadeMs / 1000),
+              Math.floor(totalSamples / 2)
+            );
             for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
               const byteOffset = sampleIdx * 2;
               let val = pcmBuffer.readInt16LE(byteOffset);
@@ -1776,30 +1798,19 @@ async function executeRenderTask(task) {
     if ((body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') && extractedBgmPath) {
       originalVolume = 0;
     }
-    if (audioInputs.length > 0) {
+    if (audioInputs.length > 0 || audioMastering.enabled) {
       hasAudioFilter = true;
-      const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];
-      const mixLabels = ['[a0]'];
-      audioInputs.forEach((input, idx) => {
-        const label = `a${idx + 1}`;
-        const targetVolume = input.volume;
-        if (input.type === 'chunk') {
-          if (input.startMs > 0) {
-            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${targetVolume}[${label}]`);
-          } else {
-            audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
-          }
-        } else {
-          audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
-        }
-        mixLabels.push(`[${label}]`);
+      const audioMix = buildAudioMixGraph({
+        inputs: audioInputs,
+        originalVolume,
+        config: audioMastering
       });
-      audioFilters.push(
-        `${mixLabels.join('')}amix=inputs=${mixLabels.length}`
-        + ':duration=first:dropout_transition=0:normalize=0,'
-        + 'alimiter=limit=0.891:attack=5:release=50:level=disabled[aout]'
-      );
-      filterComplex.push(audioFilters.join(';'));
+      task.audioMastering = {
+        config: audioMastering,
+        duckingApplied: audioMix.duckingApplied,
+        hasVoice: audioMix.hasVoice
+      };
+      filterComplex.push(audioMix.filter);
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
       filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
@@ -1908,6 +1919,45 @@ async function executeRenderTask(task) {
       }
     }
 
+    let audioReport = null;
+    const audioTracks = {};
+    shared.updateStudioProgress(97, 'Đang kiểm tra chất lượng âm thanh...');
+    const qcAudioPath = path.join(workDir, 'output', 'final_mix_qc.wav');
+    try {
+      fs.mkdirSync(path.dirname(qcAudioPath), { recursive: true });
+      await shared.runExecFile(shared.FFMPEG_PATH, [
+        '-i', outPath,
+        '-vn',
+        '-ac', '2',
+        '-ar', '48000',
+        '-c:a', 'pcm_s16le',
+        '-y', qcAudioPath
+      ]);
+      audioReport = analyzeWavFile(qcAudioPath);
+      audioReport.status = 'ready';
+    } catch (audioQcError) {
+      audioReport = {
+        status: 'unavailable',
+        warnings: ['audio_qc_unavailable'],
+        error: audioQcError.message
+      };
+      console.warn('[Audio QC] Không thể phân tích bản phối:', audioQcError.message);
+    }
+
+    if (audioMastering.exportTracks) {
+      const exportTrack = (sourcePath, suffix) => {
+        if (!sourcePath || !fs.existsSync(sourcePath)) return null;
+        const extension = path.extname(sourcePath) || '.wav';
+        const file = `studio_${timestamp}_${suffix}${extension}`;
+        fs.copyFileSync(sourcePath, path.join(shared.RENDERS_DIR, file));
+        return { file, url: `/renders/${encodeURIComponent(file)}` };
+      };
+      const voiceTrack = exportTrack(voicePath, 'voice');
+      const backgroundTrack = exportTrack(musicPath, 'background');
+      if (voiceTrack) audioTracks.voice = voiceTrack;
+      if (backgroundTrack) audioTracks.background = backgroundTrack;
+    }
+
     if (subtitlePath && fs.existsSync(subtitlePath)) {
       try {
         shared.updateStudioProgress(98, 'Đang xuất các file phụ đề bổ sung...');
@@ -1928,7 +1978,10 @@ async function executeRenderTask(task) {
         message: 'Đã render video',
         file: outName,
         url: `/renders/${encodeURIComponent(outName)}`,
-        translationReport: task.translationReport || null
+        translationReport: task.translationReport || null,
+        audioMastering: task.audioMastering || { config: audioMastering },
+        audioReport,
+        audioTracks
       });
     } else {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);

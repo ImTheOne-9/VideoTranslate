@@ -1399,6 +1399,10 @@ async function renderStudio(event) {
   const status = $('render-status');
   syncTranslationProfileValue(false);
   const data = new FormData(form);
+  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+    const input = form.elements[name];
+    data.set(name, input?.checked ? 'true' : 'false');
+  }
   data.set('uiSnapshot', JSON.stringify(serializeStudioForm()));
 
   const subMode = data.get('subtitleMode');
@@ -1672,6 +1676,67 @@ async function updateQueueStatus() {
   }
 }
 
+function renderAudioResultSummary(result = {}) {
+  const report = result.audioReport;
+  const tracks = result.audioTracks || {};
+  const links = [];
+  if (tracks.voice?.url) {
+    links.push(`
+      <div class="audio-result-track">
+        <span>Giọng đọc</span>
+        <audio controls preload="none" src="${tracks.voice.url}"></audio>
+        <a class="ghost-btn audio-result-link" href="${tracks.voice.url}" download>Tải</a>
+      </div>`);
+  }
+  if (tracks.background?.url) {
+    links.push(`
+      <div class="audio-result-track">
+        <span>Nhạc nền</span>
+        <audio controls preload="none" src="${tracks.background.url}"></audio>
+        <a class="ghost-btn audio-result-link" href="${tracks.background.url}" download>Tải</a>
+      </div>`);
+  }
+  if (!report && links.length === 0) return '';
+
+  let qcText = 'QC âm thanh chưa khả dụng';
+  let qcClass = 'warn';
+  if (report?.status === 'ready') {
+    const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+    qcText = warnings.length
+      ? `QC âm thanh: ${warnings.length} cảnh báo`
+      : 'QC âm thanh: đạt';
+    qcClass = warnings.length ? 'warn' : 'success';
+  }
+  return `
+    <div class="audio-result-summary ${qcClass}">
+      <div class="audio-result-head">
+        <span>${qcText}</span>
+        ${links.length
+    ? `<button type="button" class="audio-result-toggle"
+            title="Nghe hoặc tải các track âm thanh"
+            aria-label="Mở danh sách track âm thanh"
+            aria-expanded="false"
+            onclick="toggleAudioResultTracks(this)">⌄</button>`
+    : ''}
+      </div>
+      ${links.length ? `<div class="audio-result-links" hidden>${links.join('')}</div>` : ''}
+    </div>`;
+}
+
+function toggleAudioResultTracks(button) {
+  const summary = button?.closest('.audio-result-summary');
+  const tracks = summary?.querySelector('.audio-result-links');
+  if (!tracks) return;
+  const opening = tracks.hidden;
+  tracks.hidden = !opening;
+  summary.classList.toggle('expanded', opening);
+  button.setAttribute('aria-expanded', String(opening));
+  button.setAttribute(
+    'aria-label',
+    opening ? 'Đóng danh sách track âm thanh' : 'Mở danh sách track âm thanh'
+  );
+}
+
 function updateMainResultUI(queue, currentActiveId) {
   const container = $('studio-render-result');
   const sidebar = $('render-result');
@@ -1804,6 +1869,7 @@ function updateMainResultUI(queue, currentActiveId) {
         <video controls src="${targetTask.result.url}"></video>
       </div>
       ${renderTranslationReportSummary(targetTask.translationReport || targetTask.result.translationReport)}
+      ${renderAudioResultSummary(targetTask.result)}
       <div style="display: flex; gap: 10px; justify-content: center; width: 100%; max-width: 400px; margin: 0 auto;">
         <button type="button" class="premium-render-btn" style="background: #1877F2; color: white; flex: 1;" onclick="openFbModal('${targetTask.result.url}')">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
@@ -2915,6 +2981,11 @@ async function downloadSelectedBulkVideos() {
   await loadAssets();
 }
 
+function updateAudioMasteringUi() {
+  const mode = $('audio-mastering-mode')?.value || 'auto';
+  $('audio-mastering-custom')?.classList.toggle('hidden', mode !== 'custom');
+}
+
 function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
   $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
@@ -2950,6 +3021,7 @@ function updateConditionalFields() {
   const musicMode = $('music-mode').value;
   $('music-saved-wrapper').classList.toggle('hidden', musicMode !== 'saved');
   $('music-upload-wrapper').classList.toggle('hidden', musicMode !== 'upload');
+  updateAudioMasteringUi();
 
   const reactionMode = $('reaction-mode').value;
   $('reaction-library-container').classList.toggle('hidden', reactionMode !== 'library');
@@ -7878,6 +7950,10 @@ function serializeStudioForm() {
     } else {
       obj[key] = value;
     }
+  }
+  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+    const input = form.elements[name];
+    obj[name] = input?.checked ? 'true' : 'false';
   }
 
   // Lưu trạng thái các tabs đang kích hoạt

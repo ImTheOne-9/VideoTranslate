@@ -22,6 +22,7 @@ const {
 } = require('../lib/voice-reference-helper');
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
 const { analyzeWavFile } = require('../lib/audio-quality');
+const { normalizeAudioMasteringConfig } = require('../lib/audio-mastering');
 const {
   createSmartFitSignature,
   normalizeSmartFitMode,
@@ -299,6 +300,14 @@ async function regenerateSegment(req, res) {
     const segmentIndex = manifest.segments.findIndex((item) => item.id === segment.id);
     const nextStartMs = manifest.segments[segmentIndex + 1]?.startMs;
     const smartFitMode = normalizeSmartFitMode(manifest.smartFit?.mode);
+    const audioMastering = normalizeAudioMasteringConfig(task.body);
+    const voiceProcessing = {
+      enabled: audioMastering.enabled,
+      voiceLufs: audioMastering.voiceLufs,
+      truePeakDb: audioMastering.truePeakDb,
+      loudnessRange: audioMastering.loudnessRange,
+      crossfadeMs: audioMastering.crossfadeMs
+    };
     const rawDurationMs = readWavDurationMs(rawPath);
     const audioSignature = createSmartFitSignature({
       rawSignature,
@@ -307,7 +316,8 @@ async function regenerateSegment(req, res) {
       startMs: segment.startMs,
       endMs: segment.endMs,
       nextStartMs,
-      timelineEndMs: manifest.durationMs
+      timelineEndMs: manifest.durationMs,
+      audioProcessing: voiceProcessing
     });
     const fitPlan = planSmartFit({
       mode: smartFitMode,
@@ -323,6 +333,12 @@ async function regenerateSegment(req, res) {
       fitPlan,
       ffmpegPath: shared.FFMPEG_PATH,
       runExecFile: shared.runExecFile,
+      normalizationOptions: {
+        integratedLufs: audioMastering.voiceLufs,
+        loudnessRange: audioMastering.loudnessRange,
+        truePeakDb: audioMastering.truePeakDb,
+        fadeMs: audioMastering.crossfadeMs
+      },
       label: `Segment ${segmentIndex + 1}`
     });
     const audioQuality = analyzeWavFile(outputPath);
