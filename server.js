@@ -325,6 +325,8 @@ app.post('/api/render-tasks/:taskId/segments/replace', segmentController.replace
 app.post('/api/render-tasks/:taskId/segments/smart-fit', segmentController.updateSmartFit);
 app.post('/api/render-tasks/:taskId/segments/approve', segmentController.approveSegments);
 app.post('/api/render-tasks/:taskId/segments/:segmentId/regenerate', segmentController.regenerateSegment);
+app.post('/api/render-tasks/:taskId/segments/:segmentId/asr-retry', segmentController.retryAsrSegment);
+app.post('/api/render-tasks/:taskId/segments/:segmentId/asr-cancel', segmentController.cancelAsrRetry);
 app.get('/api/render-tasks/:taskId/segments/:segmentId/audio', segmentController.streamSegmentAudio);
 app.post('/api/cancel-queue-task', studioController.cancelQueueTask);
 app.post('/api/clear-queue', studioController.clearQueue);

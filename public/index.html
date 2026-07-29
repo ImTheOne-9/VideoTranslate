@@ -1066,7 +1066,7 @@
                       </div>
 
 
-                      <div class="form-group">
+                      <div class="form-group ocr-engine-settings">
                         <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
                         <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
                           <option value="">Chọn ngôn ngữ...</option>
@@ -1076,6 +1076,18 @@
                           <option value="japan">Nhật</option>
                           <option value="korean">Hàn</option>
                         </select>
+                      </div>
+                      <div class="form-group whisper-engine-settings">
+                        <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
+                        <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
+                          <option value="auto">Tự động phát hiện</option>
+                          <option value="ch">Trung</option>
+                          <option value="vi">Việt</option>
+                          <option value="en">Anh</option>
+                          <option value="japan">Nhật</option>
+                          <option value="korean">Hàn</option>
+                        </select>
+                        <span class="form-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
                       </div>
                       <details class="ocr-region-details ocr-engine-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
@@ -1818,6 +1830,72 @@
                               class="mixer-slider">
                           </div>
                         </div>
+                      </div>
+
+                      <div class="audio-mastering-panel">
+                        <div class="form-group">
+                          <label for="audio-mastering-mode">Hoàn thiện âm thanh</label>
+                          <select id="audio-mastering-mode" name="audioMasteringMode"
+                            class="premium-select" onchange="updateAudioMasteringUi()">
+                            <option value="auto" selected>Tự động</option>
+                            <option value="off">Tắt</option>
+                            <option value="custom">Tùy chỉnh</option>
+                          </select>
+                        </div>
+
+                        <div id="audio-mastering-custom" class="audio-mastering-grid hidden">
+                          <label class="audio-number-field">
+                            <span>Giọng đọc (LUFS)</span>
+                            <input type="number" name="audioVoiceLufs" value="-18" min="-30" max="-10" step="1">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>Bản phối (LUFS)</span>
+                            <input type="number" name="audioMixLufs" value="-14" min="-24" max="-8" step="1">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>True peak (dB)</span>
+                            <input type="number" name="audioTruePeakDb" value="-1.5" min="-6" max="-0.1" step="0.1">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>Nối câu (ms)</span>
+                            <input type="number" name="audioCrossfadeMs" value="20" min="0" max="100" step="5">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>Ngưỡng gate (dB)</span>
+                            <input type="number" name="audioNoiseGateThresholdDb" value="-48" min="-70" max="-20" step="1">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>Ducking ratio</span>
+                            <input type="number" name="audioDuckingRatio" value="8" min="1" max="20" step="1">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>Attack (ms)</span>
+                            <input type="number" name="audioDuckingAttackMs" value="20" min="1" max="500" step="1">
+                          </label>
+                          <label class="audio-number-field">
+                            <span>Release (ms)</span>
+                            <input type="number" name="audioDuckingReleaseMs" value="350" min="50" max="3000" step="10">
+                          </label>
+                        </div>
+
+                        <div class="audio-processing-switches">
+                          <label class="premium-switch audio-mastering-toggle">
+                            <input type="checkbox" name="audioNoiseGate" value="true">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Lọc nhiễu nhẹ</span>
+                          </label>
+                          <label class="premium-switch audio-mastering-toggle">
+                            <input type="checkbox" name="audioDucking" value="true">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Tự hạ nhạc khi có lời</span>
+                          </label>
+                        </div>
+
+                        <label class="premium-switch audio-export-toggle">
+                          <input type="checkbox" name="audioExportTracks" value="true">
+                          <span class="switch-slider"></span>
+                          <span class="switch-label">Xuất riêng track giọng và nhạc</span>
+                        </label>
                       </div>
                     </div>
                   </div>
@@ -3622,6 +3700,7 @@
           <select id="segment-editor-filter" class="premium-select" aria-label="Lọc câu thoại">
             <option value="all">Tất cả câu thoại</option>
             <option value="warnings">Có cảnh báo</option>
+            <option value="asr-review">ASR cần kiểm tra</option>
             <option value="unapproved">Chưa duyệt</option>
             <option value="locked">Đã khóa</option>
           </select>

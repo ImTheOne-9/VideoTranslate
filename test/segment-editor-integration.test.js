@@ -120,3 +120,20 @@ test('segment editor presents audio QC as readable labeled metrics', () => {
   assert.match(styles, /\.segment-editor-qc\.is-good/);
   assert.match(styles, /\.segment-editor-qc\.is-warning/);
 });
+
+test('ASR review exposes quality filters and owner-scoped segment retry controls', () => {
+  const html = read('public/index.html');
+  const editor = read('public/js/segment-editor.js');
+  const server = read('server.js');
+  const controller = read('controllers/segmentController.js');
+
+  assert.match(html, /value="asr-review"/);
+  assert.match(html, /name="whisperLanguage"/);
+  assert.match(editor, /function renderAsrQuality/);
+  assert.match(editor, /requestAsrRetry/);
+  assert.match(editor, /cancelAsrRetry/);
+  assert.match(server, /segments\/:segmentId\/asr-retry/);
+  assert.match(server, /segments\/:segmentId\/asr-cancel/);
+  assert.match(controller, /path\.join\(task\.workDir, 'audio\.wav'\)/);
+  assert.doesNotMatch(controller, /req\.body\.(?:audioPath|workDir)/);
+});
