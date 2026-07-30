@@ -244,6 +244,69 @@ test('Whisper resumes from the first unfinished VAD region', async () => {
   }
 });
 
+test('cached VAD timings are passed to the Whisper child without loading WAV in main', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-vad-timing-only-'));
+  try {
+    const modelPath = path.join(directory, 'model');
+    const checkpointPath = path.join(directory, 'regions.json');
+    const audioPath = path.join(directory, 'audio-not-readable-in-main.wav');
+    fs.mkdirSync(path.join(modelPath, 'onnx'), { recursive: true });
+    for (const file of [
+      'config.json',
+      'generation_config.json',
+      'preprocessor_config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ]) {
+      fs.writeFileSync(path.join(modelPath, file), '{}');
+    }
+    fs.writeFileSync(checkpointPath, JSON.stringify({
+      version: 1,
+      checkpointKey: 'timing-only',
+      vad: {
+        metadata: {
+          enabled: true,
+          durationSeconds: 2,
+          speechSeconds: 1,
+          regionCount: 1
+        },
+        regions: [{ start: 0.5, end: 1.5 }]
+      },
+      regions: {}
+    }));
+
+    const result = await transcribeAudio({
+      variant: 'q8',
+      modelPath,
+      audioPath,
+      checkpointPath,
+      checkpointKey: 'timing-only',
+      runWorker: async (job) => {
+        assert.deepEqual(job.speechRegions.map(({ start, end, samples }) => ({
+          start,
+          end,
+          hasSamples: samples != null
+        })), [{ start: 0.5, end: 1.5, hasSamples: false }]);
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: {
+            text: 'xin chao',
+            chunks: [{ timestamp: [0.5, 1.5], text: 'xin chao' }]
+          }
+        });
+        return {};
+      }
+    });
+
+    assert.equal(result.text, 'xin chao');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('formats timestamped Whisper chunks as non-overlapping SRT cues', () => {
   const srt = chunksToSrt([
     { timestamp: [0, 1.48], text: ' Câu đầu ' },

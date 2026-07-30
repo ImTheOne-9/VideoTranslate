@@ -32,6 +32,7 @@ const backendFiles = [
 const frontendFiles = [
   'public/app.js',
   'index.js',
+  'silero-vad-child-runtime.js',
   'whisper-onnx-child-runtime.js'
 ];
 
