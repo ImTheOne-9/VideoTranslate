@@ -63,6 +63,7 @@
       "server.jsc",
       "main.jsc",
       "index.js",
+      "silero-vad-child-runtime.js",
       "whisper-onnx-child-runtime.js",
       "logo.ico",
       "package.json",
