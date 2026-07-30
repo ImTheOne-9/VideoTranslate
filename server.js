@@ -422,6 +422,38 @@ app.post('/api/license/activate', systemController.activateLicense);
 app.get('/api/update-status', systemController.getUpdateStatus);
 app.post('/api/quit-and-install', systemController.quitAndInstallUpdate);
 
+// Tải danh sách model khả dụng từ OpenAI API theo Key
+app.post('/api/openai/models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+      return res.status(400).json({ error: 'Vui lòng cung cấp OpenAI API Key.' });
+    }
+    const response = await axios.get('https://api.openai.com/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      timeout: 10000
+    });
+    const rawModels = response.data?.data || [];
+    const chatModels = rawModels
+      .map(m => m.id)
+      .filter(id => /^(gpt|o1|o3)/i.test(id) && !id.includes('realtime') && !id.includes('audio') && !id.includes('tts') && !id.includes('whisper') && !id.includes('embedding') && !id.includes('dall-e'))
+      .sort((a, b) => {
+        if (a.startsWith('gpt-4o') && !b.startsWith('gpt-4o')) return -1;
+        if (!a.startsWith('gpt-4o') && b.startsWith('gpt-4o')) return 1;
+        return a.localeCompare(b);
+      });
+
+    const resultModels = chatModels.length > 0 ? chatModels : ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'];
+    res.json({ success: true, models: resultModels });
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const msg = err.response?.data?.error?.message || err.message || 'Lỗi kết nối tới OpenAI API.';
+    res.status(status).json({ error: msg });
+  }
+});
+
 // Thông tin phiên bản app + changelog
 app.get('/api/app-version', (req, res) => {
   try {

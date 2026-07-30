@@ -458,6 +458,24 @@ function applyRenderTaskFailure(task, error, state = shared.state) {
     return 'waiting_input';
   }
 
+  if (error?.code === 'TRANSLATION_INCOMPLETE') {
+    task.status = 'error';
+    task.translationReport = error.translationReport || task.translationReport || null;
+    const stats = task.translationReport?.translation;
+    task.step = stats
+      ? `Dịch phụ đề chưa hoàn tất (${stats.translated}/${stats.total})`
+      : 'Dịch phụ đề chưa hoàn tất';
+    task.error = error.message;
+    task.actionRequired = 'render_resume';
+    state.studioProgress = {
+      status: 'error',
+      percent: Math.max(task.percent || 0, 35),
+      step: task.step,
+      error: task.error
+    };
+    return 'error';
+  }
+
   task.status = 'error';
   task.error = error.message;
   task.step = 'Lỗi kết xuất';
@@ -821,6 +839,8 @@ async function executeRenderTask(task) {
           ninerouterModel: body.ninerouterModel,
           ninerouterBaseUrl: body.ninerouterBaseUrl,
           opencodeModel: body.opencodeModel,
+          openaiApiKey: body.openaiApiKey,
+          openaiModel: body.openaiModel,
           targetLang,
           translationProfile: body.translationProfile
         }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
@@ -2160,6 +2180,11 @@ function createRenderQueueHandlers(dependencies = {}) {
         'ninerouterApiKey',
         'ninerouterModel',
         'ninerouterBaseUrl',
+        'opencodeModel',
+        'openaiApiKey',
+        'openaiModel',
+        'translateTargetLang',
+        'translationProfile',
         'whisperModel',
         'whisperOnnxVariant'
       ];

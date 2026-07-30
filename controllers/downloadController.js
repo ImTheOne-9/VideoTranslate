@@ -642,7 +642,7 @@ module.exports = {
           const dlTargetLang = translateTargetLang || 'vi';
           const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
           const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
-          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
+          await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, openaiApiKey, openaiModel, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
 
           let hasSubtitles = false;
           try {

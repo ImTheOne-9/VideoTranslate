@@ -3067,11 +3067,39 @@
               style="margin: 0; height: 38px;">
               <option value="nllb" selected>🤖 AI Dịch Offline NLLB-200 (Mặc định - Nhẹ &amp; Không cần mạng)</option>
               <option value="google-translate">🌐 Google Translate (An toàn &amp; Khuyên dùng)</option>
+              <option value="openai">💬 ChatGPT OpenAI (Cần API Key &amp; chọn Model)</option>
               <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
               <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
               <option value="ninerouter">🤖 9Router Local AI Proxy</option>
               <option value="opencode">⚡ OpenCode SDK (Tự động Server ngầm &amp; OpenCode Zen Models)</option>
             </select>
+          </div>
+
+          <!-- OpenAI (ChatGPT) Fields -->
+          <div id="global-openai-fields" class="hidden"
+            style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenAI (ChatGPT) API Key</label>
+              <input type="password" id="global-openai-key" class="premium-input"
+                placeholder="Nhập API Key của OpenAI (sk-...)" style="margin: 0;" onchange="loadOpenAiModels()">
+              <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Lấy Key tại platform.openai.com. Được lưu trữ cục bộ bảo mật.</p>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn"
+                  style="margin: 0; width: auto; padding: 0 12px; height: 32px; font-size: 12px; border-color: var(--accent); color: var(--accent);"
+                  onclick="loadOpenAiModels()">⚡ Tải danh sách mô hình</button>
+                <span id="openai-connection-status" style="font-size: 12px; font-weight: 600;"></span>
+              </div>
+            </div>
+
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">OpenAI Model</label>
+              <select id="global-openai-model" class="premium-select" style="margin: 0; height: 38px;">
+                <option value="gpt-4o-mini">gpt-4o-mini (Mặc định - Nhanh &amp; Rẻ)</option>
+                <option value="gpt-4o">gpt-4o (Thông minh nhất)</option>
+                <option value="gpt-4-turbo">gpt-4-turbo</option>
+                <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+              </select>
+            </div>
           </div>
 
 

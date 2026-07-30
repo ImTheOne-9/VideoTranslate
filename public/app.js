@@ -1498,6 +1498,9 @@ async function renderStudio(event) {
   data.set('ninerouterApiKey', aiSettings.ninerouterApiKey || '');
   data.set('ninerouterModel', aiSettings.ninerouterModel || '');
   data.set('ninerouterBaseUrl', aiSettings.ninerouterBaseUrl || 'http://localhost:20128/v1');
+  data.set('opencodeModel', aiSettings.opencodeModel || 'DeepSeek V4 Flash (Free)');
+  data.set('openaiApiKey', aiSettings.openaiApiKey || '');
+  data.set('openaiModel', aiSettings.openaiModel || 'gpt-4o-mini');
   
   const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
   if (keepBgmAi) data.set('keepOriginalBgmAI', 'true');
@@ -1619,10 +1622,24 @@ function stopQueuePolling() {
 }
 
 function renderTranslationReportSummary(report) {
-  if (!report?.checked) return '';
+  if (!report) return '';
+  const stats = report.translation;
+  let progressSummary = '';
+  if (stats && Number(stats.total) > 0) {
+    const total = Number(stats.total) || 0;
+    const translated = Number(stats.translated) || 0;
+    const failed = Number(stats.failed) || 0;
+    const fallbackUsed = Number(stats.fallbackUsed) || 0;
+    progressSummary = `
+      <div class="translation-report-summary ${failed > 0 ? 'warning' : 'ok'}">
+        <strong>Đã dịch ${translated}/${total} câu${failed > 0 ? ` · ${failed} câu lỗi` : ''}</strong>
+        ${fallbackUsed > 0 ? `<div>${fallbackUsed} câu đã dùng NLLB dự phòng</div>` : ''}
+      </div>`;
+  }
+  if (!report.checked) return progressSummary;
   const issueCount = Number(report.issueCount || 0);
   if (issueCount === 0) {
-    return `<div class="translation-report-summary ok">Đã kiểm tra ${Number(report.ruleCount || 0)} quy tắc dịch</div>`;
+    return `${progressSummary}<div class="translation-report-summary ok">Đã kiểm tra ${Number(report.ruleCount || 0)} quy tắc dịch</div>`;
   }
   const issues = (Array.isArray(report.issues) ? report.issues : []).slice(0, 5);
   const issueRows = issues.map((issue) => {
@@ -1630,7 +1647,7 @@ function renderTranslationReportSummary(report) {
     const expected = window.OcrUi.escapeHtml(String(issue.expected || ''));
     return `<li>${source} → ${expected}</li>`;
   }).join('');
-  return `
+  return `${progressSummary}
     <div class="translation-report-summary warning">
       <strong>${issueCount} quy tắc dịch cần kiểm tra</strong>
       ${issueRows ? `<ul>${issueRows}</ul>` : ''}
@@ -5806,6 +5823,8 @@ function getGlobalAiSettings() {
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
     opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
+    openaiApiKey: localStorage.getItem('global_openai_key') || '',
+    openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -5814,7 +5833,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -6086,6 +6105,63 @@ async function testNineRouterConnection() {
   }
 }
 
+async function loadOpenAiModels(keyOverride = null) {
+  const input = $('global-openai-key');
+  const select = $('global-openai-model');
+  const statusEl = $('openai-connection-status');
+  if (!select) return false;
+
+  const apiKey = (keyOverride !== null && typeof keyOverride === 'string') ? keyOverride : (input ? input.value : '');
+
+  if (!apiKey || apiKey.trim() === '') {
+    if (statusEl) {
+      statusEl.textContent = '❌ Chưa nhập Key';
+      statusEl.style.color = '#ef4444';
+    }
+    return false;
+  }
+
+  if (statusEl) {
+    statusEl.textContent = '⏳ Đang tải danh sách model...';
+    statusEl.style.color = '#eab308';
+  }
+
+  try {
+    const res = await fetch('/api/openai/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: apiKey.trim() })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Không thể tải danh sách model');
+    }
+
+    const savedModel = localStorage.getItem('global_openai_model') || 'gpt-4o-mini';
+    select.innerHTML = '';
+    data.models.forEach(modelId => {
+      const opt = document.createElement('option');
+      opt.value = modelId;
+      opt.textContent = modelId;
+      if (modelId === savedModel) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    if (statusEl) {
+      statusEl.textContent = `✅ Thành công (${data.models.length} models)`;
+      statusEl.style.color = '#22c55e';
+    }
+    return true;
+  } catch (err) {
+    console.error('Lỗi loadOpenAiModels:', err);
+    if (statusEl) {
+      statusEl.textContent = `❌ ${err.message}`;
+      statusEl.style.color = '#ef4444';
+    }
+    return false;
+  }
+}
+
 function openGlobalSettingsModal() {
   const modal = $('global-settings-modal');
   if (!modal) return;
@@ -6095,11 +6171,18 @@ function openGlobalSettingsModal() {
   const providerSelect = $('global-ai-provider');
   const geminiInput = $('global-gemini-key');
   const openRouterInput = $('global-openrouter-key');
+  const openaiInput = $('global-openai-key');
   const ninerouterInput = $('global-ninerouter-key');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
+  if (openaiInput) {
+    openaiInput.value = settings.openaiApiKey;
+    if (settings.openaiApiKey) {
+      loadOpenAiModels(settings.openaiApiKey);
+    }
+  }
   if (geminiInput) {
     geminiInput.value = settings.geminiApiKey;
     if (settings.geminiApiKey) {
@@ -6156,6 +6239,7 @@ function toggleGlobalAiProviderFields() {
   const val = providerSelect.value;
   const geminiFields = $('global-gemini-fields');
   const openRouterFields = $('global-openrouter-fields');
+  const openaiFields = $('global-openai-fields');
   const ninerouterFields = $('global-ninerouter-fields');
   if (geminiFields) {
     if (val === 'gemini') {
@@ -6170,6 +6254,15 @@ function toggleGlobalAiProviderFields() {
       openRouterFields.classList.remove('hidden');
     } else {
       openRouterFields.classList.add('hidden');
+    }
+  }
+  if (openaiFields) {
+    if (val === 'openai') {
+      openaiFields.classList.remove('hidden');
+      const key = $('global-openai-key') ? $('global-openai-key').value : '';
+      if (key) loadOpenAiModels(key);
+    } else {
+      openaiFields.classList.add('hidden');
     }
   }
   if (ninerouterFields) {
@@ -6198,6 +6291,8 @@ function saveGlobalSettings() {
   const geminiModelSelect = $('global-gemini-model');
   const openRouterInput = $('global-openrouter-key');
   const openRouterModelSelect = $('global-openrouter-model');
+  const openaiInput = $('global-openai-key');
+  const openaiModelSelect = $('global-openai-model');
   const ninerouterInput = $('global-ninerouter-key');
   const ninerouterModelSelect = $('global-ninerouter-model');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
@@ -6208,6 +6303,8 @@ function saveGlobalSettings() {
   if (geminiModelSelect) localStorage.setItem('global_gemini_model', geminiModelSelect.value);
   if (openRouterInput) localStorage.setItem('global_openrouter_key', openRouterInput.value);
   if (openRouterModelSelect) localStorage.setItem('global_openrouter_model', openRouterModelSelect.value);
+  if (openaiInput) localStorage.setItem('global_openai_key', openaiInput.value);
+  if (openaiModelSelect) localStorage.setItem('global_openai_model', openaiModelSelect.value);
   if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
@@ -6370,6 +6467,7 @@ window.loadGeminiModels = loadGeminiModels;
 window.initGeminiModelListeners = initGeminiModelListeners;
 window.loadOpenRouterModels = loadOpenRouterModels;
 window.initOpenRouterModelListeners = initOpenRouterModelListeners;
+window.loadOpenAiModels = loadOpenAiModels;
 window.loadNineRouterModels = loadNineRouterModels;
 window.initNineRouterModelListeners = initNineRouterModelListeners;
 window.testGeminiConnection = testGeminiConnection;

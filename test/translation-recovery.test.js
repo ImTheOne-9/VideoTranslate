@@ -1,0 +1,217 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const {
+  createTranslationCheckpoint,
+  createTranslationIncompleteError,
+  fallbackFailedItemsWithNllb,
+  translateJsonBatchesWithCheckpoint,
+  validateTranslationCandidate,
+  validateTranslationMap
+} = require('../lib/translate-sub');
+const { applyRenderTaskFailure } = require('../controllers/studioController');
+
+async function tempOutput(t) {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'translation-recovery-'));
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  return path.join(root, 'translated.srt');
+}
+
+test('translation validation rejects missing, unchanged and source-language output', () => {
+  assert.deepEqual(
+    validateTranslationMap(
+      { 1: '原来爱一个人真的能为他而死', 2: '她是全剧最让人心疼的人' },
+      { 1: 'Hóa ra yêu một người thật sự có thể chết vì người ấy.' },
+      { srcLang: 'zho_Hans', targetLang: 'vi' }
+    ).failures,
+    [{ id: '2', reason: 'empty_translation' }]
+  );
+  assert.equal(
+    validateTranslationCandidate(
+      '原来爱一个人真的能为他而死',
+      '原来爱一个人真的能为他而死',
+      { srcLang: 'zho_Hans', targetLang: 'vi' }
+    ).reason,
+    'unchanged_from_source'
+  );
+  assert.equal(
+    validateTranslationCandidate(
+      '她是全剧最让人心疼的人',
+      '她是全剧最让人心疼的角色',
+      { srcLang: 'zho_Hans', targetLang: 'vi' }
+    ).reason,
+    'source_language_remaining'
+  );
+  assert.equal(
+    validateTranslationCandidate('Mine', 'Mine', {
+      srcLang: 'eng_Latn',
+      targetLang: 'vi'
+    }).valid,
+    true,
+    'a proper name may legitimately remain unchanged'
+  );
+});
+
+test('translation checkpoint resumes only failed cues and never stores API keys', async (t) => {
+  const outputPath = await tempOutput(t);
+  const sourceText = '1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n'
+    + '2\n00:00:01,000 --> 00:00:02,000\n第二句\n';
+  const items = [
+    { id: '1', text: '第一句' },
+    { id: '2', text: '第二句' }
+  ];
+  const sourceById = { 1: '第一句', 2: '第二句' };
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText,
+    targetLang: 'vi',
+    translationProfile: {},
+    geminiApiKey: 'must-not-be-stored'
+  });
+  const firstCalls = [];
+  const first = await translateJsonBatchesWithCheckpoint({
+    srtArray: items,
+    sourceById,
+    checkpoint,
+    providerName: 'Gemini',
+    targetLang: 'vi',
+    srcLang: 'zho_Hans',
+    translationProfile: {},
+    translateBatch: async (map) => {
+      firstCalls.push(Object.keys(map));
+      return { 1: 'Câu thứ nhất' };
+    }
+  });
+  assert.equal(first.failedItems.length, 1);
+  assert.deepEqual(firstCalls, [['1', '2']]);
+
+  const savedText = await fs.promises.readFile(checkpoint.checkpointPath, 'utf8');
+  assert.doesNotMatch(savedText, /must-not-be-stored/);
+  assert.equal(JSON.parse(savedText).entries['1'].status, 'success');
+  assert.equal(JSON.parse(savedText).entries['2'].status, 'error');
+
+  const resumedItems = [
+    { id: '1', text: '第一句' },
+    { id: '2', text: '第二句' }
+  ];
+  const resumed = createTranslationCheckpoint(outputPath, {
+    sourceText,
+    targetLang: 'vi',
+    translationProfile: {}
+  });
+  const resumedCalls = [];
+  const second = await translateJsonBatchesWithCheckpoint({
+    srtArray: resumedItems,
+    sourceById,
+    checkpoint: resumed,
+    providerName: 'OpenRouter',
+    targetLang: 'vi',
+    srcLang: 'zho_Hans',
+    translationProfile: {},
+    translateBatch: async (map) => {
+      resumedCalls.push(Object.keys(map));
+      return { 2: 'Câu thứ hai' };
+    }
+  });
+  assert.equal(second.failedItems.length, 0);
+  assert.deepEqual(resumedCalls, [['2']]);
+  assert.equal(resumedItems[0].text, 'Câu thứ nhất');
+  assert.equal(resumedItems[1].text, 'Câu thứ hai');
+});
+
+test('changing source or translation profile invalidates stale translation checkpoint', async (t) => {
+  const outputPath = await tempOutput(t);
+  const first = createTranslationCheckpoint(outputPath, {
+    sourceText: 'old source',
+    targetLang: 'vi',
+    translationProfile: {}
+  });
+  first.success({ id: 1, text: 'old source' }, 'bản dịch cũ', 'Gemini');
+  first.save();
+
+  const changed = createTranslationCheckpoint(outputPath, {
+    sourceText: 'new source',
+    targetLang: 'vi',
+    translationProfile: {}
+  });
+  assert.deepEqual(changed.checkpoint.entries, {});
+});
+
+test('NLLB fallback receives and replaces only failed cues', async (t) => {
+  const outputPath = await tempOutput(t);
+  const parser = new (require('srt-parser-2').default)();
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText: 'source',
+    targetLang: 'vi',
+    translationProfile: {}
+  });
+  const items = [
+    {
+      id: '1',
+      startTime: '00:00:00,000',
+      endTime: '00:00:01,000',
+      text: 'Câu đã dịch'
+    },
+    {
+      id: '2',
+      startTime: '00:00:01,000',
+      endTime: '00:00:02,000',
+      text: '第二句'
+    }
+  ];
+  const calls = [];
+  const remaining = await fallbackFailedItemsWithNllb({
+    failedItems: [{ item: items[1], source: '第二句', reason: 'missing_id' }],
+    checkpoint,
+    outputPath,
+    parser,
+    srcLang: 'zho_Hans',
+    targetLang: 'vi',
+    nllbTargetLang: 'vie_Latn',
+    translationProfile: {},
+    translateNllb: async (inputPath, translatedPath) => {
+      const input = parser.fromSrt(await fs.promises.readFile(inputPath, 'utf8'));
+      calls.push(input.map((item) => item.text));
+      input[0].text = 'Câu thứ hai';
+      await fs.promises.writeFile(translatedPath, parser.toSrt(input), 'utf8');
+    }
+  });
+
+  assert.deepEqual(calls, [['第二句']]);
+  assert.deepEqual(remaining, []);
+  assert.equal(items[0].text, 'Câu đã dịch');
+  assert.equal(items[1].text, 'Câu thứ hai');
+  assert.equal(checkpoint.report(2).fallbackUsed, 1);
+});
+
+test('translation incomplete error produces a resumable queue state with report', () => {
+  const stats = {
+    total: 10,
+    translated: 7,
+    failed: 3,
+    fallbackUsed: 2,
+    failedCueIds: ['8', '9', '10']
+  };
+  const error = createTranslationIncompleteError(stats);
+  const task = { id: 'task-1', status: 'rendering', percent: 35 };
+  const state = {
+    isStudioRendering: true,
+    activeRenderId: 'task-1',
+    currentActiveTask: task,
+    studioProgress: {}
+  };
+
+  assert.equal(applyRenderTaskFailure(task, error, state), 'error');
+  assert.equal(task.status, 'error');
+  assert.equal(task.actionRequired, 'render_resume');
+  assert.equal(task.step, 'Dịch phụ đề chưa hoàn tất (7/10)');
+  assert.deepEqual(task.translationReport.translation, stats);
+});
+
+test('translation recovery UI reports progress and NLLB fallback usage', () => {
+  const appJs = fs.readFileSync(path.resolve(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(appJs, /Đã dịch \$\{translated\}\/\$\{total\} câu/);
+  assert.match(appJs, /câu đã dùng NLLB dự phòng/);
+});
