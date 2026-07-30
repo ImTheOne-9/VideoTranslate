@@ -65,7 +65,7 @@ export default function Admin({ showToast }) {
   // Plan Form states
   const [planId, setPlanId] = useState('');
   const [planName, setPlanName] = useState('');
-  const [planPrice, setPlanPrice] = useState(199000);
+  const [planPrice, setPlanPrice] = useState(299000);
   const [planDurationDays, setPlanDurationDays] = useState(30);
   const [planDescription, setPlanDescription] = useState('');
   const [planFeatures, setPlanFeatures] = useState('');
@@ -427,7 +427,7 @@ export default function Admin({ showToast }) {
     } else {
       setPlanId('');
       setPlanName('');
-      setPlanPrice(199000);
+      setPlanPrice(299000);
       setPlanDurationDays(30);
       setPlanDescription('');
       setPlanFeatures('Đầy đủ tính năng 100%\nSử dụng trên 1 máy tính');
