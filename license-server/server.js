@@ -1268,7 +1268,7 @@ async function seedDefaultPlans() {
         {
           id: 'monthly',
           name: 'Gói Tháng',
-          price: 199000,
+          price: 299000,
           durationDays: 30,
           description: 'Dành cho Creator sáng tạo thường xuyên',
           features: ['Đầy đủ tính năng 100%', 'Sử dụng trên 1 máy tính', 'Tự động nhận key qua email', 'Hỗ trợ kỹ thuật 24/7'],
@@ -1306,7 +1306,7 @@ async function migrateLegacyLicenses() {
       if (l.priceAtPurchase === undefined || l.priceAtPurchase === null || (l.priceAtPurchase === 0 && l.planType !== 'trial')) {
         let price = 0;
         if (l.planType === 'monthly') {
-          price = 199000;
+          price = 299000;
         } else if (l.planType === 'yearly') {
           price = 1499000;
         }
@@ -1698,7 +1698,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
   
   let bodyContent = '';
   if (status === 'pending') {
-    const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '199.000đ' : '1.499.000đ');
+    const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '299.000đ' : '1.499.000đ');
     const keyRef = key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
     const memo = `VST ${keyRef}`;
     
@@ -3048,7 +3048,7 @@ app.post('/api/payment/webhook', async (req, res) => {
 
         // Xác định số tiền yêu cầu và hạn dùng của gói bản quyền từ DB
         const plan = await DB.plans.findOne({ id: license.planType });
-        const requiredAmount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 199000);
+        const requiredAmount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 299000);
         const days = plan ? plan.durationDays : 30;
 
         if (amount < requiredAmount) {

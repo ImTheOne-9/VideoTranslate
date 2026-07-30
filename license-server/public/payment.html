@@ -128,7 +128,7 @@
         </div>
         <div class="text-right">
           <span class="text-[10px] text-zinc-500 uppercase font-semibold tracking-wider">Số tiền cần thanh toán</span>
-          <p class="text-lg font-extrabold text-emerald-400" id="planPrice">199.000đ</p>
+          <p class="text-lg font-extrabold text-emerald-400" id="planPrice">299.000đ</p>
         </div>
       </div>
 
@@ -294,7 +294,7 @@
 
       // Configure details
       const planName = targetKeyDetail.planName || (targetKeyDetail.planType === 'trial' ? 'Gói Dùng Thử' : (targetKeyDetail.planType === 'monthly' ? 'Gói Tháng' : 'Gói Năm'));
-      const amount = targetKeyDetail.price !== undefined ? targetKeyDetail.price : (targetKeyDetail.planType === 'monthly' ? 199000 : 1499000);
+      const amount = targetKeyDetail.price !== undefined ? targetKeyDetail.price : (targetKeyDetail.planType === 'monthly' ? 299000 : 1499000);
       const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
       const keyRef = licenseKey.split('-')[1];
       const memo = `VST ${keyRef}`;
