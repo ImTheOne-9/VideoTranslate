@@ -1242,8 +1242,7 @@ aside .sidebar-settings-btn.active {
 .voice-tab-btn,
 .music-tab-btn,
 .sub-tab-btn,
-.settings-tab-btn,
-.smart-fit-mode-btn {
+.settings-tab-btn {
   flex: 1;
   background: transparent;
   color: var(--muted);
@@ -1264,8 +1263,7 @@ aside .sidebar-settings-btn.active {
 .voice-tab-btn:hover,
 .music-tab-btn:hover,
 .sub-tab-btn:hover,
-.settings-tab-btn:hover,
-.smart-fit-mode-btn:hover {
+.settings-tab-btn:hover {
   color: var(--text);
   background: rgba(255,255,255,0.05);
 }
@@ -1284,8 +1282,7 @@ aside .sidebar-settings-btn.active {
 /* Accent blue background for equal-choice segmented controls */
 .source-tab-btn.active,
 .reaction-tab-btn.active,
-.music-tab-btn.active,
-.smart-fit-mode-btn.active {
+.music-tab-btn.active {
   background: var(--accent) !important;
   color: white !important;
   border-color: transparent !important;
@@ -3205,116 +3202,6 @@ select option {
   overflow-y: auto !important;
 }
 
-.translation-profile-editor {
-  margin: 4px 0 12px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.translation-profile-editor > summary {
-  padding: 10px 2px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  list-style-position: inside;
-}
-
-.translation-profile-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 2px 0 12px;
-}
-
-.translation-profile-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.translation-profile-grid .form-group:first-child {
-  grid-column: 1 / -1;
-}
-
-.translation-profile-grid .form-group,
-.translation-profile-fields .form-group {
-  margin: 0;
-}
-
-.translation-context-input {
-  width: 100%;
-  min-height: 68px;
-  resize: vertical;
-  line-height: 1.45;
-}
-
-.translation-rules-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 30px;
-}
-
-.translation-rules-heading label {
-  margin: 0;
-}
-
-.translation-rule-add,
-.translation-rule-remove {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel-2);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-}
-
-.translation-rule-add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.translation-rule-remove:hover {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.translation-rules-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.translation-rule-row {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(110px, 0.8fr) 30px;
-  gap: 5px;
-  align-items: center;
-}
-
-.translation-rule-row .premium-input,
-.translation-rule-row .premium-select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  margin: 0;
-  font-size: 11px;
-}
-
-.translation-rules-empty {
-  padding: 10px 4px;
-  color: var(--muted);
-  text-align: center;
-  font-size: 11px;
-}
-
 .translation-report-summary {
   width: 100%;
   max-width: 400px;
@@ -3341,17 +3228,6 @@ select option {
 .translation-report-summary ul {
   margin: 5px 0 0;
   padding-left: 18px;
-}
-
-@media (max-width: 720px) {
-  .translation-profile-grid,
-  .translation-rule-row {
-    grid-template-columns: 1fr;
-  }
-
-  .translation-rule-remove {
-    justify-self: end;
-  }
 }
 
 .ocr-settings {
@@ -5125,19 +5001,6 @@ select option {
 .segment-editor-warning {
   color: #fbbf24;
   font-size: 11px;
-}
-
-.smart-fit-control {
-  margin-top: 12px;
-}
-
-.smart-fit-tabs {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.smart-fit-tabs .smart-fit-mode-btn {
-  min-width: 0;
-  white-space: normal;
 }
 
 .segment-editor-fit-result {

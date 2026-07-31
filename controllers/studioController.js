@@ -20,7 +20,6 @@ const {
 } = require('../lib/audio-mastering');
 const {
   createSmartFitSignature,
-  normalizeSmartFitMode,
   planSmartFit
 } = require('../lib/smart-fit-service');
 const {
@@ -883,8 +882,7 @@ async function executeRenderTask(task) {
           opencodeModel: body.opencodeModel,
           openaiApiKey: body.openaiApiKey,
           openaiModel: body.openaiModel,
-          targetLang,
-          translationProfile: body.translationProfile
+          targetLang
         }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
         task.translationReport = translationResult?.report || null;
         finalSubtitlePath = translatedPath;
@@ -918,7 +916,6 @@ async function executeRenderTask(task) {
         reviewRequired: segmentReviewEnabled,
         defaultVoiceFile: body.savedVoiceFile || '',
         defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID,
-        smartFitMode: body.smartFitMode,
         asrMetadataPath: fs.existsSync(`${sourceSubtitlePath}.asr.json`)
           ? `${sourceSubtitlePath}.asr.json`
           : null
@@ -1254,11 +1251,6 @@ async function executeRenderTask(task) {
             : null;
           const rawChunkPath = voiceCheckpoint.getRawChunkPath(checkpointKey);
           const fittedChunkPath = voiceCheckpoint.getFittedChunkPath(checkpointKey);
-          const nextGroup = groups[idx + 1];
-          const nextStartMs = nextGroup ? srtTimeToMs(nextGroup[0].startTime) : null;
-          const smartFitMode = normalizeSmartFitMode(
-            segmentManifest?.smartFit?.mode || body.smartFitMode
-          );
           let hasRawChunk = voiceCheckpoint.hasChunk(checkpointKey, chunkSignature);
 
           if (hasRawChunk) {
@@ -1325,19 +1317,15 @@ async function executeRenderTask(task) {
                 fitSignature = createSmartFitSignature({
                   rawSignature: chunkSignature,
                   rawFile: getFileIdentity(rawChunkPath),
-                  mode: smartFitMode,
+                  mode: 'cue',
                   startMs,
                   endMs,
-                  nextStartMs,
-                  timelineEndMs: totalDuration * 1000,
                   audioProcessing: voiceProcessing
                 });
                 fitPlan = planSmartFit({
-                  mode: smartFitMode,
+                  mode: 'cue',
                   startMs,
                   endMs,
-                  nextStartMs,
-                  timelineEndMs: totalDuration * 1000,
                   rawDurationMs
                 });
                 if (!voiceCheckpoint.hasFittedChunk(checkpointKey, fitSignature)) {
@@ -2227,7 +2215,6 @@ function createRenderQueueHandlers(dependencies = {}) {
         'openaiApiKey',
         'openaiModel',
         'translateTargetLang',
-        'translationProfile',
         'whisperModel',
         'whisperOnnxVariant'
       ];

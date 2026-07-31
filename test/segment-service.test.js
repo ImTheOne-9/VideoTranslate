@@ -237,7 +237,7 @@ test('timing changes preserve raw audio, invalidate fitted audio, and update rev
   assert.match(fs.readFileSync(updated.reviewedSrtPath, 'utf8'), /00:00:00,250 --> 00:00:02,500/);
 });
 
-test('changing Smart Fit mode invalidates fitted audio but preserves raw checkpoints', (t) => {
+test('reloading a legacy manifest forces the fixed cue mode', (t) => {
   const fixture = createFixture();
   t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
   const segment = fixture.manifest.segments[0];
@@ -253,28 +253,26 @@ test('changing Smart Fit mode invalidates fitted audio but preserves raw checkpo
     rawAudioSignature: 'raw-signature',
     audioFile: path.relative(fixture.workDir, fittedPath),
     audioDurationMs: 1000,
-    audioSignature: 'fit-signature',
-    audioQuality: {
-      version: 1,
-      rmsDbfs: -18,
-      peakDbfs: -1.5,
-      warnings: []
-    },
-    fit: { mode: 'cue', status: 'sped_up' }
+    audioSignature: 'legacy-fit-signature',
+    fit: { mode: 'natural', status: 'trimmed' }
+  });
+  ready.smartFit = { mode: 'natural' };
+  fixture.service.save(fixture.workDir, ready);
+
+  const restored = fixture.service.createOrLoad({
+    taskId: 'task_segments',
+    workDir: fixture.workDir,
+    sourceSubtitlePath: fixture.sourcePath,
+    finalSubtitlePath: fixture.finalPath,
+    durationMs: 10000,
+    reviewRequired: true
   });
 
-  const updated = fixture.service.updateSmartFitMode(
-    fixture.workDir,
-    ready.revision,
-    'natural'
-  );
-
-  assert.equal(updated.smartFit.mode, 'natural');
-  assert.equal(updated.segments[0].status, 'pending');
-  assert.equal(updated.segments[0].audioFile, null);
-  assert.equal(updated.segments[0].audioQuality, null);
+  assert.equal(restored.smartFit.mode, 'cue');
+  assert.equal(restored.segments[0].status, 'pending');
+  assert.equal(restored.segments[0].audioFile, null);
   assert.equal(fs.existsSync(fittedPath), false);
-  assert.equal(updated.segments[0].rawAudioFile, path.relative(fixture.workDir, rawPath));
+  assert.equal(restored.segments[0].rawAudioFile, path.relative(fixture.workDir, rawPath));
   assert.equal(fs.existsSync(rawPath), true);
 });
 

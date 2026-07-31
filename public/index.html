@@ -1575,65 +1575,6 @@
                       <p id="output-lang-info" style="font-size: 11px; color: var(--muted); margin: 2px 0 0 0;"></p>
                     </div>
 
-                    <details id="translation-profile-editor" class="translation-profile-editor">
-                      <summary>Hồ sơ dịch</summary>
-                      <div class="translation-profile-fields">
-                        <div class="translation-profile-grid">
-                          <div class="form-group">
-                            <label for="translation-style">Văn phong</label>
-                            <select id="translation-style" class="premium-select">
-                              <option value="natural">Tự nhiên</option>
-                              <option value="neutral">Trung tính</option>
-                              <option value="formal">Trang trọng</option>
-                              <option value="casual">Gần gũi</option>
-                              <option value="historical">Cổ trang</option>
-                            </select>
-                          </div>
-                          <div class="form-group">
-                            <label for="translation-speaker-pronoun">Người nói tự xưng</label>
-                            <select id="translation-speaker-pronoun" class="premium-select">
-                              <option value="">AI tự chọn</option>
-                              <option value="tôi">tôi</option>
-                              <option value="mình">mình</option>
-                              <option value="tớ">tớ</option>
-                              <option value="em">em</option>
-                              <option value="anh">anh</option>
-                              <option value="chúng tôi">chúng tôi</option>
-                            </select>
-                          </div>
-                          <div class="form-group">
-                            <label for="translation-audience-pronoun">Gọi người nghe</label>
-                            <select id="translation-audience-pronoun" class="premium-select">
-                              <option value="">AI tự chọn</option>
-                              <option value="bạn">bạn</option>
-                              <option value="các bạn">các bạn</option>
-                              <option value="cậu">cậu</option>
-                              <option value="anh">anh</option>
-                              <option value="chị">chị</option>
-                              <option value="em">em</option>
-                              <option value="quý vị">quý vị</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div class="form-group">
-                          <label for="translation-context">Bối cảnh và quan hệ</label>
-                          <textarea id="translation-context" class="premium-input translation-context-input"
-                            maxlength="1200" rows="3"
-                            placeholder="Ví dụ: Người dẫn đang nói với khán giả; hai nhân vật là bạn cùng tuổi."></textarea>
-                        </div>
-
-                        <div class="translation-rules-heading">
-                          <label>Thuật ngữ và từ thay thế</label>
-                          <button type="button" id="translation-rule-add" class="translation-rule-add"
-                            title="Thêm quy tắc" aria-label="Thêm quy tắc">＋</button>
-                        </div>
-                        <div id="translation-rules-list" class="translation-rules-list"></div>
-                        <input type="hidden" id="translation-profile-value" name="translationProfile"
-                          value='{"style":"natural","speakerPronoun":"","audiencePronoun":"","context":"","entries":[]}'>
-                      </div>
-                    </details>
-
                     <div id="voice-saved-wrapper" class="form-group hidden">
                       <label>Chọn giọng thuyết minh</label>
                       <select id="saved-voice-select" name="savedVoiceFile" class="premium-select"
@@ -1694,20 +1635,6 @@
                         <span class="switch-slider"></span>
                         <span class="switch-label">Duyệt từng câu trước khi tạo giọng</span>
                       </label>
-
-                      <div class="form-group smart-fit-control">
-                        <label>Smart Fit thời lượng</label>
-                        <div class="studio-source-tabs smart-fit-tabs" role="group"
-                          aria-label="Chế độ Smart Fit thời lượng">
-                          <button type="button" class="smart-fit-mode-btn" data-smart-fit-mode="natural"
-                            title="Ưu tiên giọng tự nhiên, giới hạn tăng tốc 1.15x">Tự nhiên</button>
-                          <button type="button" class="smart-fit-mode-btn active" data-smart-fit-mode="cue"
-                            title="Tăng tốc đủ để giữ toàn bộ lời thoại trong cue, không giới hạn tốc độ">Khớp cue</button>
-                          <button type="button" class="smart-fit-mode-btn" data-smart-fit-mode="cinematic"
-                            title="Ưu tiên nhịp kể chuyện và cảnh báo câu cần viết ngắn">Điện ảnh</button>
-                        </div>
-                        <input type="hidden" id="smart-fit-mode" name="smartFitMode" value="cue">
-                      </div>
 
                       <div style="display: none;">
                         <span id="omi-steps-badge">40</span>
@@ -3749,13 +3676,6 @@
             <option value="asr-review">ASR cần kiểm tra</option>
             <option value="unapproved">Chưa duyệt</option>
             <option value="locked">Đã khóa</option>
-          </select>
-          <select id="segment-editor-fit-mode" class="premium-select"
-            aria-label="Chế độ Smart Fit thời lượng"
-            title="Đổi chế độ sẽ giữ audio gốc và tạo lại bản khớp thời gian">
-            <option value="natural">Smart Fit: Tự nhiên</option>
-            <option value="cue">Smart Fit: Khớp cue</option>
-            <option value="cinematic">Smart Fit: Điện ảnh</option>
           </select>
           <div class="segment-editor-history">
             <button type="button" id="segment-editor-undo" class="icon-btn" title="Hoàn tác (Ctrl+Z)"

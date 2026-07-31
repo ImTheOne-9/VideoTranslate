@@ -25,7 +25,6 @@ const { analyzeWavFile } = require('../lib/audio-quality');
 const { normalizeAudioMasteringConfig } = require('../lib/audio-mastering');
 const {
   createSmartFitSignature,
-  normalizeSmartFitMode,
   planSmartFit
 } = require('../lib/smart-fit-service');
 const {
@@ -163,24 +162,6 @@ async function replaceText(req, res) {
   }
 }
 
-async function updateSmartFit(req, res) {
-  try {
-    const task = requireTask(req);
-    requireSourceVideo(task);
-    const manifest = segmentService.updateSmartFitMode(
-      task.workDir,
-      req.body?.revision,
-      req.body?.mode
-    );
-    task.body ||= {};
-    task.body.smartFitMode = manifest.smartFit.mode;
-    saveTaskSummary(task, manifest);
-    return res.json({ success: true, manifest: toPublicManifest(manifest) });
-  } catch (error) {
-    return sendError(res, error);
-  }
-}
-
 async function approveSegments(req, res) {
   try {
     const task = requireTask(req);
@@ -298,8 +279,6 @@ async function regenerateSegment(req, res) {
       throw new Error('Voice engine không tạo được audio segment');
     }
     const segmentIndex = manifest.segments.findIndex((item) => item.id === segment.id);
-    const nextStartMs = manifest.segments[segmentIndex + 1]?.startMs;
-    const smartFitMode = normalizeSmartFitMode(manifest.smartFit?.mode);
     const audioMastering = normalizeAudioMasteringConfig(task.body);
     const voiceProcessing = {
       enabled: audioMastering.enabled,
@@ -312,19 +291,15 @@ async function regenerateSegment(req, res) {
     const audioSignature = createSmartFitSignature({
       rawSignature,
       rawFile: getFileIdentity(rawPath),
-      mode: smartFitMode,
+      mode: 'cue',
       startMs: segment.startMs,
       endMs: segment.endMs,
-      nextStartMs,
-      timelineEndMs: manifest.durationMs,
       audioProcessing: voiceProcessing
     });
     const fitPlan = planSmartFit({
-      mode: smartFitMode,
+      mode: 'cue',
       startMs: segment.startMs,
       endMs: segment.endMs,
-      nextStartMs,
-      timelineEndMs: manifest.durationMs,
       rawDurationMs
     });
     await createFittedVoiceChunk({
@@ -432,7 +407,7 @@ async function retryAsrSegment(req, res) {
       modelPath: resolveWhisperModelPath(variant),
       variant,
       language: req.body?.language || manifest.asr.language || 'auto',
-      device: process.env.WHISPER_ONNX_DEVICE || 'cpu',
+      device: 'cpu',
       startMs: segment.startMs,
       endMs: segment.endMs,
       owner
@@ -547,6 +522,5 @@ module.exports = {
   replaceText,
   retryAsrSegment,
   streamSegmentAudio,
-  updateSmartFit,
   updateSegments
 };
