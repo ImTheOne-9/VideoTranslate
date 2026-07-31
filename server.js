@@ -16,7 +16,8 @@ const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 120;
 const RATE_LIMIT_EXEMPT_PATHS = new Set([
-  '/api/ocr-component/download-status'
+  '/api/ocr-component/download-status',
+  '/api/mdx-cuda-component/download-status'
 ]);
 function rateLimiter(req, res, next) {
   if (!req.path.startsWith('/api/')) return next();
@@ -413,6 +414,7 @@ app.get('/api/check-dependencies-status', systemController.checkDependenciesStat
 app.post('/api/download-dependency', systemController.downloadDependency);
 app.get('/api/download-dependency-progress', systemController.getDependencyDownloadProgress);
 systemController.registerOcrComponentRoutes(app, systemController);
+systemController.registerMdxCudaComponentRoutes(app, systemController);
 app.post('/api/download-model', systemController.downloadModel);
 app.get('/api/download-model/status', systemController.getModelStatus);
 app.get('/api/whisper-model/status', systemController.getWhisperModelStatus);

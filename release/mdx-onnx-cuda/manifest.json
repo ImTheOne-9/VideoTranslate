@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "archiveUrl": "https://huggingface.co/datasets/dvh1910/video-studio-tools/resolve/main/mdx-onnx-cuda/mdx-onnx-cuda-1.0.0.zip",
+  "archiveSize": 1661604711,
+  "installedSize": 2471900125,
+  "sha256": "2064322ccc2e838d7b9e5054b0a7d010d903b463bec883b5042d757aeef41488",
+  "componentRoot": "mdx-onnx/cuda",
+  "executable": "mdx-separator.exe",
+  "requiredFiles": [
+    "THIRD-PARTY-SOURCES.json",
+    "cublas64_12.dll",
+    "cublasLt64_12.dll",
+    "cudart64_12.dll",
+    "cudnn64_9.dll",
+    "cudnn_adv64_9.dll",
+    "cudnn_cnn64_9.dll",
+    "cudnn_engines_precompiled64_9.dll",
+    "cudnn_engines_runtime_compiled64_9.dll",
+    "cudnn_engines_tensor_ir64_9.dll",
+    "cudnn_ext64_9.dll",
+    "cudnn_graph64_9.dll",
+    "cudnn_heuristic64_9.dll",
+    "cudnn_ops64_9.dll",
+    "cufft64_11.dll",
+    "licenses/NVIDIA-CUDA-Runtime-License.txt",
+    "licenses/NVIDIA-cuBLAS-License.txt",
+    "licenses/NVIDIA-cuDNN-License.txt",
+    "licenses/NVIDIA-cuFFT-License.txt",
+    "licenses/onnxruntime-LICENSE",
+    "licenses/sherpa-onnx-LICENSE",
+    "onnxruntime.dll",
+    "onnxruntime_providers_cuda.dll",
+    "onnxruntime_providers_shared.dll"
+  ],
+  "supportedLanguages": [],
+  "runtime": {
+    "provider": "cuda",
+    "cudaMajor": 12,
+    "cudnnMajor": 9
+  }
+}

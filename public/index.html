@@ -1790,6 +1790,24 @@
                           <span class="switch-label">Giữ Nhạc Nền Gốc bằng AI (MDX ONNX)</span>
                         </label>
                       </div>
+                      <div id="mdx-provider-settings" class="form-group hidden"
+                        style="margin: -4px 10px 15px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,0.025);">
+                        <label for="mdx-provider-select">Thiết bị tách nhạc MDX</label>
+                        <select id="mdx-provider-select" name="mdxProvider" class="premium-select">
+                          <option value="auto" selected>Tự động — CUDA nếu sẵn sàng, nếu không dùng CPU</option>
+                          <option value="cuda">NVIDIA CUDA — yêu cầu component CUDA</option>
+                          <option value="cpu">CPU — tương thích mọi máy</option>
+                        </select>
+                        <p id="mdx-provider-hint"
+                          style="font-size: 11px; color: var(--muted); margin: 6px 0 0; line-height: 1.45;">
+                          Chế độ Tự động sẽ ưu tiên NVIDIA CUDA và tự chuyển về CPU khi CUDA không thể khởi tạo.
+                        </p>
+                        <button type="button" id="mdx-cuda-install-btn"
+                          class="premium-render-btn hidden"
+                          style="width: auto; margin: 9px 0 0; padding: 7px 12px; font-size: 12px;">
+                          Cài component MDX CUDA
+                        </button>
+                      </div>
 
                       <div class="mixer-channels">
                         <!-- Channel 1: Original Volume -->

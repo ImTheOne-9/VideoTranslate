@@ -35,11 +35,24 @@ const {
   readJsonFile,
   writeJsonAtomic
 } = require('../lib/checkpoint-utils');
+const { createMdxSeparatorManager } = require('../lib/mdx-separator-manager');
+const mdxCudaComponentManager = require('../lib/mdx-cuda-component-manager');
 
 const renderJobStore = new RenderJobStore(shared.RENDER_JOBS_DIR);
 const renderOrchestrator = createRenderOrchestrator({
   store: renderJobStore,
   existsSync: fs.existsSync
+});
+const mdxSeparatorManager = createMdxSeparatorManager({
+  fs,
+  runExecFile: shared.runExecFile,
+  cpuExecutablePath: shared.AUDIO_SEPARATOR_CLI_PATH,
+  cudaExecutablePath: shared.AUDIO_SEPARATOR_CUDA_CLI_PATH,
+  isCudaRuntimeReady: () => (
+    Boolean(process.env.MDX_CUDA_EXECUTABLE_PATH) ||
+    mdxCudaComponentManager.getStatus().status === 'ready'
+  ),
+  modelPath: shared.AUDIO_SEPARATOR_MODEL_PATH
 });
 const segmentService = new SegmentService();
 
@@ -615,6 +628,7 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
     sourceVideoPath: null,
     forceWhisper: false,
     translationReport: null,
+    backgroundSeparation: null,
     segmentReview: null,
     createdAt,
     body: taskBody,
@@ -705,7 +719,7 @@ async function executeRenderTask(task) {
 
     const backgroundStage = await renderOrchestrator.runStage(task, 'background_separation', async () => {
       if (body.keepOriginalBgmAI !== 'true') {
-        return { instrumentalPath: null, residualVocalsPath: null };
+        return { instrumentalPath: null, residualVocalsPath: null, execution: null };
       }
 
       const tempAudioToSeparate = path.join(workDir, 'original_audio.wav');
@@ -714,7 +728,11 @@ async function executeRenderTask(task) {
       try {
         if (isUsableFile(instrumentalPath, 44) && isUsableFile(residualVocalsPath, 44)) {
           shared.updateStudioProgress(6, 'Đang dùng lại nhạc nền MDX từ checkpoint...');
-          return { instrumentalPath, residualVocalsPath };
+          return {
+            instrumentalPath,
+            residualVocalsPath,
+            execution: task.backgroundSeparation || null
+          };
         }
 
         if (!isUsableFile(tempAudioToSeparate, 44)) {
@@ -730,31 +748,55 @@ async function executeRenderTask(task) {
           });
         }
 
-        if (!fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
-          || !fs.existsSync(shared.AUDIO_SEPARATOR_MODEL_PATH)) {
-          throw new Error('Chưa tải công cụ MDX ONNX tách nhạc nền');
-        }
-
-        shared.updateStudioProgress(6, 'Đang dùng MDX ONNX tách nhạc nền...');
-        await shared.runExecFile(shared.AUDIO_SEPARATOR_CLI_PATH, [
-          '--num-threads=4',
-          `--uvr-model=${shared.AUDIO_SEPARATOR_MODEL_PATH}`,
-          `--input-wav=${tempAudioToSeparate}`,
-          `--output-vocals-wav=${instrumentalPath}`,
-          `--output-accompaniment-wav=${residualVocalsPath}`
-        ]);
+        const requestedProvider = body.mdxProvider || 'auto';
+        const execution = await mdxSeparatorManager.separate({
+          requestedProvider,
+          numThreads: body.mdxCpuThreads || 4,
+          inputPath: tempAudioToSeparate,
+          vocalsPath: instrumentalPath,
+          accompanimentPath: residualVocalsPath,
+          isCancelled: () => !shared.state.isStudioRendering || task.status === 'failed',
+          onProviderSelected: ({ provider, reason }) => {
+            const label = provider === 'cuda' ? 'NVIDIA CUDA' : 'CPU';
+            const suffix = reason ? ` (${reason})` : '';
+            shared.updateStudioProgress(6, `Đang dùng MDX ONNX ${label} tách nhạc nền${suffix}...`);
+          },
+          onFallback: ({ reason }) => {
+            shared.updateStudioProgress(
+              6,
+              `MDX CUDA lỗi, đang chuyển sang CPU: ${reason}`
+            );
+          }
+        });
 
         if (!fs.existsSync(instrumentalPath)) {
           throw new Error('MDX ONNX không tạo được file nhạc nền');
         }
-        console.log('[Studio Render] MDX ONNX đã tách xong nhạc nền:', instrumentalPath);
-        return { instrumentalPath, residualVocalsPath };
+        task.backgroundSeparation = execution;
+        console.log(
+          `[Studio Render] MDX ONNX đã tách xong bằng ${execution.usedProvider}:`,
+          instrumentalPath
+        );
+        return { instrumentalPath, residualVocalsPath, execution };
       } catch (err) {
         if (!shared.state.isStudioRendering || task.status === 'failed') throw err;
         console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
-        return { instrumentalPath: null, residualVocalsPath: null };
+        if ((body.mdxProvider || 'auto') === 'cuda') throw err;
+        task.backgroundSeparation = {
+          requestedProvider: body.mdxProvider || 'auto',
+          usedProvider: null,
+          fallback: false,
+          fallbackReason: null,
+          error: err.message
+        };
+        return {
+          instrumentalPath: null,
+          residualVocalsPath: null,
+          execution: task.backgroundSeparation
+        };
       }
     });
+    task.backgroundSeparation = backgroundStage.execution || task.backgroundSeparation || null;
     const extractedBgmPath = backgroundStage.instrumentalPath;
 
     let reactionVideoPath = null;
@@ -2099,6 +2141,7 @@ function createRenderQueueHandlers(dependencies = {}) {
           result: task.result,
           translationReport: task.translationReport || null,
           voiceExecution: task.voiceExecution || null,
+          backgroundSeparation: task.backgroundSeparation || null,
           segmentReview: task.segmentReview || null,
           currentStage: task.currentStage || null,
           completedStages: Object.entries(task.stages || {})

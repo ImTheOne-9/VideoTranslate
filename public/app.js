@@ -1503,7 +1503,27 @@ async function renderStudio(event) {
   data.set('openaiModel', aiSettings.openaiModel || 'gpt-4o-mini');
   
   const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
-  if (keepBgmAi) data.set('keepOriginalBgmAI', 'true');
+  if (keepBgmAi) {
+    data.set('keepOriginalBgmAI', 'true');
+    const mdxProvider = data.get('mdxProvider') || 'auto';
+    if (!dependencyStatus.separator) {
+      showDependencyModal('separator', () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      return;
+    }
+    if (mdxProvider === 'cuda') {
+      const mdx = dependencyStatus.mdx;
+      if (!mdx?.cuda?.hardwareAvailable) {
+        toast('MDX CUDA yêu cầu GPU NVIDIA và driver NVIDIA hoạt động.', 'error');
+        return;
+      }
+      if (!mdx?.cuda?.ready) {
+        toast('Máy có NVIDIA nhưng chưa cài component MDX CUDA. Hãy dùng Tự động/CPU hoặc cài component CUDA.', 'warn');
+        return;
+      }
+    }
+  }
 
   // Map volumes logarithmically for FFmpeg
   const originalSlider = document.querySelector('input[name="originalVolume"]');
@@ -3990,6 +4010,9 @@ $('refresh-assets-btn').addEventListener('click', openConnectionStatusModal);
 $('save-voice-form').addEventListener('submit', saveVoice);
 $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
+$('keep-bgm-ai')?.addEventListener('change', updateMdxProviderUI);
+$('mdx-provider-select')?.addEventListener('change', updateMdxProviderUI);
+$('mdx-cuda-install-btn')?.addEventListener('click', installMdxCudaComponent);
 $('bulk-fetch-btn').addEventListener('click', fetchPlaylistInfo);
 const selectAllCheck = $('bulk-select-all');
 if (selectAllCheck) {
@@ -6517,6 +6540,8 @@ async function checkSystemConnections() {
   try {
     const res = await fetch('/api/check-dependencies');
     const data = await res.json();
+    dependencyStatus = data;
+    updateMdxProviderUI();
 
     // 1. FFmpeg
     const ffmpegDot = $('conn-ffmpeg-dot');
@@ -6575,7 +6600,17 @@ async function checkSystemConnections() {
       separatorDot.className = 'dot ok';
       separatorDot.style.background = 'var(--success)';
       separatorDot.style.boxShadow = '0 0 8px var(--success)';
-      separatorDesc.textContent = 'Đã sẵn sàng';
+      const mdx = data.mdx;
+      if (mdx?.cuda?.hardwareAvailable && mdx?.cuda?.ready) {
+        separatorDesc.textContent = `Sẵn sàng CPU + CUDA (${mdx.hardware?.nvidia?.name || 'NVIDIA'})`;
+      } else if (mdx?.cuda?.hardwareAvailable) {
+        separatorDesc.textContent = 'CPU sẵn sàng; phát hiện NVIDIA nhưng chưa có MDX CUDA';
+        if (separatorAction) {
+          separatorAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); installMdxCudaComponent();">Cài CUDA</button>`;
+        }
+      } else {
+        separatorDesc.textContent = 'Đã sẵn sàng bằng CPU';
+      }
     } else {
       separatorDot.className = 'dot error';
       separatorDot.style.background = 'var(--danger)';
@@ -7460,6 +7495,96 @@ function updateDependencyUI() {
       }
     }
     bindDeviceChangeCheck();
+  }
+  updateMdxProviderUI();
+}
+
+function updateMdxProviderUI() {
+  const enabled = $('keep-bgm-ai')?.checked === true;
+  const settings = $('mdx-provider-settings');
+  const select = $('mdx-provider-select');
+  const hint = $('mdx-provider-hint');
+  const installButton = $('mdx-cuda-install-btn');
+  if (settings) settings.classList.toggle('hidden', !enabled);
+  if (!select || !hint) return;
+
+  const runtime = dependencyStatus.mdx;
+  const canInstall = runtime?.cuda?.hardwareAvailable && !runtime?.cuda?.ready;
+  installButton?.classList.toggle('hidden', !enabled || !canInstall);
+  const value = select.value || 'auto';
+  if (value === 'cpu') {
+    hint.textContent = 'CPU tương thích mọi máy. Hiện MDX sử dụng tối đa 4 luồng CPU.';
+    hint.style.color = 'var(--muted)';
+    return;
+  }
+  if (value === 'cuda') {
+    if (!runtime?.cuda?.hardwareAvailable) {
+      hint.textContent = 'Không phát hiện GPU NVIDIA. Chế độ CUDA sẽ không thể chạy trên máy này.';
+      hint.style.color = 'var(--danger)';
+    } else if (!runtime?.cuda?.ready) {
+      hint.textContent = 'Đã phát hiện NVIDIA nhưng component MDX CUDA chưa được cài.';
+      hint.style.color = 'var(--warn)';
+    } else {
+      const gpuName = runtime.hardware?.nvidia?.name || 'NVIDIA GPU';
+      hint.textContent = `Sẵn sàng chạy bằng CUDA: ${gpuName}.`;
+      hint.style.color = 'var(--success)';
+    }
+    return;
+  }
+
+  if (runtime?.cuda?.hardwareAvailable && runtime?.cuda?.ready) {
+    hint.textContent = `Tự động sẽ dùng CUDA trên ${runtime.hardware?.nvidia?.name || 'NVIDIA GPU'}; nếu CUDA lỗi sẽ chuyển sang CPU.`;
+    hint.style.color = 'var(--success)';
+  } else if (runtime?.cuda?.hardwareAvailable) {
+    hint.textContent = 'Máy có NVIDIA nhưng chưa cài MDX CUDA; chế độ Tự động hiện sẽ dùng CPU.';
+    hint.style.color = 'var(--warn)';
+  } else {
+    hint.textContent = 'Không có MDX CUDA phù hợp; chế độ Tự động sẽ dùng CPU.';
+    hint.style.color = 'var(--muted)';
+  }
+}
+
+let mdxCudaDownloadActive = false;
+
+async function installMdxCudaComponent() {
+  if (mdxCudaDownloadActive) return;
+  const button = $('mdx-cuda-install-btn');
+  mdxCudaDownloadActive = true;
+  setBusy(button, true, 'Đang chuẩn bị...');
+  try {
+    const startResponse = await fetch('/api/mdx-cuda-component/download', { method: 'POST' });
+    const startData = await startResponse.json();
+    if (!startResponse.ok) throw new Error(startData.error || 'Không thể bắt đầu tải MDX CUDA');
+
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch('/api/mdx-cuda-component/download-status');
+      const progress = await response.json();
+      if (!response.ok) throw new Error(progress.error || 'Không đọc được tiến trình MDX CUDA');
+      const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+      setBusy(button, true, `Đang cài ${percent}%`);
+      if (progress.status === 'ready') break;
+      if (progress.status === 'error') {
+        throw new Error(progress.error || 'Cài MDX CUDA thất bại');
+      }
+      if (progress.status === 'cancelled') {
+        throw new Error('Đã hủy cài MDX CUDA');
+      }
+    }
+
+    const dependencyResponse = await fetch('/api/check-dependencies');
+    dependencyStatus = await dependencyResponse.json();
+    if (!dependencyResponse.ok || !dependencyStatus.mdx?.cuda?.ready) {
+      throw new Error('Component đã tải nhưng chưa vượt qua kiểm tra sẵn sàng');
+    }
+    updateMdxProviderUI();
+    toast('✅ MDX CUDA đã sẵn sàng', 'success');
+  } catch (error) {
+    toast(`❌ ${error.message}`, 'error');
+  } finally {
+    mdxCudaDownloadActive = false;
+    setBusy(button, false);
+    updateMdxProviderUI();
   }
 }
 
