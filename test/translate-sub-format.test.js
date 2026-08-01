@@ -66,3 +66,19 @@ test('formatSubtitleFile drops a corrupted combined cue containing the next two 
   assert.equal(cues[1].endTime, '00:01:28,000');
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
+
+test('formatSubtitleFile removes parenthetical ASR segmentation recreated by translation', () => {
+  const { tempDir, subtitlePath } = writeSrt([
+    '1', '00:02:48,128 --> 00:02:59,728',
+    'Cuối cùng vẫn chỉ là hư vô. "(Tại sao) (lần đầu gặp mặt) (cậu lại không giết tôi?)" Denji-kun,', ''
+  ]);
+
+  formatSubtitleFile(subtitlePath, 1, 200);
+
+  const [cue] = new Parser().fromSrt(fs.readFileSync(subtitlePath, 'utf8'));
+  assert.equal(
+    cue.text,
+    'Cuối cùng vẫn chỉ là hư vô. "Tại sao lần đầu gặp mặt cậu lại không giết tôi?" Denji-kun,'
+  );
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
