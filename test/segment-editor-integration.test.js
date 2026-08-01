@@ -28,7 +28,8 @@ test('render pauses for segment review and uses reviewed SRT after approval', ()
   assert.match(studio, /segmentService\.createOrLoad/);
   assert.match(studio, /subtitlePath = segmentManifest\.reviewedSrtPath/);
   assert.match(studio, /segmentService\.setSegmentAudio/);
-  assert.match(studio, /voiceCheckpoint\.hasChunk\(checkpointKey, chunkSignature\)/);
+  assert.match(studio, /generateNarrationWithinCue/);
+  assert.match(studio, /voiceCheckpoint\.markChunk\(checkpointKey/);
 });
 
 test('segment review UI is isolated in its own script and wired into queue states', () => {

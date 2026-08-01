@@ -21,11 +21,13 @@ const {
   resolveVoiceReference
 } = require('../lib/voice-reference-helper');
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
+const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
+const { generateNarrationWithinCue } = require('../lib/narration-fit-service');
+const { shortenNarrationText } = require('../lib/narration-shortener');
 const { analyzeWavFile } = require('../lib/audio-quality');
 const { normalizeAudioMasteringConfig } = require('../lib/audio-mastering');
 const {
-  createSmartFitSignature,
-  planSmartFit
+  createSmartFitSignature
 } = require('../lib/smart-fit-service');
 const {
   SegmentRevisionConflictError,
@@ -97,6 +99,10 @@ function saveTaskSummary(task, manifest) {
 function sendError(res, error) {
   const statusCode = error instanceof SegmentServiceError
     ? error.statusCode
+    : error?.code === 'NARRATION_SHORTENER_UNAVAILABLE'
+      ? 409
+      : error?.code === 'NARRATION_TOO_LONG'
+        ? 422
     : error?.code === 'VOICE_ENGINE_BUSY'
       ? 409
       : 500;
@@ -247,37 +253,58 @@ async function regenerateSegment(req, res) {
     const language = ['vi', 'en', 'zh'].includes(task.body.omiLanguage)
       ? task.body.omiLanguage
       : 'vi';
-    const rawSignature = createVoiceAudioSignature({
-      text: segment.text,
-      voiceFile: segment.voiceFile || task.body.savedVoiceFile || '',
-      referenceIdentity: reference.sourceIdentity,
-      referenceText: reference.text,
-      engineId,
-      steps: task.body.omiSteps || '16',
-      language,
-      seed: task.body.omiSeed || '',
-      positionTemperature: 1
-    });
-    const rawReady = segment.rawAudioSignature === rawSignature && isUsableFile(rawPath, 44);
     const method = reference.audioPath && reference.text ? 'cloneVoice' : 'synthesize';
-    if (!rawReady) await engine[method]({
-      text: segment.text,
-      outputPath: rawPath,
-      language,
-      device: task.body.omiDevice || 'cpu',
-      steps: task.body.omiSteps || '16',
-      seed: task.body.omiSeed || String(Math.floor(Math.random() * 9999999)),
-      positionTemperature: 1,
-      referenceAudioPath: reference.audioPath,
-      referenceText: reference.text,
-      instruct: 'female',
-      skipRenderCheck: true,
-      allowCpuFallback: task.body.voiceAllowCpuFallback === 'true'
-        || task.body.voiceAllowCpuFallback === true
+    const narration = await generateNarrationWithinCue({
+      initialText: segment.text,
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      createSignature: (text) => createVoiceAudioSignature({
+        text,
+        voiceFile: segment.voiceFile || task.body.savedVoiceFile || '',
+        referenceIdentity: reference.sourceIdentity,
+        referenceText: reference.text,
+        engineId,
+        steps: task.body.omiSteps || '16',
+        language,
+        seed: resolveOmnivoiceSeed(task.body.omiSeed),
+        positionTemperature: 1
+      }),
+      isReusable: (signature) => (
+        segment.rawAudioSignature === signature && isUsableFile(rawPath, 44)
+      ),
+      synthesize: async (text) => {
+        fs.rmSync(rawPath, { force: true });
+        await engine[method]({
+          text,
+          outputPath: rawPath,
+          language,
+          device: task.body.omiDevice || 'cpu',
+          steps: task.body.omiSteps || '16',
+          seed: resolveOmnivoiceSeed(task.body.omiSeed),
+          positionTemperature: 1,
+          referenceAudioPath: reference.audioPath,
+          referenceText: reference.text,
+          instruct: 'female',
+          skipRenderCheck: true,
+          allowCpuFallback: task.body.voiceAllowCpuFallback === 'true'
+            || task.body.voiceAllowCpuFallback === true
+        });
+        if (!isUsableFile(rawPath, 44)) {
+          throw new Error('Voice engine không tạo được audio segment');
+        }
+      },
+      measureDuration: () => readWavDurationMs(rawPath),
+      shortenText: ({ text, currentDurationMs, targetDurationMs, attempt }) => (
+        shortenNarrationText({
+          text,
+          currentDurationMs,
+          targetDurationMs,
+          attempt,
+          language,
+          config: task.body
+        })
+      )
     });
-    if (!isUsableFile(rawPath, 44)) {
-      throw new Error('Voice engine không tạo được audio segment');
-    }
     const segmentIndex = manifest.segments.findIndex((item) => item.id === segment.id);
     const audioMastering = normalizeAudioMasteringConfig(task.body);
     const voiceProcessing = {
@@ -287,7 +314,8 @@ async function regenerateSegment(req, res) {
       loudnessRange: audioMastering.loudnessRange,
       crossfadeMs: audioMastering.crossfadeMs
     };
-    const rawDurationMs = readWavDurationMs(rawPath);
+    const rawDurationMs = narration.rawDurationMs;
+    const rawSignature = narration.signature;
     const audioSignature = createSmartFitSignature({
       rawSignature,
       rawFile: getFileIdentity(rawPath),
@@ -296,12 +324,7 @@ async function regenerateSegment(req, res) {
       endMs: segment.endMs,
       audioProcessing: voiceProcessing
     });
-    const fitPlan = planSmartFit({
-      mode: 'cue',
-      startMs: segment.startMs,
-      endMs: segment.endMs,
-      rawDurationMs
-    });
+    const fitPlan = narration.fitPlan;
     await createFittedVoiceChunk({
       rawPath,
       outputPath,
@@ -327,7 +350,15 @@ async function regenerateSegment(req, res) {
       audioDurationMs: fittedDurationMs,
       audioSignature,
       audioQuality,
-      fit: { ...fitPlan, fittedDurationMs, signature: audioSignature }
+      fit: { ...fitPlan, fittedDurationMs, signature: audioSignature },
+      narrationText: narration.text,
+      narrationFit: {
+        shortened: narration.shortened || segment.narrationFit?.shortened === true,
+        originalText: segment.narrationFit?.originalText || narration.originalText,
+        attempts: (Number(segment.narrationFit?.attempts) || 0) + narration.attempts,
+        maxSpeed: fitPlan.maxSpeed,
+        finalSpeed: fitPlan.speed
+      }
     });
     saveTaskSummary(task, manifest);
     return res.json({ success: true, manifest: toPublicManifest(manifest) });

@@ -3578,7 +3578,7 @@ function loadStudioTemplate(templateName) {
 
   const omiSeedPreset = $('omi-seed-preset');
   if (omiSeedPreset) {
-    omiSeedPreset.value = template.omiSeed;
+    omiSeedPreset.value = template.omiSeed || '42';
     omiSeedPreset.dispatchEvent(new Event('change'));
   }
   if (template.omiCustomSeed) {
@@ -7006,11 +7006,11 @@ function resetStudioConfig() {
 
   const omiSeedPreset = $('omi-seed-preset');
   if (omiSeedPreset) {
-    omiSeedPreset.value = '';
+    omiSeedPreset.value = '42';
     omiSeedPreset.dispatchEvent(new Event('change'));
   }
   const omiSeedInput = $('omi-seed-input');
-  if (omiSeedInput) omiSeedInput.value = '';
+  if (omiSeedInput) omiSeedInput.value = '42';
 
   // Reset music mode
   const musicModeBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');

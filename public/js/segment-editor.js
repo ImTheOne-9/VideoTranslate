@@ -93,7 +93,7 @@
       borrowed: 'Mượn khoảng nghỉ',
       sped_up: `Tăng tốc ${Number(fit.speed || 1).toFixed(2)}x`,
       trimmed: `Đã cắt ${durationLabel(fit.trimmedMs)}`,
-      rewrite_recommended: `Vượt giới hạn ${Number(fit.maxSpeed || 1.2).toFixed(2)}x`
+      rewrite_recommended: `Vượt giới hạn ${Number(fit.maxSpeed || 2).toFixed(2)}x`
     }[fit.status] || fit.status;
   }
 
@@ -272,6 +272,9 @@
             <span class="segment-editor-status-chip ${statusClass}">
               ${escapeHtml(regenerating ? 'Đang tạo' : statusLabel(segment.status))}
             </span>
+            ${segment.narrationFit?.shortened
+              ? `<span class="segment-editor-fit-result">Đã rút gọn tự động (${Number(segment.narrationFit.attempts) || 1} lần)</span>`
+              : ''}
             ${segment.fit ? `<span class="segment-editor-fit-result">${escapeHtml(fitStatusLabel(segment.fit))}</span>` : ''}
             ${warnings.map((warning) => `<span class="segment-editor-warning">${escapeHtml(warning)}</span>`).join('')}
             ${segment.error ? `<span class="segment-editor-warning">${escapeHtml(segment.error)}</span>` : ''}

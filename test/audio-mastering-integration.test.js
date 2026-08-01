@@ -17,6 +17,9 @@ test('studio render uses the shared mastering graph and returns QC metadata', ()
   assert.match(source, /final_mix_qc\.wav/);
   assert.match(source, /audioReport,/);
   assert.match(source, /audioTracks/);
+  assert.match(source, /readPcm16WavFile\(chunk\.filePath\)/);
+  assert.match(source, /targetFrame \* chunk\.blockAlign/);
+  assert.doesNotMatch(source, /function readWavInfo/);
 });
 
 test('segment regeneration includes mastering settings in cache and fitted audio', () => {
