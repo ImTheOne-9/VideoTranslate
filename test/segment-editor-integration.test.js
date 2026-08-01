@@ -28,7 +28,8 @@ test('render pauses for segment review and uses reviewed SRT after approval', ()
   assert.match(studio, /segmentService\.createOrLoad/);
   assert.match(studio, /subtitlePath = segmentManifest\.reviewedSrtPath/);
   assert.match(studio, /segmentService\.setSegmentAudio/);
-  assert.match(studio, /voiceCheckpoint\.hasChunk\(checkpointKey, chunkSignature\)/);
+  assert.match(studio, /generateNarrationWithinCue/);
+  assert.match(studio, /voiceCheckpoint\.markChunk\(checkpointKey/);
 });
 
 test('segment review UI is isolated in its own script and wired into queue states', () => {
@@ -85,7 +86,7 @@ test('reviewed segment audio and render use the same stable synthesis signature'
   assert.match(studio, /Dùng lại audio/);
 });
 
-test('Smart Fit is wired through render, checkpoints, API, and segment editor controls', () => {
+test('cue fitting remains wired while mode controls and API are removed', () => {
   const html = read('public/index.html');
   const app = read('public/app.js');
   const editor = read('public/js/segment-editor.js');
@@ -93,11 +94,11 @@ test('Smart Fit is wired through render, checkpoints, API, and segment editor co
   const studio = read('controllers/studioController.js');
   const segment = read('controllers/segmentController.js');
 
-  assert.match(html, /name="smartFitMode"/);
-  assert.match(html, /id="segment-editor-fit-mode"/);
-  assert.match(app, /function setSmartFitMode/);
-  assert.match(server, /segments\/smart-fit/);
-  assert.match(editor, /async function updateSmartFitMode/);
+  assert.doesNotMatch(html, /name="smartFitMode"/);
+  assert.doesNotMatch(html, /id="segment-editor-fit-mode"/);
+  assert.doesNotMatch(app, /function setSmartFitMode/);
+  assert.doesNotMatch(server, /segments\/smart-fit/);
+  assert.doesNotMatch(editor, /async function updateSmartFitMode/);
   assert.match(editor, /variant=\$\{encodeURIComponent\(variant\)\}/);
   assert.match(studio, /getRawChunkPath/);
   assert.match(studio, /getFittedChunkPath/);

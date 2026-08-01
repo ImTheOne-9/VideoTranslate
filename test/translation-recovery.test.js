@@ -67,7 +67,6 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
   const checkpoint = createTranslationCheckpoint(outputPath, {
     sourceText,
     targetLang: 'vi',
-    translationProfile: {},
     geminiApiKey: 'must-not-be-stored'
   });
   const firstCalls = [];
@@ -78,7 +77,6 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
     providerName: 'Gemini',
     targetLang: 'vi',
     srcLang: 'zho_Hans',
-    translationProfile: {},
     translateBatch: async (map) => {
       firstCalls.push(Object.keys(map));
       return { 1: 'Câu thứ nhất' };
@@ -98,8 +96,7 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
   ];
   const resumed = createTranslationCheckpoint(outputPath, {
     sourceText,
-    targetLang: 'vi',
-    translationProfile: {}
+    targetLang: 'vi'
   });
   const resumedCalls = [];
   const second = await translateJsonBatchesWithCheckpoint({
@@ -109,7 +106,6 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
     providerName: 'OpenRouter',
     targetLang: 'vi',
     srcLang: 'zho_Hans',
-    translationProfile: {},
     translateBatch: async (map) => {
       resumedCalls.push(Object.keys(map));
       return { 2: 'Câu thứ hai' };
@@ -121,20 +117,18 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
   assert.equal(resumedItems[1].text, 'Câu thứ hai');
 });
 
-test('changing source or translation profile invalidates stale translation checkpoint', async (t) => {
+test('changing source invalidates a stale translation checkpoint', async (t) => {
   const outputPath = await tempOutput(t);
   const first = createTranslationCheckpoint(outputPath, {
     sourceText: 'old source',
-    targetLang: 'vi',
-    translationProfile: {}
+    targetLang: 'vi'
   });
   first.success({ id: 1, text: 'old source' }, 'bản dịch cũ', 'Gemini');
   first.save();
 
   const changed = createTranslationCheckpoint(outputPath, {
     sourceText: 'new source',
-    targetLang: 'vi',
-    translationProfile: {}
+    targetLang: 'vi'
   });
   assert.deepEqual(changed.checkpoint.entries, {});
 });
@@ -144,8 +138,7 @@ test('NLLB fallback receives and replaces only failed cues', async (t) => {
   const parser = new (require('srt-parser-2').default)();
   const checkpoint = createTranslationCheckpoint(outputPath, {
     sourceText: 'source',
-    targetLang: 'vi',
-    translationProfile: {}
+    targetLang: 'vi'
   });
   const items = [
     {
@@ -170,7 +163,6 @@ test('NLLB fallback receives and replaces only failed cues', async (t) => {
     srcLang: 'zho_Hans',
     targetLang: 'vi',
     nllbTargetLang: 'vie_Latn',
-    translationProfile: {},
     translateNllb: async (inputPath, translatedPath) => {
       const input = parser.fromSrt(await fs.promises.readFile(inputPath, 'utf8'));
       calls.push(input.map((item) => item.text));

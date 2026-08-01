@@ -367,6 +367,60 @@ test('removes repeated boundary hallucinations without dropping short valid cues
   assert.match(srt, /00:02:09,000 --> 00:02:10,000\nMấy tuổi rồi\?/);
 });
 
+test('unwraps adjacent Whisper parenthetical fragments but preserves a normal aside', () => {
+  const cues = normalizeWhisperChunks([
+    {
+      timestamp: [0, 4],
+      text: 'Sát thủ. (Tại sao) (lần đầu gặp mặt) (cậu lại không giết tôi?) (Denji-kun,)"'
+    },
+    {
+      timestamp: [4, 6],
+      text: '(Thực ra,) (tớ cũng chưa từng nói như vậy.)'
+    },
+    {
+      timestamp: [6, 8],
+      text: 'Câu này có một chú thích (giữ nguyên).'
+    }
+  ]);
+
+  assert.equal(
+    cues[0].text,
+    'Sát thủ. Tại sao lần đầu gặp mặt cậu lại không giết tôi? Denji-kun,'
+  );
+  assert.equal(cues[1].text, 'Thực ra, tớ cũng chưa từng nói như vậy.');
+  assert.equal(cues[2].text, 'Câu này có một chú thích (giữ nguyên).');
+});
+
+test('unwraps adjacent full-width parenthetical fragments from Whisper', () => {
+  const [cue] = normalizeWhisperChunks([
+    { timestamp: [0, 2], text: '（Thực ra,） （tớ chưa từng nói vậy.）' }
+  ]);
+
+  assert.equal(cue.text, 'Thực ra, tớ chưa từng nói vậy.');
+});
+
+test('unwraps parenthetical Whisper fragments even without spaces between them', () => {
+  const [cue] = normalizeWhisperChunks([
+    { timestamp: [0, 2], text: '（Tại sao）（lần đầu gặp mặt）（cậu không giết tôi?）' }
+  ]);
+
+  assert.equal(cue.text, 'Tại sao lần đầu gặp mặt cậu không giết tôi?');
+});
+
+test('unwraps a run of separately timestamped parenthetical Whisper cues', () => {
+  const cues = normalizeWhisperChunks([
+    { timestamp: [0, 1], text: '(Tại sao)' },
+    { timestamp: [1, 2], text: '(lần đầu gặp mặt)' },
+    { timestamp: [2, 3], text: '(cậu lại không giết tôi?)' },
+    { timestamp: [3, 4], text: 'Một câu bình thường (có chú thích).' }
+  ]);
+
+  assert.deepEqual(
+    cues.map((cue) => cue.text),
+    ['Tại sao', 'lần đầu gặp mặt', 'cậu lại không giết tôi?', 'Một câu bình thường (có chú thích).']
+  );
+});
+
 test('normalizes ASR cues with quality metadata without changing timing', () => {
   const [cue] = normalizeWhisperChunks([
     { timestamp: [1, 2], text: ' Xin chào ', confidence: 0.4 }

@@ -1,11 +1,14 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {
   analyzeWavBuffer,
   buildVoiceNormalizationFilters,
-  parseWavBuffer
+  parseWavBuffer,
+  readPcm16WavFile
 } = require('../lib/audio-quality');
 
 function createPcm16Wav({
@@ -56,6 +59,36 @@ test('parses PCM WAV files with metadata chunks before audio data', () => {
   assert.equal(parsed.channels, 1);
   assert.ok(parsed.dataOffset > 44);
   assert.equal(analyzeWavBuffer(buffer).durationMs, 250);
+});
+
+test('reads only PCM payload and never includes the data chunk header', (t) => {
+  const os = require('node:os');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wav-pcm-test-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const filePath = path.join(tempDir, 'standard.wav');
+  fs.writeFileSync(filePath, createPcm16Wav({ durationMs: 10, sample: () => 1234 }));
+
+  const parsed = readPcm16WavFile(filePath);
+  assert.equal(parsed.dataOffset, 44);
+  assert.equal(parsed.pcmBuffer.length, parsed.dataSize);
+  assert.equal(parsed.pcmBuffer.readInt16LE(0), 1234);
+  assert.notEqual(parsed.pcmBuffer.toString('ascii', 0, 4), 'data');
+});
+
+test('reads PCM payload after an odd-sized metadata chunk', (t) => {
+  const os = require('node:os');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wav-pcm-test-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const filePath = path.join(tempDir, 'metadata.wav');
+  fs.writeFileSync(filePath, createPcm16Wav({
+    durationMs: 10,
+    junkSize: 13,
+    sample: () => -4321
+  }));
+
+  const parsed = readPcm16WavFile(filePath);
+  assert.ok(parsed.dataOffset > 44);
+  assert.equal(parsed.pcmBuffer.readInt16LE(0), -4321);
 });
 
 test('reports silent, clipping, and quiet voice chunks', () => {

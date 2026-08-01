@@ -55,6 +55,13 @@ test('render manifest persists resumable state without API keys', () => {
       usedDevice: 'cpu',
       fallback: true
     };
+    task.backgroundSeparation = {
+      requestedProvider: 'auto',
+      usedProvider: 'cuda',
+      fallback: false,
+      durationMs: 1234,
+      model: 'UVR_MDXNET_KARA_2'
+    };
 
     store.saveTask(task);
 
@@ -69,6 +76,7 @@ test('render manifest persists resumable state without API keys', () => {
     assert.equal(restored.uiSnapshot.blurBoxes.length, 1);
     assert.equal(restored.stages.subtitle.status, 'success');
     assert.deepEqual(restored.voiceExecution, task.voiceExecution);
+    assert.deepEqual(restored.backgroundSeparation, task.backgroundSeparation);
   });
 });
 

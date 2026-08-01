@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
 const shared = require('../lib/shared-state');
 const {
   DEFAULT_VOICE_ENGINE_ID,
@@ -111,7 +112,7 @@ module.exports = {
           language: 'vi',
           device: selectedDevice,
           steps: process.env.OMNIVOICE_STEPS || '16',
-          seed: String(Math.floor(Math.random() * 9999999)),
+          seed: resolveOmnivoiceSeed(req.body.omiSeed),
           referenceAudioPath: refWavPath,
           referenceText: refText,
           positionTemperature: 1.5,

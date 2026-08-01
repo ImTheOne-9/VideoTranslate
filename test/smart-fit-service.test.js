@@ -5,8 +5,8 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  SMART_FIT_POLICIES,
   createSmartFitSignature,
+  MAX_NARRATION_SPEED,
   normalizeSmartFitMode,
   planSmartFit
 } = require('../lib/smart-fit-service');
@@ -38,9 +38,9 @@ function writeSilentWav(filePath, durationMs = 1000) {
   fs.writeFileSync(filePath, buffer);
 }
 
-test('normalizes unsupported Smart Fit modes to cue', () => {
-  assert.equal(normalizeSmartFitMode('natural'), 'natural');
-  assert.equal(normalizeSmartFitMode('CINEMATIC'), 'cinematic');
+test('normalizes every legacy Smart Fit mode to cue', () => {
+  assert.equal(normalizeSmartFitMode('natural'), 'cue');
+  assert.equal(normalizeSmartFitMode('CINEMATIC'), 'cue');
   assert.equal(normalizeSmartFitMode('unknown'), 'cue');
   assert.equal(normalizeSmartFitMode(), 'cue');
 });
@@ -74,7 +74,7 @@ test('cue mode ignores following gaps and speeds audio to the exact cue budget',
   assert.ok(plan.effectiveEndMs <= 2000);
 });
 
-test('cue mode speeds audio without a maximum and never trims speech', () => {
+test('cue mode requests a rewrite instead of exceeding 2x', () => {
   const plan = planSmartFit({
     mode: 'cue',
     startMs: 0,
@@ -82,18 +82,18 @@ test('cue mode speeds audio without a maximum and never trims speech', () => {
     nextStartMs: 1000,
     rawDurationMs: 5000
   });
-  assert.equal(plan.status, 'sped_up');
-  assert.equal(plan.speed, 5.264);
-  assert.equal(plan.maxSpeed, null);
-  assert.equal(plan.unlimitedSpeed, true);
+  assert.equal(plan.status, 'rewrite_recommended');
+  assert.equal(plan.speed, 2);
+  assert.equal(plan.maxSpeed, MAX_NARRATION_SPEED);
+  assert.equal(plan.unlimitedSpeed, false);
   assert.equal(plan.trimmedMs, 0);
-  assert.equal(plan.warning, null);
-  assert.ok(plan.fittedDurationMs <= plan.baseAvailableMs);
+  assert.equal(plan.warning, 'smart_fit_rewrite_recommended');
+  assert.ok(plan.fittedDurationMs > plan.baseAvailableMs);
 });
 
 test('does not treat the remaining video as a gap when the next cue starts immediately', () => {
   const plan = planSmartFit({
-    mode: 'cinematic',
+    mode: 'cue',
     startMs: 0,
     endMs: 1540,
     nextStartMs: 1540,
@@ -102,7 +102,7 @@ test('does not treat the remaining video as a gap when the next cue starts immed
   });
   assert.equal(plan.borrowedMs, 0);
   assert.equal(plan.status, 'rewrite_recommended');
-  assert.equal(plan.speed, SMART_FIT_POLICIES.cinematic.maxSpeed);
+  assert.equal(plan.trimmedMs, 0);
   assert.ok(plan.effectiveEndMs <= 1540);
 });
 
@@ -119,35 +119,7 @@ test('does not borrow time across an overlapping next cue', () => {
   assert.ok(plan.effectiveEndMs <= 3000);
 });
 
-test('caps speed and trims overflow without crossing the next segment', () => {
-  const plan = planSmartFit({
-    mode: 'natural',
-    startMs: 1000,
-    endMs: 3000,
-    nextStartMs: 3200,
-    rawDurationMs: 5000
-  });
-  assert.equal(plan.status, 'trimmed');
-  assert.equal(plan.speed, SMART_FIT_POLICIES.natural.maxSpeed);
-  assert.ok(plan.trimmedMs > 0);
-  assert.ok(plan.effectiveEndMs <= 3200);
-  assert.equal(plan.warning, 'smart_fit_trimmed');
-});
-
-test('cinematic mode flags severe overflow for rewriting', () => {
-  const plan = planSmartFit({
-    mode: 'cinematic',
-    startMs: 0,
-    endMs: 1500,
-    nextStartMs: 1500,
-    rawDurationMs: 4000
-  });
-  assert.equal(plan.status, 'rewrite_recommended');
-  assert.equal(plan.warning, 'smart_fit_rewrite_recommended');
-  assert.equal(plan.speed, SMART_FIT_POLICIES.cinematic.maxSpeed);
-});
-
-test('natural and cue modes produce different results for the same speech', () => {
+test('legacy mode input produces the same cue-only plan', () => {
   const input = {
     startMs: 0,
     endMs: 2000,
@@ -156,14 +128,12 @@ test('natural and cue modes produce different results for the same speech', () =
   };
   const natural = planSmartFit({ ...input, mode: 'natural' });
   const cue = planSmartFit({ ...input, mode: 'cue' });
-  assert.notEqual(natural.status, cue.status);
-  assert.ok(natural.speed < cue.speed);
-  assert.equal(natural.status, 'trimmed');
+  assert.deepEqual(natural, cue);
   assert.equal(cue.status, 'sped_up');
   assert.equal(cue.trimmedMs, 0);
 });
 
-test('Smart Fit signature is stable and changes with timing or mode', () => {
+test('cue-fit signature is stable, ignores legacy mode, and changes with timing', () => {
   const input = {
     rawSignature: 'raw-a',
     mode: 'cue',
@@ -173,7 +143,7 @@ test('Smart Fit signature is stable and changes with timing or mode', () => {
   };
   assert.equal(createSmartFitSignature(input), createSmartFitSignature({ ...input }));
   assert.notEqual(createSmartFitSignature(input), createSmartFitSignature({ ...input, endMs: 2100 }));
-  assert.notEqual(createSmartFitSignature(input), createSmartFitSignature({ ...input, mode: 'natural' }));
+  assert.equal(createSmartFitSignature(input), createSmartFitSignature({ ...input, mode: 'natural' }));
   assert.notEqual(
     createSmartFitSignature(input),
     createSmartFitSignature({ ...input, audioProcessing: { crossfadeMs: 35 } })
@@ -224,20 +194,20 @@ test('normalizes fitted copies without modifying the raw WAV', async (t) => {
   assert.equal(readWavDurationMs(fittedPath), 1000);
 });
 
-test('uses atempo and trim filters while preserving the raw source', async (t) => {
+test('cue-only fitting uses atempo without trimming speech', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'smart-fit-filter-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const rawPath = path.join(directory, 'raw.wav');
   const fittedPath = path.join(directory, 'fitted.wav');
-  writeSilentWav(rawPath, 4000);
+  writeSilentWav(rawPath, 2000);
   const before = fs.readFileSync(rawPath);
   let receivedArgs;
   const plan = planSmartFit({
-    mode: 'cinematic',
+    mode: 'cue',
     startMs: 0,
     endMs: 1500,
     nextStartMs: 1500,
-    rawDurationMs: 4000
+    rawDurationMs: 2000
   });
 
   await createFittedVoiceChunk({
@@ -252,8 +222,31 @@ test('uses atempo and trim filters while preserving the raw source', async (t) =
   });
 
   const filter = receivedArgs[receivedArgs.indexOf('-filter:a') + 1];
-  assert.match(filter, /atempo=1\.200/);
-  assert.match(filter, /atrim=duration=/);
-  assert.match(filter, /afade=t=out/);
+  assert.match(filter, /atempo=/);
+  assert.doesNotMatch(filter, /atrim=duration=/);
   assert.deepEqual(fs.readFileSync(rawPath), before);
+});
+
+test('audio fitting refuses to process a plan that exceeds 2x', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'smart-fit-limit-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const rawPath = path.join(directory, 'raw.wav');
+  const fittedPath = path.join(directory, 'fitted.wav');
+  writeSilentWav(rawPath, 4000);
+
+  await assert.rejects(
+    createFittedVoiceChunk({
+      rawPath,
+      outputPath: fittedPath,
+      fitPlan: planSmartFit({
+        startMs: 0,
+        endMs: 1000,
+        rawDurationMs: 4000
+      }),
+      ffmpegPath: 'ffmpeg',
+      runExecFile: async () => assert.fail('ffmpeg must not run')
+    }),
+    (error) => error.code === 'NARRATION_REWRITE_REQUIRED'
+  );
+  assert.equal(fs.existsSync(fittedPath), false);
 });

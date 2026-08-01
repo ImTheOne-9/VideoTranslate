@@ -576,7 +576,12 @@ test('queue response exposes actionRequired and waiting task errors', async () =
     createdAt: new Date('2026-07-17T00:00:00Z'),
     body: { mainVideoFile: 'source.mp4' },
     files: {},
-    result: null
+    result: null,
+    backgroundSeparation: {
+      requestedProvider: 'auto',
+      usedProvider: 'cpu',
+      fallback: true
+    }
   };
   const handlers = createQueueHandlers(createQueueState([waitingTask]));
   const response = createResponse();
@@ -585,6 +590,10 @@ test('queue response exposes actionRequired and waiting task errors', async () =
 
   assert.equal(response.jsonCalls[0].queue[0].actionRequired, 'ocr_fallback');
   assert.equal(response.jsonCalls[0].queue[0].error, 'VSE failed');
+  assert.deepEqual(
+    response.jsonCalls[0].queue[0].backgroundSeparation,
+    waitingTask.backgroundSeparation
+  );
 });
 
 test('cancelling a waiting task removes only its upload directory and does not kill processes', async () => {

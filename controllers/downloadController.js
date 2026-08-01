@@ -66,7 +66,12 @@ module.exports = {
         responseType: 'stream',
         timeout: 120000,
         signal,
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://www.douyin.com/',
+          'Accept': '*/*',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        }
       });
       const totalSize = parseInt(response.headers['content-length'] || '0', 10);
       console.log(`[Douyin] Kích thước: ${(totalSize / 1048576).toFixed(1)} MB`);
@@ -111,7 +116,7 @@ module.exports = {
         responseType: 'stream',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('xiaohongshu') ? 'https://www.xiaohongshu.com/' : (url.includes('hdslb.com') || url.includes('.bilibili.com')) ? 'https://www.bilibili.com/' : 'https://www.google.com/')
+          'Referer': (url.includes('douyin') || url.includes('douyinvod') || url.includes('zjcdn')) ? 'https://www.douyin.com/' : (url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('xiaohongshu') ? 'https://www.xiaohongshu.com/' : (url.includes('hdslb.com') || url.includes('.bilibili.com')) ? 'https://www.bilibili.com/' : 'https://www.google.com/'))
         },
         timeout: 10000
       });

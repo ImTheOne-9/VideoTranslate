@@ -30,6 +30,8 @@ Thumbs.db
 
 # Build output
 dist/
+.tmp-mdx-cuda/
+release/mdx-onnx-cuda/*.zip
 
 # Logs
 *.log

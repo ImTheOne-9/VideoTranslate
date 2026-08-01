@@ -65,7 +65,7 @@
       audio_clipping: 'Audio bị vỡ tiếng',
       audio_too_quiet: 'Audio quá nhỏ',
       tts_error: 'Tạo giọng lỗi',
-      smart_fit_trimmed: 'Smart Fit phải cắt phần vượt',
+      smart_fit_trimmed: 'Bản audio cũ từng bị cắt phần vượt cue',
       smart_fit_rewrite_recommended: 'Nên viết ngắn câu này',
       asr_invalid_timestamp: 'ASR có timestamp không hợp lệ',
       asr_cue_too_short: 'ASR tạo câu quá ngắn',
@@ -93,7 +93,7 @@
       borrowed: 'Mượn khoảng nghỉ',
       sped_up: `Tăng tốc ${Number(fit.speed || 1).toFixed(2)}x`,
       trimmed: `Đã cắt ${durationLabel(fit.trimmedMs)}`,
-      rewrite_recommended: `Vượt giới hạn ${Number(fit.maxSpeed || 1.2).toFixed(2)}x`
+      rewrite_recommended: `Vượt giới hạn ${Number(fit.maxSpeed || 2).toFixed(2)}x`
     }[fit.status] || fit.status;
   }
 
@@ -272,6 +272,9 @@
             <span class="segment-editor-status-chip ${statusClass}">
               ${escapeHtml(regenerating ? 'Đang tạo' : statusLabel(segment.status))}
             </span>
+            ${segment.narrationFit?.shortened
+              ? `<span class="segment-editor-fit-result">Đã rút gọn tự động (${Number(segment.narrationFit.attempts) || 1} lần)</span>`
+              : ''}
             ${segment.fit ? `<span class="segment-editor-fit-result">${escapeHtml(fitStatusLabel(segment.fit))}</span>` : ''}
             ${warnings.map((warning) => `<span class="segment-editor-warning">${escapeHtml(warning)}</span>`).join('')}
             ${segment.error ? `<span class="segment-editor-warning">${escapeHtml(segment.error)}</span>` : ''}
@@ -284,7 +287,7 @@
             <button type="button" class="icon-btn" data-action="play"
               title="Nghe audio đã tạo của câu này" aria-label="Nghe audio câu này"${audioReady ? '' : ' disabled'}>♪</button>
             <button type="button" class="icon-btn" data-action="play-raw"
-              title="Nghe audio gốc trước Smart Fit" aria-label="Nghe audio gốc"${rawAudioReady ? '' : ' disabled'}>G</button>
+              title="Nghe audio gốc trước khi khớp cue" aria-label="Nghe audio gốc"${rawAudioReady ? '' : ' disabled'}>G</button>
             <button type="button" class="icon-btn" data-action="regenerate"
               title="Tạo lại giọng cho riêng câu này" aria-label="Tạo lại giọng câu này"
               ${disabled || generationInProgress ? ' disabled' : ''}>↻</button>
@@ -335,8 +338,6 @@
         <span class="${warningCount ? 'has-warning' : ''}"><strong>${warningCount}</strong> cảnh báo</span>
         <span class="${state.patches.size ? 'has-changes' : ''}"><strong>${state.patches.size}</strong> chưa lưu</span>`;
     }
-    const fitModeSelect = el('segment-editor-fit-mode');
-    if (fitModeSelect) fitModeSelect.value = state.manifest?.smartFit?.mode || 'cue';
     const pageInfo = el('segment-editor-page-info');
     if (pageInfo) pageInfo.textContent = `Trang ${state.page}/${totalPages} • ${items.length} segment`;
     if (el('segment-editor-prev')) el('segment-editor-prev').disabled = state.page <= 1;
@@ -344,7 +345,6 @@
     const generationInProgress = state.batchGenerating
       || state.regenerating.size > 0
       || state.asrRetrying.size > 0;
-    if (fitModeSelect) fitModeSelect.disabled = generationInProgress;
     if (el('segment-editor-undo')) {
       el('segment-editor-undo').disabled = generationInProgress || state.undo.length === 0;
     }
@@ -457,21 +457,6 @@
     state.manifest = data.manifest;
     render();
     notify('Đã thay thế nội dung trong các câu chưa khóa.', 'success');
-  }
-
-  async function updateSmartFitMode(mode) {
-    if (!state.manifest || mode === state.manifest.smartFit?.mode) return;
-    if (state.patches.size) await save();
-    const data = await api(
-      `/api/render-tasks/${encodeURIComponent(state.taskId)}/segments/smart-fit`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ revision: state.manifest.revision, mode })
-      }
-    );
-    state.manifest = data.manifest;
-    render();
-    notify('Đã đổi Smart Fit. Audio gốc được giữ lại; hãy tạo lại các bản khớp thời gian.', 'success');
   }
 
   async function approveAndContinue() {
@@ -738,13 +723,6 @@
       state.page = 1;
       render();
     });
-    el('segment-editor-fit-mode')?.addEventListener('change', (event) => {
-      updateSmartFitMode(event.target.value).catch((error) => {
-        showError(error.message);
-        render();
-      });
-    });
-
     el('segment-editor-body')?.addEventListener('change', (event) => {
       const row = event.target.closest('tr[data-segment-id]');
       const field = event.target.dataset.field;
