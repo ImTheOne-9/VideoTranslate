@@ -15,7 +15,6 @@ const {
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
 const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
 const { generateNarrationWithinCue } = require('../lib/narration-fit-service');
-const { shortenNarrationText } = require('../lib/narration-shortener');
 const { analyzeWavFile, readPcm16WavFile } = require('../lib/audio-quality');
 const {
   buildAudioMixGraph,
@@ -1302,26 +1301,7 @@ async function executeRenderTask(task) {
                       throw new Error('Voice engine không tạo được audio thuyết minh');
                     }
                   },
-                  measureDuration: () => readWavDurationMs(rawChunkPath),
-                  onShortening: ({ attempt, currentDurationMs, targetDurationMs }) => {
-                    shared.updateStudioProgress(
-                      progressPercent,
-                      `AI Cloner: Câu ${idx + 1} quá dài, đang rút gọn lần ${attempt}...`
-                    );
-                    console.log(
-                      `[Narration Fit] Nhóm ${idx + 1}: ${currentDurationMs}ms -> mục tiêu ${Math.round(targetDurationMs)}ms`
-                    );
-                  },
-                  shortenText: ({ text, currentDurationMs, targetDurationMs, attempt }) => (
-                    shortenNarrationText({
-                      text,
-                      currentDurationMs,
-                      targetDurationMs,
-                      attempt,
-                      language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
-                      config: body
-                    })
-                  )
+                  measureDuration: () => readWavDurationMs(rawChunkPath)
                 });
                 lineText = narration.text;
                 rawDurationMs = narration.rawDurationMs;

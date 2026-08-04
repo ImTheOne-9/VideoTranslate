@@ -23,7 +23,6 @@ const {
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
 const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
 const { generateNarrationWithinCue } = require('../lib/narration-fit-service');
-const { shortenNarrationText } = require('../lib/narration-shortener');
 const { analyzeWavFile } = require('../lib/audio-quality');
 const { normalizeAudioMasteringConfig } = require('../lib/audio-mastering');
 const {
@@ -293,17 +292,7 @@ async function regenerateSegment(req, res) {
           throw new Error('Voice engine không tạo được audio segment');
         }
       },
-      measureDuration: () => readWavDurationMs(rawPath),
-      shortenText: ({ text, currentDurationMs, targetDurationMs, attempt }) => (
-        shortenNarrationText({
-          text,
-          currentDurationMs,
-          targetDurationMs,
-          attempt,
-          language,
-          config: task.body
-        })
-      )
+      measureDuration: () => readWavDurationMs(rawPath)
     });
     const segmentIndex = manifest.segments.findIndex((item) => item.id === segment.id);
     const audioMastering = normalizeAudioMasteringConfig(task.body);

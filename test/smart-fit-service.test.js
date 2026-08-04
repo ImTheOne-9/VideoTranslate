@@ -6,7 +6,6 @@ const test = require('node:test');
 
 const {
   createSmartFitSignature,
-  MAX_NARRATION_SPEED,
   normalizeSmartFitMode,
   planSmartFit
 } = require('../lib/smart-fit-service');
@@ -74,7 +73,7 @@ test('cue mode ignores following gaps and speeds audio to the exact cue budget',
   assert.ok(plan.effectiveEndMs <= 2000);
 });
 
-test('cue mode requests a rewrite instead of exceeding 2x', () => {
+test('cue mode speeds audio beyond 2x without capping or requesting rewrite', () => {
   const plan = planSmartFit({
     mode: 'cue',
     startMs: 0,
@@ -82,13 +81,12 @@ test('cue mode requests a rewrite instead of exceeding 2x', () => {
     nextStartMs: 1000,
     rawDurationMs: 5000
   });
-  assert.equal(plan.status, 'rewrite_recommended');
-  assert.equal(plan.speed, 2);
-  assert.equal(plan.maxSpeed, MAX_NARRATION_SPEED);
-  assert.equal(plan.unlimitedSpeed, false);
+  assert.equal(plan.status, 'sped_up');
+  assert.equal(plan.maxSpeed, null);
+  assert.equal(plan.unlimitedSpeed, true);
   assert.equal(plan.trimmedMs, 0);
-  assert.equal(plan.warning, 'smart_fit_rewrite_recommended');
-  assert.ok(plan.fittedDurationMs > plan.baseAvailableMs);
+  assert.equal(plan.warning, null);
+  assert.ok(plan.fittedDurationMs <= plan.baseAvailableMs);
 });
 
 test('does not treat the remaining video as a gap when the next cue starts immediately', () => {
@@ -101,7 +99,7 @@ test('does not treat the remaining video as a gap when the next cue starts immed
     rawDurationMs: 3110
   });
   assert.equal(plan.borrowedMs, 0);
-  assert.equal(plan.status, 'rewrite_recommended');
+  assert.equal(plan.status, 'sped_up');
   assert.equal(plan.trimmedMs, 0);
   assert.ok(plan.effectiveEndMs <= 1540);
 });
@@ -225,28 +223,4 @@ test('cue-only fitting uses atempo without trimming speech', async (t) => {
   assert.match(filter, /atempo=/);
   assert.doesNotMatch(filter, /atrim=duration=/);
   assert.deepEqual(fs.readFileSync(rawPath), before);
-});
-
-test('audio fitting refuses to process a plan that exceeds 2x', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'smart-fit-limit-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const rawPath = path.join(directory, 'raw.wav');
-  const fittedPath = path.join(directory, 'fitted.wav');
-  writeSilentWav(rawPath, 4000);
-
-  await assert.rejects(
-    createFittedVoiceChunk({
-      rawPath,
-      outputPath: fittedPath,
-      fitPlan: planSmartFit({
-        startMs: 0,
-        endMs: 1000,
-        rawDurationMs: 4000
-      }),
-      ffmpegPath: 'ffmpeg',
-      runExecFile: async () => assert.fail('ffmpeg must not run')
-    }),
-    (error) => error.code === 'NARRATION_REWRITE_REQUIRED'
-  );
-  assert.equal(fs.existsSync(fittedPath), false);
 });
