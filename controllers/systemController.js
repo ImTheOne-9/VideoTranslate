@@ -45,17 +45,10 @@ function normalizeWhisperOnnxVariant(value) {
 }
 
 function getWhisperOnnxReadiness(variant) {
-  const { getWhisperOnnxConfig } = require('../lib/model-downloader');
+  const { getWhisperOnnxConfig, validateWhisperOnnxModel } = require('../lib/model-downloader');
   const config = getWhisperOnnxConfig(variant);
   const modelDir = path.join(shared.MODELS_DIR, 'whisper', config.folder);
-  return {
-    config,
-    modelDir,
-    exists: config.files.every((file) => {
-      const filePath = path.join(modelDir, ...file.name.split('/'));
-      return fs.existsSync(filePath) && fs.statSync(filePath).size === file.size;
-    })
-  };
+  return validateWhisperOnnxModel(modelDir, variant);
 }
 let activeDependencyDownload = null;
 
@@ -675,19 +668,29 @@ module.exports = {
     } catch (error) {
       return res.status(400).json({ error: error.message });
     }
-    const { config, exists } = getWhisperOnnxReadiness(variant);
+    const readiness = getWhisperOnnxReadiness(variant);
+    const { config, exists } = readiness;
     const totalBytes = config.files.reduce((sum, file) => sum + file.size, 0);
 
     const status = whisperDownloadStatus[variant] || { downloading: false, percent: 0, error: null };
     res.json({
       variant,
       exists,
+      state: readiness.state,
+      repairable: readiness.state === 'corrupt',
+      missingFiles: readiness.missingFiles,
+      invalidFiles: readiness.invalidFiles,
       downloading: status.downloading,
       percent: status.percent,
       error: status.error,
       downloadedBytes: status.downloadedBytes,
       totalBytes: status.totalBytes || totalBytes
     });
+  },
+
+  getWhisperDeviceStatus: async (req, res) => {
+    const { getWhisperDeviceCapabilities } = require('../lib/whisper-device');
+    res.json(getWhisperDeviceCapabilities());
   },
 
   downloadWhisperModel: async (req, res) => {

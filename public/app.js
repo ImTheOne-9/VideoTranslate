@@ -1016,6 +1016,8 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
 const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
+const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
+const WHISPER_DEVICES = new Set(['auto', 'cpu', 'dml']);
 
 function getWhisperOnnxVariantLabel(variant) {
   if (variant === 'medium-q8') return 'Medium Q8';
@@ -1252,10 +1254,18 @@ async function renderStudio(event) {
   const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
   const globalWhisperVal = $('whisper-model-select')?.value;
   const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(globalWhisperVal) ? globalWhisperVal : 'medium-q8';
+  const whisperTimestampLevel = WHISPER_TIMESTAMP_LEVELS.has(data.get('whisperTimestampLevel'))
+    ? data.get('whisperTimestampLevel')
+    : 'segment';
+  const whisperDevice = WHISPER_DEVICES.has(data.get('whisperDevice'))
+    ? data.get('whisperDevice')
+    : 'cpu';
   const globalOcrModeVal = $('global-ocr-mode-select')?.value || localStorage.getItem('global_ocr_mode') || 'auto';
   const ocrMode = OCR_MODES.has(globalOcrModeVal) ? globalOcrModeVal : 'auto';
   data.set('subtitleEngine', subtitleEngine);
   data.set('whisperOnnxVariant', whisperOnnxVariant);
+  data.set('whisperTimestampLevel', whisperTimestampLevel);
+  data.set('whisperDevice', whisperDevice);
   data.set('ocrMode', ocrMode);
 
   if (subMode === 'generate') {

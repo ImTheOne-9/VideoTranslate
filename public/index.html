@@ -1089,6 +1089,23 @@
                         </select>
                         <span class="form-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
                       </div>
+                      <div class="form-group whisper-engine-settings">
+                        <label for="whisper-timestamp-level">Độ chi tiết timestamp</label>
+                        <select id="whisper-timestamp-level" name="whisperTimestampLevel" class="premium-select">
+                          <option value="segment" selected>Theo câu — SRT thông thường</option>
+                          <option value="word">Theo từ — Karaoke / highlight</option>
+                        </select>
+                        <span class="form-hint">Chế độ theo từ lưu timing từng từ trong file metadata nhưng vẫn tạo SRT dễ đọc.</span>
+                      </div>
+                      <div class="form-group whisper-engine-settings">
+                        <label for="whisper-device-select">Thiết bị Whisper</label>
+                        <select id="whisper-device-select" name="whisperDevice" class="premium-select">
+                          <option value="cpu" selected>CPU — ổn định</option>
+                          <option value="auto">Tự động — ưu tiên DirectML</option>
+                          <option value="dml" id="whisper-device-dml-option">DirectML GPU</option>
+                        </select>
+                        <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>
+                      </div>
                       <details class="ocr-region-details ocr-engine-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
                         <div class="ocr-region-grid">

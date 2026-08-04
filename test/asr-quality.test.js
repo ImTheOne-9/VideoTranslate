@@ -19,6 +19,7 @@ test('ASR quality keeps model confidence separate from heuristic quality', () =>
   assert.equal(quality.qualitySource, 'model');
   assert.equal(quality.qualityScore, 42);
   assert.ok(quality.warnings.includes('asr_low_confidence'));
+  assert.equal(quality.needsReview, true);
 });
 
 test('ASR quality flags dense, repeated, and invalid timing without inventing confidence', () => {
@@ -45,4 +46,22 @@ test('ASR quality reads average log probability and aggregates the weakest cue',
   assert.equal(summary.modelConfidence, 0.6);
   assert.equal(summary.qualityScore, 60);
   assert.deepEqual(summary.warnings, ['asr_low_confidence']);
+  assert.equal(summary.needsReview, true);
+});
+
+test('ASR quality flags unusually long cues and text that mismatches a selected script', () => {
+  const longCue = assessAsrCue({
+    text: 'Đây là một câu phụ đề rất dài cần được tách thành nhiều câu nhỏ dễ đọc hơn.',
+    start: 0,
+    end: 14
+  }, { language: 'vi' });
+  assert.ok(longCue.warnings.includes('asr_cue_too_long'));
+
+  const wrongScript = assessAsrCue({
+    text: 'This is clearly Latin text',
+    start: 0,
+    end: 2
+  }, { language: 'zh' });
+  assert.ok(wrongScript.warnings.includes('asr_script_mismatch'));
+  assert.equal(wrongScript.needsReview, true);
 });

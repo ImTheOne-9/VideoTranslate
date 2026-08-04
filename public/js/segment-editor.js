@@ -70,7 +70,9 @@
       asr_invalid_timestamp: 'ASR có timestamp không hợp lệ',
       asr_cue_too_short: 'ASR tạo câu quá ngắn',
       asr_dense_text: 'ASR dồn quá nhiều chữ',
+      asr_cue_too_long: 'ASR tạo câu quá dài',
       asr_repeated_text: 'ASR có nội dung lặp',
+      asr_script_mismatch: 'Ký tự không khớp ngôn ngữ đã chọn',
       asr_low_confidence: 'Whisper có độ tin cậy thấp',
       asr_translation_stale: 'Bản dịch cần cập nhật theo lời gốc mới',
       asr_retry_error: 'Nhận dạng lại bằng Whisper bị lỗi'

@@ -70,6 +70,7 @@ test('returns no Whisper chunks when VAD confirms that audio contains no speech'
       audioPath: path.join(directory, 'audio.wav'),
       modelPath: directory,
       variant: 'q8',
+      validateModel: () => ({ ready: true }),
       onStage: (event) => stages.push(event.stage)
     });
     assert.deepEqual(result.chunks, []);
@@ -111,6 +112,7 @@ test('cancelled VAD does not fall back to full-file Whisper', async () => {
       audioPath: path.join(directory, 'audio.wav'),
       modelPath: directory,
       variant: 'q8',
+      validateModel: () => ({ ready: true }),
       detectSpeechRegions: async () => {
         throw cancellation;
       },
