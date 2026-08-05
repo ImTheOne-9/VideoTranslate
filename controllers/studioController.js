@@ -15,7 +15,6 @@ const {
 const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
 const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
 const { generateNarrationWithinCue } = require('../lib/narration-fit-service');
-const { shortenNarrationText } = require('../lib/narration-shortener');
 const { analyzeWavFile, readPcm16WavFile } = require('../lib/audio-quality');
 const {
   buildAudioMixGraph,
@@ -360,6 +359,8 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       whisperModel: body.whisperModel || 'small',
       whisperOnnxVariant,
       ...(body.whisperLanguage ? { whisperLanguage: body.whisperLanguage } : {}),
+      whisperTimestampLevel: body.whisperTimestampLevel === 'word' ? 'word' : 'segment',
+      whisperDevice: ['auto', 'cpu', 'dml'].includes(body.whisperDevice) ? body.whisperDevice : 'cpu',
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
@@ -661,8 +662,7 @@ async function executeRenderTask(task) {
       enabled: audioMastering.enabled,
       voiceLufs: audioMastering.voiceLufs,
       truePeakDb: audioMastering.truePeakDb,
-      loudnessRange: audioMastering.loudnessRange,
-      crossfadeMs: audioMastering.crossfadeMs
+      loudnessRange: audioMastering.loudnessRange
     };
     const files = task.files || {};
     const timestamp = Date.now();
@@ -1302,26 +1302,7 @@ async function executeRenderTask(task) {
                       throw new Error('Voice engine không tạo được audio thuyết minh');
                     }
                   },
-                  measureDuration: () => readWavDurationMs(rawChunkPath),
-                  onShortening: ({ attempt, currentDurationMs, targetDurationMs }) => {
-                    shared.updateStudioProgress(
-                      progressPercent,
-                      `AI Cloner: Câu ${idx + 1} quá dài, đang rút gọn lần ${attempt}...`
-                    );
-                    console.log(
-                      `[Narration Fit] Nhóm ${idx + 1}: ${currentDurationMs}ms -> mục tiêu ${Math.round(targetDurationMs)}ms`
-                    );
-                  },
-                  shortenText: ({ text, currentDurationMs, targetDurationMs, attempt }) => (
-                    shortenNarrationText({
-                      text,
-                      currentDurationMs,
-                      targetDurationMs,
-                      attempt,
-                      language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
-                      config: body
-                    })
-                  )
+                  measureDuration: () => readWavDurationMs(rawChunkPath)
                 });
                 lineText = narration.text;
                 rawDurationMs = narration.rawDurationMs;
@@ -1352,8 +1333,7 @@ async function executeRenderTask(task) {
                     normalizationOptions: {
                       integratedLufs: audioMastering.voiceLufs,
                       loudnessRange: audioMastering.loudnessRange,
-                      truePeakDb: audioMastering.truePeakDb,
-                      fadeMs: audioMastering.crossfadeMs
+                      truePeakDb: audioMastering.truePeakDb
                     },
                     label: `Nhóm câu ${idx + 1}`
                   });
@@ -1450,24 +1430,6 @@ async function executeRenderTask(task) {
             const endMs = chunk.startMs + durationMs;
             if (endMs > maxEndMs) {
               maxEndMs = endMs;
-            }
-
-            // Fade-in và fade-out tất cả chunk để tránh tiếng "tách" giữa các câu
-            const totalSamples = dataSize / 2;
-            const fadeSamples = Math.min(
-              Math.round(combinedSampleRate * audioMastering.crossfadeMs / 1000),
-              Math.floor(totalSamples / 2)
-            );
-            for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
-              const byteOffset = sampleIdx * 2;
-              let val = pcmBuffer.readInt16LE(byteOffset);
-              if (sampleIdx < fadeSamples) {
-                val = Math.round(val * (sampleIdx / fadeSamples));
-              } else if (sampleIdx >= totalSamples - fadeSamples) {
-                const distFromEnd = totalSamples - 1 - sampleIdx;
-                val = Math.round(val * (distFromEnd / fadeSamples));
-              }
-              pcmBuffer.writeInt16LE(val, byteOffset);
             }
 
             chunkDataList.push({

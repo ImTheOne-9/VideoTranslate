@@ -19,6 +19,8 @@ test('studio render uses the shared mastering graph and returns QC metadata', ()
   assert.match(source, /audioTracks/);
   assert.match(source, /readPcm16WavFile\(chunk\.filePath\)/);
   assert.match(source, /targetFrame \* chunk\.blockAlign/);
+  assert.doesNotMatch(source, /fadeMs|crossfadeMs|audioCrossfadeMs/);
+  assert.doesNotMatch(source, /const fadeSamples =/);
   assert.doesNotMatch(source, /function readWavInfo/);
 });
 
@@ -26,7 +28,7 @@ test('segment regeneration includes mastering settings in cache and fitted audio
   const source = read('controllers/segmentController.js');
   assert.match(source, /audioProcessing: voiceProcessing/);
   assert.match(source, /normalizationOptions: \{/);
-  assert.match(source, /fadeMs: audioMastering\.crossfadeMs/);
+  assert.doesNotMatch(source, /fadeMs|crossfadeMs|audioCrossfadeMs/);
 });
 
 test('audio mixer exposes automatic, off and custom mastering modes', () => {

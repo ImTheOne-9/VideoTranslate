@@ -202,6 +202,8 @@ test('studio markup exposes language, advanced region, and first-use download co
   assert.match(html, /name=["']ocrLanguage["']/);
   assert.match(html, /name=["']subtitleEngine["']/);
   assert.match(html, /id=["']whisper-model-select["']/);
+  assert.match(html, /name=["']whisperTimestampLevel["']/);
+  assert.match(html, /name=["']whisperDevice["']/);
   assert.match(html, /name=["']ocrRegion["']/);
   for (const engine of ['auto', 'ocr', 'whisper']) {
     assert.match(html, new RegExp(`data-subtitle-engine=["']${engine}["']`));

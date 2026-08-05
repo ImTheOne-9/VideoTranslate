@@ -104,12 +104,11 @@ test('reports silent, clipping, and quiet voice chunks', () => {
   assert.equal(quiet.warnings.includes('audio_silent'), false);
 });
 
-test('builds deterministic loudness, limiter, format, and edge-fade filters', () => {
+test('builds deterministic loudness, limiter, and format filters without fades', () => {
   const filters = buildVoiceNormalizationFilters({ durationMs: 2000 });
   assert.match(filters.join(','), /loudnorm=I=-18:LRA=7:TP=-1\.5/);
   assert.match(filters.join(','), /alimiter=limit=0\.841/);
   assert.match(filters.join(','), /aresample=24000/);
   assert.match(filters.join(','), /channel_layouts=mono/);
-  assert.match(filters.join(','), /afade=t=in/);
-  assert.match(filters.join(','), /afade=t=out:st=1\.985/);
+  assert.doesNotMatch(filters.join(','), /afade=/);
 });

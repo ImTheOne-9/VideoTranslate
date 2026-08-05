@@ -167,6 +167,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   const body = {
     whisperModel: 'small',
     whisperOnnxVariant: 'fp32',
+    whisperTimestampLevel: 'segment',
     ocrLanguage: 'zh',
     ocrMode: 'accurate',
     ocrRegion: '0.6,0.95,0.1,0.9'
@@ -191,6 +192,8 @@ test('generate resolver wires coordinator options and returns result.path downst
       durationMs: 12500,
       whisperModel: 'small',
       whisperOnnxVariant: 'fp32',
+      whisperTimestampLevel: 'segment',
+      whisperDevice: 'cpu',
       ocrLanguage: 'zh',
       ocrMode: 'accurate',
       ocrRegion: '0.6,0.95,0.1,0.9',

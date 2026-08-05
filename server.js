@@ -417,6 +417,7 @@ systemController.registerMdxCudaComponentRoutes(app, systemController);
 app.post('/api/download-model', systemController.downloadModel);
 app.get('/api/download-model/status', systemController.getModelStatus);
 app.get('/api/whisper-model/status', systemController.getWhisperModelStatus);
+app.get('/api/whisper-device/status', systemController.getWhisperDeviceStatus);
 app.post('/api/download-whisper-model', systemController.downloadWhisperModel);
 app.get('/api/license/hwid', systemController.getLicenseHwid);
 app.post('/api/license/activate', systemController.activateLicense);

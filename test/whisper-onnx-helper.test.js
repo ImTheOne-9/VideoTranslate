@@ -83,14 +83,15 @@ test('packaging unpacks worker dependencies alongside ONNX Runtime', () => {
 test('isolates each Whisper inference from the Electron process', () => {
   const root = path.join(__dirname, '..');
   const helperSource = fs.readFileSync(path.join(root, 'lib', 'whisper-onnx-helper.js'), 'utf8');
+  const poolSource = fs.readFileSync(path.join(root, 'lib', 'whisper-worker-pool.js'), 'utf8');
   const childSource = fs.readFileSync(path.join(root, 'lib', 'whisper-onnx-child.js'), 'utf8');
 
-  assert.match(helperSource, /childProcess\.fork\(workerPath/);
+  assert.match(poolSource, /childProcess\.fork/);
   assert.match(helperSource, /whisper-onnx-child-runtime\.js/);
   assert.match(helperSource, /ELECTRON_RUN_AS_NODE:\s*'1'/);
   assert.match(helperSource, /serialization:\s*'advanced'/);
-  assert.match(childSource, /process\.once\('message'/);
-  assert.match(childSource, /process\.exit\(0\)/);
+  assert.match(childSource, /process\.on\('message'/);
+  assert.match(childSource, /model_reused/);
   assert.equal(fs.existsSync(path.join(root, 'whisper-onnx-child-runtime.js')), true);
 });
 
@@ -137,12 +138,90 @@ test('maps application language identifiers to Whisper language names', () => {
   assert.equal(normalizeWhisperLanguage('ch'), 'chinese');
 });
 
-test('Whisper child supports word timestamps and omits language for auto detection', () => {
+test('Whisper child supports word timestamps and locks one detected language', () => {
   const root = path.join(__dirname, '..');
   for (const file of ['lib/whisper-onnx-child.js', 'whisper-onnx-child-runtime.js']) {
     const source = fs.readFileSync(path.join(root, file), 'utf8');
     assert.match(source, /timestampLevel === 'word' \? 'word' : true/);
-    assert.match(source, /if \(job\.language\) transcribeOptions\.language = job\.language/);
+    assert.match(source, /const lockedLanguage = job\.language \|\| detectedLanguage/);
+    assert.match(source, /type: 'language_detected'/);
+  }
+});
+
+test('auto language is detected once, persisted, and locked across resumed VAD regions', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-language-lock-'));
+  try {
+    const modelPath = path.join(directory, 'model');
+    const checkpointPath = path.join(directory, 'regions.json');
+    fs.mkdirSync(path.join(modelPath, 'onnx'), { recursive: true });
+    for (const file of [
+      'config.json',
+      'generation_config.json',
+      'preprocessor_config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ]) fs.writeFileSync(path.join(modelPath, file), '{}');
+
+    const baseOptions = {
+      variant: 'q8',
+      validateModel: () => ({ ready: true }),
+      modelPath,
+      audioPath: path.join(directory, 'audio.wav'),
+      checkpointPath,
+      checkpointKey: 'language-lock',
+      language: 'auto',
+      detectSpeechRegions: async () => ({
+        durationSeconds: 2,
+        speechSeconds: 2,
+        regions: [
+          { start: 0, end: 1, samples: new Float32Array([0.1]) },
+          { start: 1, end: 2, samples: new Float32Array([0.2]) }
+        ]
+      })
+    };
+
+    await assert.rejects(transcribeAudio({
+      ...baseOptions,
+      runWorker: async (job) => {
+        assert.equal(job.language, null);
+        assert.equal(job.detectLanguage, true);
+        job.onLanguageDetected({ language: 'vi', confidence: 0.91 });
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: { text: 'một', chunks: [{ timestamp: [0, 1], text: 'một' }] }
+        });
+        throw new Error('simulated interruption');
+      }
+    }), /simulated interruption/);
+
+    const result = await transcribeAudio({
+      ...baseOptions,
+      detectSpeechRegions: async () => { throw new Error('VAD must be reused'); },
+      loadCheckpointSamples: (audioPath, regions) => regions.map((region) => ({
+        ...region,
+        samples: new Float32Array([0.3])
+      })),
+      runWorker: async (job) => {
+        assert.equal(job.language, 'vi');
+        assert.equal(job.detectLanguage, false);
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: { text: 'hai', chunks: [{ timestamp: [1, 2], text: 'hai' }] }
+        });
+        return {};
+      }
+    });
+
+    assert.equal(result.language, 'vi');
+    assert.equal(result.languageConfidence, 0.91);
+    const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+    assert.deepEqual(checkpoint.language, { value: 'vi', confidence: 0.91 });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -188,6 +267,7 @@ test('Whisper resumes from the first unfinished VAD region', async () => {
 
     const baseOptions = {
       variant: 'q8',
+      validateModel: () => ({ ready: true }),
       modelPath,
       audioPath: path.join(directory, 'audio.wav'),
       checkpointPath,
@@ -279,6 +359,7 @@ test('cached VAD timings are passed to the Whisper child without loading WAV in 
 
     const result = await transcribeAudio({
       variant: 'q8',
+      validateModel: () => ({ ready: true }),
       modelPath,
       audioPath,
       checkpointPath,
@@ -302,6 +383,58 @@ test('cached VAD timings are passed to the Whisper child without loading WAV in 
     });
 
     assert.equal(result.text, 'xin chao');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('fresh VAD passes timing only instead of copying speech samples through the parent', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-vad-timing-fresh-'));
+  try {
+    const modelPath = path.join(directory, 'model');
+    fs.mkdirSync(path.join(modelPath, 'onnx'), { recursive: true });
+    for (const file of [
+      'config.json',
+      'generation_config.json',
+      'preprocessor_config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ]) fs.writeFileSync(path.join(modelPath, file), '{}');
+
+    let vadOptions;
+    const result = await transcribeAudio({
+      variant: 'q8',
+      validateModel: () => ({ ready: true }),
+      modelPath,
+      audioPath: path.join(directory, 'audio.wav'),
+      language: 'vi',
+      detectSpeechRegions: async (audioPath, options) => {
+        vadOptions = options;
+        return {
+          durationSeconds: 2,
+          speechSeconds: 1,
+          regions: [{ start: 0.5, end: 1.5, samples: new Float32Array([0.1, 0.2]) }]
+        };
+      },
+      runWorker: async (job) => {
+        assert.deepEqual(job.speechRegions.map(({ start, end, samples }) => ({
+          start,
+          end,
+          hasSamples: samples != null
+        })), [{ start: 0.5, end: 1.5, hasSamples: false }]);
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: { text: 'xin chào', chunks: [{ timestamp: [0.5, 1.5], text: 'xin chào' }] }
+        });
+        return {};
+      }
+    });
+
+    assert.equal(vadOptions.includeSamples, false);
+    assert.equal(result.text, 'xin chào');
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -452,6 +585,7 @@ test('writes backward-compatible SRT plus optional ASR sidecar metadata', async 
 
     const result = await transcribeToSrt({
       variant: 'q8',
+      validateModel: () => ({ ready: true }),
       modelPath,
       audioPath: path.join(directory, 'audio.wav'),
       outputPath,
@@ -479,6 +613,63 @@ test('writes backward-compatible SRT plus optional ASR sidecar metadata', async 
     assert.equal(metadata.engineId, 'whisper-onnx');
     assert.equal(metadata.languageMode, 'auto');
     assert.equal(metadata.cues[0].qualityScore, 80);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('word timestamp mode writes readable SRT and preserves word timing in metadata', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-word-metadata-'));
+  try {
+    const modelPath = path.join(directory, 'model');
+    const outputPath = path.join(directory, 'audio.srt');
+    fs.mkdirSync(path.join(modelPath, 'onnx'), { recursive: true });
+    for (const file of [
+      'config.json',
+      'generation_config.json',
+      'preprocessor_config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ]) fs.writeFileSync(path.join(modelPath, file), '{}');
+
+    const result = await transcribeToSrt({
+      variant: 'q8',
+      validateModel: () => ({ ready: true }),
+      modelPath,
+      audioPath: path.join(directory, 'audio.wav'),
+      outputPath,
+      language: 'vi',
+      timestampLevel: 'word',
+      useVad: false,
+      speechRegions: [{ start: 0, end: 2, samples: new Float32Array([0.1]) }],
+      runWorker: async (job) => {
+        assert.equal(job.timestampLevel, 'word');
+        const region = job.speechRegions[0];
+        job.onRegionResult({
+          index: region.checkpointIndex,
+          result: {
+            text: 'xin chào bạn',
+            chunks: [
+              { text: 'xin', timestamp: [0, 0.4] },
+              { text: 'chào', timestamp: [0.4, 0.8] },
+              { text: 'bạn', timestamp: [0.8, 1.2] }
+            ]
+          }
+        });
+        return {};
+      }
+    });
+
+    assert.match(fs.readFileSync(outputPath, 'utf8'), /xin chào bạn/);
+    const metadata = JSON.parse(fs.readFileSync(result.metadataPath, 'utf8'));
+    assert.equal(metadata.timestampLevel, 'word');
+    assert.deepEqual(metadata.cues[0].words, [
+      { text: 'xin', startMs: 0, endMs: 400 },
+      { text: 'chào', startMs: 400, endMs: 800 },
+      { text: 'bạn', startMs: 800, endMs: 1200 }
+    ]);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
