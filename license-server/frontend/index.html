@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Editnhanh - Tự động hóa sáng tạo Video bằng AI</title>
+    <!-- Meta Pixel Code -->
+    <script>
+      !function(f,b,e,v,n,t,s)
+      {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}(window, document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '1048557318333738');
+      fbq('track', 'PageView');
+    </script>
+    <!-- End Meta Pixel Code -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
     <link rel="shortcut icon" href="/favicon.svg?v=3" />
     <meta name="description" content="Nền tảng tự động hóa sản xuất video ngắn, sinh phụ đề tự động bằng Whisper AI, lồng tiếng tự nhiên bằng AI và xuất video nhanh bằng FFmpeg.">
@@ -13,6 +27,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   </head>
   <body class="h-full font-sans antialiased overflow-x-hidden flex flex-col bg-zinc-950 glow-indigo">
+    <noscript><img height="1" width="1" style="display:none"
+      src="https://www.facebook.com/tr?id=1048557318333738&ev=PageView&noscript=1"
+    /></noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

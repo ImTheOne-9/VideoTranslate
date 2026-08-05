@@ -16,7 +16,8 @@ const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 120;
 const RATE_LIMIT_EXEMPT_PATHS = new Set([
-  '/api/ocr-component/download-status'
+  '/api/ocr-component/download-status',
+  '/api/mdx-cuda-component/download-status'
 ]);
 function rateLimiter(req, res, next) {
   if (!req.path.startsWith('/api/')) return next();
@@ -257,6 +258,7 @@ app.use(licenseMiddleware);
 // Controllers
 const downloadController = require('./controllers/downloadController');
 const studioController = require('./controllers/studioController');
+const segmentController = require('./controllers/segmentController');
 const voiceController = require('./controllers/voiceController');
 const systemController = require('./controllers/systemController');
 const antiDupeController = require('./controllers/antiDupeController');
@@ -318,6 +320,14 @@ app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
 app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
 app.post('/api/render-resume', studioController.resumeRenderTask);
+app.get('/api/render-tasks/:taskId/segments', segmentController.getSegments);
+app.put('/api/render-tasks/:taskId/segments', segmentController.updateSegments);
+app.post('/api/render-tasks/:taskId/segments/replace', segmentController.replaceText);
+app.post('/api/render-tasks/:taskId/segments/approve', segmentController.approveSegments);
+app.post('/api/render-tasks/:taskId/segments/:segmentId/regenerate', segmentController.regenerateSegment);
+app.post('/api/render-tasks/:taskId/segments/:segmentId/asr-retry', segmentController.retryAsrSegment);
+app.post('/api/render-tasks/:taskId/segments/:segmentId/asr-cancel', segmentController.cancelAsrRetry);
+app.get('/api/render-tasks/:taskId/segments/:segmentId/audio', segmentController.streamSegmentAudio);
 app.post('/api/cancel-queue-task', studioController.cancelQueueTask);
 app.post('/api/clear-queue', studioController.clearQueue);
 app.post('/api/cancel-render', studioController.cancelRender);
@@ -403,14 +413,83 @@ app.get('/api/check-dependencies-status', systemController.checkDependenciesStat
 app.post('/api/download-dependency', systemController.downloadDependency);
 app.get('/api/download-dependency-progress', systemController.getDependencyDownloadProgress);
 systemController.registerOcrComponentRoutes(app, systemController);
+systemController.registerMdxCudaComponentRoutes(app, systemController);
 app.post('/api/download-model', systemController.downloadModel);
 app.get('/api/download-model/status', systemController.getModelStatus);
 app.get('/api/whisper-model/status', systemController.getWhisperModelStatus);
+app.get('/api/whisper-device/status', systemController.getWhisperDeviceStatus);
 app.post('/api/download-whisper-model', systemController.downloadWhisperModel);
 app.get('/api/license/hwid', systemController.getLicenseHwid);
 app.post('/api/license/activate', systemController.activateLicense);
 app.get('/api/update-status', systemController.getUpdateStatus);
 app.post('/api/quit-and-install', systemController.quitAndInstallUpdate);
+
+// Tải danh sách model khả dụng từ OpenAI API theo Key
+app.post('/api/openai/models', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+      return res.status(400).json({ error: 'Vui lòng cung cấp OpenAI API Key.' });
+    }
+    const response = await axios.get('https://api.openai.com/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      timeout: 10000
+    });
+    const rawModels = response.data?.data || [];
+    const chatModels = rawModels
+      .map(m => m.id)
+      .filter(id => /^(gpt|o1|o3)/i.test(id) && !id.includes('realtime') && !id.includes('audio') && !id.includes('tts') && !id.includes('whisper') && !id.includes('embedding') && !id.includes('dall-e'))
+      .sort((a, b) => {
+        if (a.startsWith('gpt-4o') && !b.startsWith('gpt-4o')) return -1;
+        if (!a.startsWith('gpt-4o') && b.startsWith('gpt-4o')) return 1;
+        return a.localeCompare(b);
+      });
+
+    const resultModels = chatModels.length > 0 ? chatModels : ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'];
+    res.json({ success: true, models: resultModels });
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const msg = err.response?.data?.error?.message || err.message || 'Lỗi kết nối tới OpenAI API.';
+    res.status(status).json({ error: msg });
+  }
+});
+
+// Thông tin phiên bản app + changelog
+app.get('/api/app-version', (req, res) => {
+  try {
+    const pkg = require('./package.json');
+    const currentVersion = pkg.version;
+    
+    // Đọc changelog
+    let changelog = [];
+    try {
+      const changelogData = require('./changelog.json');
+      changelog = changelogData.versions || [];
+    } catch (_) { /* Không có file changelog */ }
+    
+    // Tìm changelog cho phiên bản hiện tại
+    const currentChangelog = changelog.find(v => v.version === currentVersion) || null;
+    
+    // Kiểm tra xem app vừa update xong không
+    const justUpdated = global.justUpdated || false;
+    
+    // Reset flag sau khi đã thông báo
+    if (global.justUpdated) {
+      global.justUpdated = false;
+    }
+    
+    res.json({
+      version: currentVersion,
+      changelog: currentChangelog,
+      allChangelog: changelog,
+      justUpdated
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Thông tin app: license + disk usage cho sidebar
 app.get('/api/app-info', async (req, res) => {

@@ -55,6 +55,7 @@ test('production separator flow no longer references Python or dual variants', (
     'controllers/studioController.js',
     'controllers/systemController.js',
     'lib/shared-state.js',
+    'lib/mdx-separator-manager.js',
     'public/app.js',
     'public/index.html',
     'public/js/globals.js'
@@ -63,9 +64,30 @@ test('production separator flow no longer references Python or dual variants', (
 
   assert.doesNotMatch(source, /separator-gpu|separatorGpu|separate_audio\.py|setup_gpu_separator|audio-separator\.exe/i);
   assert.match(source, /UVR_MDXNET_KARA_2\.onnx/);
-  assert.match(source, /output-vocals-wav=\$\{instrumentalPath\}/);
+  assert.match(source, /mdxSeparatorManager\.separate\(\{/);
+  assert.match(source, /`--output-vocals-wav=\$\{vocalsPath\}`/);
+  assert.match(source, /`--provider=\$\{provider\}`/);
   assert.match(source, /runStage\(task, 'background_separation'/);
   assert.match(source, /const extractedBgmPath = backgroundStage\.instrumentalPath/);
   assert.match(source, /path\.join\(workDir, 'instrumental\.wav'\)/);
+  assert.match(source, /name="mdxProvider"/);
+  assert.match(source, /value="auto"/);
+  assert.match(source, /value="cuda"/);
+  assert.match(source, /value="cpu"/);
   assert.doesNotMatch(source, /extractedBgmPath = (?:accompanimentPath|residualVocalsPath)/);
+});
+
+test('MDX CUDA optional component is exposed through secure install routes and UI', () => {
+  const root = path.join(__dirname, '..');
+  const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  const controller = fs.readFileSync(path.join(root, 'controllers', 'systemController.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
+
+  assert.match(server, /registerMdxCudaComponentRoutes/);
+  assert.match(server, /\/api\/mdx-cuda-component\/download-status/);
+  assert.match(controller, /createMdxCudaComponentHandlers/);
+  assert.match(html, /id="mdx-cuda-install-btn"/);
+  assert.match(app, /installMdxCudaComponent/);
+  assert.match(app, /\/api\/mdx-cuda-component\/download/);
 });

@@ -55,6 +55,13 @@ test('render manifest persists resumable state without API keys', () => {
       usedDevice: 'cpu',
       fallback: true
     };
+    task.backgroundSeparation = {
+      requestedProvider: 'auto',
+      usedProvider: 'cuda',
+      fallback: false,
+      durationMs: 1234,
+      model: 'UVR_MDXNET_KARA_2'
+    };
 
     store.saveTask(task);
 
@@ -69,6 +76,7 @@ test('render manifest persists resumable state without API keys', () => {
     assert.equal(restored.uiSnapshot.blurBoxes.length, 1);
     assert.equal(restored.stages.subtitle.status, 'success');
     assert.deepEqual(restored.voiceExecution, task.voiceExecution);
+    assert.deepEqual(restored.backgroundSeparation, task.backgroundSeparation);
   });
 });
 
@@ -91,6 +99,31 @@ test('unfinished jobs are restored as waiting for explicit resume', () => {
     assert.equal(restored[0].actionRequired, 'render_resume');
     assert.equal(restored[0].error, null);
     assert.match(restored[0].step, /checkpoint|khôi phục/i);
+  });
+});
+
+test('segment review waiting state and summary survive application restart', () => {
+  withTempDir((rootDir) => {
+    const store = new RenderJobStore(rootDir);
+    const task = createTask('task_segment_review');
+    task.status = 'waiting_input';
+    task.actionRequired = 'segment_review';
+    task.step = 'Cần duyệt lời thoại';
+    task.segmentReview = {
+      status: 'pending',
+      revision: 4,
+      total: 12,
+      approved: 5,
+      warnings: 2
+    };
+    store.saveTask(task);
+
+    const restored = store.loadUnfinishedTasks();
+
+    assert.equal(restored.length, 1);
+    assert.equal(restored[0].status, 'waiting_input');
+    assert.equal(restored[0].actionRequired, 'segment_review');
+    assert.deepEqual(restored[0].segmentReview, task.segmentReview);
   });
 });
 

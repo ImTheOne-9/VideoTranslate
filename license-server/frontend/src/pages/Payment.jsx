@@ -185,7 +185,7 @@ export default function Payment({ isDevMode, showToast }) {
   }
 
   const planName = keyDetails.planName || (keyDetails.planType === 'trial' ? 'Gói Dùng Thử' : (keyDetails.planType === 'monthly' ? 'Gói Tháng' : 'Gói Năm'));
-  const amount = keyDetails.price !== undefined ? keyDetails.price : (keyDetails.planType === 'monthly' ? 199000 : 1499000);
+  const amount = keyDetails.price !== undefined ? keyDetails.price : (keyDetails.planType === 'monthly' ? 299000 : 1499000);
   const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
   const keyRef = licenseKey.split('-')[1];
   const memo = `VST ${keyRef}`;

@@ -1016,6 +1016,8 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
 const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
+const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
+const WHISPER_DEVICES = new Set(['auto', 'cpu', 'dml']);
 
 function getWhisperOnnxVariantLabel(variant) {
   if (variant === 'medium-q8') return 'Medium Q8';
@@ -1234,171 +1236,16 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 
 initOcrRegionOverlay();
 
-let translationRuleEntries = [];
-
-function getDefaultTranslationProfile() {
-  return {
-    style: 'natural',
-    speakerPronoun: '',
-    audiencePronoun: '',
-    context: '',
-    entries: []
-  };
-}
-
-function normalizeTranslationProfileClient(value) {
-  let raw = value;
-  if (typeof raw === 'string') {
-    try { raw = JSON.parse(raw); } catch { raw = {}; }
-  }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) raw = {};
-  const allowedStyles = new Set(['natural', 'neutral', 'formal', 'casual', 'historical']);
-  return {
-    style: allowedStyles.has(raw.style) ? raw.style : 'natural',
-    speakerPronoun: String(raw.speakerPronoun || '').slice(0, 40),
-    audiencePronoun: String(raw.audiencePronoun || '').slice(0, 40),
-    context: String(raw.context || '').slice(0, 1200),
-    entries: (Array.isArray(raw.entries) ? raw.entries : []).slice(0, 100).map((entry) => ({
-      mode: ['required', 'keep', 'output'].includes(entry?.mode) ? entry.mode : 'required',
-      source: String(entry?.source || '').slice(0, 120),
-      target: String(entry?.target || '').slice(0, 120)
-    }))
-  };
-}
-
-function collectTranslationProfile() {
-  return normalizeTranslationProfileClient({
-    style: $('translation-style')?.value,
-    speakerPronoun: $('translation-speaker-pronoun')?.value,
-    audiencePronoun: $('translation-audience-pronoun')?.value,
-    context: $('translation-context')?.value,
-    entries: translationRuleEntries
-  });
-}
-
-function syncTranslationProfileValue(dispatchChange = true) {
-  const hidden = $('translation-profile-value');
-  if (!hidden) return;
-  hidden.value = JSON.stringify(collectTranslationProfile());
-  if (dispatchChange) hidden.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-function renderTranslationRuleEntries() {
-  const list = $('translation-rules-list');
-  if (!list) return;
-  list.replaceChildren();
-
-  if (!translationRuleEntries.length) {
-    const empty = document.createElement('div');
-    empty.className = 'translation-rules-empty';
-    empty.textContent = 'Chưa có quy tắc';
-    list.appendChild(empty);
-    return;
-  }
-
-  translationRuleEntries.forEach((entry, index) => {
-    const row = document.createElement('div');
-    row.className = 'translation-rule-row';
-
-    const source = document.createElement('input');
-    source.type = 'text';
-    source.className = 'premium-input';
-    source.maxLength = 120;
-    source.placeholder = entry.mode === 'output' ? 'Từ không dùng' : 'Từ gốc';
-    source.value = entry.source;
-    source.addEventListener('input', () => {
-      entry.source = source.value;
-      if (entry.mode === 'keep') {
-        entry.target = source.value;
-        target.value = source.value;
-      }
-      syncTranslationProfileValue();
-    });
-
-    const target = document.createElement('input');
-    target.type = 'text';
-    target.className = 'premium-input';
-    target.maxLength = 120;
-    target.placeholder = entry.mode === 'output' ? 'Thay bằng' : 'Bản dịch';
-    target.value = entry.mode === 'keep' ? entry.source : entry.target;
-    target.disabled = entry.mode === 'keep';
-    target.addEventListener('input', () => {
-      entry.target = target.value;
-      syncTranslationProfileValue();
-    });
-
-    const mode = document.createElement('select');
-    mode.className = 'premium-select';
-    [
-      ['required', 'Dịch bắt buộc'],
-      ['keep', 'Giữ nguyên'],
-      ['output', 'Sửa sau dịch']
-    ].forEach(([value, label]) => {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      mode.appendChild(option);
-    });
-    mode.value = entry.mode;
-    mode.addEventListener('change', () => {
-      entry.mode = mode.value;
-      if (entry.mode === 'keep') entry.target = entry.source;
-      renderTranslationRuleEntries();
-      syncTranslationProfileValue();
-    });
-
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'translation-rule-remove';
-    remove.textContent = '×';
-    remove.title = 'Xóa quy tắc';
-    remove.setAttribute('aria-label', 'Xóa quy tắc');
-    remove.addEventListener('click', () => {
-      translationRuleEntries.splice(index, 1);
-      renderTranslationRuleEntries();
-      syncTranslationProfileValue();
-    });
-
-    row.append(source, target, mode, remove);
-    list.appendChild(row);
-  });
-}
-
-function loadTranslationProfileFromHidden() {
-  const profile = normalizeTranslationProfileClient($('translation-profile-value')?.value || getDefaultTranslationProfile());
-  if ($('translation-style')) $('translation-style').value = profile.style;
-  if ($('translation-speaker-pronoun')) $('translation-speaker-pronoun').value = profile.speakerPronoun;
-  if ($('translation-audience-pronoun')) $('translation-audience-pronoun').value = profile.audiencePronoun;
-  if ($('translation-context')) $('translation-context').value = profile.context;
-  translationRuleEntries = profile.entries.map((entry) => ({ ...entry }));
-  renderTranslationRuleEntries();
-  syncTranslationProfileValue(false);
-}
-
-function initTranslationProfileEditor() {
-  ['translation-style', 'translation-speaker-pronoun', 'translation-audience-pronoun', 'translation-context']
-    .forEach((id) => $(id)?.addEventListener('input', () => syncTranslationProfileValue()));
-  $('translation-rule-add')?.addEventListener('click', () => {
-    if (translationRuleEntries.length >= 100) {
-      toast('Tối đa 100 quy tắc dịch cho mỗi dự án.', 'warn');
-      return;
-    }
-    translationRuleEntries.push({ mode: 'required', source: '', target: '' });
-    renderTranslationRuleEntries();
-    syncTranslationProfileValue();
-  });
-  loadTranslationProfileFromHidden();
-}
-
-initTranslationProfileEditor();
-
 async function renderStudio(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const btn = $('render-btn');
   const status = $('render-status');
-  syncTranslationProfileValue(false);
   const data = new FormData(form);
+  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+    const input = form.elements[name];
+    data.set(name, input?.checked ? 'true' : 'false');
+  }
   data.set('uiSnapshot', JSON.stringify(serializeStudioForm()));
 
   const subMode = data.get('subtitleMode');
@@ -1407,14 +1254,22 @@ async function renderStudio(event) {
   const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
   const globalWhisperVal = $('whisper-model-select')?.value;
   const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(globalWhisperVal) ? globalWhisperVal : 'medium-q8';
+  const whisperTimestampLevel = WHISPER_TIMESTAMP_LEVELS.has(data.get('whisperTimestampLevel'))
+    ? data.get('whisperTimestampLevel')
+    : 'segment';
+  const whisperDevice = WHISPER_DEVICES.has(data.get('whisperDevice'))
+    ? data.get('whisperDevice')
+    : 'cpu';
   const globalOcrModeVal = $('global-ocr-mode-select')?.value || localStorage.getItem('global_ocr_mode') || 'auto';
   const ocrMode = OCR_MODES.has(globalOcrModeVal) ? globalOcrModeVal : 'auto';
   data.set('subtitleEngine', subtitleEngine);
   data.set('whisperOnnxVariant', whisperOnnxVariant);
+  data.set('whisperTimestampLevel', whisperTimestampLevel);
+  data.set('whisperDevice', whisperDevice);
   data.set('ocrMode', ocrMode);
 
   if (subMode === 'generate') {
-    if (!data.get('ocrLanguage')) {
+    if (subtitleEngine !== 'whisper' && !data.get('ocrLanguage')) {
       toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
       return;
     }
@@ -1494,9 +1349,32 @@ async function renderStudio(event) {
   data.set('ninerouterApiKey', aiSettings.ninerouterApiKey || '');
   data.set('ninerouterModel', aiSettings.ninerouterModel || '');
   data.set('ninerouterBaseUrl', aiSettings.ninerouterBaseUrl || 'http://localhost:20128/v1');
+  data.set('opencodeModel', aiSettings.opencodeModel || 'DeepSeek V4 Flash (Free)');
+  data.set('openaiApiKey', aiSettings.openaiApiKey || '');
+  data.set('openaiModel', aiSettings.openaiModel || 'gpt-4o-mini');
   
   const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
-  if (keepBgmAi) data.set('keepOriginalBgmAI', 'true');
+  if (keepBgmAi) {
+    data.set('keepOriginalBgmAI', 'true');
+    const mdxProvider = data.get('mdxProvider') || 'auto';
+    if (!dependencyStatus.separator) {
+      showDependencyModal('separator', () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      return;
+    }
+    if (mdxProvider === 'cuda') {
+      const mdx = dependencyStatus.mdx;
+      if (!mdx?.cuda?.hardwareAvailable) {
+        toast('MDX CUDA yêu cầu GPU NVIDIA và driver NVIDIA hoạt động.', 'error');
+        return;
+      }
+      if (!mdx?.cuda?.ready) {
+        toast('Máy có NVIDIA nhưng chưa cài component MDX CUDA. Hãy dùng Tự động/CPU hoặc cài component CUDA.', 'warn');
+        return;
+      }
+    }
+  }
 
   // Map volumes logarithmically for FFmpeg
   const originalSlider = document.querySelector('input[name="originalVolume"]');
@@ -1615,22 +1493,21 @@ function stopQueuePolling() {
 }
 
 function renderTranslationReportSummary(report) {
-  if (!report?.checked) return '';
-  const issueCount = Number(report.issueCount || 0);
-  if (issueCount === 0) {
-    return `<div class="translation-report-summary ok">Đã kiểm tra ${Number(report.ruleCount || 0)} quy tắc dịch</div>`;
+  if (!report) return '';
+  const stats = report.translation;
+  let progressSummary = '';
+  if (stats && Number(stats.total) > 0) {
+    const total = Number(stats.total) || 0;
+    const translated = Number(stats.translated) || 0;
+    const failed = Number(stats.failed) || 0;
+    const fallbackUsed = Number(stats.fallbackUsed) || 0;
+    progressSummary = `
+      <div class="translation-report-summary ${failed > 0 ? 'warning' : 'ok'}">
+        <strong>Đã dịch ${translated}/${total} câu${failed > 0 ? ` · ${failed} câu lỗi` : ''}</strong>
+        ${fallbackUsed > 0 ? `<div>${fallbackUsed} câu đã dùng NLLB dự phòng</div>` : ''}
+      </div>`;
   }
-  const issues = (Array.isArray(report.issues) ? report.issues : []).slice(0, 5);
-  const issueRows = issues.map((issue) => {
-    const source = window.OcrUi.escapeHtml(String(issue.source || ''));
-    const expected = window.OcrUi.escapeHtml(String(issue.expected || ''));
-    return `<li>${source} → ${expected}</li>`;
-  }).join('');
-  return `
-    <div class="translation-report-summary warning">
-      <strong>${issueCount} quy tắc dịch cần kiểm tra</strong>
-      ${issueRows ? `<ul>${issueRows}</ul>` : ''}
-    </div>`;
+  return progressSummary;
 }
 
 async function updateQueueStatus() {
@@ -1670,6 +1547,67 @@ async function updateQueueStatus() {
   } catch (err) {
     console.error('Lỗi cập nhật hàng đợi:', err);
   }
+}
+
+function renderAudioResultSummary(result = {}) {
+  const report = result.audioReport;
+  const tracks = result.audioTracks || {};
+  const links = [];
+  if (tracks.voice?.url) {
+    links.push(`
+      <div class="audio-result-track">
+        <span>Giọng đọc</span>
+        <audio controls preload="none" src="${tracks.voice.url}"></audio>
+        <a class="ghost-btn audio-result-link" href="${tracks.voice.url}" download>Tải</a>
+      </div>`);
+  }
+  if (tracks.background?.url) {
+    links.push(`
+      <div class="audio-result-track">
+        <span>Nhạc nền</span>
+        <audio controls preload="none" src="${tracks.background.url}"></audio>
+        <a class="ghost-btn audio-result-link" href="${tracks.background.url}" download>Tải</a>
+      </div>`);
+  }
+  if (!report && links.length === 0) return '';
+
+  let qcText = 'QC âm thanh chưa khả dụng';
+  let qcClass = 'warn';
+  if (report?.status === 'ready') {
+    const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+    qcText = warnings.length
+      ? `QC âm thanh: ${warnings.length} cảnh báo`
+      : 'QC âm thanh: đạt';
+    qcClass = warnings.length ? 'warn' : 'success';
+  }
+  return `
+    <div class="audio-result-summary ${qcClass}">
+      <div class="audio-result-head">
+        <span>${qcText}</span>
+        ${links.length
+    ? `<button type="button" class="audio-result-toggle"
+            title="Nghe hoặc tải các track âm thanh"
+            aria-label="Mở danh sách track âm thanh"
+            aria-expanded="false"
+            onclick="toggleAudioResultTracks(this)">⌄</button>`
+    : ''}
+      </div>
+      ${links.length ? `<div class="audio-result-links" hidden>${links.join('')}</div>` : ''}
+    </div>`;
+}
+
+function toggleAudioResultTracks(button) {
+  const summary = button?.closest('.audio-result-summary');
+  const tracks = summary?.querySelector('.audio-result-links');
+  if (!tracks) return;
+  const opening = tracks.hidden;
+  tracks.hidden = !opening;
+  summary.classList.toggle('expanded', opening);
+  button.setAttribute('aria-expanded', String(opening));
+  button.setAttribute(
+    'aria-label',
+    opening ? 'Đóng danh sách track âm thanh' : 'Mở danh sách track âm thanh'
+  );
 }
 
 function updateMainResultUI(queue, currentActiveId) {
@@ -1755,7 +1693,20 @@ function updateMainResultUI(queue, currentActiveId) {
       </div>
     `;
   } else if (targetTask.status === 'waiting_input') {
-    if (targetTask.actionRequired === 'render_resume') {
+    if (targetTask.actionRequired === 'segment_review') {
+      const review = targetTask.segmentReview || {};
+      const reviewText = `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
+        + `${Number(review.warnings || 0) ? ` • ${Number(review.warnings)} câu có cảnh báo` : ''}`;
+      html = `
+        <div class="render-loading-state ocr-waiting-state">
+          <h3>Cần duyệt lời thoại</h3>
+          <p>${reviewText}</p>
+          <div class="ocr-fallback-actions">
+            <button type="button" class="premium-render-btn" onclick="openSegmentEditor('${targetTask.id}')">Mở trình chỉnh segment</button>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+          </div>
+        </div>`;
+    } else if (targetTask.actionRequired === 'render_resume') {
       const resumeMessage = window.OcrUi.escapeHtml(
         targetTask.step || 'Tác vụ đã được khôi phục từ lần chạy trước.'
       );
@@ -1791,6 +1742,7 @@ function updateMainResultUI(queue, currentActiveId) {
         <video controls src="${targetTask.result.url}"></video>
       </div>
       ${renderTranslationReportSummary(targetTask.translationReport || targetTask.result.translationReport)}
+      ${renderAudioResultSummary(targetTask.result)}
       <div style="display: flex; gap: 10px; justify-content: center; width: 100%; max-width: 400px; margin: 0 auto;">
         <button type="button" class="premium-render-btn" style="background: #1877F2; color: white; flex: 1;" onclick="openFbModal('${targetTask.result.url}')">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
@@ -1933,7 +1885,15 @@ function renderQueueModalUI(queue, currentActiveId) {
 
     let actionHtml = '';
     let waitingMessageHtml = '';
-    if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
+    if (isWaiting && task.actionRequired === 'segment_review') {
+      const review = task.segmentReview || {};
+      waitingMessageHtml = `<div class="queue-ocr-error">`
+        + `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
+        + `${Number(review.warnings || 0) ? ` • ${Number(review.warnings)} cảnh báo` : ''}</div>`;
+      actionHtml = `
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="openSegmentEditor('${task.id}')">Duyệt câu</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if (isWaiting && window.OcrUi.getOcrFallbackAction(task).visible) {
       const waitingMessage = window.OcrUi.escapeHtml(window.OcrUi.getOcrFallbackAction(task).message);
       waitingMessageHtml = `<div class="queue-ocr-error">${waitingMessage}</div>`;
       actionHtml = `
@@ -2894,6 +2854,11 @@ async function downloadSelectedBulkVideos() {
   await loadAssets();
 }
 
+function updateAudioMasteringUi() {
+  const mode = $('audio-mastering-mode')?.value || 'auto';
+  $('audio-mastering-custom')?.classList.toggle('hidden', mode !== 'custom');
+}
+
 function updateConditionalFields() {
   const subMode = $('subtitle-mode').value;
   $('sub-upload-wrapper').classList.toggle('hidden', subMode !== 'upload');
@@ -2929,6 +2894,7 @@ function updateConditionalFields() {
   const musicMode = $('music-mode').value;
   $('music-saved-wrapper').classList.toggle('hidden', musicMode !== 'saved');
   $('music-upload-wrapper').classList.toggle('hidden', musicMode !== 'upload');
+  updateAudioMasteringUi();
 
   const reactionMode = $('reaction-mode').value;
   $('reaction-library-container').classList.toggle('hidden', reactionMode !== 'library');
@@ -3622,7 +3588,7 @@ function loadStudioTemplate(templateName) {
 
   const omiSeedPreset = $('omi-seed-preset');
   if (omiSeedPreset) {
-    omiSeedPreset.value = template.omiSeed;
+    omiSeedPreset.value = template.omiSeed || '42';
     omiSeedPreset.dispatchEvent(new Event('change'));
   }
   if (template.omiCustomSeed) {
@@ -3878,6 +3844,9 @@ $('refresh-assets-btn').addEventListener('click', openConnectionStatusModal);
 $('save-voice-form').addEventListener('submit', saveVoice);
 $('save-music-form').addEventListener('submit', saveMusic);
 $('studio-form').addEventListener('submit', renderStudio);
+$('keep-bgm-ai')?.addEventListener('change', updateMdxProviderUI);
+$('mdx-provider-select')?.addEventListener('change', updateMdxProviderUI);
+$('mdx-cuda-install-btn')?.addEventListener('click', installMdxCudaComponent);
 $('bulk-fetch-btn').addEventListener('click', fetchPlaylistInfo);
 const selectAllCheck = $('bulk-select-all');
 if (selectAllCheck) {
@@ -4605,6 +4574,7 @@ document.querySelectorAll('.music-tab-btn').forEach(btn => {
     }
   });
 });
+
 // Live updating Omi Steps badge
 const stepsSlider = document.getElementById('omi-steps-slider');
 if (stepsSlider) {
@@ -5698,6 +5668,8 @@ function getGlobalAiSettings() {
     ninerouterModel: localStorage.getItem('global_ninerouter_model') || '',
     ninerouterBaseUrl: localStorage.getItem('global_ninerouter_base_url') || 'http://localhost:20128/v1',
     opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
+    openaiApiKey: localStorage.getItem('global_openai_key') || '',
+    openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -5706,7 +5678,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -5978,6 +5950,63 @@ async function testNineRouterConnection() {
   }
 }
 
+async function loadOpenAiModels(keyOverride = null) {
+  const input = $('global-openai-key');
+  const select = $('global-openai-model');
+  const statusEl = $('openai-connection-status');
+  if (!select) return false;
+
+  const apiKey = (keyOverride !== null && typeof keyOverride === 'string') ? keyOverride : (input ? input.value : '');
+
+  if (!apiKey || apiKey.trim() === '') {
+    if (statusEl) {
+      statusEl.textContent = '❌ Chưa nhập Key';
+      statusEl.style.color = '#ef4444';
+    }
+    return false;
+  }
+
+  if (statusEl) {
+    statusEl.textContent = '⏳ Đang tải danh sách model...';
+    statusEl.style.color = '#eab308';
+  }
+
+  try {
+    const res = await fetch('/api/openai/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: apiKey.trim() })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Không thể tải danh sách model');
+    }
+
+    const savedModel = localStorage.getItem('global_openai_model') || 'gpt-4o-mini';
+    select.innerHTML = '';
+    data.models.forEach(modelId => {
+      const opt = document.createElement('option');
+      opt.value = modelId;
+      opt.textContent = modelId;
+      if (modelId === savedModel) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    if (statusEl) {
+      statusEl.textContent = `✅ Thành công (${data.models.length} models)`;
+      statusEl.style.color = '#22c55e';
+    }
+    return true;
+  } catch (err) {
+    console.error('Lỗi loadOpenAiModels:', err);
+    if (statusEl) {
+      statusEl.textContent = `❌ ${err.message}`;
+      statusEl.style.color = '#ef4444';
+    }
+    return false;
+  }
+}
+
 function openGlobalSettingsModal() {
   const modal = $('global-settings-modal');
   if (!modal) return;
@@ -5987,11 +6016,18 @@ function openGlobalSettingsModal() {
   const providerSelect = $('global-ai-provider');
   const geminiInput = $('global-gemini-key');
   const openRouterInput = $('global-openrouter-key');
+  const openaiInput = $('global-openai-key');
   const ninerouterInput = $('global-ninerouter-key');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
+  if (openaiInput) {
+    openaiInput.value = settings.openaiApiKey;
+    if (settings.openaiApiKey) {
+      loadOpenAiModels(settings.openaiApiKey);
+    }
+  }
   if (geminiInput) {
     geminiInput.value = settings.geminiApiKey;
     if (settings.geminiApiKey) {
@@ -6048,6 +6084,7 @@ function toggleGlobalAiProviderFields() {
   const val = providerSelect.value;
   const geminiFields = $('global-gemini-fields');
   const openRouterFields = $('global-openrouter-fields');
+  const openaiFields = $('global-openai-fields');
   const ninerouterFields = $('global-ninerouter-fields');
   if (geminiFields) {
     if (val === 'gemini') {
@@ -6062,6 +6099,15 @@ function toggleGlobalAiProviderFields() {
       openRouterFields.classList.remove('hidden');
     } else {
       openRouterFields.classList.add('hidden');
+    }
+  }
+  if (openaiFields) {
+    if (val === 'openai') {
+      openaiFields.classList.remove('hidden');
+      const key = $('global-openai-key') ? $('global-openai-key').value : '';
+      if (key) loadOpenAiModels(key);
+    } else {
+      openaiFields.classList.add('hidden');
     }
   }
   if (ninerouterFields) {
@@ -6090,6 +6136,8 @@ function saveGlobalSettings() {
   const geminiModelSelect = $('global-gemini-model');
   const openRouterInput = $('global-openrouter-key');
   const openRouterModelSelect = $('global-openrouter-model');
+  const openaiInput = $('global-openai-key');
+  const openaiModelSelect = $('global-openai-model');
   const ninerouterInput = $('global-ninerouter-key');
   const ninerouterModelSelect = $('global-ninerouter-model');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
@@ -6100,6 +6148,8 @@ function saveGlobalSettings() {
   if (geminiModelSelect) localStorage.setItem('global_gemini_model', geminiModelSelect.value);
   if (openRouterInput) localStorage.setItem('global_openrouter_key', openRouterInput.value);
   if (openRouterModelSelect) localStorage.setItem('global_openrouter_model', openRouterModelSelect.value);
+  if (openaiInput) localStorage.setItem('global_openai_key', openaiInput.value);
+  if (openaiModelSelect) localStorage.setItem('global_openai_model', openaiModelSelect.value);
   if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
@@ -6262,6 +6312,7 @@ window.loadGeminiModels = loadGeminiModels;
 window.initGeminiModelListeners = initGeminiModelListeners;
 window.loadOpenRouterModels = loadOpenRouterModels;
 window.initOpenRouterModelListeners = initOpenRouterModelListeners;
+window.loadOpenAiModels = loadOpenAiModels;
 window.loadNineRouterModels = loadNineRouterModels;
 window.initNineRouterModelListeners = initNineRouterModelListeners;
 window.testGeminiConnection = testGeminiConnection;
@@ -6311,6 +6362,8 @@ async function checkSystemConnections() {
   try {
     const res = await fetch('/api/check-dependencies');
     const data = await res.json();
+    dependencyStatus = data;
+    updateMdxProviderUI();
 
     // 1. FFmpeg
     const ffmpegDot = $('conn-ffmpeg-dot');
@@ -6369,7 +6422,17 @@ async function checkSystemConnections() {
       separatorDot.className = 'dot ok';
       separatorDot.style.background = 'var(--success)';
       separatorDot.style.boxShadow = '0 0 8px var(--success)';
-      separatorDesc.textContent = 'Đã sẵn sàng';
+      const mdx = data.mdx;
+      if (mdx?.cuda?.hardwareAvailable && mdx?.cuda?.ready) {
+        separatorDesc.textContent = `Sẵn sàng CPU + CUDA (${mdx.hardware?.nvidia?.name || 'NVIDIA'})`;
+      } else if (mdx?.cuda?.hardwareAvailable) {
+        separatorDesc.textContent = 'CPU sẵn sàng; phát hiện NVIDIA nhưng chưa có MDX CUDA';
+        if (separatorAction) {
+          separatorAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); installMdxCudaComponent();">Cài CUDA</button>`;
+        }
+      } else {
+        separatorDesc.textContent = 'Đã sẵn sàng bằng CPU';
+      }
     } else {
       separatorDot.className = 'dot error';
       separatorDot.style.background = 'var(--danger)';
@@ -6953,11 +7016,11 @@ function resetStudioConfig() {
 
   const omiSeedPreset = $('omi-seed-preset');
   if (omiSeedPreset) {
-    omiSeedPreset.value = '';
+    omiSeedPreset.value = '42';
     omiSeedPreset.dispatchEvent(new Event('change'));
   }
   const omiSeedInput = $('omi-seed-input');
-  if (omiSeedInput) omiSeedInput.value = '';
+  if (omiSeedInput) omiSeedInput.value = '42';
 
   // Reset music mode
   const musicModeBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
@@ -7253,6 +7316,96 @@ function updateDependencyUI() {
       }
     }
     bindDeviceChangeCheck();
+  }
+  updateMdxProviderUI();
+}
+
+function updateMdxProviderUI() {
+  const enabled = $('keep-bgm-ai')?.checked === true;
+  const settings = $('mdx-provider-settings');
+  const select = $('mdx-provider-select');
+  const hint = $('mdx-provider-hint');
+  const installButton = $('mdx-cuda-install-btn');
+  if (settings) settings.classList.toggle('hidden', !enabled);
+  if (!select || !hint) return;
+
+  const runtime = dependencyStatus.mdx;
+  const canInstall = runtime?.cuda?.hardwareAvailable && !runtime?.cuda?.ready;
+  installButton?.classList.toggle('hidden', !enabled || !canInstall);
+  const value = select.value || 'auto';
+  if (value === 'cpu') {
+    hint.textContent = 'CPU tương thích mọi máy. Hiện MDX sử dụng tối đa 4 luồng CPU.';
+    hint.style.color = 'var(--muted)';
+    return;
+  }
+  if (value === 'cuda') {
+    if (!runtime?.cuda?.hardwareAvailable) {
+      hint.textContent = 'Không phát hiện GPU NVIDIA. Chế độ CUDA sẽ không thể chạy trên máy này.';
+      hint.style.color = 'var(--danger)';
+    } else if (!runtime?.cuda?.ready) {
+      hint.textContent = 'Đã phát hiện NVIDIA nhưng component MDX CUDA chưa được cài.';
+      hint.style.color = 'var(--warn)';
+    } else {
+      const gpuName = runtime.hardware?.nvidia?.name || 'NVIDIA GPU';
+      hint.textContent = `Sẵn sàng chạy bằng CUDA: ${gpuName}.`;
+      hint.style.color = 'var(--success)';
+    }
+    return;
+  }
+
+  if (runtime?.cuda?.hardwareAvailable && runtime?.cuda?.ready) {
+    hint.textContent = `Tự động sẽ dùng CUDA trên ${runtime.hardware?.nvidia?.name || 'NVIDIA GPU'}; nếu CUDA lỗi sẽ chuyển sang CPU.`;
+    hint.style.color = 'var(--success)';
+  } else if (runtime?.cuda?.hardwareAvailable) {
+    hint.textContent = 'Máy có NVIDIA nhưng chưa cài MDX CUDA; chế độ Tự động hiện sẽ dùng CPU.';
+    hint.style.color = 'var(--warn)';
+  } else {
+    hint.textContent = 'Không có MDX CUDA phù hợp; chế độ Tự động sẽ dùng CPU.';
+    hint.style.color = 'var(--muted)';
+  }
+}
+
+let mdxCudaDownloadActive = false;
+
+async function installMdxCudaComponent() {
+  if (mdxCudaDownloadActive) return;
+  const button = $('mdx-cuda-install-btn');
+  mdxCudaDownloadActive = true;
+  setBusy(button, true, 'Đang chuẩn bị...');
+  try {
+    const startResponse = await fetch('/api/mdx-cuda-component/download', { method: 'POST' });
+    const startData = await startResponse.json();
+    if (!startResponse.ok) throw new Error(startData.error || 'Không thể bắt đầu tải MDX CUDA');
+
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch('/api/mdx-cuda-component/download-status');
+      const progress = await response.json();
+      if (!response.ok) throw new Error(progress.error || 'Không đọc được tiến trình MDX CUDA');
+      const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+      setBusy(button, true, `Đang cài ${percent}%`);
+      if (progress.status === 'ready') break;
+      if (progress.status === 'error') {
+        throw new Error(progress.error || 'Cài MDX CUDA thất bại');
+      }
+      if (progress.status === 'cancelled') {
+        throw new Error('Đã hủy cài MDX CUDA');
+      }
+    }
+
+    const dependencyResponse = await fetch('/api/check-dependencies');
+    dependencyStatus = await dependencyResponse.json();
+    if (!dependencyResponse.ok || !dependencyStatus.mdx?.cuda?.ready) {
+      throw new Error('Component đã tải nhưng chưa vượt qua kiểm tra sẵn sàng');
+    }
+    updateMdxProviderUI();
+    toast('✅ MDX CUDA đã sẵn sàng', 'success');
+  } catch (error) {
+    toast(`❌ ${error.message}`, 'error');
+  } finally {
+    mdxCudaDownloadActive = false;
+    setBusy(button, false);
+    updateMdxProviderUI();
   }
 }
 
@@ -7636,9 +7789,77 @@ window.closeSetupModal = closeSetupModal;
 window.startSetupDownload = startSetupDownload;
 
 // ==========================================
-// AUTO-UPDATE FEATURE HANDLER
+// AUTO-UPDATE FEATURE HANDLER + VERSION & CHANGELOG
 // ==========================================
 let updatePollInterval = null;
+let _cachedAppVersionData = null;
+
+// --- Hàm tiện ích: render danh sách thay đổi thành HTML ---
+function renderChangelogHTML(versions, currentVersion) {
+  if (!versions || !versions.length) return '<p style="color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">Chưa có thông tin lịch sử cập nhật.</p>';
+  const typeLabels = { feature: { label: 'Mới', icon: '🆕' }, fix: { label: 'Sửa lỗi', icon: '🐛' }, improve: { label: 'Cải thiện', icon: '⚡' } };
+  return versions.map(v => {
+    const isCurrent = v.version === currentVersion;
+    const changesHTML = (v.changes || []).map(c => {
+      const t = typeLabels[c.type] || { label: c.type, icon: '📌' };
+      return `<li class="changelog-change-item"><span class="changelog-type-badge ${c.type || ''}">${t.icon} ${t.label}</span><span>${c.text}</span></li>`;
+    }).join('');
+    return `<div class="changelog-version-card ${isCurrent ? 'current' : ''}"><div class="changelog-version-header"><span class="changelog-version-tag">📦 v${v.version}</span>${isCurrent ? '<span class="changelog-current-badge">Hiện tại</span>' : ''}<span class="changelog-version-date">${v.date || ''}</span></div>${v.title ? `<div class="changelog-version-title">"${v.title}"</div>` : ''}<ul class="changelog-changes-list" style="margin-top: 8px;">${changesHTML}</ul></div>`;
+  }).join('');
+}
+
+function renderSingleVersionChangelog(versionData) {
+  if (!versionData || !versionData.changes || !versionData.changes.length) return '';
+  const typeLabels = { feature: { label: 'Mới', icon: '🆕' }, fix: { label: 'Sửa lỗi', icon: '🐛' }, improve: { label: 'Cải thiện', icon: '⚡' } };
+  return `<div style="margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Nội dung cập nhật:</div><ul class="changelog-changes-list">${versionData.changes.map(c => {
+    const t = typeLabels[c.type] || { label: c.type, icon: '📌' };
+    return `<li class="changelog-change-item"><span class="changelog-type-badge ${c.type || ''}">${t.icon} ${t.label}</span><span>${c.text}</span></li>`;
+  }).join('')}</ul>`;
+}
+
+async function fetchAndDisplayVersion() {
+  try {
+    const res = await fetch('/api/app-version');
+    if (!res.ok) return;
+    const data = await res.json();
+    _cachedAppVersionData = data;
+    const versionEl = document.getElementById('sidebar-version-text');
+    if (versionEl && data.version) versionEl.textContent = `v${data.version}`;
+    if (data.justUpdated && data.changelog) showWhatsNewModal(data.version, data.changelog);
+  } catch (err) { console.error('[Version] Lỗi khi lấy thông tin phiên bản:', err); }
+}
+
+function showWhatsNewModal(version, changelog) {
+  const modal = document.getElementById('whats-new-modal');
+  const titleEl = document.getElementById('whats-new-title');
+  const subtitleEl = document.getElementById('whats-new-subtitle');
+  const bodyEl = document.getElementById('whats-new-body');
+  if (!modal || !bodyEl) return;
+  if (titleEl) titleEl.textContent = `Chào mừng phiên bản v${version}!`;
+  if (subtitleEl) subtitleEl.textContent = changelog.title ? `"${changelog.title}" — Ứng dụng đã được cập nhật thành công.` : 'Ứng dụng đã được cập nhật thành công.';
+  bodyEl.innerHTML = renderSingleVersionChangelog(changelog);
+  modal.classList.remove('hidden');
+}
+
+function closeWhatsNewModal() { const m = document.getElementById('whats-new-modal'); if (m) m.classList.add('hidden'); }
+window.closeWhatsNewModal = closeWhatsNewModal;
+
+async function openChangelogModal() {
+  const modal = document.getElementById('changelog-modal');
+  const body = document.getElementById('changelog-modal-body');
+  if (!modal || !body) return;
+  let data = _cachedAppVersionData;
+  if (!data) { try { const res = await fetch('/api/app-version'); if (res.ok) data = await res.json(); } catch (_) {} }
+  if (data && data.allChangelog && data.allChangelog.length) {
+    body.innerHTML = renderChangelogHTML(data.allChangelog, data.version);
+  } else {
+    body.innerHTML = '<p style="color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">Chưa có thông tin lịch sử cập nhật.</p>';
+  }
+  modal.classList.remove('hidden');
+}
+function closeChangelogModal() { const m = document.getElementById('changelog-modal'); if (m) m.classList.add('hidden'); }
+window.openChangelogModal = openChangelogModal;
+window.closeChangelogModal = closeChangelogModal;
 
 function startUpdateMonitoring() {
   const modal = document.getElementById('app-update-modal');
@@ -7649,6 +7870,7 @@ function startUpdateMonitoring() {
   const progressBar = document.getElementById('update-progress-bar');
   const actionBtn = document.getElementById('update-action-btn');
   const closeBtn = document.getElementById('update-close-btn');
+  const changelogPreview = document.getElementById('update-changelog-preview');
 
   if (!modal) return;
 
@@ -7667,16 +7889,22 @@ function startUpdateMonitoring() {
       } else if (data.status === 'available') {
         modal.classList.remove('hidden');
         icon.textContent = '🔄';
-        title.textContent = 'Phát hiện bản cập nhật mới!';
+        const vt1 = data.newVersion ? ` v${data.newVersion}` : '';
+        title.textContent = `Phát hiện bản cập nhật mới${vt1}!`;
         desc.textContent = 'Đang chuẩn bị tải xuống tệp cài đặt mới từ máy chủ...';
         progressContainer.classList.remove('hidden');
         progressBar.style.width = '0%';
         actionBtn.classList.add('hidden');
-        closeBtn.classList.add('hidden'); // Khóa nút đóng để đảm bảo tải liền mạch
+        closeBtn.classList.add('hidden');
+        if (changelogPreview && _cachedAppVersionData && _cachedAppVersionData.allChangelog && data.newVersion) {
+          const nvd = _cachedAppVersionData.allChangelog.find(v => v.version === data.newVersion);
+          if (nvd) { changelogPreview.innerHTML = renderSingleVersionChangelog(nvd); changelogPreview.classList.remove('hidden'); }
+        }
       } else if (data.status === 'downloading') {
         modal.classList.remove('hidden');
         icon.textContent = '⏳';
-        title.textContent = 'Đang tải bản cập nhật mới';
+        const vt2 = data.newVersion ? ` v${data.newVersion}` : '';
+        title.textContent = `Đang tải bản cập nhật${vt2}`;
         desc.textContent = `Vui lòng chờ, ứng dụng đang được tải về (${data.percent}%)...`;
         progressContainer.classList.remove('hidden');
         progressBar.style.width = `${data.percent}%`;
@@ -7685,7 +7913,8 @@ function startUpdateMonitoring() {
       } else if (data.status === 'downloaded') {
         modal.classList.remove('hidden');
         icon.textContent = '🎉';
-        title.textContent = 'Đã tải xong bản cập nhật!';
+        const vt3 = data.newVersion ? ` v${data.newVersion}` : '';
+        title.textContent = `Đã tải xong bản cập nhật${vt3}!`;
         desc.textContent = 'Phiên bản mới đã sẵn sàng. Vui lòng bấm nút bên dưới để khởi động lại và nâng cấp ứng dụng ngay.';
         progressContainer.classList.add('hidden');
         actionBtn.classList.remove('hidden');
@@ -7740,8 +7969,10 @@ function closeUpdateModal() {
   }
 }
 
-// Theo dõi cập nhật sau khi tải trang
+// Khởi tạo khi tải trang
 document.addEventListener('DOMContentLoaded', () => {
+  // Fetch phiên bản + kiểm tra What's New ngay lập tức
+  fetchAndDisplayVersion();
   // Trì hoãn 5 giây sau khi khởi động để nhường tài nguyên cho quá trình tải models
   setTimeout(startUpdateMonitoring, 5000);
 });
@@ -7763,6 +7994,10 @@ function serializeStudioForm() {
     } else {
       obj[key] = value;
     }
+  }
+  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+    const input = form.elements[name];
+    obj[name] = input?.checked ? 'true' : 'false';
   }
 
   // Lưu trạng thái các tabs đang kích hoạt
@@ -7804,8 +8039,6 @@ function deserializeStudioForm(obj) {
       }
     }
   }
-  loadTranslationProfileFromHidden();
-
   // Khôi phục thuộc tính customGeometry cho Reaction PIP
   const pipEl = $('preview-reaction-pip');
   if (pipEl) {
@@ -7942,7 +8175,6 @@ function deserializeStudioForm(obj) {
 function resetStudioForm() {
   const form = $('studio-form');
   if (form) form.reset();
-  loadTranslationProfileFromHidden();
   $('selected-video-file').value = '';
   $('selected-reaction-video-file').value = '';
 
@@ -8227,8 +8459,6 @@ async function loadProjectQuietly(id) {
               }
             }
           });
-          loadTranslationProfileFromHidden();
-
           // Cập nhật giao diện toggle switches sau khi restore backup
           ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
             const el = $(id);

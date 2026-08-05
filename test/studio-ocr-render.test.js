@@ -167,6 +167,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   const body = {
     whisperModel: 'small',
     whisperOnnxVariant: 'fp32',
+    whisperTimestampLevel: 'segment',
     ocrLanguage: 'zh',
     ocrMode: 'accurate',
     ocrRegion: '0.6,0.95,0.1,0.9'
@@ -191,6 +192,8 @@ test('generate resolver wires coordinator options and returns result.path downst
       durationMs: 12500,
       whisperModel: 'small',
       whisperOnnxVariant: 'fp32',
+      whisperTimestampLevel: 'segment',
+      whisperDevice: 'cpu',
       ocrLanguage: 'zh',
       ocrMode: 'accurate',
       ocrRegion: '0.6,0.95,0.1,0.9',
@@ -576,7 +579,12 @@ test('queue response exposes actionRequired and waiting task errors', async () =
     createdAt: new Date('2026-07-17T00:00:00Z'),
     body: { mainVideoFile: 'source.mp4' },
     files: {},
-    result: null
+    result: null,
+    backgroundSeparation: {
+      requestedProvider: 'auto',
+      usedProvider: 'cpu',
+      fallback: true
+    }
   };
   const handlers = createQueueHandlers(createQueueState([waitingTask]));
   const response = createResponse();
@@ -585,6 +593,10 @@ test('queue response exposes actionRequired and waiting task errors', async () =
 
   assert.equal(response.jsonCalls[0].queue[0].actionRequired, 'ocr_fallback');
   assert.equal(response.jsonCalls[0].queue[0].error, 'VSE failed');
+  assert.deepEqual(
+    response.jsonCalls[0].queue[0].backgroundSeparation,
+    waitingTask.backgroundSeparation
+  );
 });
 
 test('cancelling a waiting task removes only its upload directory and does not kill processes', async () => {
@@ -661,16 +673,22 @@ test('voice chunk checkpoint reuses valid chunks and invalidates changed input',
   await withTempDir('studio-voice-checkpoint-', async (directory) => {
     const first = createVoiceChunkCheckpoint(directory, 'signature-a');
     const chunkPath = first.getChunkPath(0);
+    const fittedPath = first.getFittedChunkPath(0);
     fs.writeFileSync(chunkPath, Buffer.alloc(64));
+    fs.writeFileSync(fittedPath, Buffer.alloc(64));
     first.markChunk(0, { filePath: chunkPath, startMs: 0 });
+    first.markFittedChunk(0, { filePath: fittedPath, signature: 'fit-a' });
 
     const restored = createVoiceChunkCheckpoint(directory, 'signature-a');
     assert.equal(restored.hasChunk(0), true);
+    assert.equal(restored.hasFittedChunk(0, 'fit-a'), true);
+    assert.equal(restored.hasFittedChunk(0, 'fit-b'), false);
     assert.equal(restored.getChunkPath(0), chunkPath);
 
     const invalidated = createVoiceChunkCheckpoint(directory, 'signature-b');
     assert.equal(invalidated.hasChunk(0), false);
     assert.equal(fs.existsSync(chunkPath), false);
+    assert.equal(fs.existsSync(fittedPath), false);
   });
 });
 

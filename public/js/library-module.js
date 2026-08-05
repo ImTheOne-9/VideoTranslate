@@ -1325,12 +1325,12 @@ async function checkWhisperModelStatus() {
         startWhisperStatusPolling(variant);
       } else {
         if (statusLabel) {
-          statusLabel.textContent = 'Chưa tải';
-          statusLabel.style.color = '#FFA500';
+          statusLabel.textContent = status.state === 'corrupt' ? 'Model bị lỗi — cần sửa' : 'Chưa tải';
+          statusLabel.style.color = status.state === 'corrupt' ? '#FF3B30' : '#FFA500';
         }
         if (downloadBtn) {
           downloadBtn.style.display = 'inline-block';
-          downloadBtn.textContent = '📥 Tải';
+          downloadBtn.textContent = status.state === 'corrupt' ? '🛠 Sửa model' : '📥 Tải';
           downloadBtn.disabled = false;
         }
       }
@@ -1343,6 +1343,31 @@ async function checkWhisperModelStatus() {
     }
   }
 }
+
+async function checkWhisperDeviceStatus() {
+  const select = $('whisper-device-select');
+  const dmlOption = $('whisper-device-dml-option');
+  const hint = $('whisper-device-hint');
+  if (!select || !dmlOption) return;
+  try {
+    const response = await fetch('/api/whisper-device/status');
+    if (!response.ok) throw new Error('Không thể kiểm tra DirectML');
+    const status = await response.json();
+    dmlOption.disabled = !status.dml;
+    if (!status.dml && select.value === 'dml') select.value = 'cpu';
+    if (hint) {
+      hint.textContent = status.dml
+        ? 'DirectML khả dụng; nếu inference GPU lỗi, Whisper tự chuyển về CPU.'
+        : 'Máy này chỉ dùng CPU cho Whisper.';
+    }
+  } catch (error) {
+    dmlOption.disabled = true;
+    if (select.value === 'dml') select.value = 'cpu';
+    if (hint) hint.textContent = 'Không xác minh được DirectML; đang dùng CPU.';
+  }
+}
+
+checkWhisperDeviceStatus();
 
 // Global state for download configuration modal callback
 let currentDlConfirmCallback = null;

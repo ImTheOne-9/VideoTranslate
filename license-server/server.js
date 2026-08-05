@@ -136,6 +136,8 @@ const userSchema = new mongoose.Schema({
   registrationHwid: { type: String, default: null },
   deviceHwid: { type: String, default: null }, // HWID that cua thiet bi (lay khi active key dau tien)
   affiliateCode: { type: String, default: null }, // Mã affiliate được gán cho user (không thay đổi sau khi set)
+  failedLoginAttempts: { type: Number, default: 0 },  // Số lần đăng nhập sai liên tiếp
+  lockUntil: { type: Date, default: null },            // Thời điểm mở khóa tài khoản (null = không bị khóa)
   createdAt: { type: Date, default: Date.now }
 });
 const UserModel = mongoose.model('User', userSchema);
@@ -226,6 +228,28 @@ const affiliateOrderSchema = new mongoose.Schema({
   paidAt:            { type: Date, default: Date.now }
 });
 const AffiliateOrderModel = mongoose.model('AffiliateOrder', affiliateOrderSchema);
+
+// Schema Auth Log — Ghi lại mọi sự kiện đăng nhập/đăng ký để kiểm soát & thống kê
+const authLogSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['register_success', 'register_blocked_email', 'register_blocked_ip', 'register_blocked_hwid',
+           'login_success', 'login_failed', 'login_locked',
+           'admin_login_success', 'admin_login_failed', 'admin_login_locked'],
+    required: true
+  },
+  email: { type: String, default: null },          // Email đã nhập
+  ip: { type: String, default: null },             // IP client
+  hwid: { type: String, default: null },           // HWID thiết bị (nếu có)
+  userAgent: { type: String, default: null },      // User-Agent trình duyệt
+  reason: { type: String, default: null },         // Lý do block chi tiết
+  existingEmail: { type: String, default: null },  // Email tài khoản đã tồn tại (khi trùng IP/HWID)
+  createdAt: { type: Date, default: Date.now }
+});
+authLogSchema.index({ type: 1, createdAt: -1 });
+authLogSchema.index({ email: 1, createdAt: -1 });
+authLogSchema.index({ ip: 1, createdAt: -1 });
+const AuthLogModel = mongoose.model('AuthLog', authLogSchema);
 
 const DB_FILE = path.join(__dirname, 'database.json');
 let useMongo = false;
@@ -519,6 +543,8 @@ const DB = {
           resetPasswordToken: user.resetPasswordToken || null,
           resetPasswordExpires: user.resetPasswordExpires || null,
           passwordChangedAt: user.passwordChangedAt || null,
+          failedLoginAttempts: user.failedLoginAttempts || 0,
+          lockUntil: user.lockUntil || null,
           createdAt: user.createdAt,
           save: async function() {
             const dbData = readJSON();
@@ -541,6 +567,8 @@ const DB = {
                 resetPasswordToken: this.resetPasswordToken,
                 resetPasswordExpires: this.resetPasswordExpires,
                 passwordChangedAt: this.passwordChangedAt,
+                failedLoginAttempts: this.failedLoginAttempts || 0,
+                lockUntil: this.lockUntil || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -604,6 +632,8 @@ const DB = {
           resetPasswordToken: user.resetPasswordToken || null,
           resetPasswordExpires: user.resetPasswordExpires || null,
           passwordChangedAt: user.passwordChangedAt || null,
+          failedLoginAttempts: user.failedLoginAttempts || 0,
+          lockUntil: user.lockUntil || null,
           createdAt: user.createdAt,
           save: async function() {
             const dbData = readJSON();
@@ -626,6 +656,8 @@ const DB = {
                 resetPasswordToken: this.resetPasswordToken,
                 resetPasswordExpires: this.resetPasswordExpires,
                 passwordChangedAt: this.passwordChangedAt,
+                failedLoginAttempts: this.failedLoginAttempts || 0,
+                lockUntil: this.lockUntil || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -1000,6 +1032,151 @@ const DB = {
       await writeJSON(db);
       return newOrder;
     }
+  },
+
+  // ==========================================
+  // Auth Logs — Ghi log đăng nhập/đăng ký
+  // ==========================================
+  authLogs: {
+    async create(data) {
+      if (useMongo) {
+        const doc = new AuthLogModel(data);
+        return await doc.save();
+      } else {
+        const db = readJSON();
+        if (!db.authLogs) db.authLogs = [];
+        const newLog = {
+          type: data.type,
+          email: data.email || null,
+          ip: data.ip || null,
+          hwid: data.hwid || null,
+          userAgent: data.userAgent || null,
+          reason: data.reason || null,
+          existingEmail: data.existingEmail || null,
+          createdAt: new Date().toISOString()
+        };
+        db.authLogs.push(newLog);
+        await writeJSON(db);
+        return newLog;
+      }
+    },
+
+    async find(query = {}, opts = {}) {
+      if (useMongo) {
+        let mongoQuery = {};
+        if (query.type) mongoQuery.type = query.type;
+        if (query.email) mongoQuery.email = { $regex: query.email, $options: 'i' };
+        if (query.ip) mongoQuery.ip = query.ip;
+        if (query.from || query.to) {
+          mongoQuery.createdAt = {};
+          if (query.from) mongoQuery.createdAt.$gte = new Date(query.from);
+          if (query.to) mongoQuery.createdAt.$lte = new Date(query.to);
+        }
+        let q = AuthLogModel.find(mongoQuery).sort({ createdAt: -1 });
+        if (opts.skip) q = q.skip(opts.skip);
+        if (opts.limit) q = q.limit(opts.limit);
+        return await q;
+      } else {
+        const db = readJSON();
+        let results = [...(db.authLogs || [])];
+        if (query.type) results = results.filter(l => l.type === query.type);
+        if (query.email) results = results.filter(l => l.email && l.email.toLowerCase().includes(query.email.toLowerCase()));
+        if (query.ip) results = results.filter(l => l.ip === query.ip);
+        if (query.from) results = results.filter(l => new Date(l.createdAt) >= new Date(query.from));
+        if (query.to) results = results.filter(l => new Date(l.createdAt) <= new Date(query.to));
+        results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        if (opts.skip) results = results.slice(opts.skip);
+        if (opts.limit) results = results.slice(0, opts.limit);
+        return results;
+      }
+    },
+
+    async count(query = {}) {
+      if (useMongo) {
+        let mongoQuery = {};
+        if (query.type) {
+          if (typeof query.type === 'string') mongoQuery.type = query.type;
+          else if (query.type.$in) mongoQuery.type = { $in: query.type.$in };
+          else if (query.type.$regex) mongoQuery.type = { $regex: query.type.$regex };
+        }
+        if (query.email) mongoQuery.email = { $regex: query.email, $options: 'i' };
+        if (query.ip) mongoQuery.ip = query.ip;
+        if (query.from || query.to) {
+          mongoQuery.createdAt = {};
+          if (query.from) mongoQuery.createdAt.$gte = new Date(query.from);
+          if (query.to) mongoQuery.createdAt.$lte = new Date(query.to);
+        }
+        return await AuthLogModel.countDocuments(mongoQuery);
+      } else {
+        const db = readJSON();
+        let results = [...(db.authLogs || [])];
+        if (query.type) {
+          if (typeof query.type === 'string') results = results.filter(l => l.type === query.type);
+          else if (query.type.$in) results = results.filter(l => query.type.$in.includes(l.type));
+          else if (query.type.$regex) { const re = new RegExp(query.type.$regex); results = results.filter(l => re.test(l.type)); }
+        }
+        if (query.email) results = results.filter(l => l.email && l.email.toLowerCase().includes(query.email.toLowerCase()));
+        if (query.ip) results = results.filter(l => l.ip === query.ip);
+        if (query.from) results = results.filter(l => new Date(l.createdAt) >= new Date(query.from));
+        if (query.to) results = results.filter(l => new Date(l.createdAt) <= new Date(query.to));
+        return results.length;
+      }
+    },
+
+    async deleteMany(query = {}) {
+      if (useMongo) {
+        let mongoQuery = {};
+        if (query.createdAt && query.createdAt.$lt) {
+          mongoQuery.createdAt = { $lt: new Date(query.createdAt.$lt) };
+        }
+        const result = await AuthLogModel.deleteMany(mongoQuery);
+        return { deletedCount: result.deletedCount || 0 };
+      } else {
+        const db = readJSON();
+        if (!db.authLogs) db.authLogs = [];
+        const before = db.authLogs.length;
+        if (query.createdAt && query.createdAt.$lt) {
+          const cutoff = new Date(query.createdAt.$lt);
+          db.authLogs = db.authLogs.filter(l => new Date(l.createdAt) >= cutoff);
+        }
+        await writeJSON(db);
+        return { deletedCount: before - db.authLogs.length };
+      }
+    },
+
+    // Helper: đếm theo nhóm type trong khoảng thời gian (dùng cho stats)
+    async countByTypes(types, fromDate = null) {
+      const results = {};
+      for (const t of types) {
+        const q = { type: t };
+        if (fromDate) q.from = fromDate;
+        results[t] = await this.count(q);
+      }
+      return results;
+    },
+
+    // Helper: lấy top IP vi phạm nhiều nhất
+    async getTopViolationIPs(limit = 5, fromDate = null) {
+      if (useMongo) {
+        const matchStage = { type: { $in: ['register_blocked_ip', 'register_blocked_hwid', 'register_blocked_email', 'login_failed', 'login_locked', 'admin_login_failed', 'admin_login_locked'] } };
+        if (fromDate) matchStage.createdAt = { $gte: new Date(fromDate) };
+        const result = await AuthLogModel.aggregate([
+          { $match: matchStage },
+          { $group: { _id: '$ip', count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+          { $limit: limit }
+        ]);
+        return result.map(r => ({ ip: r._id, count: r.count }));
+      } else {
+        const db = readJSON();
+        const violationTypes = ['register_blocked_ip', 'register_blocked_hwid', 'register_blocked_email', 'login_failed', 'login_locked', 'admin_login_failed', 'admin_login_locked'];
+        let logs = (db.authLogs || []).filter(l => violationTypes.includes(l.type));
+        if (fromDate) logs = logs.filter(l => new Date(l.createdAt) >= new Date(fromDate));
+        const ipMap = {};
+        logs.forEach(l => { if (l.ip) ipMap[l.ip] = (ipMap[l.ip] || 0) + 1; });
+        return Object.entries(ipMap).map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count).slice(0, limit);
+      }
+    }
   }
 };
 
@@ -1091,7 +1268,7 @@ async function seedDefaultPlans() {
         {
           id: 'monthly',
           name: 'Gói Tháng',
-          price: 199000,
+          price: 299000,
           durationDays: 30,
           description: 'Dành cho Creator sáng tạo thường xuyên',
           features: ['Đầy đủ tính năng 100%', 'Sử dụng trên 1 máy tính', 'Tự động nhận key qua email', 'Hỗ trợ kỹ thuật 24/7'],
@@ -1129,7 +1306,7 @@ async function migrateLegacyLicenses() {
       if (l.priceAtPurchase === undefined || l.priceAtPurchase === null || (l.priceAtPurchase === 0 && l.planType !== 'trial')) {
         let price = 0;
         if (l.planType === 'monthly') {
-          price = 199000;
+          price = 299000;
         } else if (l.planType === 'yearly') {
           price = 1499000;
         }
@@ -1307,6 +1484,54 @@ function createRateLimiter(maxRequests, windowMs, message) {
 const authLimiter = createRateLimiter(10, 60 * 1000, 'Quá nhiều yêu cầu đăng nhập hoặc đăng ký. Vui lòng thử lại sau 1 phút!');
 const hwidResetLimiter = createRateLimiter(5, 60 * 60 * 1000, 'Bạn đã thực hiện reset quá nhiều lần trong 1 giờ. Vui lòng thử lại sau!');
 
+// ==========================================
+// Account Lockout Constants & Helpers
+// ==========================================
+const MAX_LOGIN_ATTEMPTS = 5;     // Số lần sai tối đa trước khi khóa
+const LOCK_DURATION_MS = 10 * 60 * 1000;  // 10 phút
+
+// Helper: ghi log sự kiện auth (fire-and-forget, không block request)
+function logAuthEvent(data) {
+  DB.authLogs.create(data).catch(err => {
+    console.error('[License Server] Lỗi ghi auth log:', err.message);
+  });
+}
+
+// Helper: kiểm tra tài khoản có đang bị khóa không
+function isAccountLocked(user) {
+  if (user.lockUntil && new Date(user.lockUntil) > new Date()) {
+    const remainMs = new Date(user.lockUntil).getTime() - Date.now();
+    const remainMin = Math.ceil(remainMs / 60000);
+    return { locked: true, remainMin, lockUntil: user.lockUntil };
+  }
+  // Nếu lockUntil đã qua → tự động mở khóa (reset khi login lần tiếp theo)
+  return { locked: false };
+}
+
+// Helper: xử lý khi đăng nhập sai mật khẩu (tăng counter, khóa nếu đủ ngưỡng)
+async function handleFailedLogin(user) {
+  const attempts = (user.failedLoginAttempts || 0) + 1;
+  user.failedLoginAttempts = attempts;
+  
+  if (attempts >= MAX_LOGIN_ATTEMPTS) {
+    user.lockUntil = new Date(Date.now() + LOCK_DURATION_MS);
+    await user.save();
+    return { locked: true, attempts };
+  }
+  
+  await user.save();
+  return { locked: false, attempts, remaining: MAX_LOGIN_ATTEMPTS - attempts };
+}
+
+// Helper: reset counter khi đăng nhập thành công
+async function handleSuccessfulLogin(user) {
+  if (user.failedLoginAttempts > 0 || user.lockUntil) {
+    user.failedLoginAttempts = 0;
+    user.lockUntil = null;
+    await user.save();
+  }
+}
+
 // Authentication Middleware
 async function userAuth(req, res, next) {
   let token = null;
@@ -1473,7 +1698,7 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
   
   let bodyContent = '';
   if (status === 'pending') {
-    const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '199.000đ' : '1.499.000đ');
+    const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '299.000đ' : '1.499.000đ');
     const keyRef = key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
     const memo = `VST ${keyRef}`;
     
@@ -1751,24 +1976,29 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: phoneErr });
   }
 
+  const clientIp = getClientIp(req);
+  const clientHwid = (hwid || '').trim();
+  const clientUA = req.headers['user-agent'] || null;
+
   try {
     const existing = await DB.users.findOne({ email });
     if (existing) {
+      logAuthEvent({ type: 'register_blocked_email', email, ip: clientIp, hwid: clientHwid, userAgent: clientUA, reason: 'Email đã tồn tại trên hệ thống', existingEmail: existing.email });
       return res.status(400).json({ error: 'Địa chỉ email này đã được đăng ký hệ thống!' });
     }
 
     // Kiem tra trung lap theo IP va HWID thiet bi (chong dang ky nhieu tai khoan)
-    const clientIp = getClientIp(req);
-    const clientHwid = (hwid || '').trim();
     if (clientIp && clientIp !== 'unknown') {
       const existingByIp = await DB.users.findOne({ registrationIp: clientIp });
       if (existingByIp) {
+        logAuthEvent({ type: 'register_blocked_ip', email, ip: clientIp, hwid: clientHwid, userAgent: clientUA, reason: `IP trùng với tài khoản ${existingByIp.email}`, existingEmail: existingByIp.email });
         return res.status(403).json({ error: 'Địa chỉ IP này đã được sử dụng để đăng ký tài khoản khác! Mỗi thiết bị/mạng chỉ được đăng ký một tài khoản.' });
       }
     }
     if (clientHwid) {
       const existingByHwid = await DB.users.findOne({ registrationHwid: clientHwid });
       if (existingByHwid) {
+        logAuthEvent({ type: 'register_blocked_hwid', email, ip: clientIp, hwid: clientHwid, userAgent: clientUA, reason: `HWID trùng với tài khoản ${existingByHwid.email}`, existingEmail: existingByHwid.email });
         return res.status(403).json({ error: 'Thiết bị này đã được sử dụng để đăng ký tài khoản khác! Mỗi thiết bị chỉ được đăng ký một tài khoản.' });
       }
     }
@@ -1796,23 +2026,35 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     // Send verification link via email
     await sendVerificationEmail({ toEmail: email, fullName, token });
 
+    logAuthEvent({ type: 'register_success', email, ip: clientIp, hwid: clientHwid, userAgent: clientUA });
     res.status(201).json({ success: true, message: 'Đăng ký tài khoản thành công! Vui lòng kiểm tra email của bạn để xác thực tài khoản.' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi đăng ký: ' + err.message });
   }
 });
 
-// API Đăng nhập
+// API Đăng nhập (có kiểm soát khóa tài khoản khi sai 5 lần)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Vui lòng nhập email và mật khẩu!' });
   }
 
+  const clientIp = getClientIp(req);
+  const clientUA = req.headers['user-agent'] || null;
+
   try {
     const user = await DB.users.findOne({ email });
     if (!user) {
+      logAuthEvent({ type: 'login_failed', email, ip: clientIp, userAgent: clientUA, reason: 'Email không tồn tại' });
       return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
+    }
+
+    // Kiểm tra tài khoản bị khóa tạm
+    const lockStatus = isAccountLocked(user);
+    if (lockStatus.locked) {
+      logAuthEvent({ type: 'login_locked', email, ip: clientIp, userAgent: clientUA, reason: `Tài khoản đang bị khóa, còn ${lockStatus.remainMin} phút` });
+      return res.status(423).json({ error: `Tài khoản đã bị khóa tạm do nhập sai quá ${MAX_LOGIN_ATTEMPTS} lần. Vui lòng thử lại sau ${lockStatus.remainMin} phút.`, lockUntil: lockStatus.lockUntil });
     }
 
     // Check email verification status
@@ -1822,8 +2064,17 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     const isMatch = verifyPassword(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
+      const result = await handleFailedLogin(user);
+      if (result.locked) {
+        logAuthEvent({ type: 'login_locked', email, ip: clientIp, userAgent: clientUA, reason: `Sai mật khẩu lần ${result.attempts} — đã khóa tài khoản 10 phút` });
+        return res.status(423).json({ error: `Bạn đã nhập sai mật khẩu ${result.attempts} lần liên tiếp. Tài khoản bị khóa tạm 10 phút.`, lockUntil: user.lockUntil });
+      }
+      logAuthEvent({ type: 'login_failed', email, ip: clientIp, userAgent: clientUA, reason: `Sai mật khẩu lần ${result.attempts}/${MAX_LOGIN_ATTEMPTS}` });
+      return res.status(400).json({ error: `Email hoặc mật khẩu không chính xác! Còn ${result.remaining} lần thử trước khi tài khoản bị khóa tạm.` });
     }
+
+    // Đăng nhập thành công → reset counter
+    await handleSuccessfulLogin(user);
 
     const token = generateToken({ email: user.email, fullName: user.fullName, role: user.role });
     
@@ -1835,6 +2086,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
+    logAuthEvent({ type: 'login_success', email, ip: clientIp, userAgent: clientUA });
     res.json({
       success: true,
       user: {
@@ -2796,7 +3048,7 @@ app.post('/api/payment/webhook', async (req, res) => {
 
         // Xác định số tiền yêu cầu và hạn dùng của gói bản quyền từ DB
         const plan = await DB.plans.findOne({ id: license.planType });
-        const requiredAmount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 199000);
+        const requiredAmount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 299000);
         const days = plan ? plan.durationDays : 30;
 
         if (amount < requiredAmount) {
@@ -3215,21 +3467,33 @@ async function adminOnlyAuth(req, res, next) {
   return res.status(401).json({ error: 'Chưa đăng nhập Admin hoặc phiên đã hết hạn!' });
 }
 
-// API Đăng nhập Admin (email/password, yêu cầu role = admin hoặc sale)
+// API Đăng nhập Admin (email/password, yêu cầu role = admin hoặc sale — có kiểm soát khóa tài khoản)
 app.post('/api/admin/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Vui lòng nhập email và mật khẩu!' });
   }
 
+  const clientIp = getClientIp(req);
+  const clientUA = req.headers['user-agent'] || null;
+
   try {
     const user = await DB.users.findOne({ email });
     if (!user) {
+      logAuthEvent({ type: 'admin_login_failed', email, ip: clientIp, userAgent: clientUA, reason: 'Email không tồn tại' });
       return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
     }
 
     if (!['admin', 'sale'].includes(user.role)) {
+      logAuthEvent({ type: 'admin_login_failed', email, ip: clientIp, userAgent: clientUA, reason: `Role "${user.role}" không đủ quyền admin` });
       return res.status(403).json({ error: 'Tài khoản không có quyền truy cập trang quản trị!' });
+    }
+
+    // Kiểm tra tài khoản bị khóa tạm
+    const lockStatus = isAccountLocked(user);
+    if (lockStatus.locked) {
+      logAuthEvent({ type: 'admin_login_locked', email, ip: clientIp, userAgent: clientUA, reason: `Tài khoản admin đang bị khóa, còn ${lockStatus.remainMin} phút` });
+      return res.status(423).json({ error: `Tài khoản đã bị khóa tạm do nhập sai quá ${MAX_LOGIN_ATTEMPTS} lần. Vui lòng thử lại sau ${lockStatus.remainMin} phút.`, lockUntil: lockStatus.lockUntil });
     }
 
     if (!user.isVerified) {
@@ -3238,8 +3502,17 @@ app.post('/api/admin/login', authLimiter, async (req, res) => {
 
     const isMatch = verifyPassword(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ error: 'Email hoặc mật khẩu không chính xác!' });
+      const result = await handleFailedLogin(user);
+      if (result.locked) {
+        logAuthEvent({ type: 'admin_login_locked', email, ip: clientIp, userAgent: clientUA, reason: `Sai mật khẩu admin lần ${result.attempts} — đã khóa 10 phút` });
+        return res.status(423).json({ error: `Bạn đã nhập sai mật khẩu ${result.attempts} lần liên tiếp. Tài khoản bị khóa tạm 10 phút.`, lockUntil: user.lockUntil });
+      }
+      logAuthEvent({ type: 'admin_login_failed', email, ip: clientIp, userAgent: clientUA, reason: `Sai mật khẩu admin lần ${result.attempts}/${MAX_LOGIN_ATTEMPTS}` });
+      return res.status(400).json({ error: `Email hoặc mật khẩu không chính xác! Còn ${result.remaining} lần thử trước khi tài khoản bị khóa tạm.` });
     }
+
+    // Đăng nhập admin thành công → reset counter
+    await handleSuccessfulLogin(user);
 
     const token = generateToken({ email: user.email, fullName: user.fullName, role: user.role });
 
@@ -3250,6 +3523,7 @@ app.post('/api/admin/login', authLimiter, async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
+    logAuthEvent({ type: 'admin_login_success', email, ip: clientIp, userAgent: clientUA });
     res.json({
       success: true,
       user: {
@@ -3279,6 +3553,139 @@ app.get('/api/admin/me', adminAuth, async (req, res) => {
 
 
 // API lấy cấu hình hệ thống (Admin)
+
+// ==========================================
+// API Kiểm soát truy cập (Auth Logs)
+// ==========================================
+
+// 4.1 API Danh sách log + filter + phân trang
+app.get('/api/admin/auth-logs', adminAuth, async (req, res) => {
+  try {
+    const { type, email, ip, from, to, page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50));
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = {};
+    if (type) query.type = type;
+    if (email) query.email = email;
+    if (ip) query.ip = ip;
+    if (from) query.from = from;
+    if (to) query.to = to;
+
+    const [logs, total] = await Promise.all([
+      DB.authLogs.find(query, { skip, limit: limitNum }),
+      DB.authLogs.count(query)
+    ]);
+
+    res.json({
+      success: true,
+      logs,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum)
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy auth logs: ' + err.message });
+  }
+});
+
+// 4.2 API Thống kê nhanh cho dashboard
+app.get('/api/admin/auth-logs/stats', adminAuth, async (req, res) => {
+  try {
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Đếm theo loại trong 24h
+    const allTypes = ['register_success', 'register_blocked_email', 'register_blocked_ip', 'register_blocked_hwid',
+                      'login_success', 'login_failed', 'login_locked',
+                      'admin_login_success', 'admin_login_failed', 'admin_login_locked'];
+    
+    const [stats24h, stats7d, statsAll, topIPs24h] = await Promise.all([
+      DB.authLogs.countByTypes(allTypes, last24h),
+      DB.authLogs.countByTypes(allTypes, last7d),
+      DB.authLogs.countByTypes(allTypes),
+      DB.authLogs.getTopViolationIPs(5, last24h)
+    ]);
+
+    // Đếm tài khoản đang bị khóa
+    let lockedAccounts = [];
+    if (useMongo) {
+      lockedAccounts = await UserModel.find({ lockUntil: { $gt: new Date() } }).select('email fullName failedLoginAttempts lockUntil role').lean();
+    } else {
+      const db = readJSON();
+      lockedAccounts = (db.users || [])
+        .filter(u => u.lockUntil && new Date(u.lockUntil) > new Date())
+        .map(u => ({ email: u.email, fullName: u.fullName, failedLoginAttempts: u.failedLoginAttempts || 0, lockUntil: u.lockUntil, role: u.role }));
+    }
+
+    res.json({
+      success: true,
+      stats24h,
+      stats7d,
+      statsAll,
+      topIPs24h,
+      lockedAccounts,
+      lockedCount: lockedAccounts.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy thống kê auth: ' + err.message });
+  }
+});
+
+// 4.3 API Mở khóa tài khoản bị lock
+app.post('/api/admin/unlock-account', adminOnlyAuth, async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email là bắt buộc!' });
+  }
+
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy tài khoản!' });
+    }
+
+    user.failedLoginAttempts = 0;
+    user.lockUntil = null;
+    await user.save();
+
+    console.log(`[License Server] Admin đã mở khóa tài khoản: ${email}`);
+    res.json({ success: true, message: `Đã mở khóa tài khoản ${email} thành công!` });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi mở khóa tài khoản: ' + err.message });
+  }
+});
+
+// 4.4 API Xóa log cũ
+app.delete('/api/admin/auth-logs', adminOnlyAuth, async (req, res) => {
+  const { before } = req.body;
+  if (!before) {
+    return res.status(400).json({ error: 'Vui lòng cung cấp ngày "before" (ISO date) để xóa log trước ngày đó!' });
+  }
+
+  try {
+    const result = await DB.authLogs.deleteMany({ createdAt: { $lt: before } });
+    console.log(`[License Server] Admin xóa ${result.deletedCount} auth logs trước ${before}`);
+    res.json({ success: true, deletedCount: result.deletedCount, message: `Đã xóa ${result.deletedCount} bản ghi log.` });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi xóa auth logs: ' + err.message });
+  }
+});
+
+// Component 6: Auto-cleanup auth logs cũ hơn 90 ngày (chạy mỗi 24h)
+setInterval(async () => {
+  try {
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const result = await DB.authLogs.deleteMany({ createdAt: { $lt: cutoff.toISOString() } });
+    if (result.deletedCount > 0) {
+      console.log(`[License Server] [Cleanup] Đã dọn dẹp ${result.deletedCount} auth log cũ hơn 90 ngày.`);
+    }
+  } catch (err) {
+    console.error('[License Server] Lỗi khi cleanup auth logs:', err.message);
+  }
+}, 24 * 60 * 60 * 1000);
 app.get('/api/admin/config', adminAuth, async (req, res) => {
   try {
     const installerUrl = await DB.settings.get('installerUrl', process.env.INSTALLER_URL || '');

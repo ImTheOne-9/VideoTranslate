@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.32",
+  "version": "1.0.38",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -63,9 +63,11 @@
       "server.jsc",
       "main.jsc",
       "index.js",
+      "silero-vad-child-runtime.js",
       "whisper-onnx-child-runtime.js",
       "logo.ico",
-      "package.json"
+      "package.json",
+      "changelog.json"
     ],
     "extraResources": [
       {
@@ -77,6 +79,7 @@
           "nllb_translate.exe",
           "silero-vad/silero_vad.onnx",
           "omnivoice/omnivoice-cli.exe",
+          "omnivoice/omnivoice-server-*.exe",
           "omnivoice/*.dll"
         ]
       }

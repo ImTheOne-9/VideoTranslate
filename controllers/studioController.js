@@ -6,6 +6,23 @@ const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
 const anti = require('../lib/anti-dupe');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
 const { createRenderOrchestrator } = require('../lib/render-orchestrator');
+const { SegmentService } = require('../lib/segment-service');
+const {
+  createLegacyVoiceAudioSignature,
+  createVoiceAudioSignature,
+  resolveVoiceReference
+} = require('../lib/voice-reference-helper');
+const { createFittedVoiceChunk, readWavDurationMs } = require('../lib/voice-audio-fit');
+const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
+const { generateNarrationWithinCue } = require('../lib/narration-fit-service');
+const { analyzeWavFile, readPcm16WavFile } = require('../lib/audio-quality');
+const {
+  buildAudioMixGraph,
+  normalizeAudioMasteringConfig
+} = require('../lib/audio-mastering');
+const {
+  createSmartFitSignature
+} = require('../lib/smart-fit-service');
 const {
   DEFAULT_VOICE_ENGINE_ID,
   VoiceEngineError,
@@ -18,12 +35,34 @@ const {
   readJsonFile,
   writeJsonAtomic
 } = require('../lib/checkpoint-utils');
+const { createMdxSeparatorManager } = require('../lib/mdx-separator-manager');
+const mdxCudaComponentManager = require('../lib/mdx-cuda-component-manager');
 
 const renderJobStore = new RenderJobStore(shared.RENDER_JOBS_DIR);
 const renderOrchestrator = createRenderOrchestrator({
   store: renderJobStore,
   existsSync: fs.existsSync
 });
+const mdxSeparatorManager = createMdxSeparatorManager({
+  fs,
+  runExecFile: shared.runExecFile,
+  cpuExecutablePath: shared.AUDIO_SEPARATOR_CLI_PATH,
+  cudaExecutablePath: shared.AUDIO_SEPARATOR_CUDA_CLI_PATH,
+  isCudaRuntimeReady: () => (
+    Boolean(process.env.MDX_CUDA_EXECUTABLE_PATH) ||
+    mdxCudaComponentManager.getStatus().status === 'ready'
+  ),
+  modelPath: shared.AUDIO_SEPARATOR_MODEL_PATH
+});
+const segmentService = new SegmentService();
+
+class SegmentReviewRequiredError extends Error {
+  constructor(message = 'Cần duyệt từng câu trước khi tiếp tục render') {
+    super(message);
+    this.name = 'SegmentReviewRequiredError';
+    this.code = 'SEGMENT_REVIEW_REQUIRED';
+  }
+}
 
 // Helpers for Studio rendering
 function escapeSubtitleForFilter(filePath) {
@@ -135,33 +174,6 @@ function createWavHeader(dataLength, sampleRate = 24000, numChannels = 1, bitsPe
   header.write('data', 36);
   header.writeUInt32LE(dataLength, 40);
   return header;
-}
-
-function readWavInfo(filePath) {
-  const stat = fs.statSync(filePath);
-  const fd = fs.openSync(filePath, 'r');
-  const header = Buffer.alloc(44);
-  fs.readSync(fd, header, 0, 44, 0);
-  fs.closeSync(fd);
-  const sampleRate = header.readUInt32LE(24);
-  const bitsPerSample = header.readUInt16LE(34);
-  const numChannels = header.readUInt16LE(22);
-  const subchunk1Size = header.readUInt32LE(16);
-  const dataOffset = 20 + subchunk1Size;
-  let actualDataOffset = dataOffset;
-  if (dataOffset > 44) {
-    // scan for "data" chunk beyond fmt
-    const extendedHdr = Buffer.alloc(dataOffset - 44);
-    const fd2 = fs.openSync(filePath, 'r');
-    fs.readSync(fd2, extendedHdr, 0, dataOffset - 44, 44);
-    const dataPos = extendedHdr.indexOf('data');
-    if (dataPos !== -1) actualDataOffset = 44 + dataPos;
-    fs.closeSync(fd2);
-  }
-  const bytesPerSample = bitsPerSample / 8;
-  const bytesPerMs = (sampleRate * numChannels * bytesPerSample) / 1000;
-  const dataSize = stat.size - actualDataOffset;
-  return { sampleRate, bitsPerSample, numChannels, bytesPerMs, dataSize, actualDataOffset };
 }
 
 function convertSrtToAss(srtPath, assPath, options) {
@@ -346,6 +358,9 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       durationMs: options.totalDuration * 1000,
       whisperModel: body.whisperModel || 'small',
       whisperOnnxVariant,
+      ...(body.whisperLanguage ? { whisperLanguage: body.whisperLanguage } : {}),
+      whisperTimestampLevel: body.whisperTimestampLevel === 'word' ? 'word' : 'segment',
+      whisperDevice: ['auto', 'cpu', 'dml'].includes(body.whisperDevice) ? body.whisperDevice : 'cpu',
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
@@ -416,6 +431,39 @@ function applyRenderTaskFailure(task, error, state = shared.state) {
     return 'waiting_input';
   }
 
+  if (error?.code === 'SEGMENT_REVIEW_REQUIRED') {
+    task.status = 'waiting_input';
+    task.step = 'Cần duyệt lời thoại trước khi tạo giọng';
+    task.error = null;
+    task.actionRequired = 'segment_review';
+    task.percent = Math.max(task.percent || 0, 38);
+    state.studioProgress = {
+      status: 'waiting_input',
+      percent: task.percent,
+      step: task.step,
+      error: null
+    };
+    return 'waiting_input';
+  }
+
+  if (error?.code === 'TRANSLATION_INCOMPLETE') {
+    task.status = 'error';
+    task.translationReport = error.translationReport || task.translationReport || null;
+    const stats = task.translationReport?.translation;
+    task.step = stats
+      ? `Dịch phụ đề chưa hoàn tất (${stats.translated}/${stats.total})`
+      : 'Dịch phụ đề chưa hoàn tất';
+    task.error = error.message;
+    task.actionRequired = 'render_resume';
+    state.studioProgress = {
+      status: 'error',
+      percent: Math.max(task.percent || 0, 35),
+      step: task.step,
+      error: task.error
+    };
+    return 'error';
+  }
+
   task.status = 'error';
   task.error = error.message;
   task.step = 'Lỗi kết xuất';
@@ -447,42 +495,73 @@ function createVoiceChunkCheckpoint(workDir, signature, dependencies = {}) {
   const fileSystem = dependencies.fs || fs;
   const voiceDir = path.join(workDir, 'voice');
   const chunksDir = path.join(voiceDir, 'chunks');
+  const rawDir = path.join(chunksDir, 'raw');
+  const fittedDir = path.join(chunksDir, 'fitted');
   const statePath = path.join(voiceDir, 'checkpoint.json');
   let state = readJsonFile(statePath);
 
-  if (state?.version !== 1 || state.signature !== signature) {
+  if (state?.version !== 3 || state.globalSignature !== signature) {
     if (fileSystem.existsSync(voiceDir)) {
       fileSystem.rmSync(voiceDir, { recursive: true, force: true });
     }
     state = {
-      version: 1,
-      signature,
+      version: 3,
+      globalSignature: signature,
       completed: {},
+      fitted: {},
       createdAt: new Date().toISOString()
     };
   }
   state.completed ||= {};
-  fileSystem.mkdirSync(chunksDir, { recursive: true });
+  state.fitted ||= {};
+  fileSystem.mkdirSync(rawDir, { recursive: true });
+  fileSystem.mkdirSync(fittedDir, { recursive: true });
 
   const save = () => {
     state.updatedAt = new Date().toISOString();
     writeJsonAtomic(statePath, state);
   };
-  const getChunkPath = (index) => (
-    path.join(chunksDir, `chunk_${String(index).padStart(4, '0')}.wav`)
-  );
+  const normalizeKey = (key) => {
+    if (Number.isInteger(key) || /^\d+$/.test(String(key))) {
+      return String(key).padStart(4, '0');
+    }
+    const value = String(key || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!value) throw new Error('Mã checkpoint giọng nói không hợp lệ');
+    return value;
+  };
+  const getRawChunkPath = (key) => path.join(rawDir, `chunk_${normalizeKey(key)}.wav`);
+  const getFittedChunkPath = (key) => path.join(fittedDir, `chunk_${normalizeKey(key)}.wav`);
+  const getChunkPath = getRawChunkPath;
   save();
 
   return {
     state,
     statePath,
     getChunkPath,
-    hasChunk(index) {
-      const entry = state.completed[String(index)];
-      return Boolean(entry && isUsableFile(getChunkPath(index), 44));
+    getRawChunkPath,
+    getFittedChunkPath,
+    hasChunk(key, entrySignature = null) {
+      const entry = state.completed[String(key)];
+      return Boolean(
+        entry
+        && (!entrySignature || entry.signature === entrySignature)
+        && isUsableFile(getRawChunkPath(key), 44)
+      );
     },
-    markChunk(index, entry) {
-      state.completed[String(index)] = entry;
+    markChunk(key, entry) {
+      state.completed[String(key)] = entry;
+      save();
+    },
+    hasFittedChunk(key, fitSignature = null) {
+      const entry = state.fitted[String(key)];
+      return Boolean(
+        entry
+        && (!fitSignature || entry.signature === fitSignature)
+        && isUsableFile(getFittedChunkPath(key), 44)
+      );
+    },
+    markFittedChunk(key, entry) {
+      state.fitted[String(key)] = entry;
       save();
     }
   };
@@ -524,6 +603,8 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
     sourceVideoPath: null,
     forceWhisper: false,
     translationReport: null,
+    backgroundSeparation: null,
+    segmentReview: null,
     createdAt,
     body: taskBody,
     uiSnapshot,
@@ -576,6 +657,13 @@ async function executeRenderTask(task) {
     task.step = 'Khởi tạo thư mục làm việc...';
 
     const body = task.body;
+    const audioMastering = normalizeAudioMasteringConfig(body);
+    const voiceProcessing = {
+      enabled: audioMastering.enabled,
+      voiceLufs: audioMastering.voiceLufs,
+      truePeakDb: audioMastering.truePeakDb,
+      loudnessRange: audioMastering.loudnessRange
+    };
     const files = task.files || {};
     const timestamp = Date.now();
     renderJobStore.ensureJob(task.id);
@@ -605,7 +693,7 @@ async function executeRenderTask(task) {
 
     const backgroundStage = await renderOrchestrator.runStage(task, 'background_separation', async () => {
       if (body.keepOriginalBgmAI !== 'true') {
-        return { instrumentalPath: null, residualVocalsPath: null };
+        return { instrumentalPath: null, residualVocalsPath: null, execution: null };
       }
 
       const tempAudioToSeparate = path.join(workDir, 'original_audio.wav');
@@ -614,7 +702,11 @@ async function executeRenderTask(task) {
       try {
         if (isUsableFile(instrumentalPath, 44) && isUsableFile(residualVocalsPath, 44)) {
           shared.updateStudioProgress(6, 'Đang dùng lại nhạc nền MDX từ checkpoint...');
-          return { instrumentalPath, residualVocalsPath };
+          return {
+            instrumentalPath,
+            residualVocalsPath,
+            execution: task.backgroundSeparation || null
+          };
         }
 
         if (!isUsableFile(tempAudioToSeparate, 44)) {
@@ -630,31 +722,55 @@ async function executeRenderTask(task) {
           });
         }
 
-        if (!fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
-          || !fs.existsSync(shared.AUDIO_SEPARATOR_MODEL_PATH)) {
-          throw new Error('Chưa tải công cụ MDX ONNX tách nhạc nền');
-        }
-
-        shared.updateStudioProgress(6, 'Đang dùng MDX ONNX tách nhạc nền...');
-        await shared.runExecFile(shared.AUDIO_SEPARATOR_CLI_PATH, [
-          '--num-threads=4',
-          `--uvr-model=${shared.AUDIO_SEPARATOR_MODEL_PATH}`,
-          `--input-wav=${tempAudioToSeparate}`,
-          `--output-vocals-wav=${instrumentalPath}`,
-          `--output-accompaniment-wav=${residualVocalsPath}`
-        ]);
+        const requestedProvider = body.mdxProvider || 'auto';
+        const execution = await mdxSeparatorManager.separate({
+          requestedProvider,
+          numThreads: body.mdxCpuThreads || 4,
+          inputPath: tempAudioToSeparate,
+          vocalsPath: instrumentalPath,
+          accompanimentPath: residualVocalsPath,
+          isCancelled: () => !shared.state.isStudioRendering || task.status === 'failed',
+          onProviderSelected: ({ provider, reason }) => {
+            const label = provider === 'cuda' ? 'NVIDIA CUDA' : 'CPU';
+            const suffix = reason ? ` (${reason})` : '';
+            shared.updateStudioProgress(6, `Đang dùng MDX ONNX ${label} tách nhạc nền${suffix}...`);
+          },
+          onFallback: ({ reason }) => {
+            shared.updateStudioProgress(
+              6,
+              `MDX CUDA lỗi, đang chuyển sang CPU: ${reason}`
+            );
+          }
+        });
 
         if (!fs.existsSync(instrumentalPath)) {
           throw new Error('MDX ONNX không tạo được file nhạc nền');
         }
-        console.log('[Studio Render] MDX ONNX đã tách xong nhạc nền:', instrumentalPath);
-        return { instrumentalPath, residualVocalsPath };
+        task.backgroundSeparation = execution;
+        console.log(
+          `[Studio Render] MDX ONNX đã tách xong bằng ${execution.usedProvider}:`,
+          instrumentalPath
+        );
+        return { instrumentalPath, residualVocalsPath, execution };
       } catch (err) {
         if (!shared.state.isStudioRendering || task.status === 'failed') throw err;
         console.error('[Studio Render] Lỗi tách nhạc nền bằng AI:', err.message);
-        return { instrumentalPath: null, residualVocalsPath: null };
+        if ((body.mdxProvider || 'auto') === 'cuda') throw err;
+        task.backgroundSeparation = {
+          requestedProvider: body.mdxProvider || 'auto',
+          usedProvider: null,
+          fallback: false,
+          fallbackReason: null,
+          error: err.message
+        };
+        return {
+          instrumentalPath: null,
+          residualVocalsPath: null,
+          execution: task.backgroundSeparation
+        };
       }
     });
+    task.backgroundSeparation = backgroundStage.execution || task.backgroundSeparation || null;
     const extractedBgmPath = backgroundStage.instrumentalPath;
 
     let reactionVideoPath = null;
@@ -701,6 +817,7 @@ async function executeRenderTask(task) {
       return { subtitlePath: resolvedSubtitlePath };
     });
     subtitlePath = subtitleStage.subtitlePath;
+    const sourceSubtitlePath = subtitlePath;
 
     let originalIsChinese = false;
     if (subtitlePath && fs.existsSync(subtitlePath)) {
@@ -738,8 +855,9 @@ async function executeRenderTask(task) {
           ninerouterModel: body.ninerouterModel,
           ninerouterBaseUrl: body.ninerouterBaseUrl,
           opencodeModel: body.opencodeModel,
-          targetLang,
-          translationProfile: body.translationProfile
+          openaiApiKey: body.openaiApiKey,
+          openaiModel: body.openaiModel,
+          targetLang
         }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
         task.translationReport = translationResult?.report || null;
         finalSubtitlePath = translatedPath;
@@ -758,6 +876,33 @@ async function executeRenderTask(task) {
     });
     subtitlePath = translationStage.subtitlePath;
     task.translationReport = translationStage.translationReport || null;
+
+    let segmentManifest = null;
+    const segmentReviewEnabled = body.segmentReviewEnabled === true
+      || body.segmentReviewEnabled === 'true'
+      || body.segmentReviewEnabled === 'on';
+    if (voiceMode === 'omi' && subtitlePath && fs.existsSync(subtitlePath)) {
+      segmentManifest = segmentService.createOrLoad({
+        taskId: task.id,
+        workDir,
+        sourceSubtitlePath,
+        finalSubtitlePath: subtitlePath,
+        durationMs: totalDuration * 1000,
+        reviewRequired: segmentReviewEnabled,
+        defaultVoiceFile: body.savedVoiceFile || '',
+        defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID,
+        asrMetadataPath: fs.existsSync(`${sourceSubtitlePath}.asr.json`)
+          ? `${sourceSubtitlePath}.asr.json`
+          : null
+      });
+      task.segmentReview = segmentService.summarize(segmentManifest);
+      renderJobStore.saveTask(task);
+
+      if (segmentReviewEnabled && segmentManifest.reviewStatus !== 'approved') {
+        throw new SegmentReviewRequiredError();
+      }
+      subtitlePath = segmentManifest.reviewedSrtPath;
+    }
 
     let voicePath = null;
     renderOrchestrator.markStage(task, 'voice');
@@ -805,31 +950,35 @@ async function executeRenderTask(task) {
         );
       };
       const runVoiceEngine = async (options) => {
-        const method = options.referenceAudioPath && options.referenceText
-          ? 'cloneVoice'
-          : 'synthesize';
-        const result = await voiceEngine[method]({
-          ...options,
-          language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
-          device: requestedVoiceDevice,
-          steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-          seed: options.seed || (
-            body.omiSeed && body.omiSeed.trim() !== ''
-              ? body.omiSeed
-              : String(Math.floor(Math.random() * 9999999))
-          ),
-          allowCpuFallback,
-          onFallback: onVoiceFallback
-        });
-        task.voiceExecution = {
-          engineId: result.engineId,
-          requestedDevice: result.requestedDevice,
-          usedDevice: result.usedDevice,
-          fallback: result.fallback,
-          language: result.language
-        };
-        renderJobStore.saveTask(task);
-        return result;
+        const lockOwner = `render:${task.id}`;
+        shared.acquireVoiceEngine(lockOwner);
+        try {
+          const method = options.referenceAudioPath && options.referenceText
+            ? 'cloneVoice'
+            : 'synthesize';
+          const result = await voiceEngine[method]({
+            ...options,
+            language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+            device: requestedVoiceDevice,
+            steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+            seed: resolveOmnivoiceSeed(options.seed ?? body.omiSeed),
+            allowCpuFallback,
+            onFallback: onVoiceFallback
+          });
+          task.voiceExecution = {
+            engineId: result.engineId,
+            requestedDevice: result.requestedDevice,
+            usedDevice: result.usedDevice,
+            fallback: result.fallback,
+            language: result.language,
+            persistentRuntime: result.persistentRuntime === true,
+            referencePromptCache: result.referencePromptCache === true
+          };
+          renderJobStore.saveTask(task);
+          return result;
+        } finally {
+          shared.releaseVoiceEngine(lockOwner);
+        }
       };
 
       let finalRefAudioPath = null;
@@ -936,40 +1085,50 @@ async function executeRenderTask(task) {
           return res.status(400).json({ error: 'File phụ đề rỗng hoặc không có nội dung chữ.' });
         }
 
-        const groups = [];
+        const groups = segmentManifest
+          ? segmentManifest.segments.map((segment) => [{
+              id: segment.id,
+              startTime: msToSrtTime(segment.startMs),
+              endTime: msToSrtTime(segment.endMs),
+              text: segment.text,
+              segment
+            }])
+          : [];
         let currentGroup = [];
 
-        for (let i = 0; i < srtArray.length; i++) {
-          const item = srtArray[i];
-          currentGroup.push(item);
+        if (!segmentManifest) {
+          for (let i = 0; i < srtArray.length; i++) {
+            const item = srtArray[i];
+            currentGroup.push(item);
 
-          const currentEndMs = srtTimeToMs(item.endTime);
-          const nextItem = srtArray[i + 1];
+            const currentEndMs = srtTimeToMs(item.endTime);
+            const nextItem = srtArray[i + 1];
 
-          let shouldSplit = false;
-          if (!nextItem) {
-            shouldSplit = true;
-          } else {
-            const nextStartMs = srtTimeToMs(nextItem.startTime);
-            const gapMs = nextStartMs - currentEndMs;
-
-            const endsWithPunctuation = /[.!?…。]$/.test(item.text.trim());
-            if (gapMs > 1000 || endsWithPunctuation) {
+            let shouldSplit = false;
+            if (!nextItem) {
               shouldSplit = true;
-            }
+            } else {
+              const nextStartMs = srtTimeToMs(nextItem.startTime);
+              const gapMs = nextStartMs - currentEndMs;
 
-            // Tách group nếu tổng thời gian đã vượt quá 10s để tránh đọc quá sớm
-            if (!shouldSplit) {
-              const groupStartMs = srtTimeToMs(currentGroup[0].startTime);
-              if (currentEndMs - groupStartMs > 10000) {
+              const endsWithPunctuation = /[.!?…。]$/.test(item.text.trim());
+              if (gapMs > 1000 || endsWithPunctuation) {
                 shouldSplit = true;
               }
-            }
-          }
 
-          if (shouldSplit) {
-            groups.push(currentGroup);
-            currentGroup = [];
+              // Tách group nếu tổng thời gian đã vượt quá 10s để tránh đọc quá sớm
+              if (!shouldSplit) {
+                const groupStartMs = srtTimeToMs(currentGroup[0].startTime);
+                if (currentEndMs - groupStartMs > 10000) {
+                  shouldSplit = true;
+                }
+              }
+            }
+
+            if (shouldSplit) {
+              groups.push(currentGroup);
+              currentGroup = [];
+            }
           }
         }
 
@@ -978,8 +1137,7 @@ async function executeRenderTask(task) {
         }
 
         const voiceCheckpointSignature = createCheckpointSignature({
-          version: 1,
-          subtitle: srtContent,
+          version: 3,
           referenceAudio: getFileIdentity(refAudioPath),
           refText,
           engineId: voiceEngine.id,
@@ -988,10 +1146,22 @@ async function executeRenderTask(task) {
             : voiceEngine.getCapabilities(),
           language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
           steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-          seed: body.omiSeed || '',
+          seed: resolveOmnivoiceSeed(body.omiSeed),
           positionTemperature: '1.0'
         });
         const voiceCheckpoint = createVoiceChunkCheckpoint(workDir, voiceCheckpointSignature);
+        let defaultPreviewReference = null;
+        if (segmentManifest && body.savedVoiceFile) {
+          defaultPreviewReference = await resolveVoiceReference({
+            voiceFile: body.savedVoiceFile,
+            defaultVoiceFile: body.savedVoiceFile,
+            providedText: refText,
+            workDir,
+            whisperModel: body.whisperModel || 'small',
+            whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
+            language: body.ocrLanguage || ''
+          });
+        }
 
         for (let idx = 0; idx < groups.length; idx++) {
           if (!shared.state.isStudioRendering || task.status === 'failed' || (task.step && task.step.includes('hủy'))) {
@@ -999,76 +1169,174 @@ async function executeRenderTask(task) {
             throw new Error('Đã hủy kết xuất bởi người dùng');
           }
           const group = groups[idx];
-          const lineText = group.map(item => item.text.replace(/\n/g, ' ').trim()).join(' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+          let lineText = group.map(item => item.text.replace(/\n/g, ' ').trim()).join(' ').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
           if (!lineText) continue;
 
           const startMs = srtTimeToMs(group[0].startTime);
           const endMs = srtTimeToMs(group[group.length - 1].endTime);
           const durationSec = Math.max(0.5, (endMs - startMs) / 1000);
           const progressPercent = 48 + Math.floor((idx / groups.length) * 30);
-          const chunkPath = voiceCheckpoint.getChunkPath(idx);
+          const segment = group[0].segment || null;
+          const checkpointKey = segment?.id || idx;
+          let segmentReferenceAudioPath = finalRefAudioPath;
+          let segmentReferenceText = refText;
+          let segmentReferenceIdentity = getFileIdentity(refAudioPath);
+          let legacyReferenceAudioPath = defaultPreviewReference?.audioPath || finalRefAudioPath;
+          const segmentVoiceFile = segment?.voiceFile || body.savedVoiceFile || '';
+          if (segment && segmentVoiceFile && segmentVoiceFile !== body.savedVoiceFile) {
+            const segmentReference = await resolveVoiceReference({
+              voiceFile: segmentVoiceFile,
+              defaultVoiceFile: body.savedVoiceFile || '',
+              providedText: '',
+              workDir,
+              whisperModel: body.whisperModel || 'small',
+              whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
+              language: body.ocrLanguage || ''
+            });
+            segmentReferenceAudioPath = segmentReference.audioPath;
+            segmentReferenceText = segmentReference.text;
+            segmentReferenceIdentity = segmentReference.sourceIdentity;
+            legacyReferenceAudioPath = segmentReference.audioPath;
+          }
+          const initialChunkSignature = createVoiceAudioSignature({
+            text: lineText,
+            voiceFile: segmentVoiceFile,
+            referenceIdentity: segmentReferenceIdentity,
+            referenceText: segmentReferenceText,
+            engineId: voiceEngine.id,
+            steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+            language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+            seed: resolveOmnivoiceSeed(body.omiSeed),
+            positionTemperature: 1
+          });
+          const legacyChunkSignature = segment
+            ? createLegacyVoiceAudioSignature({
+                text: lineText,
+                voiceFile: segmentVoiceFile,
+                referenceAudioPath: legacyReferenceAudioPath,
+                referenceText: segmentReferenceText,
+                engineId: voiceEngine.id,
+                steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+                language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi'
+              })
+            : null;
+          const rawChunkPath = voiceCheckpoint.getRawChunkPath(checkpointKey);
+          const fittedChunkPath = voiceCheckpoint.getFittedChunkPath(checkpointKey);
+          let hasRawChunk = voiceCheckpoint.hasChunk(checkpointKey, initialChunkSignature);
 
-          if (voiceCheckpoint.hasChunk(idx)) {
+          if (hasRawChunk) {
             shared.updateStudioProgress(
               progressPercent,
               `AI Cloner: Dùng lại câu thoại ${idx + 1}/${groups.length} từ checkpoint...`
             );
-            voiceChunks.push({ filePath: chunkPath, startMs });
-            continue;
           }
 
-          shared.updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
+          const reusableSegmentAudio = segment && (
+            segment.rawAudioSignature === initialChunkSignature
+            || segment.rawAudioSignature === legacyChunkSignature
+          );
+          if (!hasRawChunk && reusableSegmentAudio) {
+            const previewPath = segmentService.getRawAudioPath(workDir, segment.id);
+            if (previewPath && path.resolve(previewPath) !== path.resolve(rawChunkPath)) {
+              fs.mkdirSync(path.dirname(rawChunkPath), { recursive: true });
+              fs.copyFileSync(previewPath, rawChunkPath);
+              hasRawChunk = true;
+              shared.updateStudioProgress(
+                progressPercent,
+                `AI Cloner: Dùng audio đã duyệt cho câu ${idx + 1}/${groups.length}...`
+              );
+            }
+          }
+
+          if (!hasRawChunk) {
+            shared.updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
+          }
 
           const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
 
-          console.log(`[OmniVoice-Sub] Đang đọc nhóm câu ${idx + 1}/${groups.length}: "${lineText}" (Thời lượng sub: ${durationSec.toFixed(2)}s, Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`);
+          console.log(
+            `[OmniVoice-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
+            + ` ${idx + 1}/${groups.length}: "${lineText}"`
+            + ` (Thời lượng sub: ${durationSec.toFixed(2)}s,`
+            + ` Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`
+          );
           try {
-            await runVoiceEngine({
-              text: lineText,
-              outputPath: chunkPath,
-              steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-              positionTemperature: 1,
-              referenceAudioPath: finalRefAudioPath,
-              referenceText: refText,
-              instruct: 'female'
-            });
-            if (fs.existsSync(chunkPath)) {
+            let rawDurationMs;
+            let chunkSignature;
+            let fitSignature;
+            let fitPlan;
+            let narration;
               try {
-                const wavInfo = readWavInfo(chunkPath);
-                const dataSize = wavInfo.dataSize;
-                let actualDurationMs = Math.round(dataSize / wavInfo.bytesPerMs);
-
-                const subtitleDurationMs = endMs - startMs;
-                const maxAllowedDurationMs = Math.max(200, subtitleDurationMs - 50);
-
-                if (actualDurationMs > maxAllowedDurationMs) {
-                  const speedUpRatio = actualDurationMs / maxAllowedDurationMs;
-                  console.log(`[OmniVoice-Sub] Nhóm câu ${idx + 1} dài hơn phụ đề (${actualDurationMs}ms > ${maxAllowedDurationMs}ms). Đang dùng FFmpeg để tăng tốc ${speedUpRatio.toFixed(2)}x...`);
-
-                  const tempSpeedUpPath = chunkPath.replace('.wav', '_speedup.wav');
-                  let remainingRatio = speedUpRatio;
-                  const filterParts = [];
-                  while (remainingRatio > 2.0) {
-                    filterParts.push('atempo=2.0');
-                    remainingRatio /= 2.0;
-                  }
-                  if (remainingRatio > 0.5) {
-                    filterParts.push(`atempo=${remainingRatio.toFixed(3)}`);
-                  }
-                  const atempoFilter = filterParts.join(',');
-
-                  const ffmpegSpeedArgs = [
-                    '-i', chunkPath,
-                    '-filter:a', atempoFilter,
-                    '-y', tempSpeedUpPath
-                  ];
-
-                  await shared.runExecFile(shared.FFMPEG_PATH, ffmpegSpeedArgs);
-                  if (fs.existsSync(tempSpeedUpPath)) {
-                    fs.copyFileSync(tempSpeedUpPath, chunkPath);
-                    fs.unlinkSync(tempSpeedUpPath);
-                    console.log(`[OmniVoice-Sub] Đã tăng tốc nhóm câu ${idx + 1} thành công.`);
-                  }
+                narration = await generateNarrationWithinCue({
+                  initialText: lineText,
+                  startMs,
+                  endMs,
+                  createSignature: (text) => createVoiceAudioSignature({
+                    text,
+                    voiceFile: segmentVoiceFile,
+                    referenceIdentity: segmentReferenceIdentity,
+                    referenceText: segmentReferenceText,
+                    engineId: voiceEngine.id,
+                    steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+                    language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+                    seed: resolveOmnivoiceSeed(body.omiSeed),
+                    positionTemperature: 1
+                  }),
+                  isReusable: (signature) => (
+                    signature === initialChunkSignature
+                    && hasRawChunk
+                    && isUsableFile(rawChunkPath, 44)
+                  ),
+                  synthesize: async (text) => {
+                    fs.rmSync(rawChunkPath, { force: true });
+                    await runVoiceEngine({
+                      text,
+                      outputPath: rawChunkPath,
+                      steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
+                      positionTemperature: 1,
+                      referenceAudioPath: segmentReferenceAudioPath,
+                      referenceText: segmentReferenceText,
+                      instruct: 'female'
+                    });
+                    if (!isUsableFile(rawChunkPath, 44)) {
+                      throw new Error('Voice engine không tạo được audio thuyết minh');
+                    }
+                  },
+                  measureDuration: () => readWavDurationMs(rawChunkPath)
+                });
+                lineText = narration.text;
+                rawDurationMs = narration.rawDurationMs;
+                chunkSignature = narration.signature;
+                fitPlan = narration.fitPlan;
+                voiceCheckpoint.markChunk(checkpointKey, {
+                  filePath: rawChunkPath,
+                  startMs,
+                  endMs,
+                  signature: chunkSignature,
+                  textSignature: createCheckpointSignature(lineText)
+                });
+                fitSignature = createSmartFitSignature({
+                  rawSignature: chunkSignature,
+                  rawFile: getFileIdentity(rawChunkPath),
+                  mode: 'cue',
+                  startMs,
+                  endMs,
+                  audioProcessing: voiceProcessing
+                });
+                if (!voiceCheckpoint.hasFittedChunk(checkpointKey, fitSignature)) {
+                  await createFittedVoiceChunk({
+                    rawPath: rawChunkPath,
+                    outputPath: fittedChunkPath,
+                    fitPlan,
+                    ffmpegPath: shared.FFMPEG_PATH,
+                    runExecFile: shared.runExecFile,
+                    normalizationOptions: {
+                      integratedLufs: audioMastering.voiceLufs,
+                      loudnessRange: audioMastering.loudnessRange,
+                      truePeakDb: audioMastering.truePeakDb
+                    },
+                    label: `Nhóm câu ${idx + 1}`
+                  });
                 }
               } catch (speedUpErr) {
                 console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
@@ -1076,17 +1344,40 @@ async function executeRenderTask(task) {
               }
 
               voiceChunks.push({
-                filePath: chunkPath,
+                filePath: fittedChunkPath,
                 startMs: startMs
               });
-              voiceCheckpoint.markChunk(idx, {
-                filePath: chunkPath,
-                startMs,
-                endMs,
-                textSignature: createCheckpointSignature(lineText)
+              const fittedQuality = analyzeWavFile(fittedChunkPath);
+              voiceCheckpoint.markFittedChunk(checkpointKey, {
+                filePath: fittedChunkPath,
+                signature: fitSignature,
+                plan: fitPlan,
+                quality: fittedQuality
               });
-            } else {
-              throw new Error(`Không tìm thấy file âm thanh thuyết minh đầu ra của nhóm câu ${idx + 1} sau khi chạy OmniVoice.`);
+              if (segment) {
+                const audioQuality = fittedQuality;
+                const fittedDurationMs = audioQuality.durationMs;
+                segmentManifest = segmentService.setSegmentAudio(workDir, segment.id, {
+                  status: 'ready',
+                  rawAudioFile: path.relative(workDir, rawChunkPath),
+                  rawAudioDurationMs: rawDurationMs,
+                  rawAudioSignature: chunkSignature,
+                  audioFile: path.relative(workDir, fittedChunkPath),
+                  audioDurationMs: fittedDurationMs,
+                  audioSignature: fitSignature,
+                  audioQuality,
+                  fit: { ...fitPlan, fittedDurationMs, signature: fitSignature },
+                  narrationText: narration.text,
+                  narrationFit: {
+                    shortened: narration.shortened || segment.narrationFit?.shortened === true,
+                    originalText: segment.narrationFit?.originalText || narration.originalText,
+                    attempts: (Number(segment.narrationFit?.attempts) || 0) + narration.attempts,
+                    maxSpeed: fitPlan.maxSpeed,
+                    finalSpeed: fitPlan.speed
+                  }
+                });
+                task.segmentReview = segmentService.summarize(segmentManifest);
+                renderJobStore.saveTask(task);
             }
           } catch (err) {
             console.error(`Lỗi khi thuyết minh nhóm câu ${idx + 1}/${groups.length}:`, err.stderr || err.message);
@@ -1105,51 +1396,55 @@ async function executeRenderTask(task) {
           console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
           let maxEndMs = 0;
           const chunkDataList = [];
-          let combinedSampleRate = 24000;
+          let combinedSampleRate = null;
+          let combinedBlockAlign = null;
+          let combinedByteRate = null;
 
           for (let ci = 0; ci < voiceChunks.length; ci++) {
             const chunk = voiceChunks[ci];
-            const wavInfo = readWavInfo(chunk.filePath);
-            const { sampleRate, bytesPerMs, dataSize, actualDataOffset } = wavInfo;
-            combinedSampleRate = sampleRate;
-            const durationMs = Math.round(dataSize / bytesPerMs);
+            const wavInfo = readPcm16WavFile(chunk.filePath);
+            const {
+              sampleRate,
+              channels,
+              bitsPerSample,
+              blockAlign,
+              byteRate,
+              dataSize,
+              pcmBuffer
+            } = wavInfo;
+            if (channels !== 1 || bitsPerSample !== 16) {
+              throw new Error(`Chunk WAV phải là PCM 16-bit mono: ${chunk.filePath}`);
+            }
+            if (combinedSampleRate === null) {
+              combinedSampleRate = sampleRate;
+              combinedBlockAlign = blockAlign;
+              combinedByteRate = byteRate;
+            } else if (
+              sampleRate !== combinedSampleRate
+              || blockAlign !== combinedBlockAlign
+              || byteRate !== combinedByteRate
+            ) {
+              throw new Error(`Các chunk WAV không cùng định dạng: ${chunk.filePath}`);
+            }
+            const durationMs = (dataSize / byteRate) * 1000;
             const endMs = chunk.startMs + durationMs;
             if (endMs > maxEndMs) {
               maxEndMs = endMs;
-            }
-
-            const fd = fs.openSync(chunk.filePath, 'r');
-            const pcmBuffer = Buffer.alloc(dataSize);
-            fs.readSync(fd, pcmBuffer, 0, dataSize, actualDataOffset);
-            fs.closeSync(fd);
-
-            // Fade-in và fade-out tất cả chunk để tránh tiếng "tách" giữa các câu
-            const totalSamples = dataSize / 2;
-            const fadeSamples = Math.min(360, Math.floor(totalSamples / 2));
-            for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
-              const byteOffset = sampleIdx * 2;
-              let val = pcmBuffer.readInt16LE(byteOffset);
-              if (sampleIdx < fadeSamples) {
-                val = Math.round(val * (sampleIdx / fadeSamples));
-              } else if (sampleIdx >= totalSamples - fadeSamples) {
-                const distFromEnd = totalSamples - 1 - sampleIdx;
-                val = Math.round(val * (distFromEnd / fadeSamples));
-              }
-              pcmBuffer.writeInt16LE(val, byteOffset);
             }
 
             chunkDataList.push({
               startMs: chunk.startMs,
               pcmBuffer: pcmBuffer,
               durationMs: durationMs,
-              bytesPerMs: bytesPerMs
+              sampleRate,
+              blockAlign
             });
           }
 
           if (maxEndMs > 0) {
-            const bytesPerMs = chunkDataList[0].bytesPerMs;
             const maxSafeMs = Math.min(maxEndMs, 7200000);
-            const combinedDataSize = Math.round(maxSafeMs * bytesPerMs);
+            const combinedFrameCount = Math.ceil(maxSafeMs * combinedSampleRate / 1000);
+            const combinedDataSize = combinedFrameCount * combinedBlockAlign;
             let combinedBuffer;
             try {
               combinedBuffer = Buffer.alloc(combinedDataSize);
@@ -1158,9 +1453,13 @@ async function executeRenderTask(task) {
             }
 
             for (const chunk of chunkDataList) {
-              const targetOffset = Math.round(chunk.startMs * chunk.bytesPerMs);
+              const targetFrame = Math.max(0, Math.round(chunk.startMs * chunk.sampleRate / 1000));
+              const targetOffset = targetFrame * chunk.blockAlign;
               const pcmLength = chunk.pcmBuffer.length;
-              const limit = Math.min(pcmLength, combinedDataSize - targetOffset);
+              const availableBytes = Math.max(0, combinedDataSize - targetOffset);
+              const limit = Math.floor(
+                Math.min(pcmLength, availableBytes) / chunk.blockAlign
+              ) * chunk.blockAlign;
 
               for (let i = 0; i < limit; i += 2) {
                 if (targetOffset + i + 1 >= combinedDataSize) break;
@@ -1553,26 +1852,19 @@ async function executeRenderTask(task) {
     if ((body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') && extractedBgmPath) {
       originalVolume = 0;
     }
-    if (audioInputs.length > 0) {
+    if (audioInputs.length > 0 || audioMastering.enabled) {
       hasAudioFilter = true;
-      const audioFilters = [`[0:a]volume=${originalVolume}[a0]`];
-      const mixLabels = ['[a0]'];
-      audioInputs.forEach((input, idx) => {
-        const label = `a${idx + 1}`;
-        const targetVolume = input.volume;
-        if (input.type === 'chunk') {
-          if (input.startMs > 0) {
-            audioFilters.push(`[${input.index}:a]adelay=${input.startMs}:all=1,volume=${targetVolume}[${label}]`);
-          } else {
-            audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
-          }
-        } else {
-          audioFilters.push(`[${input.index}:a]volume=${targetVolume}[${label}]`);
-        }
-        mixLabels.push(`[${label}]`);
+      const audioMix = buildAudioMixGraph({
+        inputs: audioInputs,
+        originalVolume,
+        config: audioMastering
       });
-      audioFilters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0,dynaudnorm=p=0.95:m=1[aout]`);
-      filterComplex.push(audioFilters.join(';'));
+      task.audioMastering = {
+        config: audioMastering,
+        duckingApplied: audioMix.duckingApplied,
+        hasVoice: audioMix.hasVoice
+      };
+      filterComplex.push(audioMix.filter);
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
       filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
@@ -1681,6 +1973,45 @@ async function executeRenderTask(task) {
       }
     }
 
+    let audioReport = null;
+    const audioTracks = {};
+    shared.updateStudioProgress(97, 'Đang kiểm tra chất lượng âm thanh...');
+    const qcAudioPath = path.join(workDir, 'output', 'final_mix_qc.wav');
+    try {
+      fs.mkdirSync(path.dirname(qcAudioPath), { recursive: true });
+      await shared.runExecFile(shared.FFMPEG_PATH, [
+        '-i', outPath,
+        '-vn',
+        '-ac', '2',
+        '-ar', '48000',
+        '-c:a', 'pcm_s16le',
+        '-y', qcAudioPath
+      ]);
+      audioReport = analyzeWavFile(qcAudioPath);
+      audioReport.status = 'ready';
+    } catch (audioQcError) {
+      audioReport = {
+        status: 'unavailable',
+        warnings: ['audio_qc_unavailable'],
+        error: audioQcError.message
+      };
+      console.warn('[Audio QC] Không thể phân tích bản phối:', audioQcError.message);
+    }
+
+    if (audioMastering.exportTracks) {
+      const exportTrack = (sourcePath, suffix) => {
+        if (!sourcePath || !fs.existsSync(sourcePath)) return null;
+        const extension = path.extname(sourcePath) || '.wav';
+        const file = `studio_${timestamp}_${suffix}${extension}`;
+        fs.copyFileSync(sourcePath, path.join(shared.RENDERS_DIR, file));
+        return { file, url: `/renders/${encodeURIComponent(file)}` };
+      };
+      const voiceTrack = exportTrack(voicePath, 'voice');
+      const backgroundTrack = exportTrack(musicPath, 'background');
+      if (voiceTrack) audioTracks.voice = voiceTrack;
+      if (backgroundTrack) audioTracks.background = backgroundTrack;
+    }
+
     if (subtitlePath && fs.existsSync(subtitlePath)) {
       try {
         shared.updateStudioProgress(98, 'Đang xuất các file phụ đề bổ sung...');
@@ -1701,7 +2032,10 @@ async function executeRenderTask(task) {
         message: 'Đã render video',
         file: outName,
         url: `/renders/${encodeURIComponent(outName)}`,
-        translationReport: task.translationReport || null
+        translationReport: task.translationReport || null,
+        audioMastering: task.audioMastering || { config: audioMastering },
+        audioReport,
+        audioTracks
       });
     } else {
       console.log(`[Studio Render] Phiên render cũ (${renderId}) đã hoàn thành nhưng đã bị thay thế hoặc hủy trước đó.`);
@@ -1799,12 +2133,16 @@ function createRenderQueueHandlers(dependencies = {}) {
           result: task.result,
           translationReport: task.translationReport || null,
           voiceExecution: task.voiceExecution || null,
+          backgroundSeparation: task.backgroundSeparation || null,
+          segmentReview: task.segmentReview || null,
           currentStage: task.currentStage || null,
           completedStages: Object.entries(task.stages || {})
             .filter(([, stage]) => stage.status === 'success')
             .map(([name]) => name),
           uiSnapshot: normalizeUiSnapshot(task.uiSnapshot, task.body),
-          canResume: task.status === 'error' || task.actionRequired === 'render_resume'
+          canResume: task.status === 'error'
+            || task.actionRequired === 'render_resume'
+            || task.actionRequired === 'segment_review'
         })),
         currentActiveId: state.currentActiveTask ? state.currentActiveTask.id : null
       });
@@ -1854,9 +2192,19 @@ function createRenderQueueHandlers(dependencies = {}) {
 
       const task = state.renderQueue.find((candidate) => candidate.id === taskId);
       if (!task) return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+      const isApprovedSegmentReview = task.status === 'waiting_input'
+        && task.actionRequired === 'segment_review'
+        && segmentService.load(task.workDir)?.reviewStatus === 'approved';
       const resumable = task.status === 'error'
-        || (task.status === 'waiting_input' && task.actionRequired === 'render_resume');
+        || (task.status === 'waiting_input' && task.actionRequired === 'render_resume')
+        || isApprovedSegmentReview;
       if (!resumable) return res.status(409).json({ error: 'Tác vụ này không ở trạng thái có thể tiếp tục' });
+
+      if (isApprovedSegmentReview && (!task.sourceVideoPath || !existsSync(task.sourceVideoPath))) {
+        return res.status(409).json({
+          error: 'Video nguồn không còn tồn tại. Không thể tiếp tục render.'
+        });
+      }
 
       const settingFields = [
         'aiProvider',
@@ -1867,6 +2215,10 @@ function createRenderQueueHandlers(dependencies = {}) {
         'ninerouterApiKey',
         'ninerouterModel',
         'ninerouterBaseUrl',
+        'opencodeModel',
+        'openaiApiKey',
+        'openaiModel',
+        'translateTargetLang',
         'whisperModel',
         'whisperOnnxVariant'
       ];

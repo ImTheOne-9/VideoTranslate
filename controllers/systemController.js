@@ -7,8 +7,22 @@ const shared = require('../lib/shared-state');
 const { getCompositeHWID, saveLicenseLocal, verifyLocalLicense, LICENSE_SERVER_URL } = require('../lib/license-manager');
 const { checkDependencyStatus, cleanupLegacySeparator, downloadAndExtract } = require('../lib/dependency-downloader');
 const ocrComponentManager = require('../lib/ocr-component-manager');
+const mdxCudaComponentManager = require('../lib/mdx-cuda-component-manager');
 const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
+const { createMdxSeparatorManager } = require('../lib/mdx-separator-manager');
+
+const mdxSeparatorManager = createMdxSeparatorManager({
+  fs,
+  runExecFile: shared.runExecFile,
+  cpuExecutablePath: shared.AUDIO_SEPARATOR_CLI_PATH,
+  cudaExecutablePath: shared.AUDIO_SEPARATOR_CUDA_CLI_PATH,
+  isCudaRuntimeReady: () => (
+    Boolean(process.env.MDX_CUDA_EXECUTABLE_PATH) ||
+    mdxCudaComponentManager.getStatus().status === 'ready'
+  ),
+  modelPath: shared.AUDIO_SEPARATOR_MODEL_PATH
+});
 
 let electronShell = null;
 let electronDialog = null;
@@ -31,17 +45,10 @@ function normalizeWhisperOnnxVariant(value) {
 }
 
 function getWhisperOnnxReadiness(variant) {
-  const { getWhisperOnnxConfig } = require('../lib/model-downloader');
+  const { getWhisperOnnxConfig, validateWhisperOnnxModel } = require('../lib/model-downloader');
   const config = getWhisperOnnxConfig(variant);
   const modelDir = path.join(shared.MODELS_DIR, 'whisper', config.folder);
-  return {
-    config,
-    modelDir,
-    exists: config.files.every((file) => {
-      const filePath = path.join(modelDir, ...file.name.split('/'));
-      return fs.existsSync(filePath) && fs.statSync(filePath).size === file.size;
-    })
-  };
+  return validateWhisperOnnxModel(modelDir, variant);
 }
 let activeDependencyDownload = null;
 
@@ -87,6 +94,43 @@ function createOcrComponentHandlers(manager, logger = console) {
 
 const ocrComponentHandlers = createOcrComponentHandlers(ocrComponentManager);
 
+function createMdxCudaComponentHandlers(manager, logger = console) {
+  return {
+    getMdxCudaComponentStatus: async (req, res) => {
+      try {
+        return res.json(await manager.refreshStatus());
+      } catch (error) {
+        logger.error('MDX CUDA component status refresh failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    },
+    startMdxCudaComponentDownload: (req, res) => {
+      try {
+        Promise.resolve(manager.download()).catch((error) => {
+          logger.error('MDX CUDA component download failed:', error);
+        });
+        return res.status(202).json({ success: true, message: 'Bắt đầu tải MDX CUDA' });
+      } catch (error) {
+        logger.error('MDX CUDA component download start failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    },
+    getMdxCudaComponentDownloadStatus: (req, res) => {
+      return res.json(manager.getDownloadProgress());
+    },
+    cancelMdxCudaComponentDownload: async (req, res) => {
+      try {
+        return res.json({ success: true, status: await manager.cancelDownload() });
+      } catch (error) {
+        logger.error('MDX CUDA component download cancel failed:', error);
+        return res.status(500).json({ error: error.message });
+      }
+    }
+  };
+}
+
+const mdxCudaComponentHandlers = createMdxCudaComponentHandlers(mdxCudaComponentManager);
+
 function registerOcrComponentRoutes(app, handlers) {
   app.get('/api/ocr-component/status', handlers.getOcrComponentStatus);
   app.post('/api/ocr-component/download', handlers.startOcrComponentDownload);
@@ -94,10 +138,20 @@ function registerOcrComponentRoutes(app, handlers) {
   app.post('/api/ocr-component/cancel', handlers.cancelOcrComponentDownload);
 }
 
+function registerMdxCudaComponentRoutes(app, handlers) {
+  app.get('/api/mdx-cuda-component/status', handlers.getMdxCudaComponentStatus);
+  app.post('/api/mdx-cuda-component/download', handlers.startMdxCudaComponentDownload);
+  app.get('/api/mdx-cuda-component/download-status', handlers.getMdxCudaComponentDownloadStatus);
+  app.post('/api/mdx-cuda-component/cancel', handlers.cancelMdxCudaComponentDownload);
+}
+
 module.exports = {
   createOcrComponentHandlers,
   registerOcrComponentRoutes,
   ...ocrComponentHandlers,
+  createMdxCudaComponentHandlers,
+  registerMdxCudaComponentRoutes,
+  ...mdxCudaComponentHandlers,
   getVideoInfo: async (req, res) => {
     try {
       // Validation tập trung qua validate helper
@@ -484,8 +538,18 @@ module.exports = {
     const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
     const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
 
-    const separatorCliOk = fs.existsSync(shared.AUDIO_SEPARATOR_CLI_PATH)
-      && fs.existsSync(shared.AUDIO_SEPARATOR_MODEL_PATH);
+    const mdxRuntime = mdxSeparatorManager.inspectRuntime();
+    const separatorCliOk = mdxRuntime.cpu.ready && mdxRuntime.model.ready;
+    const publicMdxRuntime = {
+      providers: mdxRuntime.providers,
+      hardware: mdxRuntime.hardware,
+      model: { ready: mdxRuntime.model.ready },
+      cpu: { ready: mdxRuntime.cpu.ready },
+      cuda: {
+        ready: mdxRuntime.cuda.ready,
+        hardwareAvailable: mdxRuntime.cuda.hardwareAvailable
+      }
+    };
 
     const ocrStatus = await ocrComponentManager.refreshOcrComponentStatus();
     const ocrOk = ocrStatus && ocrStatus.status === 'ready';
@@ -502,6 +566,7 @@ module.exports = {
       omnivoiceModel: omnivoiceModelOk,
       separator: separatorCliOk,
       separatorCli: separatorCliOk,
+      mdx: publicMdxRuntime,
       ocr: ocrOk
     });
   },
@@ -603,19 +668,29 @@ module.exports = {
     } catch (error) {
       return res.status(400).json({ error: error.message });
     }
-    const { config, exists } = getWhisperOnnxReadiness(variant);
+    const readiness = getWhisperOnnxReadiness(variant);
+    const { config, exists } = readiness;
     const totalBytes = config.files.reduce((sum, file) => sum + file.size, 0);
 
     const status = whisperDownloadStatus[variant] || { downloading: false, percent: 0, error: null };
     res.json({
       variant,
       exists,
+      state: readiness.state,
+      repairable: readiness.state === 'corrupt',
+      missingFiles: readiness.missingFiles,
+      invalidFiles: readiness.invalidFiles,
       downloading: status.downloading,
       percent: status.percent,
       error: status.error,
       downloadedBytes: status.downloadedBytes,
       totalBytes: status.totalBytes || totalBytes
     });
+  },
+
+  getWhisperDeviceStatus: async (req, res) => {
+    const { getWhisperDeviceCapabilities } = require('../lib/whisper-device');
+    res.json(getWhisperDeviceCapabilities());
   },
 
   downloadWhisperModel: async (req, res) => {
