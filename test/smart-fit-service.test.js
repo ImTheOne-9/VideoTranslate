@@ -144,7 +144,7 @@ test('cue-fit signature is stable, ignores legacy mode, and changes with timing'
   assert.equal(createSmartFitSignature(input), createSmartFitSignature({ ...input, mode: 'natural' }));
   assert.notEqual(
     createSmartFitSignature(input),
-    createSmartFitSignature({ ...input, audioProcessing: { crossfadeMs: 35 } })
+    createSmartFitSignature({ ...input, audioProcessing: { integratedLufs: -17 } })
   );
 });
 
@@ -176,13 +176,13 @@ test('normalizes fitted copies without modifying the raw WAV', async (t) => {
       rawDurationMs: 1000
     }),
     ffmpegPath: 'ffmpeg',
-    normalizationOptions: { fadeMs: 35, integratedLufs: -17 },
+    normalizationOptions: { integratedLufs: -17 },
     runExecFile: async (_command, args) => {
       const filter = args[args.indexOf('-filter:a') + 1];
       assert.match(filter, /loudnorm=I=-17:LRA=7:TP=-1\.5/);
       assert.match(filter, /alimiter=/);
       assert.match(filter, /aresample=24000/);
-      assert.match(filter, /afade=t=in:st=0:d=0\.035/);
+      assert.doesNotMatch(filter, /afade=/);
       fs.copyFileSync(rawPath, args.at(-1));
     }
   });

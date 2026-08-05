@@ -8,6 +8,7 @@ const {
   createTranslationCheckpoint,
   createTranslationIncompleteError,
   fallbackFailedItemsWithNllb,
+  resolveGlobalTranslationContext,
   translateJsonBatchesWithCheckpoint,
   validateTranslationCandidate,
   validateTranslationMap
@@ -131,6 +132,89 @@ test('changing source invalidates a stale translation checkpoint', async (t) => 
     targetLang: 'vi'
   });
   assert.deepEqual(changed.checkpoint.entries, {});
+});
+
+test('whole-SRT analysis is checkpointed and reused without storing credentials', async (t) => {
+  const outputPath = await tempOutput(t);
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText: 'full subtitle source',
+    targetLang: 'vi'
+  });
+  const srtArray = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: '第一句' },
+    { id: '2', startTime: '00:00:01,000', endTime: '00:00:02,000', text: '第二句' }
+  ];
+  let calls = 0;
+  const analyze = async (prompt) => {
+    calls += 1;
+    assert.match(prompt, /第一句/);
+    assert.match(prompt, /第二句/);
+    return {
+      summary: 'Câu chuyện thử nghiệm',
+      characters: [{ name: 'Nhân vật A', gender: 'không rõ', role: 'nhân vật chính' }],
+      terminology: [{ source: '术语', target: 'thuật ngữ' }],
+      tone: 'Trung tính',
+      translationRules: ['Giữ nhất quán xưng hô']
+    };
+  };
+
+  const first = await resolveGlobalTranslationContext({
+    checkpoint,
+    analysisKey: 'provider:model',
+    srtArray,
+    targetLangName: 'Tiếng Việt',
+    analyze
+  });
+  const second = await resolveGlobalTranslationContext({
+    checkpoint,
+    analysisKey: 'provider:model',
+    srtArray,
+    targetLangName: 'Tiếng Việt',
+    analyze
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(second, first);
+  const savedText = await fs.promises.readFile(checkpoint.checkpointPath, 'utf8');
+  assert.match(savedText, /Câu chuyện thử nghiệm/);
+  assert.doesNotMatch(savedText, /apiKey|Authorization|Bearer/i);
+});
+
+test('every translation batch receives the shared whole-SRT context', async (t) => {
+  const outputPath = await tempOutput(t);
+  const items = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: '第一句' },
+    { id: '2', startTime: '00:00:01,000', endTime: '00:00:02,000', text: '第二句' },
+    { id: '3', startTime: '00:00:02,000', endTime: '00:00:03,000', text: '第三句' }
+  ];
+  const sourceById = { 1: '第一句', 2: '第二句', 3: '第三句' };
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText: Object.values(sourceById).join('\n'),
+    targetLang: 'vi'
+  });
+  const globalContext = { summary: 'Ngữ cảnh dùng chung' };
+  const received = [];
+
+  const result = await translateJsonBatchesWithCheckpoint({
+    srtArray: items,
+    sourceById,
+    checkpoint,
+    providerName: 'Test AI',
+    targetLang: 'vi',
+    srcLang: 'zho_Hans',
+    batchSize: 2,
+    batchDelayMs: 0,
+    globalContext,
+    translateBatch: async (map, previous, shared) => {
+      received.push({ ids: Object.keys(map), previous, shared });
+      return Object.fromEntries(Object.keys(map).map((id) => [id, `Bản dịch ${id}`]));
+    }
+  });
+
+  assert.equal(result.failedItems.length, 0);
+  assert.deepEqual(received.map((entry) => entry.ids), [['1', '2'], ['3']]);
+  assert.ok(received.every((entry) => entry.shared === globalContext));
+  assert.equal(received[1].previous.length, 2);
 });
 
 test('NLLB fallback receives and replaces only failed cues', async (t) => {

@@ -662,8 +662,7 @@ async function executeRenderTask(task) {
       enabled: audioMastering.enabled,
       voiceLufs: audioMastering.voiceLufs,
       truePeakDb: audioMastering.truePeakDb,
-      loudnessRange: audioMastering.loudnessRange,
-      crossfadeMs: audioMastering.crossfadeMs
+      loudnessRange: audioMastering.loudnessRange
     };
     const files = task.files || {};
     const timestamp = Date.now();
@@ -1334,8 +1333,7 @@ async function executeRenderTask(task) {
                     normalizationOptions: {
                       integratedLufs: audioMastering.voiceLufs,
                       loudnessRange: audioMastering.loudnessRange,
-                      truePeakDb: audioMastering.truePeakDb,
-                      fadeMs: audioMastering.crossfadeMs
+                      truePeakDb: audioMastering.truePeakDb
                     },
                     label: `Nhóm câu ${idx + 1}`
                   });
@@ -1432,24 +1430,6 @@ async function executeRenderTask(task) {
             const endMs = chunk.startMs + durationMs;
             if (endMs > maxEndMs) {
               maxEndMs = endMs;
-            }
-
-            // Fade-in và fade-out tất cả chunk để tránh tiếng "tách" giữa các câu
-            const totalSamples = dataSize / 2;
-            const fadeSamples = Math.min(
-              Math.round(combinedSampleRate * audioMastering.crossfadeMs / 1000),
-              Math.floor(totalSamples / 2)
-            );
-            for (let sampleIdx = 0; sampleIdx < totalSamples; sampleIdx++) {
-              const byteOffset = sampleIdx * 2;
-              let val = pcmBuffer.readInt16LE(byteOffset);
-              if (sampleIdx < fadeSamples) {
-                val = Math.round(val * (sampleIdx / fadeSamples));
-              } else if (sampleIdx >= totalSamples - fadeSamples) {
-                const distFromEnd = totalSamples - 1 - sampleIdx;
-                val = Math.round(val * (distFromEnd / fadeSamples));
-              }
-              pcmBuffer.writeInt16LE(val, byteOffset);
             }
 
             chunkDataList.push({

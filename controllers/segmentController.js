@@ -300,8 +300,7 @@ async function regenerateSegment(req, res) {
       enabled: audioMastering.enabled,
       voiceLufs: audioMastering.voiceLufs,
       truePeakDb: audioMastering.truePeakDb,
-      loudnessRange: audioMastering.loudnessRange,
-      crossfadeMs: audioMastering.crossfadeMs
+      loudnessRange: audioMastering.loudnessRange
     };
     const rawDurationMs = narration.rawDurationMs;
     const rawSignature = narration.signature;
@@ -323,8 +322,7 @@ async function regenerateSegment(req, res) {
       normalizationOptions: {
         integratedLufs: audioMastering.voiceLufs,
         loudnessRange: audioMastering.loudnessRange,
-        truePeakDb: audioMastering.truePeakDb,
-        fadeMs: audioMastering.crossfadeMs
+        truePeakDb: audioMastering.truePeakDb
       },
       label: `Segment ${segmentIndex + 1}`
     });

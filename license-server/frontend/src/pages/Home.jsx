@@ -14,7 +14,7 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
   const [openFaq, setOpenFaq] = useState(null);
   const [showStickyCta, setShowStickyCta] = useState(false);
   const [showVideoModal, setShowVideoModal] = useState(false);
-  const [videoUrl, setVideoUrl] = useState('https://www.youtube.com/embed/4ApatJ0SEnY?autoplay=1');
+  const [videoUrl, setVideoUrl] = useState('https://www.youtube.com/embed/U2WiOdjRMkU?autoplay=1');
 
   const faqs = [
     {
@@ -161,8 +161,8 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
           className="relative rounded-3xl overflow-hidden border border-indigo-500/30 bg-zinc-950 shadow-2xl shadow-indigo-950/50 group cursor-pointer"
         >
           <img 
-            src="https://img.youtube.com/vi/4ApatJ0SEnY/maxresdefault.jpg" 
-            onError={(e) => { e.target.onerror = null; e.target.src = "https://img.youtube.com/vi/4ApatJ0SEnY/hqdefault.jpg"; }}
+            src="https://img.youtube.com/vi/U2WiOdjRMkU/maxresdefault.jpg" 
+            onError={(e) => { e.target.onerror = null; e.target.src = "https://img.youtube.com/vi/U2WiOdjRMkU/hqdefault.jpg"; }}
             alt="Demo Editnhanh Video" 
             className="w-full h-[280px] sm:h-[380px] object-cover opacity-60 group-hover:opacity-75 transition-all duration-500 group-hover:scale-[1.01]" 
           />
