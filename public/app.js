@@ -5616,23 +5616,598 @@ function cancelBulkDownload() {
   }
 }
 
+// ===== CÀO NGAY: preview đa nền tảng + chống trùng + hàng đợi tải tuần tự =====
+function crawlLoadRecordedTaskIds() {
+  try {
+    const values = JSON.parse(localStorage.getItem('crawlRecordedTaskIds') || '[]');
+    return new Set(Array.isArray(values) ? values : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function crawlSaveRecordedTaskIds(ids) {
+  try {
+    localStorage.setItem('crawlRecordedTaskIds', JSON.stringify(Array.from(ids).slice(-500)));
+  } catch (_) {}
+}
+
+const crawlNowState = {
+  platform: 'youtube',
+  mode: 'search',
+  capabilities: {},
+  engine: null,
+  engines: [],
+  previewItems: [],
+  selected: new Set(),
+  pollTimer: null,
+  recordedSuccess: crawlLoadRecordedTaskIds(),
+  lastSnapshot: null,
+  previewBaseCount: 100,
+  previewLoadingMore: false
+};
+
+function crawlEscape(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  })[char]);
+}
+
+function crawlFormatDuration(seconds) {
+  const value = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const secs = Math.floor(value % 60);
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function crawlSetBusy(busy, label = '') {
+  ['crawl-preview-btn', 'crawl-all-btn'].forEach((id) => {
+    const button = $(id);
+    if (button) button.disabled = busy;
+  });
+  const pill = $('crawl-now-ready');
+  if (pill) {
+    pill.classList.toggle('busy', busy);
+    pill.textContent = label || (busy ? 'Đang xử lý' : 'Sẵn sàng');
+  }
+}
+
+function crawlCurrentRequest() {
+  return {
+    platform: crawlNowState.platform,
+    mode: crawlNowState.mode,
+    input: $('crawl-now-input')?.value?.trim() || '',
+    count: Number($('crawl-now-count')?.value || 100),
+    sort: $('crawl-now-sort')?.value || 'relevance',
+    timeDays: Number($('crawl-now-time')?.value || 0),
+    language: $('crawl-now-language')?.value || '',
+    deepNew: $('crawl-now-skip-dupe')?.checked !== false
+  };
+}
+
+function crawlKeywordList() {
+  return ($('crawl-now-input')?.value || '').split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
+}
+
+async function crawlTranslateKeywords(silent = false) {
+  const keywords = crawlKeywordList();
+  if (!keywords.length) {
+    if (!silent) toast('Hãy nhập từ khóa trước.', 'error');
+    return [];
+  }
+  try {
+    const response = await fetch('/api/download-crawl/translate-keywords', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywords, target: $('crawl-now-language')?.value || 'zh-CN' })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không dịch được từ khóa.');
+    if ($('crawl-now-input')) $('crawl-now-input').value = (data.translated || []).join('\n');
+    if (!silent) toast('Đã dịch từ khóa sang tiếng Trung.', 'success');
+    return data.translated || [];
+  } catch (error) {
+    if (!silent) toast(error.message, 'error');
+    return [];
+  }
+}
+
+async function crawlPrepareRequest() {
+  const chinesePlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+  if (crawlNowState.mode === 'search' && chinesePlatforms.includes(crawlNowState.platform)) {
+    const keywords = crawlKeywordList();
+    if (keywords.some((value) => !/[\u3400-\u9fff]/.test(value))) await crawlTranslateKeywords(true);
+  }
+  return crawlCurrentRequest();
+}
+
+function crawlUpdateModeUi() {
+  const labels = {
+    search: ['Từ khóa', 'Nhập từ khóa tìm kiếm...'],
+    detail: ['Link video', 'Dán link video, mỗi dòng một link...'],
+    creator: ['Link kênh / tài khoản', 'Dán link kênh, playlist hoặc @tên-kênh...'],
+    chase: ['Link video trong bộ', 'Dán link playlist/bộ hoặc một video thuộc bộ...']
+  };
+  const [label, placeholder] = labels[crawlNowState.mode] || labels.detail;
+  if ($('crawl-now-input-label')) $('crawl-now-input-label').textContent = label;
+  if ($('crawl-now-input')) $('crawl-now-input').placeholder = placeholder;
+  if ($('crawl-translate-keywords')) $('crawl-translate-keywords').classList.toggle('hidden', crawlNowState.mode !== 'search');
+  document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.mode === crawlNowState.mode);
+  });
+  crawlUpdateCapabilities();
+}
+
+function crawlUpdateCapabilities() {
+  const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
+    button.disabled = caps[button.dataset.mode] === false;
+    button.title = button.disabled ? 'Bộ tải hiện tại chưa hỗ trợ chế độ này cho nền tảng đã chọn' : '';
+  });
+  const supported = Object.entries(caps).filter(([, enabled]) => enabled).map(([mode]) => ({
+    search: 'từ khóa', detail: 'link', creator: 'kênh', chase: 'bộ/playlist'
+  })[mode]).filter(Boolean);
+  const note = $('crawl-capability-note');
+  if (note) note.textContent = supported.length
+    ? `Hỗ trợ ${crawlNowState.platform}: ${supported.join(', ')}. Các chế độ bị làm mờ chưa được backend hiện tại hỗ trợ.`
+    : 'Nền tảng này chưa có khả năng cào được xác nhận.';
+}
+
+async function crawlLoadCapabilities() {
+  try {
+    const response = await fetch('/api/download-crawl/capabilities');
+    const data = await response.json();
+    crawlNowState.capabilities = data.platforms || {};
+    crawlNowState.engine = data.engine || null;
+    crawlNowState.engines = data.engines || [];
+  } catch (_) {
+    crawlNowState.capabilities = {};
+    crawlNowState.engine = null;
+    crawlNowState.engines = [];
+  }
+  const engineBadge = $('crawl-engine-badge');
+  if (engineBadge) {
+    const ready = crawlNowState.engine?.available;
+    const viralReady = crawlNowState.engines.some((engine) => engine.engine === 'ViralCrawl yt-dlp' && engine.available);
+    engineBadge.classList.toggle('unavailable', !ready && !viralReady);
+    engineBadge.textContent = ready && viralReady
+      ? 'MediaCrawler + ViralCrawl yt-dlp sẵn sàng'
+      : ready ? 'MediaCrawler sẵn sàng' : viralReady ? 'ViralCrawl yt-dlp sẵn sàng' : 'Engine ViralCrawl chưa sẵn sàng · dùng fallback';
+  }
+  crawlUpdateCapabilities();
+}
+
+async function crawlLoadLoginStatus() {
+  try {
+    const response = await fetch('/api/download-crawl/login-status');
+    const data = await response.json();
+    const platforms = data.platforms || {};
+    const labels = { douyin: 'Douyin', bilibili: 'Bilibili', xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', weibo: 'Weibo', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram', twitter: 'Twitter/X', reddit: 'Reddit' };
+    const grid = $('crawl-login-grid');
+    if (grid) grid.innerHTML = Object.entries(labels).map(([key, label]) => {
+      const status = platforms[key] || 'out';
+      const text = status === 'in' ? 'Đã có cookies' : status === 'na' ? 'Không bắt buộc' : 'Chưa có cookies';
+      return `<button type="button" class="crawl-login-card ${status}" onclick="crawlOpenPlatformLogin('${key}')"><i></i><b>${label}</b><br><span>${text}</span></button>`;
+    }).join('');
+  } catch (_) {}
+}
+
+async function crawlOpenPlatformLogin(platform) {
+  if (['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter'].includes(platform)) {
+    try {
+      const response = await fetch('/api/download-crawl/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        toast(data.message || 'Đã mở cửa sổ đăng nhập.', 'success');
+        return;
+      }
+    } catch (_) {}
+  }
+  openCookieModal();
+  const select = $('cookie-platform-select');
+  const mapped = platform;
+  if (select && Array.from(select.options).some((option) => option.value === mapped)) select.value = mapped;
+}
+
+async function crawlRefreshStats() {
+  try {
+    const date = $('crawl-date-filter')?.value || '';
+    const response = await fetch(`/api/download-crawl/stats?date=${encodeURIComponent(date)}`);
+    const data = await response.json();
+    if ($('stat-today-downloads')) $('stat-today-downloads').textContent = data.today || 0;
+    if ($('stat-error-count')) $('stat-error-count').textContent = data.errors || 0;
+    for (const platform of Object.keys(crawlNowState.capabilities)) {
+      const el = $(`crawl-count-${platform}`);
+      if (el) el.textContent = `${data.byPlatform?.[platform] || 0} đã cào`;
+    }
+    const select = $('crawl-date-filter');
+    if (select && select.options.length <= 1) {
+      for (const value of data.dates || []) select.add(new Option(value, value));
+    }
+  } catch (_) {}
+}
+
+function crawlRefreshAll() {
+  crawlLoadCapabilities();
+  crawlLoadLoginStatus();
+  crawlRefreshStats();
+  crawlPollStatus();
+}
+
+function crawlFilteredItems() {
+  const minLike = Number($('crawl-now-min-like')?.value || 0);
+  const minView = Number($('crawl-now-min-view')?.value || 0);
+  const days = Number($('crawl-now-days')?.value || $('crawl-now-time')?.value || 0);
+  const minTimestamp = days > 0 ? Date.now() / 1000 - days * 86400 : 0;
+  return crawlNowState.previewItems.filter((item) => {
+    if (minLike && Number(item.likeCount || 0) < minLike) return false;
+    if (minView && Number(item.viewCount || 0) < minView) return false;
+    if (minTimestamp && Number(item.timestamp || 0) && Number(item.timestamp) < minTimestamp) return false;
+    return true;
+  });
+}
+
+function crawlRenderPreview() {
+  const wrap = $('crawl-preview-wrap');
+  const grid = $('crawl-preview-grid');
+  if (!wrap || !grid) return;
+  wrap.classList.remove('hidden');
+  const items = crawlFilteredItems();
+  if ($('crawl-preview-summary')) {
+    $('crawl-preview-summary').textContent = `${items.length}/${crawlNowState.previewItems.length} video · đã chọn ${crawlNowState.selected.size}`;
+  }
+  if (!items.length) {
+    grid.innerHTML = '<div class="status-line">Không có video khớp bộ lọc.</div>';
+    return;
+  }
+  grid.innerHTML = items.map((item) => {
+    const key = item.key || `${item.platform}:${item.id}`;
+    const needsProxy = ['douyin', 'bilibili', 'xiaohongshu', 'rednote'].includes(item.platform);
+    const thumb = item.thumbnail ? (needsProxy ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : item.thumbnail) : '';
+    return `<article class="crawl-preview-item">
+      <div class="crawl-preview-thumb">
+        ${thumb ? `<img src="${crawlEscape(thumb)}" alt="" loading="lazy">` : ''}
+        <input type="checkbox" data-crawl-key="${crawlEscape(key)}" ${crawlNowState.selected.has(key) ? 'checked' : ''}
+          onchange="crawlToggleItem(${crawlEscape(JSON.stringify(key))}, this.checked)">
+        ${item.downloaded ? '<span class="crawl-downloaded-badge">✓ đã tải</span>' : ''}
+      </div>
+      <div class="crawl-preview-info">
+        <div class="crawl-preview-title" title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</div>
+        <div class="crawl-preview-meta">${crawlFormatDuration(item.duration)} · ${crawlEscape(item.uploader || item.platform)}</div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function crawlPreview(options = {}) {
+  const request = await crawlPrepareRequest();
+  if (!request.input) {
+    toast('Hãy nhập từ khóa, link hoặc kênh trước.', 'error');
+    return [];
+  }
+  crawlSetBusy(true, 'Đang tìm video');
+  try {
+    const response = await fetch('/api/download-crawl/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không lấy được danh sách video.');
+    const received = Array.isArray(data.items) ? data.items : [];
+    if (options.append) {
+      const merged = new Map(crawlNowState.previewItems.map((item) => [item.key || `${item.platform}:${item.id}`, item]));
+      for (const item of received) merged.set(item.key || `${item.platform}:${item.id}`, item);
+      crawlNowState.previewItems = [...merged.values()];
+      for (const item of received) crawlNowState.selected.add(item.key || `${item.platform}:${item.id}`);
+    } else {
+      crawlNowState.previewItems = received;
+      crawlNowState.selected = new Set(crawlNowState.previewItems.map((item) => item.key || `${item.platform}:${item.id}`));
+      crawlNowState.previewBaseCount = request.count;
+    }
+    if (!options.silent) crawlRenderPreview();
+    if (!crawlNowState.previewItems.length) toast('Không tìm thấy video nào.', 'warn');
+    return crawlNowState.previewItems;
+  } catch (error) {
+    toast(error.message, 'error');
+    return [];
+  } finally {
+    crawlSetBusy(false);
+  }
+}
+
+function crawlClosePreview() {
+  $('crawl-preview-wrap')?.classList.add('hidden');
+}
+
+async function crawlLoadMore() {
+  if (crawlNowState.previewLoadingMore) return;
+  crawlNowState.previewLoadingMore = true;
+  const input = $('crawl-now-count');
+  const previous = Number(input?.value || crawlNowState.previewBaseCount || 100);
+  if (input) input.value = Math.min(500, previous + crawlNowState.previewBaseCount);
+  try {
+    await crawlPreview({ append: true });
+  } finally {
+    crawlNowState.previewLoadingMore = false;
+  }
+}
+
+function crawlPreviewScroll(element) {
+  if (!element || crawlNowState.previewLoadingMore) return;
+  if (element.scrollHeight - element.scrollTop - element.clientHeight < 240) crawlLoadMore();
+}
+
+function crawlToggleItem(key, checked) {
+  if (checked) crawlNowState.selected.add(key);
+  else crawlNowState.selected.delete(key);
+  crawlRenderPreview();
+}
+
+function crawlToggleAll(checked) {
+  for (const item of crawlFilteredItems()) {
+    const key = item.key || `${item.platform}:${item.id}`;
+    if (checked) crawlNowState.selected.add(key);
+    else crawlNowState.selected.delete(key);
+  }
+  crawlRenderPreview();
+}
+
+async function crawlEnqueue(items) {
+  const selectedItems = items || crawlNowState.previewItems.filter((item) => {
+    const key = item.key || `${item.platform}:${item.id}`;
+    return crawlNowState.selected.has(key);
+  });
+  if (!selectedItems.length) {
+    toast('Chưa chọn video nào.', 'error');
+    return;
+  }
+  try {
+    const viralPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'];
+    if (viralPlatforms.includes(crawlNowState.platform)) {
+      const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
+      const response = await fetch('/api/download-crawl/enqueue-job', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...crawlCurrentRequest(), mode: 'detail', input: urls.join('\n'), count: urls.length,
+          label: `${crawlNowState.platform} · ${urls.length} video đã chọn`
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Không thêm được job ViralCrawl vào hàng đợi.');
+      toast(`Đã thêm ${urls.length} video vào job ViralCrawl yt-dlp.`, 'success');
+      crawlStartPolling();
+      await crawlPollStatus();
+      return;
+    }
+    const response = await fetch('/api/download-crawl/enqueue', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: crawlNowState.platform,
+        skipDuplicates: $('crawl-now-skip-dupe')?.checked !== false,
+        items: selectedItems
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thêm được vào hàng đợi.');
+    toast(`Đã thêm ${data.created} video vào hàng đợi${data.skipped ? `, bỏ qua ${data.skipped} video trùng` : ''}.`, 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function crawlEnqueueSelected() { return crawlEnqueue(); }
+
+async function crawlAllNow() {
+  return crawlEnqueueJob(true);
+}
+
+function crawlTaskStatusLabel(task) {
+  return ({ pending: 'Đang chờ', downloading: task.step || 'Đang tải', success: 'Đã xong', error: 'Lỗi', cancelled: 'Đã hủy' })[task.status] || task.status;
+}
+
+function crawlRenderQueue(snapshot) {
+  crawlNowState.lastSnapshot = snapshot;
+  const queue = Array.isArray(snapshot.queue) ? snapshot.queue : [];
+  const summary = snapshot.summary || {};
+  const list = $('crawl-queue-list');
+  if ($('crawl-queue-summary')) {
+    $('crawl-queue-summary').textContent = queue.length
+      ? `${summary.downloading || 0} đang tải · ${summary.pending || 0} chờ · ${summary.success || 0} xong · ${summary.error || 0} lỗi`
+      : 'Chưa có tác vụ';
+  }
+  if (list) {
+    list.innerHTML = queue.slice().reverse().map((task) => `<div class="crawl-queue-item">
+      <div class="crawl-queue-item-head">
+        <div style="min-width:0;flex:1"><div class="crawl-queue-item-title" title="${crawlEscape(task.title)}">${crawlEscape(task.title)}</div>
+          <div class="crawl-queue-item-status">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
+          ${task.reason ? `<div class="crawl-queue-reason">${crawlEscape(task.reason)}${task.error ? ` · ${crawlEscape(task.error)}` : ''}</div>` : ''}</div>
+        ${['pending', 'downloading'].includes(task.status) ? `<button class="crawl-queue-cancel" onclick="crawlCancelTask('${crawlEscape(task.id)}')">Hủy</button>` : ''}
+        ${['error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
+        ${['success', 'error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRemoveTask('${crawlEscape(task.id)}')">✕</button>` : ''}
+      </div>
+      <div class="crawl-queue-mini-track"><i style="width:${Math.max(0, Math.min(100, Number(task.percent) || 0))}%"></i></div>
+    </div>`).join('');
+  }
+
+  const total = queue.length;
+  const completed = queue.filter((task) => ['success', 'error', 'cancelled'].includes(task.status)).length;
+  const active = queue.find((task) => task.id === snapshot.activeTaskId) || queue.find((task) => task.status === 'downloading');
+  const overall = total ? Math.round(((completed + (active ? (Number(active.percent) || 0) / 100 : 0)) / total) * 100) : 0;
+  if ($('crawl-progress-count')) $('crawl-progress-count').textContent = `${completed}/${total} video`;
+  if ($('crawl-progress-bar')) $('crawl-progress-bar').style.width = `${overall}%`;
+  if ($('crawl-progress-percent')) $('crawl-progress-percent').textContent = `${overall}%`;
+  if ($('crawl-progress-label')) $('crawl-progress-label').textContent = active?.step || (total ? 'Hàng đợi đã xử lý' : 'Sẵn sàng');
+  if ($('crawl-progress-speed')) $('crawl-progress-speed').textContent = `Tốc độ: ${active?.speed || snapshot.speed || '—'}`;
+  if ($('crawl-progress-eta')) $('crawl-progress-eta').textContent = `Ước tính còn: ${active?.eta || snapshot.eta || '—'}`;
+  if ($('stat-queue-count')) $('stat-queue-count').textContent = (summary.pending || 0) + (summary.downloading || 0);
+  const pauseButton = $('crawl-pause-btn');
+  if (pauseButton) pauseButton.textContent = snapshot.paused ? '▶ Tiếp tục hàng đợi' : '⏸ Dừng sau task này';
+  const retryPlatforms = $('crawl-retry-platforms');
+  if (retryPlatforms) {
+    const failed = {};
+    queue.filter((task) => task.status === 'error').forEach((task) => { failed[task.platform] = (failed[task.platform] || 0) + 1; });
+    retryPlatforms.innerHTML = Object.entries(failed).map(([platform, count]) => `<button type="button" onclick="crawlRetryAll('${crawlEscape(platform)}')">↻ ${crawlEscape(platform)} (${count})</button>`).join('');
+  }
+
+  const log = $('crawl-activity-log');
+  if (log) {
+    const entries = Array.isArray(snapshot.logs) ? snapshot.logs : [];
+    log.innerHTML = entries.length ? entries.map((entry) => `<div class="crawl-log-line ${crawlEscape(entry.level)}"><span>${crawlEscape(new Date(entry.time).toLocaleTimeString('vi-VN'))}</span> · ${crawlEscape(entry.message)}</div>`).join('') : '<span>Chưa có hoạt động.</span>';
+    log.scrollTop = log.scrollHeight;
+  }
+
+  for (const task of queue.filter((candidate) => candidate.status === 'success' && candidate.kind !== 'crawl')) {
+    if (crawlNowState.recordedSuccess.has(task.id)) continue;
+    crawlNowState.recordedSuccess.add(task.id);
+    crawlSaveRecordedTaskIds(crawlNowState.recordedSuccess);
+    const filename = String(task.outputPath || '').split(/[\\/]/).pop();
+    addDownloadHistory(task.title, task.sourceUrl || task.url, 'success', filename, task.platform);
+  }
+  crawlRefreshStats();
+}
+
+async function crawlPollStatus() {
+  try {
+    const response = await fetch('/api/download-crawl/status');
+    if (!response.ok) return;
+    const snapshot = await response.json();
+    crawlRenderQueue(snapshot);
+    const activeCount = Number(snapshot.summary?.pending || 0) + Number(snapshot.summary?.downloading || 0);
+    if (activeCount > 0) crawlStartPolling();
+    else crawlStopPolling();
+  } catch (_) {}
+}
+
+function crawlStartPolling() {
+  if (crawlNowState.pollTimer) return;
+  crawlNowState.pollTimer = setInterval(crawlPollStatus, 3000);
+}
+
+function crawlStopPolling() {
+  if (!crawlNowState.pollTimer) return;
+  clearInterval(crawlNowState.pollTimer);
+  crawlNowState.pollTimer = null;
+}
+
+async function crawlCancelTask(taskId) {
+  await fetch('/api/download-crawl/cancel', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId })
+  });
+  await crawlPollStatus();
+}
+
+async function crawlRemoveTask(taskId) {
+  await fetch('/api/download-crawl/remove', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId })
+  });
+  await crawlPollStatus();
+}
+
+async function crawlStopAll() {
+  await fetch('/api/download-crawl/stop', { method: 'POST' });
+  toast('Đang dừng hàng đợi tải...', 'info');
+  await crawlPollStatus();
+}
+
+async function crawlClearFinished() {
+  await fetch('/api/download-crawl/clear', { method: 'POST' });
+  await crawlPollStatus();
+}
+
+async function crawlTogglePause() {
+  const paused = !(crawlNowState.lastSnapshot?.paused);
+  await fetch('/api/download-crawl/pause', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused })
+  });
+  await crawlPollStatus();
+}
+
+async function crawlRetryTask(taskId) {
+  await fetch('/api/download-crawl/retry', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId })
+  });
+  crawlStartPolling();
+  await crawlPollStatus();
+}
+
+async function crawlRetryAll(platform = '') {
+  await fetch('/api/download-crawl/retry-all', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+  });
+  crawlStartPolling();
+  await crawlPollStatus();
+}
+
+async function crawlClearLogs() {
+  await fetch('/api/download-crawl/clear-logs', { method: 'POST' });
+  await crawlPollStatus();
+}
+
+async function crawlEnqueueJob(startNow = false) {
+  const request = await crawlPrepareRequest();
+  if (!request.input) {
+    toast('Hãy nhập từ khóa, link hoặc kênh trước.', 'error');
+    return;
+  }
+  try {
+    const response = await fetch('/api/download-crawl/enqueue-job', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thêm được job cào.');
+    toast(startNow ? 'Đã bắt đầu job cào. Theo dõi ở hàng đợi.' : 'Đã thêm job cào vào hàng đợi.', 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function crawlAddCurrentToQueue() {
+  return crawlEnqueueJob(false);
+}
+
+document.querySelectorAll('#crawl-platform-grid .crawl-platform').forEach((button) => {
+  button.addEventListener('click', () => {
+    crawlNowState.platform = button.dataset.platform;
+    document.querySelectorAll('#crawl-platform-grid .crawl-platform').forEach((item) => item.classList.toggle('active', item === button));
+    const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+    if (caps[crawlNowState.mode] === false) crawlNowState.mode = caps.detail ? 'detail' : Object.keys(caps).find((mode) => caps[mode]) || 'detail';
+    crawlUpdateModeUi();
+  });
+});
+document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
+  button.addEventListener('click', () => {
+    if (button.disabled) return;
+    crawlNowState.mode = button.dataset.mode;
+    crawlUpdateModeUi();
+  });
+});
+['crawl-now-min-like', 'crawl-now-min-view', 'crawl-now-days'].forEach((id) => $(id)?.addEventListener('input', crawlRenderPreview));
+if ($('crawl-preview-select-all')) $('crawl-preview-select-all').checked = true;
+crawlLoadCapabilities();
+crawlLoadLoginStatus();
+crawlRefreshStats();
+crawlPollStatus();
+
 function switchDownloadMode(mode) {
+  const crawlBtn = $('download-mode-crawl-btn');
   const singleBtn = $('download-mode-single-btn');
   const bulkBtn = $('download-mode-bulk-btn');
+  const crawlCont = $('download-crawl-container');
   const singleCont = $('download-single-container');
   const bulkCont = $('download-bulk-container');
 
-  if (mode === 'single') {
-    if (singleBtn) singleBtn.classList.add('active');
-    if (bulkBtn) bulkBtn.classList.remove('active');
-    if (singleCont) singleCont.classList.remove('hidden');
-    if (bulkCont) bulkCont.classList.add('hidden');
-  } else {
-    if (singleBtn) singleBtn.classList.remove('active');
-    if (bulkBtn) bulkBtn.classList.add('active');
-    if (singleCont) singleCont.classList.add('hidden');
-    if (bulkCont) bulkCont.classList.remove('hidden');
-  }
+  if (crawlBtn) crawlBtn.classList.toggle('active', mode === 'crawl');
+  if (singleBtn) singleBtn.classList.toggle('active', mode === 'single');
+  if (bulkBtn) bulkBtn.classList.toggle('active', mode === 'bulk');
+  if (crawlCont) crawlCont.classList.toggle('hidden', mode !== 'crawl');
+  if (singleCont) singleCont.classList.toggle('hidden', mode !== 'single');
+  if (bulkCont) bulkCont.classList.toggle('hidden', mode !== 'bulk');
 }
 
 // Khởi chạy nạp danh sách đã lưu
@@ -5652,6 +6227,14 @@ window.openBulkDownloadModal = openBulkDownloadModal;
 window.closeBulkDownloadModal = closeBulkDownloadModal;
 window.cancelBulkDownload = cancelBulkDownload;
 window.switchDownloadMode = switchDownloadMode;
+window.crawlPreview = crawlPreview;
+window.crawlAllNow = crawlAllNow;
+window.crawlToggleItem = crawlToggleItem;
+window.crawlToggleAll = crawlToggleAll;
+window.crawlEnqueueSelected = crawlEnqueueSelected;
+window.crawlCancelTask = crawlCancelTask;
+window.crawlStopAll = crawlStopAll;
+window.crawlClearFinished = crawlClearFinished;
 
 /* ==========================================================================
    GLOBAL AI SETTINGS MODAL & HELPERS

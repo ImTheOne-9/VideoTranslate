@@ -9,7 +9,124 @@ const net = require('net');
 const axios = require('axios');
 
 const shared = require('./lib/shared-state');
+const { DownloadCrawlManager } = require('./lib/download-crawl-manager');
+const douyinExtractor = require('./lib/douyin-extractor');
+const platformBrowserExtractor = require('./lib/platform-browser-extractor');
+const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
+const { ViralCrawlYtDlpAdapter } = require('./lib/viral-crawl-ytdlp-adapter');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
+
+function createBrowserPreviewResolver(platform) {
+  return async ({ input, count, mode }) => {
+    const values = String(input || '').split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
+    const items = new Map();
+    for (const value of values) {
+      const found = await platformBrowserExtractor.collect(platform, mode, value, count, () => {});
+      for (const item of found) items.set(item.sourceUrl || item.url, item);
+      if (items.size >= count) break;
+    }
+    return [...items.values()].slice(0, count);
+  };
+}
+
+function createCookieSyncResolver(platform) {
+  return async (task) => {
+    await platformBrowserExtractor.syncCookies(platform, path.join(shared.COOKIES_DIR, `${platform}.txt`));
+    return { url: task.sourceUrl || task.url };
+  };
+}
+
+const mediaCrawler = new MediaCrawlerAdapter();
+const viralCrawlYtDlp = new ViralCrawlYtDlpAdapter();
+
+function createMediaCrawlerPreviewResolver(platform) {
+  return async ({ input, count, mode }) => {
+    if (!mediaCrawler.status().available) return createBrowserPreviewResolver(platform)({ input, count, mode });
+    return mediaCrawler.preview({ platform, input, count, mode });
+  };
+}
+
+function createViralYtDlpPreviewResolver(platform) {
+  return ({ input, count, mode, sort, timeDays }) => viralCrawlYtDlp.preview({
+    platform, input, count, mode, sort, timeDays
+  });
+}
+
+const downloadCrawlManager = new DownloadCrawlManager({
+  shared,
+  previewResolvers: {
+    'youtube:search': createViralYtDlpPreviewResolver('youtube'),
+    'youtube:creator': createViralYtDlpPreviewResolver('youtube'),
+    'tiktok:search': createViralYtDlpPreviewResolver('tiktok'),
+    'tiktok:creator': createViralYtDlpPreviewResolver('tiktok'),
+    'facebook:creator': createViralYtDlpPreviewResolver('facebook'),
+    'douyin:search': createMediaCrawlerPreviewResolver('douyin'),
+    'douyin:creator': createMediaCrawlerPreviewResolver('douyin'),
+    'bilibili:search': createMediaCrawlerPreviewResolver('bilibili'),
+    'bilibili:creator': createMediaCrawlerPreviewResolver('bilibili'),
+    'xiaohongshu:search': createMediaCrawlerPreviewResolver('xiaohongshu'),
+    'xiaohongshu:creator': createMediaCrawlerPreviewResolver('xiaohongshu'),
+    'rednote:search': createMediaCrawlerPreviewResolver('rednote'),
+    'rednote:creator': createMediaCrawlerPreviewResolver('rednote'),
+    'weibo:search': createMediaCrawlerPreviewResolver('weibo'),
+    'weibo:creator': createMediaCrawlerPreviewResolver('weibo'),
+    'douyin:detail': async ({ input, count }) => {
+      if (!douyinExtractor.isAvailable()) throw new Error('Extractor Douyin chuyên dụng chỉ hoạt động khi mở bằng ứng dụng Electron.');
+      const urls = String(input || '').split(/[\n,\s]+/).map((value) => value.trim()).filter(Boolean).slice(0, count);
+      const items = [];
+      for (const sourceUrl of urls) {
+        const info = await douyinExtractor.getDouyinVideoInfo(sourceUrl, () => {});
+        const best = (info.formats || []).filter((format) => format.format === 'mp4' && format.src)
+          .sort((a, b) => Number(b.height || 0) - Number(a.height || 0))[0];
+        if (!best) throw new Error(`Không tìm thấy luồng MP4 cho ${sourceUrl}`);
+        items.push({
+          id: sourceUrl.match(/(?:video|note)\/(\d+)/)?.[1] || '',
+          title: info.title || 'Douyin Video',
+          uploader: info.author || '',
+          thumbnail: info.thumbnail || '',
+          duration: Number(info.duration) || 0,
+          url: best.src,
+          sourceUrl
+        });
+      }
+      return items;
+    }
+  },
+  downloadResolvers: {
+    douyin: async (task) => {
+      const info = await douyinExtractor.getDouyinVideoInfo(task.sourceUrl || task.url, () => {});
+      const best = (info.formats || []).filter((format) => format.format === 'mp4' && format.src)
+        .sort((a, b) => Number(b.height || 0) - Number(a.height || 0))[0];
+      if (!best) throw new Error('Không tìm thấy luồng MP4 Douyin.');
+      return { url: best.src };
+    },
+    bilibili: createCookieSyncResolver('bilibili'),
+    xiaohongshu: createCookieSyncResolver('xiaohongshu'),
+    rednote: createCookieSyncResolver('rednote'),
+    weibo: createCookieSyncResolver('weibo')
+  },
+  crawlResolvers: {
+    ...(mediaCrawler.status().available
+      ? Object.fromEntries(['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo']
+        .map((platform) => [platform, (config, hooks) => mediaCrawler.crawl(config, hooks)]))
+      : {}),
+    ...(viralCrawlYtDlp.status().available
+      ? Object.fromEntries(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit']
+        .map((platform) => [platform, (config, hooks) => viralCrawlYtDlp.crawl(config, hooks)]))
+      : {})
+  },
+  loginChecker: async (platform, mode) => {
+    if (mediaCrawler.supports(platform) && mediaCrawler.status().available) return mediaCrawler.checkLogin(platform);
+    if (viralCrawlYtDlp.status().available) {
+      if (platform === 'tiktok' && mode === 'search') return viralCrawlYtDlp.checkLogin(platform);
+      if (['instagram', 'twitter'].includes(platform)) return viralCrawlYtDlp.checkLogin(platform);
+      if (viralCrawlYtDlp.supports(platform)) return 'in';
+    }
+    const cookies = shared.getCookieStatus();
+    if (cookies[platform]) return 'in';
+    return platformBrowserExtractor.loginStatus(platform);
+  }
+});
 
 // --- Rate Limiting (chống flood API local) ---
 const rateLimitMap = new Map();
@@ -17,7 +134,8 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 120;
 const RATE_LIMIT_EXEMPT_PATHS = new Set([
   '/api/ocr-component/download-status',
-  '/api/mdx-cuda-component/download-status'
+  '/api/mdx-cuda-component/download-status',
+  '/api/download-crawl/status'
 ]);
 function rateLimiter(req, res, next) {
   if (!req.path.startsWith('/api/')) return next();
@@ -268,6 +386,124 @@ app.get('/api/download', downloadController.download);
 app.post('/api/playlist', downloadController.playlist);
 app.post('/api/download-local', downloadController.downloadLocal);
 app.get('/api/proxy-image', downloadController.proxyImage);
+app.get('/api/download-crawl/capabilities', (req, res) => {
+  res.json({ platforms: downloadCrawlManager.capabilities(), engine: mediaCrawler.status(), engines: [mediaCrawler.status(), viralCrawlYtDlp.status()] });
+});
+app.get('/api/download-crawl/engine-status', (req, res) => res.json({ mediaCrawler: mediaCrawler.status(), viralCrawlYtDlp: viralCrawlYtDlp.status() }));
+app.post('/api/download-crawl/preview', async (req, res) => {
+  try {
+    res.json(await downloadCrawlManager.preview(req.body || {}));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Không lấy được danh sách video.' });
+  }
+});
+app.post('/api/download-crawl/enqueue', (req, res) => {
+  try {
+    res.json({ success: true, ...downloadCrawlManager.enqueue(req.body || {}) });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Không thêm được video vào hàng đợi.' });
+  }
+});
+app.post('/api/download-crawl/enqueue-job', (req, res) => {
+  try {
+    res.json({ success: true, ...downloadCrawlManager.enqueueJob(req.body || {}) });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Không thêm được job cào.' });
+  }
+});
+app.get('/api/download-crawl/status', (req, res) => {
+  res.json(downloadCrawlManager.snapshot());
+});
+app.get('/api/download-crawl/stats', (req, res) => {
+  res.json(downloadCrawlManager.stats(req.query?.date || ''));
+});
+app.get('/api/download-crawl/login-status', async (req, res) => {
+  const cookies = shared.getCookieStatus();
+  const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+  const browserStates = mediaCrawler.status().available
+    ? await mediaCrawler.checkLogins(browserPlatforms)
+    : Object.fromEntries(await Promise.all(browserPlatforms.map(async (platform) => [platform, await platformBrowserExtractor.loginStatus(platform)])));
+  const viralStates = viralCrawlYtDlp.status().available
+    ? await viralCrawlYtDlp.checkLogins(['tiktok', 'facebook', 'instagram', 'twitter'])
+    : {};
+  const loginState = (platform, hasCookie = false) => browserStates[platform] === 'in'
+    ? 'in'
+    : (browserStates[platform] === 'unknown' && hasCookie ? 'in' : 'out');
+  res.json({
+    platforms: {
+      douyin: loginState('douyin', cookies.douyin),
+      bilibili: loginState('bilibili', cookies.bilibili),
+      xiaohongshu: loginState('xiaohongshu', cookies.xiaohongshu),
+      rednote: loginState('rednote', cookies.rednote),
+      weibo: loginState('weibo', cookies.weibo),
+      youtube: 'na',
+      tiktok: viralStates.tiktok || 'out',
+      facebook: viralStates.facebook === 'in' ? 'in' : 'na',
+      instagram: viralStates.instagram === 'in' ? 'in' : 'out',
+      twitter: viralStates.twitter === 'in' ? 'in' : 'out',
+      reddit: 'na'
+    }
+  });
+});
+app.post('/api/download-crawl/login', async (req, res) => {
+  try {
+    const platform = String(req.body?.platform || '');
+    const result = mediaCrawler.supports(platform) && mediaCrawler.status().available
+      ? mediaCrawler.openLogin(platform)
+      : viralCrawlYtDlp.needsLogin(platform) && viralCrawlYtDlp.status().available
+        ? viralCrawlYtDlp.openLogin(platform)
+      : await platformBrowserExtractor.openLogin(platform);
+    res.json({ success: true, engine: result?.engine || 'browser', message: `Đã mở cửa sổ đăng nhập ${platform}. Đăng nhập xong có thể đóng cửa sổ.` });
+  } catch (error) {
+    res.status(503).json({ error: error.message || 'Không mở được cửa sổ đăng nhập.' });
+  }
+});
+app.post('/api/download-crawl/translate-keywords', async (req, res) => {
+  try {
+    const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords : [];
+    const target = req.body?.target === 'zh-TW' ? 'zh-TW' : 'zh-CN';
+    const translated = [];
+    for (const keyword of keywords.slice(0, 30)) {
+      const text = String(keyword || '').trim();
+      if (!text || /[\u3400-\u9fff]/.test(text)) { translated.push(text); continue; }
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Dịch từ khóa thất bại (${response.status})`);
+      const data = await response.json();
+      translated.push(Array.isArray(data?.[0]) ? data[0].map((part) => part?.[0] || '').join('') : text);
+    }
+    res.json({ translated });
+  } catch (error) {
+    res.status(502).json({ error: error.message || 'Không dịch được từ khóa.' });
+  }
+});
+app.post('/api/download-crawl/cancel', (req, res) => {
+  const taskId = String(req.body?.taskId || '');
+  res.json({ success: downloadCrawlManager.cancel(taskId) });
+});
+app.post('/api/download-crawl/stop', (req, res) => {
+  downloadCrawlManager.stopAll();
+  res.json({ success: true });
+});
+app.post('/api/download-crawl/clear', (req, res) => {
+  res.json({ success: true, ...downloadCrawlManager.clearFinished() });
+});
+app.post('/api/download-crawl/remove', (req, res) => {
+  res.json({ success: downloadCrawlManager.remove(String(req.body?.taskId || '')) });
+});
+app.post('/api/download-crawl/pause', (req, res) => {
+  res.json({ success: true, ...downloadCrawlManager.setPaused(req.body?.paused) });
+});
+app.post('/api/download-crawl/retry', (req, res) => {
+  res.json({ success: downloadCrawlManager.retry(String(req.body?.taskId || '')) });
+});
+app.post('/api/download-crawl/retry-all', (req, res) => {
+  res.json({ success: true, count: downloadCrawlManager.retryAll(String(req.body?.platform || '')) });
+});
+app.post('/api/download-crawl/clear-logs', (req, res) => {
+  downloadCrawlManager.clearLogs();
+  res.json({ success: true });
+});
 
 // Cookie management routes
 app.post('/api/upload-cookie', upload.single('cookieFile'), (req, res) => {
@@ -276,7 +512,7 @@ app.post('/api/upload-cookie', upload.single('cookieFile'), (req, res) => {
     if (!platform || !req.file) {
       return res.status(400).json({ error: 'Thiếu platform hoặc file cookies' });
     }
-    const validPlatforms = ['bilibili', 'douyin', 'tiktok', 'youtube', 'facebook', 'instagram', 'xiaohongshu', 'youku', 'mgtv', 'iq'];
+    const validPlatforms = ['bilibili', 'douyin', 'tiktok', 'youtube', 'facebook', 'instagram', 'xiaohongshu', 'rednote', 'weibo', 'youku', 'mgtv', 'iq'];
     if (!validPlatforms.includes(platform)) {
       return res.status(400).json({ error: 'Platform không hợp lệ' });
     }
