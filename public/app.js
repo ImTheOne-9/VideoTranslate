@@ -5659,7 +5659,7 @@ window.switchDownloadMode = switchDownloadMode;
 
 function getGlobalAiSettings() {
   return {
-    aiProvider: localStorage.getItem('global_ai_provider') || 'nllb',
+    aiProvider: localStorage.getItem('global_ai_provider') || 'gemini-web',
     geminiApiKey: localStorage.getItem('global_gemini_key') || '',
     geminiModel: localStorage.getItem('global_gemini_model') || '',
     openRouterApiKey: localStorage.getItem('global_openrouter_key') || '',
