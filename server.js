@@ -366,6 +366,17 @@ app.delete('/api/voices/:filename', voiceController.deleteVoice);
 app.delete('/api/music/:filename', voiceController.deleteMusic);
 app.get('/api/local-videos', voiceController.getLocalVideos);
 
+// API: Mở trình duyệt Đăng nhập Gemini Web
+app.post('/api/gemini-web/login', async (req, res) => {
+  try {
+    const { openGeminiLogin } = require('./lib/gemini-web-adapter');
+    const result = await openGeminiLogin();
+    res.json({ success: true, message: 'Đã mở trình duyệt đăng nhập Gemini', ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 5. System/Helper Routes
 app.post('/api/info', systemController.getVideoInfo);
 app.post('/api/gemini-models', systemController.getGeminiModels);

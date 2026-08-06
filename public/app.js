@@ -6128,6 +6128,38 @@ function toggleGlobalAiProviderFields() {
       opencodeFields.classList.add('hidden');
     }
   }
+  const geminiWebFields = $('global-gemini-web-fields');
+  if (geminiWebFields) {
+    if (val === 'gemini-web') {
+      geminiWebFields.classList.remove('hidden');
+    } else {
+      geminiWebFields.classList.add('hidden');
+    }
+  }
+}
+
+async function openGeminiWebLoginWindow() {
+  console.log('[GeminiWeb] 🌐 Đang mở cửa sổ trình duyệt đăng nhập Gemini...');
+  if (typeof toast === 'function') {
+    toast('Đang mở cửa sổ Chrome đăng nhập Gemini...', 'info');
+  }
+  try {
+    const res = await fetch('/api/gemini-web/login', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      if (typeof toast === 'function') {
+        toast('Đã mở cửa sổ đăng nhập Gemini! Vui lòng đăng nhập trên Chrome.', 'success');
+      }
+    } else {
+      if (typeof toast === 'function') {
+        toast(`Lỗi mở đăng nhập Gemini: ${data.error}`, 'error');
+      }
+    }
+  } catch (err) {
+    if (typeof toast === 'function') {
+      toast(`Lỗi mở đăng nhập Gemini: ${err.message}`, 'error');
+    }
+  }
 }
 
 function saveGlobalSettings() {

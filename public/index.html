@@ -2657,6 +2657,7 @@
               <label>Dịch phụ đề bằng (AI Provider)</label>
               <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
                 <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
+                <option value="gemini-web">🌐 Gemini Web Automation (Miễn phí qua trình duyệt)</option>
                 <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
                 <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
                 <option value="openrouter">🦉 OpenRouter AI (Dịch chất lượng cao - Yêu cầu Key)</option>
@@ -3025,12 +3026,27 @@
               style="margin: 0; height: 38px;">
               <option value="nllb" selected>🤖 AI Dịch Offline NLLB-200 (Mặc định - Nhẹ &amp; Không cần mạng)</option>
               <option value="google-translate">🌐 Google Translate (An toàn &amp; Khuyên dùng)</option>
+              <option value="gemini-web">🌐 Gemini Web Automation (Miễn phí qua trình duyệt)</option>
               <option value="openai">💬 ChatGPT OpenAI (Cần API Key &amp; chọn Model)</option>
               <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
               <option value="openrouter">🚀 OpenRouter AI (Cần API Key &amp; chọn Model)</option>
               <option value="ninerouter">🤖 9Router Local AI Proxy</option>
               <option value="opencode">⚡ OpenCode SDK (Tự động Server ngầm &amp; OpenCode Zen Models)</option>
             </select>
+          </div>
+
+          <!-- Gemini Web Fields -->
+          <div id="global-gemini-web-fields" class="hidden"
+            style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tài khoản Google Gemini Web</label>
+              <p style="font-size: 11px; color: var(--muted); margin: 0;">Đăng nhập tài khoản Google của bạn trên cửa sổ Chrome Playwright 1 lần để sử dụng dịch Gemini Web hoàn toàn miễn phí.</p>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn"
+                  style="margin: 0; width: auto; padding: 0 14px; height: 36px; font-size: 12px; border-color: #4285f4; color: #4285f4;"
+                  onclick="openGeminiWebLoginWindow()">🌐 Mở trình duyệt Đăng nhập Gemini</button>
+              </div>
+            </div>
           </div>
 
           <!-- OpenAI (ChatGPT) Fields -->
