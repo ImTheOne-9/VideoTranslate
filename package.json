@@ -26,6 +26,7 @@
     "mongoose": "^9.7.1",
     "multer": "^2.1.1",
     "node-machine-id": "^1.1.12",
+    "playwright": "^1.49.1",
     "srt-parser-2": "^1.2.3",
     "unzipper": "^0.12.3",
     "wavefile": "^11.0.0"
@@ -58,6 +59,7 @@
     ],
     "files": [
       "public/**/*",
+      "scripts/**/*",
       "lib/**/*.jsc",
       "controllers/**/*.jsc",
       "server.jsc",
