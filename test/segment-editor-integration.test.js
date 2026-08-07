@@ -82,7 +82,7 @@ test('reviewed segment audio and render use the same stable synthesis signature'
   assert.match(studio, /referenceIdentity: segmentReferenceIdentity/);
   assert.match(segment, /referenceIdentity: reference\.sourceIdentity/);
   assert.match(segment, /positionTemperature: 1/);
-  assert.match(helper, /VOICE_AUDIO_SIGNATURE_VERSION = 2/);
+  assert.match(helper, /VOICE_AUDIO_SIGNATURE_VERSION = 3/);
   assert.match(studio, /Dùng lại audio/);
 });
 

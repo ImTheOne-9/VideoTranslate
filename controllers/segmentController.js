@@ -234,25 +234,32 @@ async function regenerateSegment(req, res) {
     const engineId = segment.engineId || task.body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
     const engine = voiceEngineRegistry.resolve(engineId, DEFAULT_VOICE_ENGINE_ID);
     await engine.loadModel();
-    const reference = await resolveVoiceReference({
-      voiceFile: segment.voiceFile || task.body.savedVoiceFile,
-      defaultVoiceFile: task.body.savedVoiceFile,
-      providedText: task.body.refText,
-      workDir: task.workDir,
-      whisperModel: task.body.whisperModel || 'small',
-      whisperOnnxVariant: task.body.whisperOnnxVariant || 'q8',
-      language: task.body.ocrLanguage || ''
-    });
+    const capabilities = engine.getCapabilities();
+    const supportsVoiceCloning = capabilities.cloneVoice === true;
+    const edgeVoice = engine.id === 'edge-tts' ? String(task.body.edgeVoice || '') : '';
+    const reference = supportsVoiceCloning
+      ? await resolveVoiceReference({
+          voiceFile: segment.voiceFile || task.body.savedVoiceFile,
+          defaultVoiceFile: task.body.savedVoiceFile,
+          providedText: task.body.refText,
+          workDir: task.workDir,
+          whisperModel: task.body.whisperModel || 'small',
+          whisperOnnxVariant: task.body.whisperOnnxVariant || 'q8',
+          language: task.body.ocrLanguage || ''
+        })
+      : { audioPath: null, text: '', sourceIdentity: null };
     const rawDir = path.join(task.workDir, 'segments', 'previews', 'raw');
     const fittedDir = path.join(task.workDir, 'segments', 'previews', 'fitted');
     fs.mkdirSync(rawDir, { recursive: true });
     fs.mkdirSync(fittedDir, { recursive: true });
     const rawPath = path.join(rawDir, `${segment.id}.wav`);
     const outputPath = path.join(fittedDir, `${segment.id}.wav`);
-    const language = ['vi', 'en', 'zh'].includes(task.body.omiLanguage)
-      ? task.body.omiLanguage
-      : 'vi';
-    const method = reference.audioPath && reference.text ? 'cloneVoice' : 'synthesize';
+    const language = edgeVoice
+      ? edgeVoice.split('-').slice(0, 2).join('-').toLowerCase()
+      : (['vi', 'en', 'zh'].includes(task.body.omiLanguage) ? task.body.omiLanguage : 'vi');
+    const method = supportsVoiceCloning && reference.audioPath && reference.text
+      ? 'cloneVoice'
+      : 'synthesize';
     const narration = await generateNarrationWithinCue({
       initialText: segment.text,
       startMs: segment.startMs,
@@ -263,6 +270,9 @@ async function regenerateSegment(req, res) {
         referenceIdentity: reference.sourceIdentity,
         referenceText: reference.text,
         engineId,
+        voice: edgeVoice,
+        rate: task.body.edgeRate || '+0%',
+        pitch: task.body.edgePitch || '+0Hz',
         steps: task.body.omiSteps || '16',
         language,
         seed: resolveOmnivoiceSeed(task.body.omiSeed),
@@ -277,7 +287,10 @@ async function regenerateSegment(req, res) {
           text,
           outputPath: rawPath,
           language,
-          device: task.body.omiDevice || 'cpu',
+          voice: edgeVoice,
+          rate: task.body.edgeRate,
+          pitch: task.body.edgePitch,
+          device: engine.id === 'edge-tts' ? 'cpu' : (task.body.omiDevice || 'cpu'),
           steps: task.body.omiSteps || '16',
           seed: resolveOmnivoiceSeed(task.body.omiSeed),
           positionTemperature: 1,

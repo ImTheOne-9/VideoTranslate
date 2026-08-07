@@ -11,6 +11,7 @@ const voiceController = fs.readFileSync(path.join(root, 'controllers', 'voiceCon
 const sharedState = fs.readFileSync(path.join(root, 'lib', 'shared-state.js'), 'utf8');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
+const libraryModule = fs.readFileSync(path.join(root, 'public', 'js', 'library-module.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
@@ -48,4 +49,14 @@ test('studio UI exposes engine selection, capabilities, and CPU fallback control
 test('packaging includes persistent OmniVoice server variants', () => {
   const filters = packageJson.build.extraResources.flatMap((resource) => resource.filter || []);
   assert.ok(filters.includes('omnivoice/omnivoice-server-*.exe'));
+});
+
+test('Edge TTS is independent from OmniVoice model, reference audio, and GPU controls', () => {
+  assert.match(studioController, /supportsVoiceCloning && refAudioPath/);
+  assert.match(studioController, /voiceEngine\.id === 'edge-tts'[\s\S]*\? 'cpu'/);
+  assert.match(app, /selectedEngine !== 'edge-tts' && !assets\.omiConfigured/);
+  assert.match(app, /voice-device-group/);
+  assert.match(libraryModule, /const isEdge = engineId === 'edge-tts'/);
+  assert.match(libraryModule, /refAudio\.required = !isEdge/);
+  assert.match(voiceController, /supportsVoiceCloning && \(!refAudio \|\| !refText\)/);
 });

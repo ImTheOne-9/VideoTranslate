@@ -1627,13 +1627,50 @@
                           <label>Engine giọng nói</label>
                           <select id="voice-engine-select" name="voiceEngine" class="premium-select">
                             <option value="current-omnivoice">OmniVoice hiện tại</option>
+                            <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
                           </select>
                           <div id="voice-engine-capabilities"
                             style="font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45;">
                             Đang kiểm tra khả năng engine...
                           </div>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="edge-voice-group" style="display: none;">
+                          <label>Chọn giọng đọc Edge-TTS</label>
+                          <select id="edge-voice-select" name="edgeVoice" class="premium-select">
+                            <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ - Tiếng Việt)</option>
+                            <option value="vi-VN-NamMinhNeural">Nam Minh (Nam - Tiếng Việt)</option>
+                            <option value="en-US-AndrewNeural">Andrew (Nam - Tiếng Anh)</option>
+                            <option value="en-US-AvaNeural">Ava (Nữ - Tiếng Anh)</option>
+                            <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao (Nữ - Tiếng Trung)</option>
+                            <option value="zh-CN-YunjianNeural">Yunjian (Nam - Tiếng Trung)</option>
+                            <option value="ja-JP-NanamiNeural">Nanami (Nữ - Tiếng Nhật)</option>
+                            <option value="ko-KR-SunHiNeural">Sun-Hi (Nữ - Tiếng Hàn)</option>
+                            <option value="fr-FR-DeniseNeural">Denise (Nữ - Tiếng Pháp)</option>
+                            <option value="de-DE-KatjaNeural">Katja (Nữ - Tiếng Đức)</option>
+                            <option value="es-ES-ElviraNeural">Elvira (Nữ - Tiếng Tây Ban Nha)</option>
+                            <option value="ru-RU-SvetlanaNeural">Svetlana (Nữ - Tiếng Nga)</option>
+                          </select>
+                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <div>
+                              <label for="edge-rate-select">Tốc độ đọc</label>
+                              <select id="edge-rate-select" name="edgeRate" class="premium-select">
+                                <option value="-25%">Chậm</option>
+                                <option value="+0%" selected>Bình thường</option>
+                                <option value="+25%">Nhanh</option>
+                                <option value="+50%">Rất nhanh</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label for="edge-pitch-select">Cao độ</label>
+                              <select id="edge-pitch-select" name="edgePitch" class="premium-select">
+                                <option value="-10Hz">Trầm</option>
+                                <option value="+0Hz" selected>Bình thường</option>
+                                <option value="+10Hz">Cao</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="form-group" id="voice-device-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
                             <option value="cpu">CPU</option>
@@ -1642,7 +1679,7 @@
                         </div>
                       </div>
 
-                      <label class="premium-switch" style="margin-top: 8px;">
+                      <label class="premium-switch" id="voice-cpu-fallback-group" style="margin-top: 8px;">
                         <input type="checkbox" id="voice-allow-cpu-fallback" name="voiceAllowCpuFallback" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
@@ -2539,8 +2576,8 @@
     <div class="fb-modal-content">
       <div class="fb-modal-header"
         style="background: rgba(59, 130, 246, 0.1); border-bottom-color: rgba(59, 130, 246, 0.2);">
-        <h3 style="color: #3b82f6; display: flex; align-items: center; gap: 8px;">
-          🤖 Tạo giọng bằng Omni Cloner
+        <h3 id="cloner-modal-title" style="color: #3b82f6; display: flex; align-items: center; gap: 8px;">
+          🤖 Tạo giọng nói
         </h3>
         <button class="fb-modal-close" onclick="closeOmniClonerModal()">&times;</button>
       </div>
@@ -2551,7 +2588,7 @@
             <input type="text" id="cloner-voice-name" required class="premium-input"
               placeholder="Ví dụ: Giọng kể chuyện Nam tính">
           </div>
-          <div class="form-group" style="margin-bottom: 10px;">
+          <div class="form-group" id="cloner-reference-audio-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">File ghi âm giọng mẫu (WAV, MP3, M4A...)</label>
             <input type="file" id="cloner-ref-audio" accept="audio/*" required class="premium-input"
               onchange="previewClonerRefAudio(this)">
@@ -2561,7 +2598,7 @@
             <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Chọn file ghi âm ngắn (5-30 giây) làm
               chất liệu clone giọng.</p>
           </div>
-          <div class="form-group" style="margin-bottom: 10px;">
+          <div class="form-group" id="cloner-reference-text-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">Nội dung trong file ghi âm (kịch bản mẫu)</label>
             <textarea id="cloner-ref-text" required class="premium-textarea" rows="2"
               placeholder="Gõ chính xác nội dung trong file ghi âm mẫu..."></textarea>
@@ -2571,14 +2608,31 @@
             <select id="cloner-voice-engine-select" class="premium-select" style="margin: 0 0 8px 0;"
               aria-label="Engine giọng nói">
               <option value="current-omnivoice">OmniVoice hiện tại</option>
+              <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
             </select>
-            <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
-            <select id="cloner-device" class="premium-select" style="margin: 0;">
-              <option value="cpu">CPU (Mặc định)</option>
-              <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
-            </select>
+            <div id="cloner-edge-settings" class="hidden">
+              <label for="cloner-edge-voice" style="margin: 0 0 6px 0;">Giọng Edge TTS</label>
+              <select id="cloner-edge-voice" class="premium-select" style="margin-bottom: 8px;"></select>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <select id="cloner-edge-rate" class="premium-select" aria-label="Tốc độ Edge TTS">
+                  <option value="-25%">Chậm</option><option value="+0%" selected>Bình thường</option>
+                  <option value="+25%">Nhanh</option><option value="+50%">Rất nhanh</option>
+                </select>
+                <select id="cloner-edge-pitch" class="premium-select" aria-label="Cao độ Edge TTS">
+                  <option value="-10Hz">Trầm</option><option value="+0Hz" selected>Bình thường</option>
+                  <option value="+10Hz">Cao</option>
+                </select>
+              </div>
+            </div>
+            <div id="cloner-device-group">
+              <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
+              <select id="cloner-device" class="premium-select" style="margin: 0;">
+                <option value="cpu">CPU (Mặc định)</option>
+                <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
+              </select>
+            </div>
           </div>
-          <label class="premium-switch" style="margin-bottom: 10px;">
+          <label class="premium-switch" id="cloner-cpu-fallback-group" style="margin-bottom: 10px;">
             <input type="checkbox" id="cloner-allow-cpu-fallback">
             <span class="switch-slider"></span>
             <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
@@ -2656,6 +2710,7 @@
             <div class="dl-config-group">
               <label>Dịch phụ đề bằng (AI Provider)</label>
               <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
+                <option value="gemini-web" selected>🌐 Gemini Web Automation (Miễn phí & Tự nhiên - Mặc định)</option>
                 <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
                 <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
                 <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
@@ -3023,7 +3078,8 @@
             <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
             <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()"
               style="margin: 0; height: 38px;">
-              <option value="nllb" selected>🤖 AI Dịch Offline NLLB-200 (Mặc định - Nhẹ &amp; Không cần mạng)</option>
+              <option value="gemini-web" selected>🌐 Gemini Web Automation (Miễn phí &amp; Tự nhiên - Mặc định)</option>
+              <option value="nllb">🤖 AI Dịch Offline NLLB-200 (Nhẹ &amp; Không cần mạng)</option>
               <option value="google-translate">🌐 Google Translate (An toàn &amp; Khuyên dùng)</option>
               <option value="openai">💬 ChatGPT OpenAI (Cần API Key &amp; chọn Model)</option>
               <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
@@ -3031,6 +3087,20 @@
               <option value="ninerouter">🤖 9Router Local AI Proxy</option>
               <option value="opencode">⚡ OpenCode SDK (Tự động Server ngầm &amp; OpenCode Zen Models)</option>
             </select>
+          </div>
+
+          <!-- Gemini Web Fields -->
+          <div id="global-gemini-web-fields" class="hidden"
+            style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tài khoản Google Gemini Web</label>
+              <p style="font-size: 11px; color: var(--muted); margin: 0;">Đăng nhập tài khoản Google của bạn trên cửa sổ Chrome Playwright 1 lần để sử dụng dịch Gemini Web hoàn toàn miễn phí.</p>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn"
+                  style="margin: 0; width: auto; padding: 0 14px; height: 36px; font-size: 12px; border-color: #4285f4; color: #4285f4;"
+                  onclick="openGeminiWebLoginWindow()">🌐 Mở trình duyệt Đăng nhập Gemini</button>
+              </div>
+            </div>
           </div>
 
           <!-- OpenAI (ChatGPT) Fields -->
