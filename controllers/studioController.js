@@ -477,6 +477,15 @@ function applyRenderTaskFailure(task, error, state = shared.state) {
   return 'error';
 }
 
+async function cancelTaskVoiceEngine(task) {
+  const engineId = task?.body?.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
+  try {
+    await voiceEngineRegistry.cancel(engineId);
+  } catch (error) {
+    console.warn(`[VoiceEngine] Không thể hủy ${engineId}:`, error.message);
+  }
+}
+
 function cleanupRenderWorkDir(workDir, dependencies = {}) {
   const existsSync = dependencies.existsSync || fs.existsSync;
   const rmSync = dependencies.rmSync || fs.rmSync;
@@ -914,7 +923,7 @@ async function executeRenderTask(task) {
       shared.updateStudioProgress(38, 'Đang nạp giọng lồng tiếng đã chọn...');
       voicePath = shared.resolveAssetPath('voice', body.savedVoiceFile);
     } else if (voiceMode === 'omi') {
-      shared.updateStudioProgress(40, 'Đang khởi động bộ nhân bản giọng nói AI (OmniVoice)...');
+      shared.updateStudioProgress(40, 'Đang khởi động voice engine...');
       const refAudioPath = shared.resolveAssetPath('voice', body.savedVoiceFile);
       let refText = (body.refText || '').trim();
       let omiScript = (body.omiScript || '').trim();
@@ -934,7 +943,15 @@ async function executeRenderTask(task) {
           cause: error
         });
       }
-      const requestedVoiceDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
+      const voiceCapabilities = voiceEngine.getCapabilities();
+      const supportsVoiceCloning = voiceCapabilities.cloneVoice === true;
+      const edgeVoice = voiceEngine.id === 'edge-tts' ? String(body.edgeVoice || '') : '';
+      const requestedLanguage = edgeVoice
+        ? edgeVoice.split('-').slice(0, 2).join('-').toLowerCase()
+        : (['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi');
+      const requestedVoiceDevice = voiceEngine.id === 'edge-tts'
+        ? 'cpu'
+        : (body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu');
       const onVoiceFallback = (detail) => {
         task.voiceExecution = {
           engineId: voiceEngine.id,
@@ -953,12 +970,15 @@ async function executeRenderTask(task) {
         const lockOwner = `render:${task.id}`;
         shared.acquireVoiceEngine(lockOwner);
         try {
-          const method = options.referenceAudioPath && options.referenceText
+          const method = supportsVoiceCloning && options.referenceAudioPath && options.referenceText
             ? 'cloneVoice'
             : 'synthesize';
           const result = await voiceEngine[method]({
             ...options,
-            language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+            voice: edgeVoice || options.voice,
+            rate: body.edgeRate || options.rate,
+            pitch: body.edgePitch || options.pitch,
+            language: requestedLanguage,
             device: requestedVoiceDevice,
             steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             seed: resolveOmnivoiceSeed(options.seed ?? body.omiSeed),
@@ -982,7 +1002,7 @@ async function executeRenderTask(task) {
       };
 
       let finalRefAudioPath = null;
-      if (refAudioPath) {
+      if (supportsVoiceCloning && refAudioPath) {
         const refCheckpointPath = path.join(workDir, 'ref-voice-checkpoint.json');
         const refCheckpointKey = createCheckpointSignature({
           version: 1,
@@ -1138,20 +1158,23 @@ async function executeRenderTask(task) {
 
         const voiceCheckpointSignature = createCheckpointSignature({
           version: 3,
-          referenceAudio: getFileIdentity(refAudioPath),
-          refText,
+          referenceAudio: supportsVoiceCloning ? getFileIdentity(refAudioPath) : null,
+          refText: supportsVoiceCloning ? refText : '',
           engineId: voiceEngine.id,
+          voice: edgeVoice,
+          rate: body.edgeRate || '+0%',
+          pitch: body.edgePitch || '+0Hz',
           model: voiceEngine.id === DEFAULT_VOICE_ENGINE_ID
             ? getFileIdentity(shared.OMNIVOICE_MODEL_PATH)
             : voiceEngine.getCapabilities(),
-          language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+          language: requestedLanguage,
           steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
           seed: resolveOmnivoiceSeed(body.omiSeed),
           positionTemperature: '1.0'
         });
         const voiceCheckpoint = createVoiceChunkCheckpoint(workDir, voiceCheckpointSignature);
         let defaultPreviewReference = null;
-        if (segmentManifest && body.savedVoiceFile) {
+        if (supportsVoiceCloning && segmentManifest && body.savedVoiceFile) {
           defaultPreviewReference = await resolveVoiceReference({
             voiceFile: body.savedVoiceFile,
             defaultVoiceFile: body.savedVoiceFile,
@@ -1178,12 +1201,12 @@ async function executeRenderTask(task) {
           const progressPercent = 48 + Math.floor((idx / groups.length) * 30);
           const segment = group[0].segment || null;
           const checkpointKey = segment?.id || idx;
-          let segmentReferenceAudioPath = finalRefAudioPath;
-          let segmentReferenceText = refText;
-          let segmentReferenceIdentity = getFileIdentity(refAudioPath);
+          let segmentReferenceAudioPath = supportsVoiceCloning ? finalRefAudioPath : null;
+          let segmentReferenceText = supportsVoiceCloning ? refText : '';
+          let segmentReferenceIdentity = supportsVoiceCloning ? getFileIdentity(refAudioPath) : null;
           let legacyReferenceAudioPath = defaultPreviewReference?.audioPath || finalRefAudioPath;
           const segmentVoiceFile = segment?.voiceFile || body.savedVoiceFile || '';
-          if (segment && segmentVoiceFile && segmentVoiceFile !== body.savedVoiceFile) {
+          if (supportsVoiceCloning && segment && segmentVoiceFile && segmentVoiceFile !== body.savedVoiceFile) {
             const segmentReference = await resolveVoiceReference({
               voiceFile: segmentVoiceFile,
               defaultVoiceFile: body.savedVoiceFile || '',
@@ -1204,12 +1227,15 @@ async function executeRenderTask(task) {
             referenceIdentity: segmentReferenceIdentity,
             referenceText: segmentReferenceText,
             engineId: voiceEngine.id,
+            voice: edgeVoice,
+            rate: body.edgeRate || '+0%',
+            pitch: body.edgePitch || '+0Hz',
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-            language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+            language: requestedLanguage,
             seed: resolveOmnivoiceSeed(body.omiSeed),
             positionTemperature: 1
           });
-          const legacyChunkSignature = segment
+          const legacyChunkSignature = supportsVoiceCloning && segment
             ? createLegacyVoiceAudioSignature({
                 text: lineText,
                 voiceFile: segmentVoiceFile,
@@ -1252,7 +1278,7 @@ async function executeRenderTask(task) {
             shared.updateStudioProgress(progressPercent, `AI Cloner: Đang đọc câu thoại ${idx + 1}/${groups.length}...`);
           }
 
-          const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
+          const usedDevice = requestedVoiceDevice;
 
           console.log(
             `[OmniVoice-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
@@ -1277,8 +1303,11 @@ async function executeRenderTask(task) {
                     referenceIdentity: segmentReferenceIdentity,
                     referenceText: segmentReferenceText,
                     engineId: voiceEngine.id,
+                    voice: edgeVoice,
+                    rate: body.edgeRate || '+0%',
+                    pitch: body.edgePitch || '+0Hz',
                     steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
-                    language: ['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi',
+                    language: requestedLanguage,
                     seed: resolveOmnivoiceSeed(body.omiSeed),
                     positionTemperature: 1
                   }),
@@ -1503,12 +1532,12 @@ async function executeRenderTask(task) {
         }
 
         if (!omiScript) {
-          return res.status(400).json({ error: 'Vui lòng nhập kịch bản hoặc bật chế độ phụ đề để OmniVoice tự đọc.' });
+          return res.status(400).json({ error: 'Vui lòng nhập kịch bản hoặc bật chế độ phụ đề để voice engine tự đọc.' });
         }
 
         omiScript = omiScript.normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
-        voicePath = path.join(workDir, `omnivoice_${timestamp}.wav`);
-        const usedDevice = body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu';
+        voicePath = path.join(workDir, `voice_${voiceEngine.id}_${timestamp}.wav`);
+        const usedDevice = requestedVoiceDevice;
         const estDuration = finalRefAudioPath && refText
           ? null
           : Math.max(1.5, omiScript.length * 0.075);
@@ -2277,6 +2306,7 @@ function createRenderQueueHandlers(dependencies = {}) {
 
       if (task.status === 'rendering') {
         logger.log(`[Queue] Nhận yêu cầu hủy và gỡ tác vụ đang chạy trực tiếp: ${taskId}`);
+        await cancelTaskVoiceEngine(task);
         killActiveRenderProcesses();
         state.isStudioRendering = false;
         state.activeRenderId = null;
@@ -2546,6 +2576,7 @@ module.exports = {
   clearQueue: async (req, res) => {
     console.log('[Queue] Nhận yêu cầu xóa sạch toàn bộ hàng đợi...');
     if (shared.state.isStudioRendering || (shared.state.studioProgress && shared.state.studioProgress.status === 'rendering')) {
+      await cancelTaskVoiceEngine(shared.state.currentActiveTask);
       shared.killActiveRenderProcesses();
     }
     shared.state.isStudioRendering = false;
@@ -2566,6 +2597,7 @@ module.exports = {
     if (shared.state.isStudioRendering || (shared.state.studioProgress && shared.state.studioProgress.status === 'rendering')) {
       const renderId = shared.state.activeRenderId;
       console.log(`[Studio Render] Nhận yêu cầu hủy render ID: ${renderId}...`);
+      await cancelTaskVoiceEngine(shared.state.currentActiveTask);
       shared.killActiveRenderProcesses();
       shared.state.isStudioRendering = false;
       if (shared.state.activeRenderId === renderId) {

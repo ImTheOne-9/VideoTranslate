@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.39",
+  "version": "1.0.40",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -29,7 +29,8 @@
     "playwright": "^1.49.1",
     "srt-parser-2": "^1.2.3",
     "unzipper": "^0.12.3",
-    "wavefile": "^11.0.0"
+    "wavefile": "^11.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "electron": "^42.4.1",

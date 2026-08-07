@@ -48,6 +48,9 @@ test('buildPrompt builds full system prompt with 1:1 constraint and length ancho
   ];
   const prompt = buildPrompt(items, '', 'vi', true);
   assert.ok(prompt.includes('QUY TẮC DỊCH THUẬT'));
+  assert.ok(prompt.includes('DẤU CÂU'));
+  assert.ok(prompt.includes('dấu chấm (.), dấu hỏi (?) hoặc dấu cảm (!)'));
+  assert.ok(prompt.includes('Nếu ý còn tiếp nối sang dòng kế tiếp thì KHÔNG ép dấu kết câu'));
   assert.ok(prompt.includes('1. [2.0s ≤'));
   assert.ok(prompt.includes('你好'));
   assert.ok(prompt.includes('谢谢'));

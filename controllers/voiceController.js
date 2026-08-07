@@ -45,9 +45,21 @@ module.exports = {
   generateClonerVoice: async (req, res) => {
     const { voiceName, refText, script, device } = req.body;
     const refAudio = req.file;
+    const engineId = req.body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
+    let engine;
+    try {
+      engine = voiceEngineRegistry.resolve(engineId, DEFAULT_VOICE_ENGINE_ID);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    const supportsVoiceCloning = engine.getCapabilities().cloneVoice === true;
 
-    if (!voiceName || !refAudio || !refText || !script) {
-      return res.status(400).json({ error: 'Thiếu thông tin: voiceName, refAudio, refText hoặc script' });
+    if (!voiceName || !script || (supportsVoiceCloning && (!refAudio || !refText))) {
+      return res.status(400).json({
+        error: supportsVoiceCloning
+          ? 'Thiếu thông tin: voiceName, refAudio, refText hoặc script'
+          : 'Thiếu thông tin: voiceName hoặc script'
+      });
     }
 
     if (clonerState.active) {
@@ -76,40 +88,48 @@ module.exports = {
     clonerState.percent = 0;
 
     try {
-      // Multer file gốc
-      const refOrigPath = refAudio.path;
-      tempFiles.push(refOrigPath);
-      const refWavPath = refOrigPath + '_converted.wav';
-      tempFiles.push(refWavPath);
+      let refWavPath = null;
+      if (supportsVoiceCloning) {
+        const refOrigPath = refAudio.path;
+        tempFiles.push(refOrigPath);
+        refWavPath = refOrigPath + '_converted.wav';
+        tempFiles.push(refWavPath);
 
-      clonerState.stage = 'Đang chuyển đổi file âm thanh (FFmpeg)...';
-      await new Promise((resolve, reject) => {
-        shared.execFile(shared.FFMPEG_PATH, [
-          '-i', refOrigPath,
-          '-acodec', 'pcm_s16le',
-          '-ar', '16000',
-          '-ac', '1',
-          '-y', refWavPath
-        ], (err, stdout, stderr) => {
-          if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
-          else resolve();
+        clonerState.stage = 'Đang chuyển đổi file âm thanh (FFmpeg)...';
+        await new Promise((resolve, reject) => {
+          shared.execFile(shared.FFMPEG_PATH, [
+            '-i', refOrigPath,
+            '-acodec', 'pcm_s16le',
+            '-ar', '16000',
+            '-ac', '1',
+            '-y', refWavPath
+          ], (err, stdout, stderr) => {
+            if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
+            else resolve();
+          });
         });
-      });
+      }
 
-      clonerState.stage = 'Đang tải model AI...';
+      clonerState.stage = supportsVoiceCloning ? 'Đang tải model AI...' : 'Đang kết nối Edge TTS...';
       clonerState.percent = 10;
 
-      console.log(`[OmniCloner] Đang tạo giọng "${baseName}"...`);
-      let selectedDevice = device || process.env.OMNIVOICE_DEVICE || 'cpu';
-
-      const engineId = req.body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
-      const engine = voiceEngineRegistry.resolve(engineId, DEFAULT_VOICE_ENGINE_ID);
+      console.log(`[VoiceEngine:${engine.id}] Đang tạo giọng "${baseName}"...`);
+      let selectedDevice = engine.id === 'edge-tts'
+        ? 'cpu'
+        : (device || process.env.OMNIVOICE_DEVICE || 'cpu');
       clonerState.engineId = engine.id;
+      await engine.loadModel();
       const runSelectedVoiceEngine = async () => {
-        return engine.cloneVoice({
+        const method = supportsVoiceCloning ? 'cloneVoice' : 'synthesize';
+        return engine[method]({
           text: script,
           outputPath: voicePath,
-          language: 'vi',
+          voice: req.body.edgeVoice,
+          rate: req.body.edgeRate,
+          pitch: req.body.edgePitch,
+          language: req.body.edgeVoice
+            ? String(req.body.edgeVoice).split('-').slice(0, 2).join('-').toLowerCase()
+            : 'vi',
           device: selectedDevice,
           steps: process.env.OMNIVOICE_STEPS || '16',
           seed: resolveOmnivoiceSeed(req.body.omiSeed),
@@ -167,7 +187,7 @@ module.exports = {
 
       fs.writeFileSync(txtPath, script, 'utf8');
       clonerState.voiceFilename = '_temp_cloner_voice.wav';
-      console.log(`[OmniCloner] Đã lưu giọng tạm thời tại ${voicePath}`);
+      console.log(`[VoiceEngine:${engine.id}] Đã lưu giọng tạm thời tại ${voicePath}`);
 
       clonerState.stage = 'Hoàn tất!';
       clonerState.percent = 100;
@@ -175,7 +195,7 @@ module.exports = {
 
       res.json({
         success: true,
-        message: 'Tạo giọng mẫu bằng Omni Cloner thành công!',
+        message: `Tạo giọng bằng ${engine.name} thành công!`,
         filename: '_temp_cloner_voice.wav'
       });
 
@@ -185,12 +205,12 @@ module.exports = {
         try { if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath); } catch (e) {}
         return res.json({ success: false, cancelled: true, message: 'Da huy tao giong' });
       }
-      console.error('Error generating Omni Cloner voice:', err.message);
+      console.error(`Error generating voice with ${engine.id}:`, err.message);
       if (err.message !== 'Đã hủy') {
         try { if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath); } catch (e) {}
         try { if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath); } catch (e) {}
         clonerState.error = err.message;
-        res.status(500).json({ error: `Lỗi Omni Cloner: ${err.message}` });
+        res.status(500).json({ error: `Lỗi ${engine.name}: ${err.message}` });
       } else {
         try { if (fs.existsSync(voicePath)) fs.unlinkSync(voicePath); } catch (e) {}
         try { if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath); } catch (e) {}

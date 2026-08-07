@@ -272,16 +272,24 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     select.appendChild(option);
   }
 
+  const fallbackEngineId = voiceEngines.some(
+    (engine) => engine.id === defaultEngineId && engine.status?.ready
+  )
+    ? defaultEngineId
+    : (voiceEngines.find((engine) => engine.status?.ready)?.id || defaultEngineId);
   const preferred = voiceEngines.some((engine) => engine.id === previousValue && engine.status?.ready)
     ? previousValue
-    : defaultEngineId;
+    : fallbackEngineId;
   select.value = preferred;
 
   const updateDescription = () => {
     const engine = voiceEngines.find((item) => item.id === select.value);
     if (!engine || !capabilityText) return;
     const capabilities = engine.capabilities || {};
-    const languageLabels = { vi: 'Việt', en: 'Anh', zh: 'Trung' };
+    const languageLabels = {
+      vi: 'Việt', en: 'Anh', zh: 'Trung', ja: 'Nhật', ko: 'Hàn',
+      fr: 'Pháp', de: 'Đức', es: 'Tây Ban Nha', ru: 'Nga'
+    };
     const languages = (capabilities.languages || [])
       .map((language) => languageLabels[language] || language)
       .join(', ');
@@ -298,8 +306,18 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
       capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null
     ].filter(Boolean);
     capabilityText.textContent = engine.status?.ready
-      ? features.join(' • ')
-      : 'Engine chưa sẵn sàng. Hãy cài đủ CLI và model.';
+      ? `${features.join(' • ')}${engine.status?.requiresInternet ? ' • Cần Internet' : ''}`
+      : (engine.status?.error || 'Engine chưa sẵn sàng.');
+
+    const edgeVoiceGroup = $('edge-voice-group');
+    const isEdge = select.value === 'edge-tts';
+    if (edgeVoiceGroup) {
+      edgeVoiceGroup.style.display = isEdge ? 'block' : 'none';
+    }
+    $('voice-device-group')?.classList.toggle('hidden', isEdge);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge);
+    if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
+    if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
 
   select.onchange = updateDescription;
@@ -1315,7 +1333,10 @@ async function renderStudio(event) {
     data.set('voiceEngine', voiceEngineId);
   }
 
-  if (voiceMode === 'omi' && omiDevice === 'cuda:0' && !dependencyStatus.cuda) {
+  if (voiceMode === 'omi'
+    && data.get('voiceEngine') !== 'edge-tts'
+    && omiDevice === 'cuda:0'
+    && !dependencyStatus.cuda) {
     showDependencyModal('cuda', () => {
       const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
       form.dispatchEvent(submitEvent);
@@ -2887,7 +2908,10 @@ function updateConditionalFields() {
   }
 
   const voiceMode = $('voice-mode').value;
-  $('voice-saved-wrapper').classList.toggle('hidden', !['saved', 'omi'].includes(voiceMode));
+  const selectedVoiceEngine = $('voice-engine-select')?.value || 'current-omnivoice';
+  const needsSavedVoice = voiceMode === 'saved'
+    || (voiceMode === 'omi' && selectedVoiceEngine !== 'edge-tts');
+  $('voice-saved-wrapper').classList.toggle('hidden', !needsSavedVoice);
   $('voice-upload-wrapper').classList.toggle('hidden', voiceMode !== 'upload');
   $('omi-cloner-container').classList.toggle('hidden', voiceMode !== 'omi');
 
@@ -3334,6 +3358,10 @@ function submitSaveTemplate(event) {
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
     savedVoiceFile: $('saved-voice-select').value,
+    voiceEngine: $('voice-engine-select')?.value || 'current-omnivoice',
+    edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
+    edgeRate: $('edge-rate-select')?.value || '+0%',
+    edgePitch: $('edge-pitch-select')?.value || '+0Hz',
     omiLanguage: document.getElementById('global-output-lang')?.value || 'vi',
     omiDevice: document.querySelector('select[name="omiDevice"]').value,
     omiSteps: document.querySelector('input[name="omiSteps"]').value,
@@ -3561,6 +3589,16 @@ function loadStudioTemplate(templateName) {
   blurBoxes = template.blurBoxes || [];
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
   renderBlurBoxesList();
+
+  // Restore voice engine before opening voice mode so Edge TTS does not depend on OmniVoice.
+  const voiceEngineSelect = $('voice-engine-select');
+  if (voiceEngineSelect && template.voiceEngine) {
+    voiceEngineSelect.value = template.voiceEngine;
+    voiceEngineSelect.dispatchEvent(new Event('change'));
+  }
+  if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
+  if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
+  if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
 
   // Restore voice mode
   const voiceModeBtn = document.querySelector(`.voice-tab-btn[data-voice-mode="${template.voiceMode}"]`);
@@ -4507,10 +4545,20 @@ initDraggableBlurBox();
 document.querySelectorAll('.voice-tab-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const mode = btn.dataset.voiceMode;
-    if (mode === 'omi' && !assets.omiConfigured && e && e.isTrusted) {
-      toast('⚠️ Thiếu file Model AI để chạy Omi Cloner. Vui lòng tải xuống!', 'warn');
-      openModelDownloadModal();
-      return;
+    let selectedEngine = $('voice-engine-select')?.value || assets.defaultVoiceEngineId;
+    if (mode === 'omi' && selectedEngine !== 'edge-tts' && !assets.omiConfigured && e && e.isTrusted) {
+      const edgeReady = (assets.voiceEngines || []).some(
+        (engine) => engine.id === 'edge-tts' && engine.status?.ready
+      );
+      if (edgeReady && $('voice-engine-select')) {
+        $('voice-engine-select').value = 'edge-tts';
+        $('voice-engine-select').dispatchEvent(new Event('change'));
+        selectedEngine = 'edge-tts';
+      } else {
+        toast('⚠️ Chưa có voice engine sẵn sàng. Vui lòng kiểm tra OmniVoice hoặc Edge TTS.', 'warn');
+        openModelDownloadModal();
+        return;
+      }
     }
     document.querySelectorAll('.voice-tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
