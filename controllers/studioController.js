@@ -946,6 +946,9 @@ async function executeRenderTask(task) {
       const voiceCapabilities = voiceEngine.getCapabilities();
       const supportsVoiceCloning = voiceCapabilities.cloneVoice === true;
       const edgeVoice = voiceEngine.id === 'edge-tts' ? String(body.edgeVoice || '') : '';
+      const edgeRate = voiceEngine.id === 'edge-tts' ? String(body.edgeRate || '+0%') : '+0%';
+      const edgePitch = voiceEngine.id === 'edge-tts' ? String(body.edgePitch || '+0Hz') : '+0Hz';
+      const voiceLogTag = voiceEngine.id === 'edge-tts' ? 'EdgeTTS' : 'OmniVoice';
       const requestedLanguage = edgeVoice
         ? edgeVoice.split('-').slice(0, 2).join('-').toLowerCase()
         : (['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi');
@@ -976,8 +979,8 @@ async function executeRenderTask(task) {
           const result = await voiceEngine[method]({
             ...options,
             voice: edgeVoice || options.voice,
-            rate: body.edgeRate || options.rate,
-            pitch: body.edgePitch || options.pitch,
+            rate: voiceEngine.id === 'edge-tts' ? edgeRate : options.rate,
+            pitch: voiceEngine.id === 'edge-tts' ? edgePitch : options.pitch,
             language: requestedLanguage,
             device: requestedVoiceDevice,
             steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
@@ -1095,7 +1098,7 @@ async function executeRenderTask(task) {
       }
 
       if (subtitlePath && fs.existsSync(subtitlePath)) {
-        console.log('Bắt đầu đồng bộ giọng đọc OmniVoice theo từng câu phụ đề...');
+        console.log(`Bắt đầu đồng bộ giọng đọc ${voiceLogTag} theo từng câu phụ đề...`);
         const Parser = require('srt-parser-2').default;
         const parser = new Parser();
         const srtContent = fs.readFileSync(subtitlePath, 'utf8');
@@ -1162,8 +1165,8 @@ async function executeRenderTask(task) {
           refText: supportsVoiceCloning ? refText : '',
           engineId: voiceEngine.id,
           voice: edgeVoice,
-          rate: body.edgeRate || '+0%',
-          pitch: body.edgePitch || '+0Hz',
+          rate: edgeRate,
+          pitch: edgePitch,
           model: voiceEngine.id === DEFAULT_VOICE_ENGINE_ID
             ? getFileIdentity(shared.OMNIVOICE_MODEL_PATH)
             : voiceEngine.getCapabilities(),
@@ -1228,8 +1231,8 @@ async function executeRenderTask(task) {
             referenceText: segmentReferenceText,
             engineId: voiceEngine.id,
             voice: edgeVoice,
-            rate: body.edgeRate || '+0%',
-            pitch: body.edgePitch || '+0Hz',
+            rate: edgeRate,
+            pitch: edgePitch,
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             language: requestedLanguage,
             seed: resolveOmnivoiceSeed(body.omiSeed),
@@ -1279,12 +1282,15 @@ async function executeRenderTask(task) {
           }
 
           const usedDevice = requestedVoiceDevice;
+          const voiceLogDetails = voiceEngine.id === 'edge-tts'
+            ? `Voice: ${edgeVoice}, Rate: ${edgeRate}, Pitch: ${edgePitch}`
+            : `Device: ${usedDevice}`;
 
           console.log(
-            `[OmniVoice-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
+            `[${voiceLogTag}-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
             + ` ${idx + 1}/${groups.length}: "${lineText}"`
             + ` (Thời lượng sub: ${durationSec.toFixed(2)}s,`
-            + ` Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`
+            + ` Bắt đầu: ${(startMs / 1000).toFixed(2)}s, ${voiceLogDetails})`
           );
           try {
             let rawDurationMs;
@@ -1304,8 +1310,8 @@ async function executeRenderTask(task) {
                     referenceText: segmentReferenceText,
                     engineId: voiceEngine.id,
                     voice: edgeVoice,
-                    rate: body.edgeRate || '+0%',
-                    pitch: body.edgePitch || '+0Hz',
+                    rate: edgeRate,
+                    pitch: edgePitch,
                     steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
                     language: requestedLanguage,
                     seed: resolveOmnivoiceSeed(body.omiSeed),
@@ -1368,7 +1374,7 @@ async function executeRenderTask(task) {
                   });
                 }
               } catch (speedUpErr) {
-                console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
+                console.error(`[${voiceLogTag}-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
                 throw speedUpErr;
               }
 
@@ -1422,7 +1428,7 @@ async function executeRenderTask(task) {
 
         try {
           shared.updateStudioProgress(78, 'Đang gộp các đoạn giọng nói...');
-          console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
+          console.log(`[${voiceLogTag}] Đang gộp các chunk giọng nói thành một file duy nhất...`);
           let maxEndMs = 0;
           const chunkDataList = [];
           let combinedSampleRate = null;
@@ -1509,12 +1515,12 @@ async function executeRenderTask(task) {
             fs.writeFileSync(voicePath, Buffer.concat([wavHeader, combinedBuffer]));
             tempFiles.push(voicePath);
 
-            console.log(`[OmniVoice] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs / 1000).toFixed(2)}s, Sample Rate: ${combinedSampleRate}Hz)`);
+            console.log(`[${voiceLogTag}] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs / 1000).toFixed(2)}s, Sample Rate: ${combinedSampleRate}Hz)`);
             voiceChunks.length = 0;
           }
         } catch (mergeErr) {
-          console.error('[OmniVoice] Lỗi khi gộp các file chunk âm thanh:', mergeErr.message);
-          console.warn('[OmniVoice] Dùng các chunk riêng lẻ (adelay) với cảnh báo: chất lượng ghép nối có thể không mượt.');
+          console.error(`[${voiceLogTag}] Lỗi khi gộp các file chunk âm thanh:`, mergeErr.message);
+          console.warn(`[${voiceLogTag}] Dùng các chunk riêng lẻ (adelay) với cảnh báo: chất lượng ghép nối có thể không mượt.`);
           // Không throw — để render tiếp với individual chunks (voiceChunks chưa bị clear)
         }
       } else {
