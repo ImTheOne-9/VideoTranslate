@@ -245,7 +245,7 @@
               <div class="panel-head crawl-now-heading">
                 <div>
                   <h3>⚡ Cào ngay — tải video về máy</h3>
-                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b></span>
+                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Cài bộ cào</button></span>
                 </div>
                 <span class="crawl-now-status-pill" id="crawl-now-ready">Sẵn sàng</span>
               </div>
@@ -259,7 +259,7 @@
 
               <div class="crawl-login-panel">
                 <div class="crawl-side-head"><b>🔑 Đăng nhập nền tảng</b><button type="button" class="crawl-link-btn" onclick="crawlLoadLoginStatus()">Kiểm tra lại</button></div>
-                <p>Nền tảng Trung Quốc dùng MediaCrawler; TikTok, Facebook, Instagram và X dùng profile của ViralCrawl. Bấm thẻ để đăng nhập đúng profile.</p>
+                <p>Nền tảng Trung Quốc dùng MediaCrawler; TikTok, Facebook, Instagram và X dùng profile riêng của Video Studio. Bấm thẻ để đăng nhập đúng profile.</p>
                 <div class="crawl-login-grid" id="crawl-login-grid"></div>
               </div>
 
@@ -302,7 +302,7 @@
 
               <label class="crawl-check-row">
                 <input type="checkbox" id="crawl-now-skip-dupe" checked>
-                <span><b>Cào không trùng</b> — MediaCrawler đào sâu nền tảng hỗ trợ; ViralCrawl yt-dlp dùng archive để bỏ qua video đã tải.</span>
+                <span><b>Cào không trùng</b> — MediaCrawler đào sâu nền tảng hỗ trợ; Video Studio yt-dlp dùng archive để bỏ qua video đã tải.</span>
               </label>
 
               <div class="crawl-action-grid">
@@ -342,6 +342,15 @@
                 <div class="crawl-queue-list" id="crawl-queue-list"></div>
                 <div class="crawl-retry-platforms" id="crawl-retry-platforms"></div>
                 <div class="crawl-queue-actions"><button type="button" class="crawl-link-btn" id="crawl-pause-btn" onclick="crawlTogglePause()">⏸ Dừng sau task này</button><button type="button" class="crawl-link-btn" onclick="crawlRetryAll()">↻ Thử lại tất cả lỗi</button></div>
+              </div>
+              <div class="panel crawl-history-card">
+                <div class="crawl-side-head"><b>🕘 Lịch sử cào</b><button type="button" class="crawl-link-btn" onclick="crawlLoadHistory()">Làm mới</button></div>
+                <div class="crawl-history-filters">
+                  <select id="crawl-history-platform" onchange="crawlLoadHistory()"><option value="">Tất cả nền tảng</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option><option value="douyin">Douyin</option><option value="bilibili">Bilibili</option><option value="xiaohongshu">Xiaohongshu</option><option value="rednote">RedNote</option><option value="facebook">Facebook</option><option value="weibo">Weibo</option><option value="instagram">Instagram</option><option value="twitter">Twitter/X</option><option value="reddit">Reddit</option></select>
+                  <input id="crawl-history-query" type="search" placeholder="Tìm tiêu đề/kênh" oninput="crawlScheduleHistory()">
+                  <label><input id="crawl-history-undownloaded" type="checkbox" onchange="crawlLoadHistory()"> Chỉ chưa tải</label>
+                </div>
+                <div id="crawl-history-list" class="crawl-history-list"><span>Chưa có dữ liệu lịch sử.</span></div>
               </div>
               <div class="panel crawl-support-note">
                 <b>Khả năng hiện tại</b>

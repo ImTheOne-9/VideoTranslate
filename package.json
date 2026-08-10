@@ -74,11 +74,24 @@
     ],
     "extraResources": [
       {
+        "from": "tools/crawler/",
+        "to": "tools/crawler/",
+        "filter": [
+          "app/**/*",
+          "requirements-crawler.txt",
+          "README.md",
+          "setup-runtime.ps1",
+          "runtime/**/*"
+        ]
+      },
+      {
         "from": "tools/",
         "to": "tools/",
         "filter": [
           "ffmpeg.exe",
           "yt-dlp.exe",
+          "uv.exe",
+          "node/node.exe",
           "nllb_translate.exe",
           "silero-vad/silero_vad.onnx",
           "omnivoice/omnivoice-cli.exe",

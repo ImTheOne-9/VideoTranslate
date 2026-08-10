@@ -13,15 +13,17 @@ const { DownloadCrawlManager } = require('./lib/download-crawl-manager');
 const douyinExtractor = require('./lib/douyin-extractor');
 const platformBrowserExtractor = require('./lib/platform-browser-extractor');
 const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
-const { ViralCrawlYtDlpAdapter } = require('./lib/viral-crawl-ytdlp-adapter');
+const { ProjectYtDlpAdapter } = require('./lib/project-ytdlp-adapter');
+const { CrawlerRuntimeManager } = require('./lib/crawler-runtime-manager');
+const { readCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
 
 function createBrowserPreviewResolver(platform) {
-  return async ({ input, count, mode }) => {
+  return async ({ input, count, mode, onLog }) => {
     const values = String(input || '').split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
     const items = new Map();
     for (const value of values) {
-      const found = await platformBrowserExtractor.collect(platform, mode, value, count, () => {});
+      const found = await platformBrowserExtractor.collect(platform, mode, value, count, onLog || (() => {}));
       for (const item of found) items.set(item.sourceUrl || item.url, item);
       if (items.size >= count) break;
     }
@@ -36,30 +38,31 @@ function createCookieSyncResolver(platform) {
   };
 }
 
-const mediaCrawler = new MediaCrawlerAdapter();
-const viralCrawlYtDlp = new ViralCrawlYtDlpAdapter();
+const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
+const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
+const crawlerRuntimeManager = new CrawlerRuntimeManager();
 
 function createMediaCrawlerPreviewResolver(platform) {
-  return async ({ input, count, mode }) => {
-    if (!mediaCrawler.status().available) return createBrowserPreviewResolver(platform)({ input, count, mode });
-    return mediaCrawler.preview({ platform, input, count, mode });
+  return async ({ input, count, mode, onLog }) => {
+    if (!mediaCrawler.status().available) return createBrowserPreviewResolver(platform)({ input, count, mode, onLog });
+    return mediaCrawler.preview({ platform, input, count, mode, onLog });
   };
 }
 
-function createViralYtDlpPreviewResolver(platform) {
-  return ({ input, count, mode, sort, timeDays }) => viralCrawlYtDlp.preview({
-    platform, input, count, mode, sort, timeDays
+function createProjectYtDlpPreviewResolver(platform) {
+  return ({ input, count, mode, sort, timeDays, onLog }) => projectYtDlp.preview({
+    platform, input, count, mode, sort, timeDays, onLog
   });
 }
 
 const downloadCrawlManager = new DownloadCrawlManager({
   shared,
   previewResolvers: {
-    'youtube:search': createViralYtDlpPreviewResolver('youtube'),
-    'youtube:creator': createViralYtDlpPreviewResolver('youtube'),
-    'tiktok:search': createViralYtDlpPreviewResolver('tiktok'),
-    'tiktok:creator': createViralYtDlpPreviewResolver('tiktok'),
-    'facebook:creator': createViralYtDlpPreviewResolver('facebook'),
+    'youtube:search': createProjectYtDlpPreviewResolver('youtube'),
+    'youtube:creator': createProjectYtDlpPreviewResolver('youtube'),
+    'tiktok:search': createProjectYtDlpPreviewResolver('tiktok'),
+    'tiktok:creator': createProjectYtDlpPreviewResolver('tiktok'),
+    'facebook:creator': createProjectYtDlpPreviewResolver('facebook'),
     'douyin:search': createMediaCrawlerPreviewResolver('douyin'),
     'douyin:creator': createMediaCrawlerPreviewResolver('douyin'),
     'bilibili:search': createMediaCrawlerPreviewResolver('bilibili'),
@@ -110,17 +113,17 @@ const downloadCrawlManager = new DownloadCrawlManager({
       ? Object.fromEntries(['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo']
         .map((platform) => [platform, (config, hooks) => mediaCrawler.crawl(config, hooks)]))
       : {}),
-    ...(viralCrawlYtDlp.status().available
+    ...(projectYtDlp.status().available
       ? Object.fromEntries(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit']
-        .map((platform) => [platform, (config, hooks) => viralCrawlYtDlp.crawl(config, hooks)]))
+        .map((platform) => [platform, (config, hooks) => projectYtDlp.crawl(config, hooks)]))
       : {})
   },
   loginChecker: async (platform, mode) => {
     if (mediaCrawler.supports(platform) && mediaCrawler.status().available) return mediaCrawler.checkLogin(platform);
-    if (viralCrawlYtDlp.status().available) {
-      if (platform === 'tiktok' && mode === 'search') return viralCrawlYtDlp.checkLogin(platform);
-      if (['instagram', 'twitter'].includes(platform)) return viralCrawlYtDlp.checkLogin(platform);
-      if (viralCrawlYtDlp.supports(platform)) return 'in';
+    if (projectYtDlp.status().available) {
+      if (platform === 'tiktok' && mode === 'search') return projectYtDlp.checkLogin(platform);
+      if (['instagram', 'twitter'].includes(platform)) return projectYtDlp.checkLogin(platform);
+      if (projectYtDlp.supports(platform)) return 'in';
     }
     const cookies = shared.getCookieStatus();
     if (cookies[platform]) return 'in';
@@ -387,9 +390,20 @@ app.post('/api/playlist', downloadController.playlist);
 app.post('/api/download-local', downloadController.downloadLocal);
 app.get('/api/proxy-image', downloadController.proxyImage);
 app.get('/api/download-crawl/capabilities', (req, res) => {
-  res.json({ platforms: downloadCrawlManager.capabilities(), engine: mediaCrawler.status(), engines: [mediaCrawler.status(), viralCrawlYtDlp.status()] });
+  res.json({ platforms: downloadCrawlManager.capabilities(), engine: mediaCrawler.status(), engines: [mediaCrawler.status(), projectYtDlp.status()] });
 });
-app.get('/api/download-crawl/engine-status', (req, res) => res.json({ mediaCrawler: mediaCrawler.status(), viralCrawlYtDlp: viralCrawlYtDlp.status() }));
+app.get('/api/download-crawl/engine-status', (req, res) => res.json({ mediaCrawler: mediaCrawler.status(), projectYtDlp: projectYtDlp.status() }));
+app.get('/api/download-crawl/runtime-status', (req, res) => res.json(crawlerRuntimeManager.status()));
+app.post('/api/download-crawl/runtime-install', (req, res) => {
+  try {
+    const result = crawlerRuntimeManager.install((message, level) => {
+      downloadCrawlManager._log(`[Runtime] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không thể cài runtime crawler.' });
+  }
+});
 app.post('/api/download-crawl/preview', async (req, res) => {
   try {
     res.json(await downloadCrawlManager.preview(req.body || {}));
@@ -417,14 +431,24 @@ app.get('/api/download-crawl/status', (req, res) => {
 app.get('/api/download-crawl/stats', (req, res) => {
   res.json(downloadCrawlManager.stats(req.query?.date || ''));
 });
+app.get('/api/download-crawl/history', (req, res) => {
+  const items = readCrawlerHistory(shared.DOWNLOADS_DIR, {
+    platform: req.query?.platform,
+    query: req.query?.q,
+    onlyUndownloaded: String(req.query?.onlyUndownloaded || '') === '1',
+    days: req.query?.days,
+    limit: req.query?.limit
+  });
+  res.json({ items, count: items.length });
+});
 app.get('/api/download-crawl/login-status', async (req, res) => {
   const cookies = shared.getCookieStatus();
   const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
   const browserStates = mediaCrawler.status().available
     ? await mediaCrawler.checkLogins(browserPlatforms)
     : Object.fromEntries(await Promise.all(browserPlatforms.map(async (platform) => [platform, await platformBrowserExtractor.loginStatus(platform)])));
-  const viralStates = viralCrawlYtDlp.status().available
-    ? await viralCrawlYtDlp.checkLogins(['tiktok', 'facebook', 'instagram', 'twitter'])
+  const projectStates = projectYtDlp.status().available
+    ? await projectYtDlp.checkLogins(['tiktok', 'facebook', 'instagram', 'twitter'])
     : {};
   const loginState = (platform, hasCookie = false) => browserStates[platform] === 'in'
     ? 'in'
@@ -437,10 +461,10 @@ app.get('/api/download-crawl/login-status', async (req, res) => {
       rednote: loginState('rednote', cookies.rednote),
       weibo: loginState('weibo', cookies.weibo),
       youtube: 'na',
-      tiktok: viralStates.tiktok || 'out',
-      facebook: viralStates.facebook === 'in' ? 'in' : 'na',
-      instagram: viralStates.instagram === 'in' ? 'in' : 'out',
-      twitter: viralStates.twitter === 'in' ? 'in' : 'out',
+      tiktok: projectStates.tiktok || 'out',
+      facebook: projectStates.facebook === 'in' ? 'in' : 'na',
+      instagram: projectStates.instagram === 'in' ? 'in' : 'out',
+      twitter: projectStates.twitter === 'in' ? 'in' : 'out',
       reddit: 'na'
     }
   });
@@ -450,8 +474,8 @@ app.post('/api/download-crawl/login', async (req, res) => {
     const platform = String(req.body?.platform || '');
     const result = mediaCrawler.supports(platform) && mediaCrawler.status().available
       ? mediaCrawler.openLogin(platform)
-      : viralCrawlYtDlp.needsLogin(platform) && viralCrawlYtDlp.status().available
-        ? viralCrawlYtDlp.openLogin(platform)
+      : projectYtDlp.needsLogin(platform) && projectYtDlp.status().available
+        ? projectYtDlp.openLogin(platform)
       : await platformBrowserExtractor.openLogin(platform);
     res.json({ success: true, engine: result?.engine || 'browser', message: `Đã mở cửa sổ đăng nhập ${platform}. Đăng nhập xong có thể đóng cửa sổ.` });
   } catch (error) {

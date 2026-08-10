@@ -4,13 +4,13 @@ const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 const {
-  ViralCrawlYtDlpAdapter,
+  ProjectYtDlpAdapter,
   mapMode,
   mapRedditSort,
   mapRedditTime
-} = require('../lib/viral-crawl-ytdlp-adapter');
+} = require('../lib/project-ytdlp-adapter');
 
-test('ViralCrawl yt-dlp maps modes and Reddit filters to tai_ytdlp CLI values', () => {
+test('Video Studio yt-dlp maps modes and Reddit filters to tai_ytdlp CLI values', () => {
   assert.equal(mapMode('chase'), 'bo');
   assert.equal(mapMode('creator'), 'creator');
   assert.equal(mapRedditSort('likes'), 'top');
@@ -21,7 +21,7 @@ test('ViralCrawl yt-dlp maps modes and Reddit filters to tai_ytdlp CLI values', 
 });
 
 test('preview calls tai_ytdlp metadata-only and maps its JSON contract', async () => {
-  const adapter = new ViralCrawlYtDlpAdapter();
+  const adapter = new ProjectYtDlpAdapter();
   let call = null;
   adapter._run = async (script, args) => {
     call = { script, args };
@@ -31,14 +31,14 @@ test('preview calls tai_ytdlp metadata-only and maps its JSON contract', async (
   assert.equal(path.basename(call.script), 'tai_ytdlp.py');
   assert.ok(call.args.includes('--list'));
   assert.ok(call.args.includes('yt'));
-  assert.equal(items[0].engine, 'ViralCrawl yt-dlp');
+  assert.equal(items[0].engine, 'Video Studio yt-dlp');
   assert.equal(items[0].viewCount, 123);
 });
 
 test('crawl delegates the complete job to tai_ytdlp with project output root', async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-ytdlp-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-ytdlp-'));
   try {
-    const adapter = new ViralCrawlYtDlpAdapter();
+    const adapter = new ProjectYtDlpAdapter();
     let call = null;
     adapter._run = async (script, args, options) => {
       call = { script, args, options };
@@ -48,7 +48,7 @@ test('crawl delegates the complete job to tai_ytdlp with project output root', a
     assert.equal(path.basename(call.script), 'tai_ytdlp.py');
     assert.deepEqual(call.args.slice(0, 6), ['--platform', 'tt', '--type', 'creator', '--input', '@kenh']);
     assert.equal(call.options.env.MC_DATA_DIR, directory);
-    assert.equal(result.engine, 'ViralCrawl yt-dlp');
+    assert.equal(result.engine, 'Video Studio yt-dlp');
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

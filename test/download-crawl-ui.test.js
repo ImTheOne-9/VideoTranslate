@@ -17,6 +17,9 @@ test('server exposes the complete crawl-now API surface', () => {
     '/api/download-crawl/enqueue',
     '/api/download-crawl/status',
     '/api/download-crawl/stats',
+    '/api/download-crawl/history',
+    '/api/download-crawl/runtime-status',
+    '/api/download-crawl/runtime-install',
     '/api/download-crawl/login-status',
     '/api/download-crawl/login',
     '/api/download-crawl/translate-keywords',
@@ -35,8 +38,8 @@ test('server exposes the complete crawl-now API surface', () => {
 test('server exposes MediaCrawler engine status and integration', () => {
   const server = read('server.js');
   assert.match(server, /mediacrawler-adapter/);
-  assert.match(server, /viral-crawl-ytdlp-adapter/);
-  assert.match(server, /ViralCrawlYtDlpAdapter/);
+  assert.match(server, /project-ytdlp-adapter/);
+  assert.match(server, /ProjectYtDlpAdapter/);
   assert.match(server, /\['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'\]/);
   assert.match(server, /\/api\/download-crawl\/engine-status/);
   assert.match(server, /crawlResolvers/);
@@ -59,18 +62,20 @@ test('download page keeps legacy modes and makes crawl-now the default', () => {
   assert.match(html, /id="crawl-activity-log"/);
   assert.match(html, /id="crawl-progress-speed"/);
   assert.match(html, /id="crawl-progress-eta"/);
+  assert.match(html, /id="crawl-history-list"/);
+  assert.match(html, /id="crawl-runtime-install-btn"/);
   assert.match(html, /id="crawl-now-sort"/);
   assert.match(html, /id="crawl-now-language"/);
 });
 
-test('crawl-now exposes ViralCrawl auxiliary platforms and dual-engine status', () => {
+test('crawl-now exposes project crawler auxiliary platforms and dual-engine status', () => {
   const html = read('public/index.html');
   const app = read('public/app.js');
   for (const platform of ['instagram', 'twitter', 'reddit']) {
     assert.match(html, new RegExp(`data-platform="${platform}"`));
   }
-  assert.match(app, /MediaCrawler \+ ViralCrawl yt-dlp sẵn sàng/);
-  assert.match(app, /viralPlatforms = \['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'\]/);
+  assert.match(app, /MediaCrawler \+ Video Studio yt-dlp sẵn sàng/);
+  assert.match(app, /jobCrawlerPlatforms = \['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'\]/);
 });
 
 test('crawl-now client wires preview, queue controls, progress and duplicate history', () => {
@@ -88,4 +93,6 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.match(app, /function crawlRetryAll/);
   assert.match(app, /function crawlLoadMore/);
   assert.match(app, /function crawlPreviewScroll/);
+  assert.match(app, /function crawlLoadHistory/);
+  assert.match(app, /function crawlInstallRuntime/);
 });

@@ -5815,15 +5815,48 @@ async function crawlLoadCapabilities() {
     crawlNowState.engines = [];
   }
   const engineBadge = $('crawl-engine-badge');
+  const installButton = $('crawl-runtime-install-btn');
   if (engineBadge) {
     const ready = crawlNowState.engine?.available;
-    const viralReady = crawlNowState.engines.some((engine) => engine.engine === 'ViralCrawl yt-dlp' && engine.available);
-    engineBadge.classList.toggle('unavailable', !ready && !viralReady);
-    engineBadge.textContent = ready && viralReady
-      ? 'MediaCrawler + ViralCrawl yt-dlp sẵn sàng'
-      : ready ? 'MediaCrawler sẵn sàng' : viralReady ? 'ViralCrawl yt-dlp sẵn sàng' : 'Engine ViralCrawl chưa sẵn sàng · dùng fallback';
+    const projectReady = crawlNowState.engines.some((engine) => engine.engine === 'Video Studio yt-dlp' && engine.available);
+    engineBadge.classList.toggle('unavailable', !ready && !projectReady);
+    engineBadge.textContent = ready && projectReady
+      ? 'MediaCrawler + Video Studio yt-dlp sẵn sàng'
+      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Crawler chưa sẵn sàng · hãy cài runtime';
+    installButton?.classList.toggle('hidden', ready || projectReady);
   }
   crawlUpdateCapabilities();
+}
+
+async function crawlInstallRuntime() {
+  const button = $('crawl-runtime-install-btn');
+  const badge = $('crawl-engine-badge');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu cài bộ cào.');
+    toast(data.alreadyReady ? 'Bộ cào đã sẵn sàng.' : 'Đang cài bộ cào. Có thể theo dõi trong nhật ký.', 'success');
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const statusResponse = await fetch('/api/download-crawl/runtime-status');
+      const status = await statusResponse.json();
+      if (badge) badge.textContent = status.status === 'installing'
+        ? `Đang cài crawler ${Number(status.percent || 0)}% · ${status.message || 'vui lòng chờ'}`
+        : status.message || 'Đang kiểm tra crawler…';
+      if (status.ready) {
+        toast('Đã cài xong bộ cào video.', 'success');
+        await crawlLoadCapabilities();
+        break;
+      }
+      if (status.status === 'error') throw new Error(status.message || 'Cài bộ cào thất bại.');
+    }
+  } catch (error) {
+    toast(error.message, 'error');
+    await crawlLoadCapabilities();
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function crawlLoadLoginStatus() {
@@ -5883,6 +5916,36 @@ function crawlRefreshAll() {
   crawlLoadLoginStatus();
   crawlRefreshStats();
   crawlPollStatus();
+  crawlLoadHistory();
+}
+
+let crawlHistoryTimer = null;
+function crawlScheduleHistory() {
+  clearTimeout(crawlHistoryTimer);
+  crawlHistoryTimer = setTimeout(crawlLoadHistory, 250);
+}
+
+async function crawlLoadHistory() {
+  const list = $('crawl-history-list');
+  if (!list) return;
+  const params = new URLSearchParams({
+    platform: $('crawl-history-platform')?.value || '',
+    q: $('crawl-history-query')?.value || '',
+    onlyUndownloaded: $('crawl-history-undownloaded')?.checked ? '1' : '0',
+    limit: '200'
+  });
+  try {
+    const response = await fetch(`/api/download-crawl/history?${params}`);
+    const data = await response.json();
+    const items = Array.isArray(data.items) ? data.items : [];
+    list.innerHTML = items.length ? items.map((item) => `<div class="crawl-history-item">
+      ${item.thumbnail ? `<img src="/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}" alt="">` : '<span></span>'}
+      <div><b title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</b><small>${crawlEscape(item.platform)} · ${crawlEscape(item.uploader || '')}</small></div>
+      ${item.downloaded ? '<em>✓ đã tải</em>' : '<small>chưa tải</small>'}
+    </div>`).join('') : '<span>Chưa có dữ liệu lịch sử phù hợp.</span>';
+  } catch (_) {
+    list.innerHTML = '<span>Không đọc được lịch sử cào.</span>';
+  }
 }
 
 function crawlFilteredItems() {
@@ -5937,6 +6000,8 @@ async function crawlPreview(options = {}) {
     return [];
   }
   crawlSetBusy(true, 'Đang tìm video');
+  crawlStartPolling();
+  await crawlPollStatus();
   try {
     const response = await fetch('/api/download-crawl/preview', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
@@ -5962,6 +6027,7 @@ async function crawlPreview(options = {}) {
     return [];
   } finally {
     crawlSetBusy(false);
+    await crawlPollStatus();
   }
 }
 
@@ -6012,8 +6078,8 @@ async function crawlEnqueue(items) {
     return;
   }
   try {
-    const viralPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'];
-    if (viralPlatforms.includes(crawlNowState.platform)) {
+    const jobCrawlerPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+    if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
       const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
       const response = await fetch('/api/download-crawl/enqueue-job', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -6023,8 +6089,8 @@ async function crawlEnqueue(items) {
         })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Không thêm được job ViralCrawl vào hàng đợi.');
-      toast(`Đã thêm ${urls.length} video vào job ViralCrawl yt-dlp.`, 'success');
+      if (!response.ok) throw new Error(data.error || 'Không thêm được job crawler vào hàng đợi.');
+      toast(`Đã thêm ${urls.length} video vào job Video Studio yt-dlp.`, 'success');
       crawlStartPolling();
       await crawlPollStatus();
       return;
@@ -6125,7 +6191,7 @@ async function crawlPollStatus() {
     const snapshot = await response.json();
     crawlRenderQueue(snapshot);
     const activeCount = Number(snapshot.summary?.pending || 0) + Number(snapshot.summary?.downloading || 0);
-    if (activeCount > 0) crawlStartPolling();
+    if (activeCount > 0 || snapshot.previewing) crawlStartPolling();
     else crawlStopPolling();
   } catch (_) {}
 }
@@ -6240,6 +6306,7 @@ if ($('crawl-preview-select-all')) $('crawl-preview-select-all').checked = true;
 crawlLoadCapabilities();
 crawlLoadLoginStatus();
 crawlRefreshStats();
+crawlLoadHistory();
 crawlPollStatus();
 
 function switchDownloadMode(mode) {
