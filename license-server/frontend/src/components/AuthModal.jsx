@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Lock, UserPlus, KeyRound, Info, AlertTriangle, ArrowRight, Send, LogIn } from 'lucide-react';
+import { getMetaAttribution, trackLogin } from '../utils/pixelTracker';
+
 
 // Tao fingerprint thiet bi on dinh (hash thong tin trinh duyet + persist localStorage)
 function getDeviceFingerprint() {
@@ -149,7 +151,14 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
       const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ email, password, fullName, phoneNumber, hwid: getDeviceFingerprint() })
+          body: JSON.stringify({
+            email,
+            password,
+            fullName,
+            phoneNumber,
+            hwid: getDeviceFingerprint(),
+            attribution: getMetaAttribution()
+          })
         });
         const data = await res.json();
         
@@ -208,7 +217,9 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
         }
 
         if (data.success) {
+          trackLogin();
           showToast('Đăng nhập thành công!');
+
           // Gắn mã affiliate từ cookie (nếu có) - chỉ lần đầu, không ghi đè
           try {
             const affCode = document.cookie.split('; ').find(r => r.startsWith('aff_code='))?.split('=')[1];
