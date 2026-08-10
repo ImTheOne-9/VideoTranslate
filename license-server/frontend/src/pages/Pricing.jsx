@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, X, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { trackViewContent, trackInitiateCheckout } from '../utils/pixelTracker';
 
 export default function Pricing({ onSubscribePlan }) {
   const navigate = useNavigate();
   const [plans, setPlans] = useState([]);
 
   useEffect(() => {
+    trackViewContent('Bảng giá Editnhanh');
     fetchPlans();
   }, []);
+
 
   const fetchPlans = async () => {
     try {
@@ -92,7 +95,10 @@ export default function Pricing({ onSubscribePlan }) {
                   </div>
                   <div className="pt-8">
                     <button 
-                      onClick={() => onSubscribePlan(p.id)} 
+                      onClick={() => {
+                        trackInitiateCheckout(p.name, p.price, p.id);
+                        onSubscribePlan(p.id);
+                      }}
                       className={`w-full py-3 font-bold rounded-xl shadow-md transition-all cursor-pointer text-xs ${
                         p.isPopular
                           ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white'

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, DownloadCloud, Download, CreditCard, QrCode, Copy, Trash, RotateCw, Zap } from 'lucide-react';
+import { trackDownloadApp, trackCopyLicenseKey } from '../utils/pixelTracker';
+
 
 export default function Dashboard({ currentUser, isDevMode, showToast }) {
   const [keys, setKeys] = useState([]);
@@ -30,6 +32,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
 
   const copyToClipboard = (val, message = 'Đã sao chép vào clipboard!') => {
     navigator.clipboard.writeText(val);
+    trackCopyLicenseKey();
     showToast(message);
   };
 
@@ -72,18 +75,18 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
       const data = await res.json();
       
       if (data.success) {
-        showToast('Mô phỏng thanh toán thành công! Key bản quyền của bạn đã được kích hoạt.');
+        showToast('Giả lập thanh toán thành công!');
         await loadUserKeys();
       } else {
-        showToast(data.error || 'Duyệt thanh toán lỗi', 'error');
+        showToast(data.error || 'Lỗi khi giả lập thanh toán', 'error');
       }
     } catch (err) {
-      showToast('Lỗi API mô phỏng thanh toán: ' + err.message, 'error');
+      showToast('Lỗi giả lập thanh toán: ' + err.message, 'error');
     }
   };
 
   const handleCancelKey = async (key) => {
-    if (!confirm('Bạn có chắc chắn muốn hủy đơn đăng ký gói bản quyền này không?')) {
+    if (!confirm('Bạn có chắc chắn muốn hủy gói bản quyền này? Sau khi hủy, key sẽ không còn hiệu lực.')) {
       return;
     }
 
@@ -113,6 +116,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
       const data = await res.json();
       
       if (data.success && data.token) {
+        trackDownloadApp();
         showToast('Bắt đầu tải file cài đặt phần mềm...');
         window.location.href = `/download?token=${data.token}`;
       } else {
