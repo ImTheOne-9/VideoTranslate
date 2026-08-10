@@ -30,6 +30,10 @@ test('recognizes Douyin search, modal, note and creator URL forms', () => {
     'https://www.douyin.com/video/456'
   );
   assert.equal(
+    normalizeCrawlRequest({ platform: 'douyin', mode: 'detail', input: 'https://www.douyin.com/video/7671964777823866146?modeFrom=' }).input,
+    'https://www.douyin.com/video/7671964777823866146'
+  );
+  assert.equal(
     normalizeCrawlRequest({ platform: 'douyin', mode: 'creator', input: 'https://www.douyin.com/user/sec?modal_id=789' }).input,
     'https://www.douyin.com/user/sec'
   );

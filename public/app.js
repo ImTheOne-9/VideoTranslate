@@ -5932,14 +5932,14 @@ async function crawlLoadHistory() {
     platform: $('crawl-history-platform')?.value || '',
     q: $('crawl-history-query')?.value || '',
     onlyUndownloaded: $('crawl-history-undownloaded')?.checked ? '1' : '0',
-    limit: '200'
+    limit: '40'
   });
   try {
     const response = await fetch(`/api/download-crawl/history?${params}`);
     const data = await response.json();
     const items = Array.isArray(data.items) ? data.items : [];
     list.innerHTML = items.length ? items.map((item) => `<div class="crawl-history-item">
-      ${item.thumbnail ? `<img src="/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}" alt="">` : '<span></span>'}
+      ${item.thumbnail ? `<img src="/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span></span>'}
       <div><b title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</b><small>${crawlEscape(item.platform)} · ${crawlEscape(item.uploader || '')}</small></div>
       ${item.downloaded ? '<em>✓ đã tải</em>' : '<small>chưa tải</small>'}
     </div>`).join('') : '<span>Chưa có dữ liệu lịch sử phù hợp.</span>';

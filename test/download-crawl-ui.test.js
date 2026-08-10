@@ -42,6 +42,8 @@ test('server exposes MediaCrawler engine status and integration', () => {
   assert.match(server, /ProjectYtDlpAdapter/);
   assert.match(server, /\['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'\]/);
   assert.match(server, /\/api\/download-crawl\/engine-status/);
+  assert.match(server, /'douyin:detail': createMediaCrawlerPreviewResolver\('douyin'\)/);
+  assert.doesNotMatch(server, /'douyin:detail': async/);
   assert.match(server, /crawlResolvers/);
 });
 
@@ -95,4 +97,17 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.match(app, /function crawlPreviewScroll/);
   assert.match(app, /function crawlLoadHistory/);
   assert.match(app, /function crawlInstallRuntime/);
+});
+
+test('crawl history does not flood the local API with thumbnail requests', () => {
+  const server = read('server.js');
+  const controller = read('controllers/downloadController.js');
+  const app = read('public/app.js');
+
+  assert.match(server, /RATE_LIMIT_EXEMPT_PATHS[\s\S]*'\/api\/proxy-image'/);
+  assert.match(server, /RATE_LIMIT_EXEMPT_PATHS[\s\S]*'\/api\/update-status'/);
+  assert.match(server, /req\.method === 'GET' && RATE_LIMIT_EXEMPT_PATHS\.has\(req\.path\)/);
+  assert.match(controller, /Cache-Control', 'public, max-age=86400'/);
+  assert.match(app, /limit: '40'/);
+  assert.match(app, /loading="lazy" decoding="async"/);
 });

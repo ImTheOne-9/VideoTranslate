@@ -39,6 +39,23 @@ test('preview distinguishes previously seen metadata from an actually downloaded
   assert.equal(item.downloaded, false);
 });
 
+test('Douyin detail preview uses MediaCrawler metadata-only', async () => {
+  const adapter = new MediaCrawlerAdapter();
+  let call;
+  adapter._run = async (script, args, options) => {
+    call = { script, args, options };
+    return { stdout: '{"ok":true,"items":[{"id":"7671964777823866146","url":"https://www.douyin.com/video/7671964777823866146"}]}\n' };
+  };
+  const items = await adapter.preview({
+    platform: 'douyin', mode: 'detail',
+    input: 'https://www.douyin.com/video/7671964777823866146', count: 60
+  });
+  assert.equal(path.basename(call.script), 'tim_anh.py');
+  assert.ok(call.args.includes('--detail'));
+  assert.ok(call.args.includes('https://www.douyin.com/video/7671964777823866146'));
+  assert.equal(items[0].id, '7671964777823866146');
+});
+
 test('chase passes the seed video through specified_id and forwards Douyin filters', async () => {
   const adapter = new MediaCrawlerAdapter();
   let call;

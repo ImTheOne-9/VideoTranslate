@@ -65,6 +65,7 @@ const downloadCrawlManager = new DownloadCrawlManager({
     'facebook:creator': createProjectYtDlpPreviewResolver('facebook'),
     'douyin:search': createMediaCrawlerPreviewResolver('douyin'),
     'douyin:creator': createMediaCrawlerPreviewResolver('douyin'),
+    'douyin:detail': createMediaCrawlerPreviewResolver('douyin'),
     'bilibili:search': createMediaCrawlerPreviewResolver('bilibili'),
     'bilibili:creator': createMediaCrawlerPreviewResolver('bilibili'),
     'xiaohongshu:search': createMediaCrawlerPreviewResolver('xiaohongshu'),
@@ -72,28 +73,7 @@ const downloadCrawlManager = new DownloadCrawlManager({
     'rednote:search': createMediaCrawlerPreviewResolver('rednote'),
     'rednote:creator': createMediaCrawlerPreviewResolver('rednote'),
     'weibo:search': createMediaCrawlerPreviewResolver('weibo'),
-    'weibo:creator': createMediaCrawlerPreviewResolver('weibo'),
-    'douyin:detail': async ({ input, count }) => {
-      if (!douyinExtractor.isAvailable()) throw new Error('Extractor Douyin chuyên dụng chỉ hoạt động khi mở bằng ứng dụng Electron.');
-      const urls = String(input || '').split(/[\n,\s]+/).map((value) => value.trim()).filter(Boolean).slice(0, count);
-      const items = [];
-      for (const sourceUrl of urls) {
-        const info = await douyinExtractor.getDouyinVideoInfo(sourceUrl, () => {});
-        const best = (info.formats || []).filter((format) => format.format === 'mp4' && format.src)
-          .sort((a, b) => Number(b.height || 0) - Number(a.height || 0))[0];
-        if (!best) throw new Error(`Không tìm thấy luồng MP4 cho ${sourceUrl}`);
-        items.push({
-          id: sourceUrl.match(/(?:video|note)\/(\d+)/)?.[1] || '',
-          title: info.title || 'Douyin Video',
-          uploader: info.author || '',
-          thumbnail: info.thumbnail || '',
-          duration: Number(info.duration) || 0,
-          url: best.src,
-          sourceUrl
-        });
-      }
-      return items;
-    }
+    'weibo:creator': createMediaCrawlerPreviewResolver('weibo')
   },
   downloadResolvers: {
     douyin: async (task) => {
@@ -138,11 +118,15 @@ const RATE_LIMIT_MAX = 120;
 const RATE_LIMIT_EXEMPT_PATHS = new Set([
   '/api/ocr-component/download-status',
   '/api/mdx-cuda-component/download-status',
-  '/api/download-crawl/status'
+  '/api/download-crawl/status',
+  '/api/proxy-image',
+  '/api/update-status'
 ]);
 function rateLimiter(req, res, next) {
   if (!req.path.startsWith('/api/')) return next();
-  if (RATE_LIMIT_EXEMPT_PATHS.has(req.path)) return next();
+  // Polling and image requests are read-only and can legitimately happen in bursts.
+  // Do not let them consume the mutation/API flood budget.
+  if (req.method === 'GET' && RATE_LIMIT_EXEMPT_PATHS.has(req.path)) return next();
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   let entry = rateLimitMap.get(ip);

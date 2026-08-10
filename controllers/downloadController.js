@@ -121,6 +121,9 @@ module.exports = {
         timeout: 10000
       });
       res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+      // Thumbnail URLs are stable enough for the browser to reuse between views.
+      // This avoids re-fetching the same remote image whenever history is rendered.
+      res.set('Cache-Control', 'public, max-age=86400');
       response.data.pipe(res);
     } catch (error) {
       console.error('Proxy image error:', error.message);
