@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const { sendCapiEvent } = require('./lib/meta-capi');
 
 async function triggerCapiEvent(params) {
