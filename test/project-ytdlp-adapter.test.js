@@ -81,6 +81,21 @@ test('Instagram Python preview normalizes reels tab and exports project profile 
   assert.match(source, /"duration": e\.get\("duration"\) or 0/);
 });
 
+test('Weibo login window verifies the live page instead of trusting stale cookies', () => {
+  const loginSource = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'mo_dang_nhap.py'), 'utf8');
+  const checkSource = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'kiem_tra_login.py'), 'utf8');
+  assert.match(loginSource, /def _wb_da_login_live\(ctx, udd=None\):/);
+  assert.match(loginSource, /if plat == "wb":\s+return _wb_da_login_live\(ctx, udd\)/);
+  assert.match(loginSource, /https:\/\/m\.weibo\.cn\/api\/config/);
+  assert.match(loginSource, /state\["ok"\] >= 2/);
+  assert.match(loginSource, /wb_session\.dpapi/);
+  assert.match(loginSource, /CryptProtectData/);
+  assert.match(checkSource, /def _wb_login_nobrowser\(udd\):/);
+  assert.match(checkSource, /cookie_module\._dpapi_unprotect/);
+  assert.match(checkSource, /if plat == "wb":\s+[\s\S]*?_wb_login_nobrowser\(udd\)/);
+  assert.doesNotMatch(checkSource, /elif plat == "wb":\s+lv = _dom_login/);
+});
+
 test('crawl delegates the complete job to tai_ytdlp with project output root', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-ytdlp-'));
   try {
