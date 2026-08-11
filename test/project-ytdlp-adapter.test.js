@@ -54,6 +54,33 @@ test('Facebook numeric Page preview prefers reels_tab and accepts modern Reel li
   assert.match(source, /khong_moi >= 5/);
 });
 
+test('Instagram preview supports creator and detail through the project profile pipeline', async () => {
+  const adapter = new ProjectYtDlpAdapter();
+  const calls = [];
+  adapter._run = async (script, args) => {
+    calls.push({ script, args });
+    return { stdout: '{"ok":true,"items":[{"id":"ig1","title":"Reel","url":"https://www.instagram.com/reel/ig1/","nick":"Rocco","duration":42}]}' };
+  };
+  const creator = await adapter.preview({ platform: 'instagram', mode: 'creator', input: 'https://www.instagram.com/roccoandmaddie/reels/', count: 5 });
+  const detail = await adapter.preview({ platform: 'instagram', mode: 'detail', input: 'https://www.instagram.com/reel/ig1/', count: 1 });
+  assert.equal(creator[0].duration, 42);
+  assert.equal(detail[0].duration, 42);
+  assert.ok(calls[0].args.includes('creator'));
+  assert.ok(calls[1].args.includes('detail'));
+});
+
+test('Instagram Python preview normalizes reels tab and exports project profile cookies', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
+  assert.match(source, /return "https:\/\/www\.instagram\.com\/%s\/" % parts\[0\]/);
+  assert.match(source, /cookiefile = xuat_cookie_tu_phien\("ig"\)/);
+  assert.match(source, /False if \(plat == "ig" and a\.type == "detail"\) else "in_playlist"/);
+  assert.match(source, /def _item_ig\(e\):/);
+  assert.match(source, /def _ig_liet_ke_kenh\(profile_input, count, log=print\):/);
+  assert.match(source, /items = _ig_bo_sung_metadata\(items, log=log\)/);
+  assert.match(source, /re\.findall\(r"\/\(reel\|p\)\/\(\[A-Za-z0-9_-\]\+\)"/);
+  assert.match(source, /"duration": e\.get\("duration"\) or 0/);
+});
+
 test('crawl delegates the complete job to tai_ytdlp with project output root', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-ytdlp-'));
   try {

@@ -5692,6 +5692,7 @@ const crawlNowState = {
   recordedSuccess: crawlLoadRecordedTaskIds(),
   lastSnapshot: null,
   previewBaseCount: 100,
+  previewRequestedCount: 100,
   previewLoadingMore: false
 };
 
@@ -5702,6 +5703,7 @@ function crawlEscape(value) {
 }
 
 function crawlFormatDuration(seconds) {
+  if (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return '--:--';
   const value = Math.max(0, Number(seconds) || 0);
   const hours = Math.floor(value / 3600);
   const minutes = Math.floor((value % 3600) / 60);
@@ -6003,6 +6005,9 @@ function crawlRenderPreview() {
 
 async function crawlPreview(options = {}) {
   const request = await crawlPrepareRequest();
+  if (Number.isFinite(Number(options.requestCount))) {
+    request.count = Math.min(500, Math.max(1, Number(options.requestCount)));
+  }
   const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
   if (!previewModes.includes(crawlNowState.mode)) {
     toast('Chế độ này chưa hỗ trợ xem trước ổn định. Hãy dùng Cào hết hoặc Thêm vào hàng đợi.', 'warn');
@@ -6082,6 +6087,7 @@ async function crawlPreview(options = {}) {
       crawlNowState.selected = new Set(crawlNowState.previewItems.map((item) => item.key || `${item.platform}:${item.id}`));
       crawlNowState.previewBaseCount = request.count;
     }
+    crawlNowState.previewRequestedCount = request.count;
     if (!options.silent) crawlRenderPreview();
     if (!crawlNowState.previewItems.length) toast('Không tìm thấy video nào.', 'warn');
     return crawlNowState.previewItems;
@@ -6101,19 +6107,13 @@ function crawlClosePreview() {
 async function crawlLoadMore() {
   if (crawlNowState.previewLoadingMore) return;
   crawlNowState.previewLoadingMore = true;
-  const input = $('crawl-now-count');
-  const previous = Number(input?.value || crawlNowState.previewBaseCount || 100);
-  if (input) input.value = Math.min(500, previous + crawlNowState.previewBaseCount);
+  const previous = Number(crawlNowState.previewRequestedCount || crawlNowState.previewBaseCount || 100);
+  const requestCount = Math.min(500, previous + crawlNowState.previewBaseCount);
   try {
-    await crawlPreview({ append: true });
+    await crawlPreview({ append: true, requestCount });
   } finally {
     crawlNowState.previewLoadingMore = false;
   }
-}
-
-function crawlPreviewScroll(element) {
-  if (!element || crawlNowState.previewLoadingMore) return;
-  if (element.scrollHeight - element.scrollTop - element.clientHeight < 240) crawlLoadMore();
 }
 
 function crawlToggleItem(key, checked) {

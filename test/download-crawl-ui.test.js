@@ -45,6 +45,8 @@ test('server exposes MediaCrawler engine status and integration', () => {
   assert.match(server, /\/api\/download-crawl\/engine-status/);
   assert.match(server, /'douyin:detail': createMediaCrawlerPreviewResolver\('douyin'\)/);
   assert.match(server, /'bilibili:detail': createMediaCrawlerPreviewResolver\('bilibili'\)/);
+  assert.match(server, /'instagram:creator': createProjectYtDlpPreviewResolver\('instagram'\)/);
+  assert.match(server, /'instagram:detail': createProjectYtDlpPreviewResolver\('instagram'\)/);
   assert.doesNotMatch(server, /'douyin:detail': async/);
   assert.match(server, /crawlResolvers/);
 });
@@ -96,10 +98,14 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.match(app, /function crawlTogglePause/);
   assert.match(app, /function crawlRetryAll/);
   assert.match(app, /function crawlLoadMore/);
-  assert.match(app, /function crawlPreviewScroll/);
+  assert.doesNotMatch(app, /function crawlPreviewScroll/);
+  assert.doesNotMatch(app, /crawl-now-count'\)\.value\s*=/);
+  assert.match(app, /crawlPreview\(\{ append: true, requestCount \}\)/);
+  assert.doesNotMatch(read('public/index.html'), /onscroll="crawlPreviewScroll/);
   assert.match(app, /application\/x-ndjson|preview-stream/);
   assert.match(app, /function crawlLoadHistory/);
   assert.match(app, /function crawlInstallRuntime/);
+  assert.match(app, /Number\(seconds\) <= 0\) return '--:--'/);
 });
 
 test('crawl history does not flood the local API with thumbnail requests', () => {
