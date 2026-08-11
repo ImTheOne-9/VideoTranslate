@@ -43,9 +43,9 @@ const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const crawlerRuntimeManager = new CrawlerRuntimeManager();
 
 function createMediaCrawlerPreviewResolver(platform) {
-  return async ({ input, count, mode, onLog }) => {
+  return async ({ input, count, mode, onLog, onItem }) => {
     if (!mediaCrawler.status().available) return createBrowserPreviewResolver(platform)({ input, count, mode, onLog });
-    return mediaCrawler.preview({ platform, input, count, mode, onLog });
+    return mediaCrawler.preview({ platform, input, count, mode, onLog, onItem });
   };
 }
 
@@ -68,12 +68,14 @@ const downloadCrawlManager = new DownloadCrawlManager({
     'douyin:detail': createMediaCrawlerPreviewResolver('douyin'),
     'bilibili:search': createMediaCrawlerPreviewResolver('bilibili'),
     'bilibili:creator': createMediaCrawlerPreviewResolver('bilibili'),
+    'bilibili:detail': createMediaCrawlerPreviewResolver('bilibili'),
     'xiaohongshu:search': createMediaCrawlerPreviewResolver('xiaohongshu'),
     'xiaohongshu:creator': createMediaCrawlerPreviewResolver('xiaohongshu'),
     'rednote:search': createMediaCrawlerPreviewResolver('rednote'),
     'rednote:creator': createMediaCrawlerPreviewResolver('rednote'),
     'weibo:search': createMediaCrawlerPreviewResolver('weibo'),
-    'weibo:creator': createMediaCrawlerPreviewResolver('weibo')
+    'weibo:creator': createMediaCrawlerPreviewResolver('weibo'),
+    'weibo:detail': createMediaCrawlerPreviewResolver('weibo')
   },
   downloadResolvers: {
     douyin: async (task) => {
@@ -393,6 +395,26 @@ app.post('/api/download-crawl/preview', async (req, res) => {
     res.json(await downloadCrawlManager.preview(req.body || {}));
   } catch (error) {
     res.status(400).json({ error: error.message || 'Không lấy được danh sách video.' });
+  }
+});
+app.post('/api/download-crawl/preview-stream', async (req, res) => {
+  res.status(200);
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const write = (payload) => {
+    if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(payload)}\n`);
+  };
+  try {
+    const result = await downloadCrawlManager.preview(req.body || {}, {
+      onItem: (item) => write({ type: 'item', item })
+    });
+    write({ type: 'result', data: result });
+  } catch (error) {
+    write({ type: 'error', error: error.message || 'Không lấy được danh sách video.' });
+  } finally {
+    if (!res.writableEnded) res.end();
   }
 });
 app.post('/api/download-crawl/enqueue', (req, res) => {

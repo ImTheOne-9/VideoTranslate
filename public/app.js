@@ -5711,10 +5711,11 @@ function crawlFormatDuration(seconds) {
 }
 
 function crawlSetBusy(busy, label = '') {
-  ['crawl-preview-btn', 'crawl-all-btn'].forEach((id) => {
-    const button = $(id);
-    if (button) button.disabled = busy;
-  });
+  const previewButton = $('crawl-preview-btn');
+  const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
+  if (previewButton) previewButton.disabled = busy || !previewModes.includes(crawlNowState.mode);
+  const crawlAllButton = $('crawl-all-btn');
+  if (crawlAllButton) crawlAllButton.disabled = busy;
   const pill = $('crawl-now-ready');
   if (pill) {
     pill.classList.toggle('busy', busy);
@@ -5789,6 +5790,7 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
     button.disabled = caps[button.dataset.mode] === false;
     button.title = button.disabled ? 'Bộ tải hiện tại chưa hỗ trợ chế độ này cho nền tảng đã chọn' : '';
@@ -5800,6 +5802,12 @@ function crawlUpdateCapabilities() {
   if (note) note.textContent = supported.length
     ? `Hỗ trợ ${crawlNowState.platform}: ${supported.join(', ')}. Các chế độ bị làm mờ chưa được backend hiện tại hỗ trợ.`
     : 'Nền tảng này chưa có khả năng cào được xác nhận.';
+  const previewButton = $('crawl-preview-btn');
+  const canPreview = previewModes.includes(crawlNowState.mode);
+  if (previewButton) {
+    previewButton.disabled = !canPreview;
+    previewButton.title = canPreview ? '' : 'Chế độ này vẫn cào được nhưng chưa hỗ trợ xem trước ổn định; hãy dùng Cào hết hoặc Thêm vào hàng đợi.';
+  }
 }
 
 async function crawlLoadCapabilities() {
@@ -5995,6 +6003,11 @@ function crawlRenderPreview() {
 
 async function crawlPreview(options = {}) {
   const request = await crawlPrepareRequest();
+  const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
+  if (!previewModes.includes(crawlNowState.mode)) {
+    toast('Chế độ này chưa hỗ trợ xem trước ổn định. Hãy dùng Cào hết hoặc Thêm vào hàng đợi.', 'warn');
+    return [];
+  }
   if (!request.input) {
     toast('Hãy nhập từ khóa, link hoặc kênh trước.', 'error');
     return [];
@@ -6003,11 +6016,61 @@ async function crawlPreview(options = {}) {
   crawlStartPolling();
   await crawlPollStatus();
   try {
-    const response = await fetch('/api/download-crawl/preview', {
+    if (!options.append) {
+      crawlNowState.previewItems = [];
+      crawlNowState.selected = new Set();
+    }
+    let renderQueued = false;
+    const schedulePreviewRender = () => {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        crawlRenderPreview();
+      });
+    };
+    const response = await fetch('/api/download-crawl/preview-stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Không lấy được danh sách video.');
+    if (!response.ok) {
+      const failed = await response.json().catch(() => ({}));
+      throw new Error(failed.error || 'Không lấy được danh sách video.');
+    }
+    let data = null;
+    let streamError = '';
+    const reader = response.body?.getReader?.();
+    if (reader) {
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      const consumeLine = (line) => {
+        if (!line.trim()) return;
+        let event;
+        try { event = JSON.parse(line); } catch (_) { return; }
+        if (event.type === 'item' && event.item) {
+          const item = event.item;
+          const key = item.key || `${item.platform}:${item.id}`;
+          const index = crawlNowState.previewItems.findIndex((current) => (current.key || `${current.platform}:${current.id}`) === key);
+          if (index >= 0) crawlNowState.previewItems[index] = item;
+          else crawlNowState.previewItems.push(item);
+          crawlNowState.selected.add(key);
+          schedulePreviewRender();
+        } else if (event.type === 'result') data = event.data;
+        else if (event.type === 'error') streamError = event.error || 'Không lấy được danh sách video.';
+      };
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (const line of lines) consumeLine(line);
+        if (done) break;
+      }
+      consumeLine(buffer);
+    } else {
+      data = await response.json();
+    }
+    if (streamError) throw new Error(streamError);
+    if (!data) throw new Error('Luồng xem trước kết thúc nhưng không trả về kết quả.');
     const received = Array.isArray(data.items) ? data.items : [];
     if (options.append) {
       const merged = new Map(crawlNowState.previewItems.map((item) => [item.key || `${item.platform}:${item.id}`, item]));

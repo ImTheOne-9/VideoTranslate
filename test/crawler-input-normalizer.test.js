@@ -39,6 +39,25 @@ test('recognizes Douyin search, modal, note and creator URL forms', () => {
   );
 });
 
+test('accepts and canonicalizes only mainland Bilibili video links', () => {
+  assert.equal(
+    normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://m.bilibili.com/video/BV1TEST123/?share=1' }).input,
+    'https://www.bilibili.com/video/BV1TEST123'
+  );
+  assert.equal(
+    normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.bilibili.com/video/av12345?p=2' }).input,
+    'https://www.bilibili.com/video/av12345'
+  );
+  assert.throws(
+    () => normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.bilibili.tv/en/video/123' }),
+    /chỉ hỗ trợ Bilibili nội địa/
+  );
+  assert.throws(
+    () => normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.youtube.com/watch?v=123' }),
+    /chỉ hỗ trợ link Bilibili nội địa/
+  );
+});
+
 test('maps Video Studio sort options to the values used by ViralCrawl', () => {
   assert.equal(mapDouyinSort('relevance'), '0');
   assert.equal(mapDouyinSort('likes'), '1');

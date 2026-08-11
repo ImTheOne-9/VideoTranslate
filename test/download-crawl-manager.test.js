@@ -99,6 +99,46 @@ test('specialized browser preview resolver also honors deep-new history', async 
   }
 });
 
+test('specialized preview streams normalized items before returning the final result', async () => {
+  const directory = makeTempDir();
+  try {
+    const streamed = [];
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({ DOWNLOADS_DIR: directory }),
+      downloadsDir: directory,
+      previewResolvers: {
+        'douyin:search': async ({ onItem }) => {
+          onItem({ id: 'live', title: 'Live', url: 'https://douyin.test/live' });
+          return [{ id: 'live', title: 'Live', url: 'https://douyin.test/live' }];
+        }
+      }
+    });
+    const result = await manager.preview(
+      { platform: 'douyin', mode: 'search', input: 'cat', count: 5, deepNew: false },
+      { onItem: (item) => streamed.push(item) }
+    );
+    assert.equal(streamed.length, 1);
+    assert.equal(streamed[0].key, 'douyin:live');
+    assert.equal(result.items[0].id, 'live');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('preview capability is separate from crawl capability', async () => {
+  const directory = makeTempDir();
+  try {
+    const manager = new DownloadCrawlManager({ shared: makeShared({ DOWNLOADS_DIR: directory }), downloadsDir: directory });
+    assert.equal(manager.capabilities().xiaohongshu.detail, true);
+    await assert.rejects(
+      manager.preview({ platform: 'xiaohongshu', mode: 'detail', input: 'https://www.xiaohongshu.com/explore/abc', count: 1 }),
+      /chưa hỗ trợ xem trước ổn định/
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('queue pause, retry and stats expose persistent operator controls', () => {
   const directory = makeTempDir();
   try {

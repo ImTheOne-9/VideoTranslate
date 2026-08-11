@@ -14,6 +14,7 @@ test('server exposes the complete crawl-now API surface', () => {
   for (const route of [
     '/api/download-crawl/capabilities',
     '/api/download-crawl/preview',
+    '/api/download-crawl/preview-stream',
     '/api/download-crawl/enqueue',
     '/api/download-crawl/status',
     '/api/download-crawl/stats',
@@ -43,6 +44,7 @@ test('server exposes MediaCrawler engine status and integration', () => {
   assert.match(server, /\['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'\]/);
   assert.match(server, /\/api\/download-crawl\/engine-status/);
   assert.match(server, /'douyin:detail': createMediaCrawlerPreviewResolver\('douyin'\)/);
+  assert.match(server, /'bilibili:detail': createMediaCrawlerPreviewResolver\('bilibili'\)/);
   assert.doesNotMatch(server, /'douyin:detail': async/);
   assert.match(server, /crawlResolvers/);
 });
@@ -95,6 +97,7 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.match(app, /function crawlRetryAll/);
   assert.match(app, /function crawlLoadMore/);
   assert.match(app, /function crawlPreviewScroll/);
+  assert.match(app, /application\/x-ndjson|preview-stream/);
   assert.match(app, /function crawlLoadHistory/);
   assert.match(app, /function crawlInstallRuntime/);
 });

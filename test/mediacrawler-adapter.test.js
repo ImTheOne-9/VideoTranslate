@@ -7,6 +7,8 @@ const {
   MediaCrawlerAdapter,
   lastJsonLine,
   mapPreviewItem,
+  mapJsonlPreviewRow,
+  migrateLegacyBilibiliArchive,
   resolveBilibiliShortUrls
 } = require('../lib/mediacrawler-adapter');
 
@@ -56,6 +58,47 @@ test('Douyin detail preview uses MediaCrawler metadata-only', async () => {
   assert.equal(items[0].id, '7671964777823866146');
 });
 
+test('MediaCrawler preview forwards progressive item events', async () => {
+  const adapter = new MediaCrawlerAdapter();
+  const streamed = [];
+  adapter._run = async (script, args, options) => {
+    options.onLog('PREVIEW_ITEM {"id":"live","title":"Live","url":"https://www.douyin.com/video/live"}', 'info');
+    return { stdout: '{"ok":true,"items":[{"id":"live","url":"https://www.douyin.com/video/live"}]}\n' };
+  };
+  await adapter.preview({
+    platform: 'douyin', mode: 'search', input: 'cat', count: 1,
+    onItem: (item) => streamed.push(item)
+  });
+  assert.equal(streamed.length, 1);
+  assert.equal(streamed[0].engine, 'MediaCrawler');
+});
+
+test('MediaCrawler preview discovers JSONL rows written while the crawler runs', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-preview-jsonl-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({ dataDir: directory });
+    const streamed = [];
+    adapter._run = async () => {
+      const jsonl = path.join(directory, 'douyin', 'jsonl');
+      fs.mkdirSync(jsonl, { recursive: true });
+      fs.writeFileSync(path.join(jsonl, 'demo_contents.jsonl'), `${JSON.stringify({
+        aweme_id: 'live-jsonl', title: 'Live JSONL', aweme_url: 'https://www.douyin.com/video/live-jsonl',
+        video_download_url: 'https://cdn.test/live.mp4'
+      })}\n`, 'utf8');
+      return { stdout: '{"ok":true,"items":[]}\n' };
+    };
+    await adapter.preview({
+      platform: 'douyin', mode: 'search', input: 'cat', count: 1,
+      onItem: (item) => streamed.push(item)
+    });
+    assert.equal(streamed.length, 1);
+    assert.equal(streamed[0].id, 'live-jsonl');
+    assert.equal(mapJsonlPreviewRow({ video_id: 'BV1', video_cover_url: 'http://img' }, 'bilibili').thumb, 'https://img');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('chase passes the seed video through specified_id and forwards Douyin filters', async () => {
   const adapter = new MediaCrawlerAdapter();
   let call;
@@ -100,4 +143,66 @@ test('resolves b23 short links to canonical Bilibili video URLs', async () => {
     url: 'https://www.bilibili.com/video/BV1TEST123/?share_source=copy_web'
   }));
   assert.equal(resolved, 'https://www.bilibili.com/video/BV1TEST123');
+});
+
+test('Xiaohongshu and RedNote use their correct domestic/international domains', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-domain-mode-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({ userRoot: path.join(directory, 'user') });
+    const calls = [];
+    adapter._run = async (script, args, options) => {
+      calls.push(options.env);
+      return { stdout: '' };
+    };
+    await adapter.crawl({ platform: 'xiaohongshu', mode: 'search', input: 'cat', count: 1, outputDir: directory });
+    await adapter.crawl({ platform: 'rednote', mode: 'search', input: 'cat', count: 1, outputDir: directory });
+    assert.equal(calls[0].MC_XHS_INTL, '0');
+    assert.equal(calls[1].MC_XHS_INTL, '1');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Bilibili detail preview expands b23 and uses MediaCrawler metadata-only', async () => {
+  const adapter = new MediaCrawlerAdapter({
+    fetchImpl: async () => ({ url: 'https://www.bilibili.com/video/BV1TEST123/?share_source=copy_web' })
+  });
+  let call;
+  adapter._run = async (script, args, options) => {
+    call = { script, args, options };
+    return { stdout: '{"ok":true,"items":[{"id":"BV1TEST123","url":"https://www.bilibili.com/video/BV1TEST123"}]}\n' };
+  };
+  const items = await adapter.preview({
+    platform: 'bilibili', mode: 'detail', input: 'https://b23.tv/demo', count: 1
+  });
+  assert.equal(path.basename(call.script), 'tim_anh.py');
+  assert.ok(call.args.includes('--detail'));
+  assert.ok(call.args.includes('https://www.bilibili.com/video/BV1TEST123'));
+  assert.equal(items[0].id, 'BV1TEST123');
+});
+
+test('Bilibili short links redirecting to BiliIntl are rejected', async () => {
+  await assert.rejects(
+    resolveBilibiliShortUrls('https://b23.tv/demo', async () => ({ url: 'https://www.bilibili.tv/en/video/123' })),
+    /chỉ hỗ trợ Bilibili nội địa/
+  );
+});
+
+test('legacy bilibili archive migrates into the canonical bili directory', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-archive-migration-'));
+  try {
+    fs.mkdirSync(path.join(directory, 'bili'), { recursive: true });
+    fs.mkdirSync(path.join(directory, 'bilibili'), { recursive: true });
+    fs.writeFileSync(path.join(directory, 'bili', '_da_tai_ids.txt'), 'old\n', 'utf8');
+    fs.writeFileSync(path.join(directory, 'bilibili', '_da_tai_ids.txt'), 'old\nnew\n', 'utf8');
+    const result = migrateLegacyBilibiliArchive(directory);
+    assert.equal(result.migrated, true);
+    assert.deepEqual(
+      fs.readFileSync(path.join(directory, 'bili', '_da_tai_ids.txt'), 'utf8').trim().split(/\r?\n/),
+      ['old', 'new']
+    );
+    assert.equal(fs.existsSync(path.join(directory, 'bilibili')), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
