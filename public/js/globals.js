@@ -3,6 +3,10 @@ const views = {
     title: 'Tải video',
     desc: 'Dán link video đơn lẻ hoặc link kênh để tải về thư mục downloads.'
   },
+  'crawl-history': {
+    title: 'Lịch sử cào',
+    desc: 'Lọc, chọn và tải lại video đã tìm thấy từ tất cả nền tảng.'
+  },
   studio: {
     title: 'Studio render',
     desc: 'Dịch tiếng Việt, chèn sub, thêm giọng nói hoặc nhạc nền rồi render ra MP4.'

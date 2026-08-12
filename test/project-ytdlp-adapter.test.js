@@ -145,3 +145,26 @@ test('crawl delegates the complete job to tai_ytdlp with project output root', a
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('selected preview URLs retain their original grouping when delegated to tai_ytdlp', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-ytdlp-grouping-'));
+  try {
+    const adapter = new ProjectYtDlpAdapter();
+    let call = null;
+    adapter._run = async (script, args, options) => {
+      call = { script, args, options };
+      return { stdout: '' };
+    };
+    await adapter.crawl({
+      platform: 'tiktok', mode: 'detail', input: 'https://www.tiktok.com/@demo/video/1', count: 1,
+      sourceMode: 'creator', sourceInput: 'https://www.tiktok.com/@demo', sourceName: 'Demo Channel', outputDir: directory
+    });
+    assert.ok(call.args.includes('--type'));
+    assert.equal(call.args[call.args.indexOf('--type') + 1], 'detail');
+    assert.equal(call.args[call.args.indexOf('--source-type') + 1], 'creator');
+    assert.equal(call.args[call.args.indexOf('--source-input') + 1], 'https://www.tiktok.com/@demo');
+    assert.equal(call.args[call.args.indexOf('--source-name') + 1], 'Demo Channel');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

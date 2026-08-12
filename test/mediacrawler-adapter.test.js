@@ -116,6 +116,22 @@ test('chase passes the seed video through specified_id and forwards Douyin filte
   assert.equal(call.options.env.DY_PUBLISH_TIME, '7');
 });
 
+test('MediaCrawler detail download receives original source grouping through isolated environment', async () => {
+  const adapter = new MediaCrawlerAdapter();
+  let call;
+  adapter._run = async (script, args, options) => {
+    call = { script, args, options };
+    return { stdout: '' };
+  };
+  await adapter.crawl({
+    platform: 'douyin', mode: 'detail', input: 'https://www.douyin.com/video/123', count: 1,
+    sourceMode: 'search', sourceInput: 'mèo vui', outputDir: os.tmpdir()
+  });
+  assert.equal(call.options.env.MC_SOURCE_MODE, 'search');
+  assert.equal(call.options.env.MC_SOURCE_INPUT, 'mèo vui');
+  assert.ok(call.args.includes('--specified_id'));
+});
+
 test('XHS selected links use browser-first tai_links instead of MediaCrawler detail API', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-browser-first-'));
   try {

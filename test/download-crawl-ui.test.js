@@ -19,6 +19,8 @@ test('server exposes the complete crawl-now API surface', () => {
     '/api/download-crawl/status',
     '/api/download-crawl/stats',
     '/api/download-crawl/history',
+    '/api/download-crawl/history/delete',
+    '/api/download-crawl/open-file-folder',
     '/api/download-crawl/runtime-status',
     '/api/download-crawl/runtime-install',
     '/api/download-crawl/login-status',
@@ -74,12 +76,41 @@ test('download page keeps legacy modes and makes crawl-now the default', () => {
   assert.match(html, /id="crawl-now-language"/);
 });
 
-test('crawl-now exposes project crawler auxiliary platforms and dual-engine status', () => {
+test('crawl history is a dedicated navbar view with ViralCrawl-style filters and bulk download', () => {
   const html = read('public/index.html');
   const app = read('public/app.js');
-  for (const platform of ['instagram', 'twitter', 'reddit']) {
+  const globals = read('public/js/globals.js');
+  assert.match(html, /class="nav-btn" data-view="crawl-history"/);
+  assert.match(html, /<section class="view" id="view-crawl-history">/);
+  assert.doesNotMatch(html, /crawl-now-side[\s\S]*panel crawl-history-card/);
+  for (const id of ['crawl-history-query', 'crawl-history-platform', 'crawl-history-days', 'crawl-history-mode', 'crawl-history-source', 'crawl-history-sort', 'crawl-history-undownloaded', 'crawl-history-select-all', 'crawl-history-download-selected', 'crawl-history-delete-range']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(globals, /'crawl-history':/);
+  assert.match(app, /function crawlRenderHistory/);
+  assert.match(app, /function crawlHistoryDownloadSelected/);
+  assert.match(app, /function crawlHistoryDelete/);
+  assert.match(app, /function crawlHistoryModeLabel/);
+  assert.match(app, /function crawlHistoryOpenFolder/);
+  assert.match(app, />Mở thư mục<\/button>/);
+  assert.match(app, /optgroup label="Kênh/);
+  assert.match(app, /optgroup label="Từ khóa/);
+  assert.match(app, /platform, mode: 'detail'/);
+});
+
+test('crawl-now hides Weibo, X and Reddit while retaining supported visible platforms', () => {
+  const html = read('public/index.html');
+  const app = read('public/app.js');
+  const historyPlatformFilter = html.match(/<select id="crawl-history-platform"[\s\S]*?<\/select>/)?.[0] || '';
+  for (const platform of ['youtube', 'tiktok', 'facebook', 'instagram', 'douyin', 'bilibili', 'xiaohongshu', 'rednote']) {
     assert.match(html, new RegExp(`data-platform="${platform}"`));
   }
+  for (const platform of ['weibo', 'twitter', 'reddit']) {
+    assert.doesNotMatch(html, new RegExp(`data-platform="${platform}"`));
+    assert.doesNotMatch(historyPlatformFilter, new RegExp(`<option value="${platform}"`));
+  }
+  assert.match(app, /hiddenCrawlPlatforms = new Set\(\['weibo', 'twitter', 'reddit'\]\)/);
+  assert.match(app, /!hiddenCrawlPlatforms\.has\(String\(item\.platform/);
   assert.match(app, /MediaCrawler \+ Video Studio yt-dlp sẵn sàng/);
   assert.match(app, /jobCrawlerPlatforms = \['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'\]/);
 });
@@ -98,6 +129,7 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.match(app, /function crawlTogglePause/);
   assert.match(app, /function crawlRetryAll/);
   assert.match(app, /function crawlLoadMore/);
+  assert.match(app, /sourceMode: sourceRequest\.mode, sourceInput: sourceRequest\.input/);
   assert.doesNotMatch(app, /function crawlPreviewScroll/);
   assert.doesNotMatch(app, /crawl-now-count'\)\.value\s*=/);
   assert.match(app, /crawlPreview\(\{ append: true, requestCount \}\)/);
@@ -117,6 +149,6 @@ test('crawl history does not flood the local API with thumbnail requests', () =>
   assert.match(server, /RATE_LIMIT_EXEMPT_PATHS[\s\S]*'\/api\/update-status'/);
   assert.match(server, /req\.method === 'GET' && RATE_LIMIT_EXEMPT_PATHS\.has\(req\.path\)/);
   assert.match(controller, /Cache-Control', 'public, max-age=86400'/);
-  assert.match(app, /limit: '40'/);
+  assert.match(app, /limit: '800'/);
   assert.match(app, /loading="lazy" decoding="async"/);
 });

@@ -15,7 +15,7 @@ const platformBrowserExtractor = require('./lib/platform-browser-extractor');
 const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
 const { ProjectYtDlpAdapter } = require('./lib/project-ytdlp-adapter');
 const { CrawlerRuntimeManager } = require('./lib/crawler-runtime-manager');
-const { readCrawlerHistory } = require('./lib/crawler-history-reader');
+const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
 
 function createBrowserPreviewResolver(platform) {
@@ -450,6 +450,18 @@ app.get('/api/download-crawl/history', (req, res) => {
   });
   res.json({ items, count: items.length });
 });
+app.post('/api/download-crawl/history/delete', (req, res) => {
+  const hours = Number(req.body?.hours);
+  if (![0, 1, 24, 168, 720].includes(hours)) {
+    return res.status(400).json({ error: 'Khoảng thời gian xóa không hợp lệ.' });
+  }
+  try {
+    const result = deleteCrawlerHistory(shared.DOWNLOADS_DIR, hours);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Không xóa được lịch sử cào.' });
+  }
+});
 app.get('/api/download-crawl/login-status', async (req, res) => {
   const cookies = shared.getCookieStatus();
   const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
@@ -685,6 +697,7 @@ app.get('/api/douyin-info', downloadController.getDouyinInfo);
 app.post('/api/douyin-download', downloadController.downloadDouyin);
 
 app.get('/api/open-file-folder', systemController.openFileFolder);
+app.get('/api/download-crawl/open-file-folder', systemController.openDownloadedFileFolder);
 app.get('/api/serve-file', systemController.serveFile);
 app.post('/api/publish-facebook', systemController.publishFacebook);
 app.post('/api/verify-facebook-page', systemController.verifyFacebookPage);

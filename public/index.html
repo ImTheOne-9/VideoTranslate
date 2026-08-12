@@ -67,6 +67,15 @@
             </svg></span>
           <strong>Tải video</strong>
         </button>
+        <button class="nav-btn" data-view="crawl-history" title="Lịch sử cào">
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 14" />
+              <path d="M3 12H1m22 0h-2" />
+            </svg></span>
+          <strong>Lịch sử cào</strong>
+        </button>
         <button class="nav-btn" data-view="studio" title="Render studio">
           <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">
@@ -259,7 +268,7 @@
 
               <div class="crawl-login-panel">
                 <div class="crawl-side-head"><b>🔑 Đăng nhập nền tảng</b><button type="button" class="crawl-link-btn" onclick="crawlLoadLoginStatus()">Kiểm tra lại</button></div>
-                <p>Nền tảng Trung Quốc dùng MediaCrawler; TikTok, Facebook, Instagram và X dùng profile riêng của Video Studio. Bấm thẻ để đăng nhập đúng profile.</p>
+                <p>Nền tảng Trung Quốc dùng MediaCrawler; TikTok, Facebook và Instagram dùng profile riêng của Video Studio. Bấm thẻ để đăng nhập đúng profile.</p>
                 <div class="crawl-login-grid" id="crawl-login-grid"></div>
               </div>
 
@@ -272,10 +281,7 @@
                 <button type="button" class="crawl-platform" data-platform="xiaohongshu"><b>小</b><span>Xiaohongshu</span><small id="crawl-count-xiaohongshu">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="rednote"><b>小</b><span>RedNote</span><small id="crawl-count-rednote">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="facebook"><b>f</b><span>Facebook</span><small id="crawl-count-facebook">0 đã cào</small></button>
-                <button type="button" class="crawl-platform" data-platform="weibo"><b>微</b><span>Weibo</span><small id="crawl-count-weibo">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="instagram"><b>◎</b><span>Instagram</span><small id="crawl-count-instagram">0 đã cào</small></button>
-                <button type="button" class="crawl-platform" data-platform="twitter"><b>𝕏</b><span>Twitter/X</span><small id="crawl-count-twitter">0 đã cào</small></button>
-                <button type="button" class="crawl-platform" data-platform="reddit"><b>r/</b><span>Reddit</span><small id="crawl-count-reddit">0 đã cào</small></button>
               </div>
 
               <div class="crawl-now-label">Cách cào</div>
@@ -342,15 +348,6 @@
                 <div class="crawl-queue-list" id="crawl-queue-list"></div>
                 <div class="crawl-retry-platforms" id="crawl-retry-platforms"></div>
                 <div class="crawl-queue-actions"><button type="button" class="crawl-link-btn" id="crawl-pause-btn" onclick="crawlTogglePause()">⏸ Dừng sau task này</button><button type="button" class="crawl-link-btn" onclick="crawlRetryAll()">↻ Thử lại tất cả lỗi</button></div>
-              </div>
-              <div class="panel crawl-history-card">
-                <div class="crawl-side-head"><b>🕘 Lịch sử cào</b><button type="button" class="crawl-link-btn" onclick="crawlLoadHistory()">Làm mới</button></div>
-                <div class="crawl-history-filters">
-                  <select id="crawl-history-platform" onchange="crawlLoadHistory()"><option value="">Tất cả nền tảng</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option><option value="douyin">Douyin</option><option value="bilibili">Bilibili</option><option value="xiaohongshu">Xiaohongshu</option><option value="rednote">RedNote</option><option value="facebook">Facebook</option><option value="weibo">Weibo</option><option value="instagram">Instagram</option><option value="twitter">Twitter/X</option><option value="reddit">Reddit</option></select>
-                  <input id="crawl-history-query" type="search" placeholder="Tìm tiêu đề/kênh" oninput="crawlScheduleHistory()">
-                  <label><input id="crawl-history-undownloaded" type="checkbox" onchange="crawlLoadHistory()"> Chỉ chưa tải</label>
-                </div>
-                <div id="crawl-history-list" class="crawl-history-list"><span>Chưa có dữ liệu lịch sử.</span></div>
               </div>
               <div class="panel crawl-support-note">
                 <b>Khả năng hiện tại</b>
@@ -502,6 +499,45 @@
           </div>
           <div id="download-history-pagination"
             style="display: flex; justify-content: center; gap: 6px; margin-top: 12px;"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-crawl-history">
+        <div class="crawl-history-page-head">
+          <div>
+            <p>Tất cả video đã tìm thấy từ Cào ngay. Video đã tải được làm mờ và vẫn có thể chọn để tải lại.</p>
+          </div>
+          <div class="crawl-history-head-actions">
+            <select id="crawl-history-delete-range" onchange="crawlHistoryDelete(this.value)">
+              <option value="">🗑 Xóa lịch sử...</option><option value="1">Trong 1 giờ qua</option><option value="24">Trong 24 giờ qua</option><option value="168">Trong 7 ngày qua</option><option value="720">Trong 30 ngày qua</option><option value="0">Tất cả lịch sử</option>
+            </select>
+            <button type="button" class="ghost-btn" onclick="crawlLoadHistory()">↻ Làm mới dữ liệu</button>
+          </div>
+        </div>
+
+        <div class="panel crawl-history-page-panel">
+          <div class="crawl-history-toolbar">
+            <input id="crawl-history-query" type="search" placeholder="Tìm tiêu đề, kênh hoặc từ khóa..." oninput="crawlScheduleHistory()">
+            <select id="crawl-history-platform" onchange="crawlLoadHistory()">
+              <option value="">Tất cả nền tảng</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option><option value="douyin">Douyin</option><option value="bilibili">Bilibili</option><option value="xiaohongshu">Xiaohongshu</option><option value="rednote">RedNote</option><option value="facebook">Facebook</option><option value="instagram">Instagram</option>
+            </select>
+            <select id="crawl-history-days" onchange="crawlLoadHistory()">
+              <option value="0">Mọi thời gian</option><option value="1">Hôm nay</option><option value="7">7 ngày qua</option><option value="30">30 ngày qua</option><option value="90">90 ngày qua</option>
+            </select>
+            <select id="crawl-history-mode" onchange="crawlRenderHistory()"><option value="">Mọi kiểu cào</option><option value="search">Theo từ khóa</option><option value="creator">Theo kênh</option><option value="detail">Theo link</option><option value="chase">Theo bộ</option></select>
+            <select id="crawl-history-source" onchange="crawlRenderHistory()"><option value="">Mọi kênh / từ khóa</option></select>
+            <select id="crawl-history-sort" onchange="crawlRenderHistory()"><option value="newest">Mới nhất trước</option><option value="oldest">Cũ nhất trước</option></select>
+            <label class="crawl-history-check"><input id="crawl-history-undownloaded" type="checkbox" onchange="crawlLoadHistory()"> Chỉ chưa tải</label>
+          </div>
+
+          <div class="crawl-history-selection-bar">
+            <label><input id="crawl-history-select-all" type="checkbox" onchange="crawlHistoryToggleAll(this.checked)"> Chọn tất cả đang hiển thị</label>
+            <span id="crawl-history-summary">0 video</span>
+            <span id="crawl-history-selected-count">Đã chọn 0</span>
+            <button type="button" class="primary-btn" id="crawl-history-download-selected" onclick="crawlHistoryDownloadSelected()" disabled>⬇ Tải video đã chọn</button>
+          </div>
+
+          <div id="crawl-history-list" class="crawl-history-list"><div class="crawl-history-empty">Đang đọc lịch sử cào...</div></div>
         </div>
       </section>
 

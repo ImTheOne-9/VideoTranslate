@@ -104,6 +104,8 @@ function executeSwitchView(name) {
   $('view-desc').textContent = views[name].desc;
   if (name === 'library') {
     switchLibraryTab(currentLibraryTab);
+  } else if (name === 'crawl-history') {
+    crawlLoadHistory();
   } else if (name === 'studio') {
     const homeView = $('studio-home-view');
     const editorView = $('studio-editor-view');
@@ -5695,6 +5697,7 @@ const crawlNowState = {
   previewRequestedCount: 100,
   previewLoadingMore: false
 };
+const hiddenCrawlPlatforms = new Set(['weibo', 'twitter', 'reddit']);
 
 function crawlEscape(value) {
   return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
@@ -5874,7 +5877,7 @@ async function crawlLoadLoginStatus() {
     const response = await fetch('/api/download-crawl/login-status');
     const data = await response.json();
     const platforms = data.platforms || {};
-    const labels = { douyin: 'Douyin', bilibili: 'Bilibili', xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', weibo: 'Weibo', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram', twitter: 'Twitter/X', reddit: 'Reddit' };
+    const labels = { douyin: 'Douyin', bilibili: 'Bilibili', xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram' };
     const grid = $('crawl-login-grid');
     if (grid) grid.innerHTML = Object.entries(labels).map(([key, label]) => {
       const status = platforms[key] || 'out';
@@ -5930,6 +5933,9 @@ function crawlRefreshAll() {
 }
 
 let crawlHistoryTimer = null;
+let crawlHistoryItems = [];
+const crawlHistorySelected = new Set();
+
 function crawlScheduleHistory() {
   clearTimeout(crawlHistoryTimer);
   crawlHistoryTimer = setTimeout(crawlLoadHistory, 250);
@@ -5938,23 +5944,205 @@ function crawlScheduleHistory() {
 async function crawlLoadHistory() {
   const list = $('crawl-history-list');
   if (!list) return;
+  list.innerHTML = '<div class="crawl-history-empty">Đang đọc lịch sử cào...</div>';
   const params = new URLSearchParams({
     platform: $('crawl-history-platform')?.value || '',
     q: $('crawl-history-query')?.value || '',
     onlyUndownloaded: $('crawl-history-undownloaded')?.checked ? '1' : '0',
-    limit: '40'
+    days: $('crawl-history-days')?.value || '0',
+    limit: '800'
   });
   try {
     const response = await fetch(`/api/download-crawl/history?${params}`);
     const data = await response.json();
-    const items = Array.isArray(data.items) ? data.items : [];
-    list.innerHTML = items.length ? items.map((item) => `<div class="crawl-history-item">
-      ${item.thumbnail ? `<img src="/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span></span>'}
-      <div><b title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</b><small>${crawlEscape(item.platform)} · ${crawlEscape(item.uploader || '')}</small></div>
-      ${item.downloaded ? '<em>✓ đã tải</em>' : '<small>chưa tải</small>'}
-    </div>`).join('') : '<span>Chưa có dữ liệu lịch sử phù hợp.</span>';
-  } catch (_) {
-    list.innerHTML = '<span>Không đọc được lịch sử cào.</span>';
+    if (!response.ok) throw new Error(data.error || 'Không đọc được lịch sử cào.');
+    crawlHistoryItems = (Array.isArray(data.items) ? data.items : [])
+      .filter((item) => !hiddenCrawlPlatforms.has(String(item.platform || '').toLowerCase()));
+    const liveKeys = new Set(crawlHistoryItems.map((item) => item.key));
+    for (const key of crawlHistorySelected) if (!liveKeys.has(key)) crawlHistorySelected.delete(key);
+    crawlHistoryPopulateSources();
+    crawlRenderHistory();
+  } catch (error) {
+    crawlHistoryItems = [];
+    list.innerHTML = `<div class="crawl-history-empty error">${crawlEscape(error.message || 'Không đọc được lịch sử cào.')}</div>`;
+  }
+}
+
+function crawlHistorySource(item) {
+  if (item.sourceMode === 'search') return String(item.sourceInput || item.keyword || item.uploader || '').trim();
+  if (item.sourceMode === 'creator') return String(item.sourceName || item.uploader || item.sourceInput || '').trim();
+  return String(item.sourceName || item.uploader || item.keyword || '').trim();
+}
+
+function crawlHistoryModeLabel(mode) {
+  return ({ search: 'Từ khóa', creator: 'Kênh', detail: 'Link', chase: 'Bộ' })[mode] || 'Link';
+}
+
+function crawlHistoryPopulateSources() {
+  const select = $('crawl-history-source');
+  if (!select) return;
+  const current = select.value;
+  const channels = [...new Set(crawlHistoryItems.filter((item) => item.sourceMode === 'creator').map(crawlHistorySource).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  const keywords = [...new Set(crawlHistoryItems.filter((item) => item.sourceMode === 'search').map(crawlHistorySource).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  let html = '<option value="">Mọi kênh / từ khóa</option>';
+  if (channels.length) html += `<optgroup label="Kênh (${channels.length})">${channels.map((source) => `<option value="creator:${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('')}</optgroup>`;
+  if (keywords.length) html += `<optgroup label="Từ khóa (${keywords.length})">${keywords.map((source) => `<option value="search:${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('')}</optgroup>`;
+  select.innerHTML = html;
+  if (Array.from(select.options).some((option) => option.value === current)) select.value = current;
+}
+
+function crawlHistoryVisibleItems() {
+  const source = $('crawl-history-source')?.value || '';
+  const mode = $('crawl-history-mode')?.value || '';
+  const oldestFirst = $('crawl-history-sort')?.value === 'oldest';
+  return crawlHistoryItems
+    .filter((item) => !mode || item.sourceMode === mode)
+    .filter((item) => !source || `${item.sourceMode}:${crawlHistorySource(item)}` === source)
+    .sort((a, b) => oldestFirst ? Number(a.timestamp || 0) - Number(b.timestamp || 0) : Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+function crawlHistoryDate(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return 'Không rõ ngày';
+  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value * 1000));
+}
+
+function crawlRenderHistory() {
+  const list = $('crawl-history-list');
+  if (!list) return;
+  const items = crawlHistoryVisibleItems();
+  const selectedVisible = items.filter((item) => crawlHistorySelected.has(item.key)).length;
+  if ($('crawl-history-summary')) $('crawl-history-summary').textContent = `${items.length} video`;
+  if ($('crawl-history-selected-count')) $('crawl-history-selected-count').textContent = `Đã chọn ${crawlHistorySelected.size}`;
+  const selectAll = $('crawl-history-select-all');
+  if (selectAll) {
+    selectAll.checked = items.length > 0 && selectedVisible === items.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < items.length;
+  }
+  const downloadButton = $('crawl-history-download-selected');
+  if (downloadButton) downloadButton.disabled = crawlHistorySelected.size === 0;
+  if (!items.length) {
+    list.innerHTML = '<div class="crawl-history-empty">Chưa có dữ liệu lịch sử phù hợp với bộ lọc.</div>';
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const encodedKey = encodeURIComponent(item.key).replace(/'/g, '%27');
+    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : '';
+    const source = crawlHistorySource(item) || item.platform;
+    return `<article class="crawl-history-item${item.downloaded ? ' downloaded' : ''}">
+      <div class="crawl-history-thumb">
+        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span>▶</span>'}
+        <input type="checkbox" aria-label="Chọn video" ${crawlHistorySelected.has(item.key) ? 'checked' : ''} onchange="crawlHistoryToggleItem('${encodedKey}', this.checked)">
+        <em>${item.downloaded ? '✓ Đã tải' : 'Chưa tải'}</em>
+      </div>
+      <div class="crawl-history-content">
+        <span class="crawl-history-kind ${crawlEscape(item.sourceMode || 'detail')}">${crawlHistoryModeLabel(item.sourceMode)}</span>
+        <b title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</b>
+        <small>${crawlEscape(item.platform)} · ${crawlEscape(source)}</small>
+        <small>${crawlHistoryDate(item.timestamp)}${item.keyword ? ` · ${crawlEscape(item.keyword)}` : ''}</small>
+      </div>
+      <div class="crawl-history-actions">
+        ${item.url ? `<a href="${crawlEscape(item.url)}" target="_blank" rel="noreferrer">Mở bài gốc</a>` : ''}
+        ${item.downloaded && item.mediaPath ? `<button type="button" onclick="crawlHistoryOpenFolder('${encodeURIComponent(item.mediaPath).replace(/'/g, '%27')}')">Mở thư mục</button>` : ''}
+        <button type="button" onclick="crawlHistoryDownloadOne('${encodedKey}')">${item.downloaded ? 'Tải lại' : 'Tải video'}</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function crawlHistoryOpenFolder(encodedPath) {
+  try {
+    const relativePath = decodeURIComponent(encodedPath);
+    const response = await fetch(`/api/download-crawl/open-file-folder?path=${encodeURIComponent(relativePath)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không mở được vị trí video.');
+  } catch (error) {
+    toast(error.message || 'Không mở được vị trí video.', 'error');
+    await crawlLoadHistory();
+  }
+}
+
+function crawlHistoryToggleItem(encodedKey, checked) {
+  const key = decodeURIComponent(encodedKey);
+  if (checked) crawlHistorySelected.add(key);
+  else crawlHistorySelected.delete(key);
+  crawlRenderHistory();
+}
+
+function crawlHistoryToggleAll(checked) {
+  for (const item of crawlHistoryVisibleItems()) {
+    if (checked) crawlHistorySelected.add(item.key);
+    else crawlHistorySelected.delete(item.key);
+  }
+  crawlRenderHistory();
+}
+
+async function crawlHistoryEnqueue(items) {
+  const groups = new Map();
+  for (const item of items) {
+    if (!item.url) continue;
+    const sourceMode = item.sourceMode || 'detail';
+    const sourceInput = item.sourceInput || '';
+    const sourceName = item.sourceName || item.uploader || '';
+    const groupKey = `${item.platform}\u0000${sourceMode}\u0000${sourceInput}\u0000${sourceName}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, { platform: item.platform, sourceMode, sourceInput, sourceName, urls: [] });
+    groups.get(groupKey).urls.push(item.url);
+  }
+  if (!groups.size) {
+    toast('Các mục đã chọn không có link video hợp lệ.', 'error');
+    return;
+  }
+  let queued = 0;
+  try {
+    for (const { platform, sourceMode, sourceInput, sourceName, urls } of groups.values()) {
+      const response = await fetch('/api/download-crawl/enqueue-job', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, mode: 'detail', input: urls.join('\n'), count: urls.length, deepNew: false,
+          sourceMode, sourceInput, sourceName, label: `${platform} · ${urls.length} video từ lịch sử` })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Không thêm được job ${platform}.`);
+      queued += urls.length;
+    }
+    crawlHistorySelected.clear();
+    crawlRenderHistory();
+    toast(`Đã thêm ${queued} video từ lịch sử vào hàng đợi.`, 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message || 'Không thêm được video từ lịch sử.', 'error');
+  }
+}
+
+function crawlHistoryDownloadOne(encodedKey) {
+  const key = decodeURIComponent(encodedKey);
+  const item = crawlHistoryItems.find((entry) => entry.key === key);
+  return item ? crawlHistoryEnqueue([item]) : undefined;
+}
+
+function crawlHistoryDownloadSelected() {
+  return crawlHistoryEnqueue(crawlHistoryItems.filter((item) => crawlHistorySelected.has(item.key)));
+}
+
+async function crawlHistoryDelete(value) {
+  const select = $('crawl-history-delete-range');
+  if (select) select.value = '';
+  if (value === '' || value == null) return;
+  const labels = { '1': 'trong 1 giờ qua', '24': 'trong 24 giờ qua', '168': 'trong 7 ngày qua', '720': 'trong 30 ngày qua', '0': 'TẤT CẢ' };
+  const label = labels[String(value)] || '';
+  const confirmed = window.confirm(`Xóa lịch sử cào ${label}?\n\nChỉ danh sách metadata bị xóa. Video đã tải và dữ liệu đánh dấu chống trùng vẫn được giữ nguyên. Danh sách đã xóa không thể khôi phục.`);
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/download-crawl/history/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours: Number(value) })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không xóa được lịch sử cào.');
+    crawlHistorySelected.clear();
+    toast(`Đã xóa ${Number(data.deleted || 0)} mục khỏi lịch sử cào.`, 'success');
+    await crawlLoadHistory();
+  } catch (error) {
+    toast(error.message || 'Không xóa được lịch sử cào.', 'error');
   }
 }
 
@@ -6144,10 +6332,15 @@ async function crawlEnqueue(items) {
     const jobCrawlerPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
     if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
       const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
+      const sourceRequest = crawlCurrentRequest();
+      const sourceName = sourceRequest.mode === 'creator'
+        ? String(selectedItems.find((item) => item.uploader)?.uploader || '')
+        : '';
       const response = await fetch('/api/download-crawl/enqueue-job', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...crawlCurrentRequest(), mode: 'detail', input: urls.join('\n'), count: urls.length,
+          ...sourceRequest, mode: 'detail', input: urls.join('\n'), count: urls.length,
+          sourceMode: sourceRequest.mode, sourceInput: sourceRequest.input, sourceName,
           label: `${crawlNowState.platform} · ${urls.length} video đã chọn`
         })
       });

@@ -262,3 +262,23 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('selected detail job persists the original crawl source for output grouping', () => {
+  const directory = makeTempDir();
+  try {
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({ DOWNLOADS_DIR: directory }), downloadsDir: directory
+    });
+    manager._processQueue = () => {};
+    const { taskId } = manager.enqueueJob({
+      platform: 'tiktok', mode: 'detail', input: 'https://www.tiktok.com/@demo/video/1', count: 1,
+      sourceMode: 'search', sourceInput: 'mèo vui'
+    });
+    const config = manager.tasks.find((task) => task.id === taskId).config;
+    assert.equal(config.mode, 'detail');
+    assert.equal(config.sourceMode, 'search');
+    assert.equal(config.sourceInput, 'mèo vui');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
