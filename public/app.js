@@ -348,7 +348,7 @@ async function loadAssets() {
   }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
-  renderVideoGrid(assets.videos);
+  studioInitializeVideoFilters(assets.videos);
   renderReactionVideoGrid(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   renderQuickVoices();
@@ -2968,6 +2968,50 @@ function updateConditionalFields() {
   }
 }
 
+const studioVideoPlatformLabels = {
+  local: 'Tải đơn lẻ', youtube: 'YouTube', tiktok: 'TikTok', douyin: 'Douyin',
+  bilibili: 'Bilibili', facebook: 'Facebook', instagram: 'Instagram',
+  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote'
+};
+const studioVideoModeLabels = { local: 'Tải đơn lẻ', detail: 'Theo link', search: 'Theo từ khóa', creator: 'Theo kênh', chase: 'Theo bộ' };
+
+function studioDownloadUrl(relativePath) {
+  const encoded = String(relativePath || '').replace(/\\/g, '/').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  return `/downloads/${encoded}`;
+}
+
+function studioInitializeVideoFilters(videos = []) {
+  const platformSelect = $('studio-video-platform-filter');
+  if (platformSelect) {
+    const previous = platformSelect.value;
+    const platforms = [...new Set(videos.map((item) => item.platform || 'local'))];
+    platformSelect.innerHTML = '<option value="">Tất cả nền tảng</option>' + platforms
+      .map((platform) => `<option value="${crawlEscape(platform)}">${crawlEscape(studioVideoPlatformLabels[platform] || platform)}</option>`).join('');
+    if (platforms.includes(previous)) platformSelect.value = previous;
+    else if (platforms.includes('local')) platformSelect.value = 'local';
+  }
+  studioApplyVideoFilters();
+}
+
+function studioApplyVideoFilters() {
+  const allVideos = Array.isArray(assets.videos) ? assets.videos : [];
+  const platform = $('studio-video-platform-filter')?.value || '';
+  const mode = $('studio-video-mode-filter')?.value || '';
+  const sourceSelect = $('studio-video-source-filter');
+  const sourceCandidates = allVideos.filter((item) => (!platform || item.platform === platform) && (!mode || item.mode === mode));
+  if (sourceSelect) {
+    const previous = sourceSelect.value;
+    const sources = [...new Set(sourceCandidates.map((item) => item.source).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+    sourceSelect.innerHTML = '<option value="">Mọi nguồn</option>' + sources
+      .map((source) => `<option value="${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('');
+    sourceSelect.value = sources.includes(previous) ? previous : '';
+  }
+  const source = sourceSelect?.value || '';
+  const filtered = sourceCandidates.filter((item) => !source || item.source === source);
+  if ($('studio-video-filter-summary')) $('studio-video-filter-summary').textContent = `${filtered.length}/${allVideos.length} video`;
+  renderVideoGrid(filtered);
+}
+
 function renderVideoGrid(videos) {
   const grid = $('studio-video-grid');
   if (!grid) return;
@@ -2988,7 +3032,10 @@ function renderVideoGrid(videos) {
     }
     card.dataset.filename = item.filename;
 
-    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    const videoUrl = studioDownloadUrl(item.filename);
+    const displayName = item.name || String(item.filename).split(/[\\/]/).pop();
+    const platformLabel = studioVideoPlatformLabels[item.platform] || item.platform || 'Tải đơn lẻ';
+    const modeLabel = studioVideoModeLabels[item.mode] || '';
 
     card.innerHTML = `
       <div class="video-card-thumb">
@@ -2997,7 +3044,8 @@ function renderVideoGrid(videos) {
         <div class="video-card-duration">--:--</div>
       </div>
       <div class="video-card-info">
-        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
+        <div class="video-card-meta">${crawlEscape(platformLabel)}${modeLabel ? ` · ${crawlEscape(modeLabel)}` : ''}${item.source ? ` · ${crawlEscape(item.source)}` : ''}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
       </div>
     `;
@@ -3053,7 +3101,8 @@ function renderReactionVideoGrid(videos) {
     }
     card.dataset.filename = item.filename;
 
-    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    const videoUrl = studioDownloadUrl(item.filename);
+    const displayName = item.name || String(item.filename).split(/[\\/]/).pop();
 
     card.innerHTML = `
       <div class="video-card-thumb">
@@ -3062,7 +3111,7 @@ function renderReactionVideoGrid(videos) {
         <div class="video-card-duration">--:--</div>
       </div>
       <div class="video-card-info">
-        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
       </div>
     `;
@@ -3717,7 +3766,7 @@ document.querySelectorAll('.source-tab-btn').forEach(btn => {
       // Khôi phục preview nếu đã có video library được chọn
       const selectedFile = $('selected-video-file')?.value;
       if (selectedFile) {
-        setPreviewVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+        setPreviewVideo(studioDownloadUrl(selectedFile));
       }
     }
     updateConditionalFields();
@@ -3744,7 +3793,7 @@ document.querySelectorAll('.reaction-tab-btn').forEach(btn => {
       // Khôi phục preview nếu đã có reaction video được chọn
       const selectedFile = $('selected-reaction-video-file')?.value;
       if (selectedFile) {
-        setPreviewReactionVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+        setPreviewReactionVideo(studioDownloadUrl(selectedFile));
       }
     } else {
       // "none" mode: clear reaction hoàn toàn
@@ -8262,7 +8311,7 @@ function selectSourceVideo(filename) {
     card.classList.toggle('selected', isMatch);
   });
 
-  const videoUrl = `/downloads/${encodeURIComponent(filename)}`;
+  const videoUrl = studioDownloadUrl(filename);
   setPreviewVideo(videoUrl);
   if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
   updateConditionalFields();
@@ -8280,7 +8329,7 @@ function selectReactionVideo(filename) {
     card.classList.toggle('selected', isMatch);
   });
 
-  const videoUrl = `/downloads/${encodeURIComponent(filename)}`;
+  const videoUrl = studioDownloadUrl(filename);
   setPreviewReactionVideo(videoUrl);
   updateConditionalFields();
 }

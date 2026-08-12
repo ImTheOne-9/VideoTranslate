@@ -1077,6 +1077,23 @@
 
                     <div id="source-library-container" class="source-section">
                       <label>Chọn video từ thư mục downloads</label>
+                      <div class="studio-video-filters">
+                        <select id="studio-video-platform-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Tất cả nền tảng</option>
+                        </select>
+                        <select id="studio-video-mode-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Mọi kiểu nguồn</option>
+                          <option value="local">Tải đơn lẻ</option>
+                          <option value="detail">Theo link</option>
+                          <option value="search">Theo từ khóa</option>
+                          <option value="creator">Theo kênh</option>
+                          <option value="chase">Theo bộ</option>
+                        </select>
+                        <select id="studio-video-source-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Mọi nguồn</option>
+                        </select>
+                      </div>
+                      <div id="studio-video-filter-summary" class="studio-video-filter-summary">0 video</div>
                       <div id="studio-video-grid" class="studio-video-grid">
                         <!-- Video grid items will be inserted here dynamically -->
                       </div>

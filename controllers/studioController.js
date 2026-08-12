@@ -2481,7 +2481,8 @@ module.exports = {
       return res.status(400).json({ error: 'Thiếu file video' });
     }
 
-    const mainPath = path.join(shared.DOWNLOADS_DIR, mainVideoFile);
+    const mainPath = shared.resolveAssetPath('video', mainVideoFile);
+    if (!mainPath) return res.status(404).json({ error: 'Video nguồn không còn tồn tại' });
     const outPath = path.join(shared.DOWNLOADS_DIR, `reaction_${Date.now()}.mp4`);
     let overlayPos = 'main_w-overlay_w-20:main_h-overlay_h-20';
     if (position === 'bottom-left') overlayPos = '20:main_h-overlay_h-20';
@@ -2510,7 +2511,7 @@ module.exports = {
     const voiceEngines = await voiceEngineRegistry.describeAll();
     const defaultVoiceEngine = voiceEngines.find((engine) => engine.id === DEFAULT_VOICE_ENGINE_ID);
     res.json({
-      videos: shared.listFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
+      videos: shared.listVideoFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       renders: shared.listFiles(shared.RENDERS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       voices: shared.listFiles(shared.VOICES_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       music: shared.listFiles(shared.MUSIC_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),

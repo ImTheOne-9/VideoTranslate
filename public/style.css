@@ -5356,6 +5356,25 @@ select option {
   .crawl-history-toolbar { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .crawl-history-toolbar input[type="search"] { grid-column:span 2; }
 }
+
+.studio-video-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 8px 0 5px;
+}
+.studio-video-filters select {
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11px;
+}
+.studio-video-filter-summary { margin-bottom: 8px; color: var(--muted); font-size: 11px; }
+@media (max-width: 980px) { .studio-video-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
   .crawl-platform-grid, .crawl-option-grid { grid-template-columns: repeat(2, 1fr); }
   .crawl-mode-tabs { grid-template-columns: repeat(2, 1fr); }

@@ -55,6 +55,7 @@ test('server exposes MediaCrawler engine status and integration', () => {
 
 test('download page keeps legacy modes and makes crawl-now the default', () => {
   const html = read('public/index.html');
+  const app = read('public/app.js');
   const crawlTab = html.match(/<button[^>]*id="download-mode-crawl-btn"[^>]*>/)?.[0] || '';
   assert.match(crawlTab, /class="download-mode-tab active"/);
   assert.doesNotMatch(crawlTab, /source-tab-btn/);
@@ -74,6 +75,13 @@ test('download page keeps legacy modes and makes crawl-now the default', () => {
   assert.match(html, /id="crawl-runtime-install-btn"/);
   assert.match(html, /id="crawl-now-sort"/);
   assert.match(html, /id="crawl-now-language"/);
+  for (const id of ['studio-video-platform-filter', 'studio-video-mode-filter', 'studio-video-source-filter']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.doesNotMatch(html, /id="studio-video-search"/);
+  assert.match(app, /function studioDownloadUrl/);
+  assert.match(app, /function studioApplyVideoFilters/);
+  assert.match(app, /studioInitializeVideoFilters\(assets\.videos\)/);
 });
 
 test('crawl history is a dedicated navbar view with ViralCrawl-style filters and bulk download', () => {
