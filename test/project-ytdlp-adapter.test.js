@@ -73,12 +73,43 @@ test('Instagram Python preview normalizes reels tab and exports project profile 
   const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
   assert.match(source, /return "https:\/\/www\.instagram\.com\/%s\/" % parts\[0\]/);
   assert.match(source, /cookiefile = xuat_cookie_tu_phien\("ig"\)/);
-  assert.match(source, /False if \(plat == "ig" and a\.type == "detail"\) else "in_playlist"/);
+  assert.match(source, /False if a\.type == "detail" else "in_playlist"/);
   assert.match(source, /def _item_ig\(e\):/);
   assert.match(source, /def _ig_liet_ke_kenh\(profile_input, count, log=print\):/);
   assert.match(source, /items = _ig_bo_sung_metadata\(items, log=log\)/);
   assert.match(source, /re\.findall\(r"\/\(reel\|p\)\/\(\[A-Za-z0-9_-\]\+\)"/);
   assert.match(source, /"duration": e\.get\("duration"\) or 0/);
+});
+
+test('TikTok creator keeps partial video ids and falls back to browser when secUid extraction fails', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
+  assert.match(source, /class _TikTokChannelLogger:/);
+  assert.match(source, /Downloading webpage/);
+  assert.match(source, /def _tiktok_liet_ke_kenh_browser\(profile_url, count, log=print\):/);
+  assert.match(source, /tt_channel_logger\.items\(count\)/);
+  assert.match(source, /_tt_channel_logger\.items\(count\)/);
+  assert.match(source, /fallback trình duyệt/);
+});
+
+test('TikTok detail preview uses project fallback instead of generic yt-dlp preview', async () => {
+  const adapter = new ProjectYtDlpAdapter();
+  let call = null;
+  adapter._run = async (script, args) => {
+    call = { script, args };
+    return { stdout: '{"ok":true,"items":[{"id":"7660769402538839317","title":"Video 7660769402538839317","url":"https://www.tiktok.com/@tuannguyen60872/video/7660769402538839317"}]}' };
+  };
+  const items = await adapter.preview({
+    platform: 'tiktok', mode: 'detail',
+    input: 'https://www.tiktok.com/@tuannguyen60872/video/7660769402538839317', count: 1
+  });
+  assert.ok(call.args.includes('--list'));
+  assert.ok(call.args.includes('detail'));
+  assert.equal(items[0].id, '7660769402538839317');
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(serverSource, /'tiktok:detail': createProjectYtDlpPreviewResolver\('tiktok'\)/);
+  const pythonSource = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
+  assert.match(pythonSource, /def _tiktok_xem_truoc_link_browser\(urls, count, log=print\):/);
+  assert.match(pythonSource, /plat == "tt" and a\.type == "detail"/);
 });
 
 test('Weibo login window verifies the live page instead of trusting stale cookies', () => {

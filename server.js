@@ -62,6 +62,7 @@ const downloadCrawlManager = new DownloadCrawlManager({
     'youtube:creator': createProjectYtDlpPreviewResolver('youtube'),
     'tiktok:search': createProjectYtDlpPreviewResolver('tiktok'),
     'tiktok:creator': createProjectYtDlpPreviewResolver('tiktok'),
+    'tiktok:detail': createProjectYtDlpPreviewResolver('tiktok'),
     'facebook:creator': createProjectYtDlpPreviewResolver('facebook'),
     'instagram:creator': createProjectYtDlpPreviewResolver('instagram'),
     'instagram:detail': createProjectYtDlpPreviewResolver('instagram'),
