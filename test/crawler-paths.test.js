@@ -42,6 +42,34 @@ test('crawler creates only mutable user directories and exports stable child env
   }
 });
 
+test('crawler reuses a valid legacy Playwright browser runtime after upgrading', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'video-studio-crawler-legacy-browser-'));
+  try {
+    const userRoot = path.join(directory, 'user');
+    const legacyRoot = path.join(userRoot, 'runtime', 'ms-playwright');
+    fs.mkdirSync(path.join(legacyRoot, 'chromium-1124'), { recursive: true });
+    const paths = getCrawlerPaths({ bundledRoot: directory, userRoot });
+    assert.equal(paths.playwrightBrowsersDir, legacyRoot);
+    assert.equal(crawlerEnvironment(paths).PLAYWRIGHT_BROWSERS_PATH, legacyRoot);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('crawler prefers the isolated Python Playwright runtime when both are ready', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'video-studio-crawler-python-browser-'));
+  try {
+    const userRoot = path.join(directory, 'user');
+    const runtimeRoot = path.join(userRoot, 'runtime');
+    fs.mkdirSync(path.join(runtimeRoot, 'ms-playwright', 'chromium-1124'), { recursive: true });
+    fs.mkdirSync(path.join(runtimeRoot, 'ms-playwright-python', 'chromium-1200'), { recursive: true });
+    const paths = getCrawlerPaths({ bundledRoot: directory, userRoot });
+    assert.equal(paths.playwrightBrowsersDir, path.join(runtimeRoot, 'ms-playwright-python'));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('project contains every crawler entrypoint required by both adapters', () => {
   const root = path.resolve(__dirname, '..', 'tools', 'crawler', 'app');
   for (const relative of [

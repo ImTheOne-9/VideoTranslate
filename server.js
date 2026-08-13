@@ -345,6 +345,7 @@ app.use('/renders', express.static(shared.RENDERS_DIR));
 app.use('/downloads', express.static(shared.DOWNLOADS_DIR));
 app.use('/voices', express.static(shared.VOICES_DIR));
 app.use('/music', express.static(shared.MUSIC_DIR));
+app.use('/logos', express.static(shared.LOGOS_DIR));
 
 const upload = multer({ dest: shared.UPLOADS_DIR });
 const studioUpload = multer({ dest: shared.TMP_UPLOADS_DIR });
@@ -641,10 +642,12 @@ app.post('/api/save-cloner-voice', voiceController.saveClonerVoice);
 app.post('/api/clear-temp-cloner-voice', voiceController.clearTempClonerVoice);
 app.post('/api/save-voice', studioUpload.single('voice'), voiceController.saveVoice);
 app.post('/api/save-music', studioUpload.single('music'), voiceController.saveMusic);
+app.post('/api/save-logo', studioUpload.single('logo'), voiceController.saveLogo);
 app.post('/api/save-video', studioUpload.single('video'), voiceController.saveVideo);
 app.delete('/api/rendered-videos/:filename', voiceController.deleteVideo);
 app.delete('/api/voices/:filename', voiceController.deleteVoice);
 app.delete('/api/music/:filename', voiceController.deleteMusic);
+app.delete('/api/logos/:filename', voiceController.deleteLogo);
 app.get('/api/local-videos', voiceController.getLocalVideos);
 
 // API: Mở trình duyệt Đăng nhập Gemini Web

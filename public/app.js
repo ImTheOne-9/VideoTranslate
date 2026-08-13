@@ -177,12 +177,13 @@ function refreshStudioPreviewLayout() {
 // Setup bottom configuration tabs switcher
 document.querySelectorAll('.config-tab-icon-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.config-tab-icon-btn').forEach(b => b.classList.remove('active'));
+    const tabButtons = Array.from(document.querySelectorAll('.config-tab-icon-btn'));
+    tabButtons.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const targetPanelId = btn.dataset.target;
 
-    const panels = ['panel-source-video', 'panel-reaction', 'panel-subtitle', 'panel-voice', 'panel-music'];
-    panels.forEach(id => {
+    const panelIds = [...new Set(tabButtons.map(button => button.dataset.target).filter(Boolean))];
+    panelIds.forEach(id => {
       const el = $(id);
       if (el) el.classList.toggle('hidden', id !== targetPanelId);
     });
@@ -354,6 +355,8 @@ async function loadAssets() {
   renderQuickVoices();
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
   renderQuickMusic();
+  fillSelect('saved-logo-select', assets.logos || [], '-- Chọn logo --');
+  updateLogoUi();
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
   renderAssetList('asset-videos', assets.videos);
   renderAssetList('asset-voices', assets.voices);
@@ -1348,6 +1351,11 @@ async function renderStudio(event) {
 
   if (!$('video-upload').files.length && !data.get('mainVideoFile')) {
     toast('Chọn video nguồn hoặc upload video mới.', 'error');
+    return;
+  }
+
+  if (data.get('logoMode') === 'saved' && !data.get('savedLogoFile')) {
+    toast('Hãy chọn một logo đã tải trước khi render.', 'error');
     return;
   }
 
@@ -3420,6 +3428,16 @@ function submitSaveTemplate(event) {
     omiCustomSeed: $('omi-seed-input').value,
     musicMode: $('music-mode').value,
     savedMusicFile: $('saved-music-select').value,
+    logoMode: $('logo-mode')?.value || 'none',
+    logoEnabled: $('logo-mode')?.value === 'saved',
+    savedLogoFile: $('saved-logo-select')?.value || '',
+    logoPosition: $('logo-position')?.value || 'br',
+    logoXPercent: $('logo-x-percent')?.value || '80',
+    logoYPercent: $('logo-y-percent')?.value || '85',
+    logoWidthPercent: $('logo-width-percent')?.value || '18',
+    logoOpacity: $('logo-opacity')?.value || '0.9',
+    logoStart: $('logo-start')?.value || '0',
+    logoEnd: $('logo-end')?.value || '',
     originalVolume: sliderToVolume(document.querySelector('input[name="originalVolume"]').value),
     voiceVolume: sliderToVolume(document.querySelector('input[name="voiceVolume"]').value),
     musicVolume: sliderToVolume(document.querySelector('input[name="musicVolume"]').value),
@@ -3692,6 +3710,19 @@ function loadStudioTemplate(templateName) {
   if (template.savedMusicFile) {
     $('saved-music-select').value = template.savedMusicFile;
   }
+
+  const templateLogoMode = template.logoMode || ((template.logoEnabled === true || template.logoEnabled === 'true') ? 'saved' : 'none');
+  const logoModeBtn = document.querySelector(`.logo-tab-btn[data-logo-mode="${templateLogoMode}"]`);
+  if (logoModeBtn) logoModeBtn.click();
+  if ($('saved-logo-select')) $('saved-logo-select').value = template.savedLogoFile || '';
+  if ($('logo-position')) $('logo-position').value = template.logoPosition || 'br';
+  if ($('logo-x-percent')) $('logo-x-percent').value = template.logoXPercent || '80';
+  if ($('logo-y-percent')) $('logo-y-percent').value = template.logoYPercent || '85';
+  if ($('logo-width-percent')) $('logo-width-percent').value = template.logoWidthPercent || '18';
+  if ($('logo-opacity')) $('logo-opacity').value = template.logoOpacity || '0.9';
+  if ($('logo-start')) $('logo-start').value = template.logoStart || '0';
+  if ($('logo-end')) $('logo-end').value = template.logoEnd || '';
+  updateLogoUi();
 
   // Restore volumes
   const originalSlider = document.querySelector('input[name="originalVolume"]');
@@ -5989,6 +6020,66 @@ function crawlScheduleHistory() {
   clearTimeout(crawlHistoryTimer);
   crawlHistoryTimer = setTimeout(crawlLoadHistory, 250);
 }
+
+function updateLogoUi() {
+  const mode = $('logo-mode')?.value || 'none';
+  const filename = $('saved-logo-select')?.value || '';
+  const enabled = mode === 'saved' && Boolean(filename);
+  if ($('logo-enabled')) $('logo-enabled').checked = mode === 'saved';
+  $('logo-saved-wrapper')?.classList.toggle('hidden', mode !== 'saved');
+  $('logo-upload-wrapper')?.classList.toggle('hidden', mode !== 'upload');
+  $('logo-settings')?.classList.toggle('hidden', !enabled);
+  const preview = $('selected-logo-preview');
+  const image = $('selected-logo-image');
+  const name = $('selected-logo-name');
+  preview?.classList.toggle('hidden', !enabled);
+  if (image) {
+    const nextSrc = filename ? `/logos/${encodeURIComponent(filename)}` : '';
+    if (image.getAttribute('src') !== nextSrc) image.src = nextSrc;
+  }
+  if (name) name.textContent = filename;
+  if ($('logo-width-val')) $('logo-width-val').textContent = `${$('logo-width-percent')?.value || 18}%`;
+  if ($('logo-opacity-val')) $('logo-opacity-val').textContent = `${Math.round(Number($('logo-opacity')?.value || 0.9) * 100)}%`;
+  if (typeof updateSubtitleOverlayFromInputs === 'function') updateSubtitleOverlayFromInputs();
+}
+
+async function uploadStudioLogo(file) {
+  if (!file) return;
+  const data = new FormData();
+  data.append('logo', file);
+  data.append('logoName', file.name);
+  try {
+    const response = await fetch('/api/save-logo', { method: 'POST', body: data });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không tải được logo.');
+    await loadAssets();
+    if ($('saved-logo-select')) $('saved-logo-select').value = result.logo;
+    const savedTab = document.querySelector('.logo-tab-btn[data-logo-mode="saved"]');
+    if (savedTab) savedTab.click();
+    else updateLogoUi();
+    toast('Đã thêm logo vào thư viện.', 'success');
+  } catch (error) {
+    toast(error.message || 'Không tải được logo.', 'error');
+  } finally {
+    if ($('logo-library-upload')) $('logo-library-upload').value = '';
+  }
+}
+
+document.querySelectorAll('.logo-tab-btn').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.logo-tab-btn').forEach((item) => item.classList.remove('active'));
+    button.classList.add('active');
+    if ($('logo-mode')) $('logo-mode').value = button.dataset.logoMode || 'none';
+    updateLogoUi();
+  });
+});
+$('saved-logo-select')?.addEventListener('change', updateLogoUi);
+$('logo-library-upload')?.addEventListener('change', (event) => uploadStudioLogo(event.target.files?.[0]));
+$('selected-logo-image')?.addEventListener('load', updateLogoUi);
+['logo-position', 'logo-width-percent', 'logo-opacity', 'logo-start', 'logo-end'].forEach((id) => {
+  $(id)?.addEventListener('input', updateLogoUi);
+  $(id)?.addEventListener('change', updateLogoUi);
+});
 
 async function crawlLoadHistory() {
   const list = $('crawl-history-list');
@@ -9041,6 +9132,7 @@ function serializeStudioForm() {
   obj._subMode = document.querySelector('.sub-tab-btn.active')?.dataset.subMode || 'none';
   obj._voiceMode = document.querySelector('.voice-tab-btn.active')?.dataset.voiceMode || 'none';
   obj._musicMode = document.querySelector('.music-tab-btn.active')?.dataset.musicMode || 'none';
+  obj._logoMode = document.querySelector('.logo-tab-btn.active')?.dataset.logoMode || 'none';
 
   // Lưu danh sách vùng làm mờ
   obj.blurBoxes = blurBoxes;
@@ -9101,6 +9193,11 @@ function deserializeStudioForm(obj) {
     const btn = document.querySelector(`.music-tab-btn[data-music-mode="${obj._musicMode}"]`);
     if (btn) btn.click();
   }
+  if (obj._logoMode || obj.logoMode || obj.logoEnabled === 'true') {
+    const logoMode = obj._logoMode || obj.logoMode || 'saved';
+    const btn = document.querySelector(`.logo-tab-btn[data-logo-mode="${logoMode}"]`);
+    if (btn) btn.click();
+  }
 
   // Tải lại video nguồn đã chọn và nạp preview
   if (obj.mainVideoFile) {
@@ -9126,6 +9223,7 @@ function deserializeStudioForm(obj) {
 
   // Cập nhật lại các trường phụ đề
   updateConditionalFields();
+  updateLogoUi();
 
   // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark
   ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
@@ -9223,6 +9321,8 @@ function resetStudioForm() {
   if (voiceBtn) voiceBtn.click();
   const musicBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
   if (musicBtn) musicBtn.click();
+  const logoBtn = document.querySelector('.logo-tab-btn[data-logo-mode="none"]');
+  if (logoBtn) logoBtn.click();
 
   const previewVideo = $('studio-video-preview');
   if (previewVideo) {
@@ -9233,6 +9333,7 @@ function resetStudioForm() {
   $('preview-placeholder').classList.remove('hidden');
 
   updateConditionalFields();
+  updateLogoUi();
 
   // Xóa vùng làm mờ
   blurBoxes = [];

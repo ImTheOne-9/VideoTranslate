@@ -411,6 +411,10 @@ function updateSubtitleOverlayFromInputs() {
     konvaWatermark.add(wmText);
     konvaLayer.add(konvaWatermark);
 
+    konvaLogo = new Konva.Group({ name: 'logo', draggable: true, visible: false });
+    konvaLogo.add(new Konva.Image({ id: 'studio-logo-image', width: 180, height: 90 }));
+    konvaLayer.add(konvaLogo);
+
     // Vòng lặp vẽ lại liên tục khi video reaction chơi để cập nhật khung hình
     const rxAnim = new Konva.Animation(() => {}, konvaLayer);
     rxVideoElement.addEventListener('play', () => rxAnim.start());
@@ -559,7 +563,7 @@ function updateSubtitleOverlayFromInputs() {
       let clickedNode = null;
       let curr = e.target;
       while (curr && curr !== konvaStage) {
-        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'blur' || curr.name() === 'blur-box-shape') {
+        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'logo' || curr.name() === 'blur' || curr.name() === 'blur-box-shape') {
           clickedNode = curr;
           break;
         }
@@ -757,6 +761,27 @@ function updateSubtitleOverlayFromInputs() {
     konvaReaction.on('dragend', () => {
       hideGuidelines();
     });
+
+    konvaLogo.on('dragmove transform', () => {
+      const imageNode = konvaLogo.findOne('#studio-logo-image');
+      if (!imageNode) return;
+      const stageW = konvaStage.width();
+      const stageH = konvaStage.height();
+      const width = Math.max(24, imageNode.width() * konvaLogo.scaleX());
+      const height = Math.max(12, imageNode.height() * konvaLogo.scaleY());
+      const x = Math.max(0, Math.min(konvaLogo.x(), stageW - width));
+      const y = Math.max(0, Math.min(konvaLogo.y(), stageH - height));
+      konvaLogo.scale({ x: 1, y: 1 });
+      imageNode.size({ width, height });
+      konvaLogo.position({ x, y });
+      if ($('logo-position')) $('logo-position').value = 'custom';
+      if ($('logo-x-percent')) $('logo-x-percent').value = ((x / stageW) * 100).toFixed(3);
+      if ($('logo-y-percent')) $('logo-y-percent').value = ((y / stageH) * 100).toFixed(3);
+      if ($('logo-width-percent')) $('logo-width-percent').value = Math.max(3, Math.min(60, Math.round((width / stageW) * 100)));
+      if ($('logo-width-val')) $('logo-width-val').textContent = `${$('logo-width-percent')?.value || 18}%`;
+      konvaLayer.batchDraw();
+    });
+    konvaLogo.on('dragend transformend', () => hideGuidelines());
 
     // Kéo & co giãn Blur Box
     konvaBlur.on('dragmove transform', () => {
@@ -1131,6 +1156,44 @@ function updateSubtitleOverlayFromInputs() {
   }
 
   // 5. Cập nhật các vùng làm mờ (Multiple Blur Boxes)
+  if (konvaLogo) {
+    const logoEnabled = $('logo-enabled')?.checked === true;
+    const logoFilename = $('saved-logo-select')?.value || '';
+    const logoDomImage = $('selected-logo-image');
+    const logoStart = Math.max(0, Number($('logo-start')?.value || 0));
+    const logoEndRaw = $('logo-end')?.value;
+    const logoEnd = logoEndRaw === '' || logoEndRaw == null ? Infinity : Math.max(logoStart, Number(logoEndRaw));
+    const previewTime = Number($('studio-video-preview')?.currentTime || 0);
+    const logoVisible = logoEnabled && Boolean(logoFilename) && logoDomImage?.complete
+      && logoDomImage.naturalWidth > 0 && previewTime >= logoStart && previewTime <= logoEnd;
+    konvaLogo.visible(logoVisible);
+    if (logoVisible) {
+      const imageNode = konvaLogo.findOne('#studio-logo-image');
+      const stageW = konvaStage.width();
+      const stageH = konvaStage.height();
+      const widthPercent = Math.max(3, Math.min(60, Number($('logo-width-percent')?.value || 18)));
+      const width = stageW * widthPercent / 100;
+      const ratio = logoDomImage.naturalHeight / logoDomImage.naturalWidth || 0.5;
+      const height = Math.min(stageH, width * ratio);
+      imageNode.image(logoDomImage);
+      imageNode.size({ width, height });
+      konvaLogo.opacity(Math.max(0.05, Math.min(1, Number($('logo-opacity')?.value || 0.9))));
+      const position = $('logo-position')?.value || 'br';
+      const pad = Math.max(8, Math.round(stageW * 0.015));
+      let x = Number($('logo-x-percent')?.value || 0) * stageW / 100;
+      let y = Number($('logo-y-percent')?.value || 0) * stageH / 100;
+      if (position === 'br') { x = stageW - width - pad; y = stageH - height - pad; }
+      else if (position === 'bl') { x = pad; y = stageH - height - pad; }
+      else if (position === 'tr') { x = stageW - width - pad; y = pad; }
+      else if (position === 'tl') { x = pad; y = pad; }
+      else if (position === 'center') { x = (stageW - width) / 2; y = (stageH - height) / 2; }
+      x = Math.max(0, Math.min(x, stageW - width));
+      y = Math.max(0, Math.min(y, stageH - height));
+      konvaLogo.position({ x, y });
+      konvaLogo.scale({ x: 1, y: 1 });
+    }
+  }
+
   if (konvaBlur) {
     konvaBlur.visible(false); // Ẩn blur box đơn lẻ cũ
   }
@@ -1354,6 +1417,7 @@ function updateSubtitleOverlayFromInputs() {
       shape.moveToBottom();
     });
     if (konvaWatermark) konvaWatermark.moveToTop();
+    if (konvaLogo) konvaLogo.moveToTop();
     if (konvaReaction) konvaReaction.moveToTop();
     if (konvaSubtitle) konvaSubtitle.moveToTop();
     if (vGuideline) vGuideline.moveToTop();
@@ -1923,6 +1987,12 @@ document.addEventListener('keydown', (e) => {
     const noneBtn = document.querySelector('.reaction-tab-btn[data-reaction-tab-mode="none"]');
     if (noneBtn && !noneBtn.classList.contains('active')) {
       noneBtn.click();
+      changed = true;
+    }
+  } else if (nodeName === 'logo') {
+    if ($('logo-enabled')) {
+      $('logo-enabled').checked = false;
+      if (typeof updateLogoUi === 'function') updateLogoUi();
       changed = true;
     }
   } else if (nodeName === 'blur-box-shape' || nodeName === 'blur') {

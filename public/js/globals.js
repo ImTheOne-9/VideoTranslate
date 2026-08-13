@@ -37,7 +37,7 @@ let currentPlaylistVideos = [];
 let currentSavedChannelPage = 1;
 const savedChannelsPerPage = 5;
 let currentPlaylistSessionId = null;
-let assets = { videos: [], voices: [], music: [], subtitles: [], renders: [], omiConfigured: false };
+let assets = { videos: [], voices: [], music: [], logos: [], subtitles: [], renders: [], omiConfigured: false };
 let isBulkDownloadCancelled = false;
 let activeBulkDownloadController = null;
 
@@ -47,6 +47,7 @@ let konvaSubtitle = null;
 let konvaReaction = null;
 let konvaBlur = null;
 let konvaWatermark = null;
+let konvaLogo = null;
 let konvaTransformer = null;
 let vGuideline = null;
 let hGuideline = null;

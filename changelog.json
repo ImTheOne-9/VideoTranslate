@@ -1,6 +1,33 @@
 {
   "versions": [
     {
+      "version": "1.0.41",
+      "date": "2026-08-13",
+      "title": "Cào video độc lập, lịch sử cào và chèn logo",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Hoàn thiện luồng cào video độc lập theo nền tảng, từ khóa, kênh và liên kết; bổ sung xem trước, hàng đợi, đăng nhập bằng profile riêng và tải dự phòng khi extractor trực tiếp thất bại."
+        },
+        {
+          "type": "feature",
+          "text": "Tách lịch sử cào thành màn hình riêng, đồng bộ trạng thái đã tải, phân loại nguồn cào và hỗ trợ mở thư mục hoặc xóa dữ liệu lịch sử."
+        },
+        {
+          "type": "feature",
+          "text": "Thêm chèn logo trong Render Studio với thư viện logo, tải lên, kéo thả, chỉnh vị trí, kích thước, độ hiển thị và khoảng thời gian xuất hiện."
+        },
+        {
+          "type": "fix",
+          "text": "Mỗi cue SRT tạo đúng một segment OmniVoice; manifest cũ từng gộp câu được tự động dựng lại theo định dạng version 2."
+        },
+        {
+          "type": "improve",
+          "text": "Gia cố quy trình đóng gói: loại profile và cache khỏi installer, bổ sung FFprobe, preflight tài nguyên, kiểm thử bắt buộc và bản build unpacked để smoke test trước khi tạo bộ cài."
+        }
+      ]
+    },
+    {
       "version": "1.0.35",
       "date": "2026-07-28",
       "title": "Smart Fit thời lượng và khớp lời thoại",

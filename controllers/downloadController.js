@@ -627,7 +627,7 @@ module.exports = {
           const downloadMarginH = Number(subtitleMarginH || 20);
           let downloadWidth = 1080;
           try {
-            const ffprobePath = shared.FFMPEG_PATH.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
+            const ffprobePath = shared.FFPROBE_PATH;
             if (fs.existsSync(ffprobePath)) {
               const { execFileSync } = require('child_process');
               const widthOut = execFileSync(ffprobePath, [

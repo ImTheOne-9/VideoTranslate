@@ -19,6 +19,18 @@ const clonerState = {
   engineId: DEFAULT_VOICE_ENGINE_ID
 };
 
+function isSupportedLogoFile(filePath) {
+  try {
+    const signature = fs.readFileSync(filePath).subarray(0, 12);
+    const isPng = signature.length >= 8 && signature.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const isJpeg = signature.length >= 3 && signature[0] === 0xff && signature[1] === 0xd8 && signature[2] === 0xff;
+    const isWebp = signature.length >= 12 && signature.toString('ascii', 0, 4) === 'RIFF' && signature.toString('ascii', 8, 12) === 'WEBP';
+    return isPng || isJpeg || isWebp;
+  } catch (_) {
+    return false;
+  }
+}
+
 function resetClonerState() {
   clonerState.active = false;
   clonerState.process = null;
@@ -341,6 +353,42 @@ module.exports = {
     }
   },
 
+  saveLogo: async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'Thiếu file logo' });
+      const originalName = req.body.logoName || req.file.originalname || '';
+      if (!['.png', '.jpg', '.jpeg', '.webp'].includes(path.extname(originalName).toLowerCase())) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        return res.status(400).json({ error: 'Logo chỉ hỗ trợ PNG, JPG, JPEG hoặc WebP' });
+      }
+      if (!isSupportedLogoFile(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        return res.status(400).json({ error: 'Nội dung file logo không hợp lệ' });
+      }
+      const savedPath = shared.moveUploadedFile(req.file, shared.LOGOS_DIR, originalName);
+      return res.json({ success: true, message: 'Đã lưu logo', logo: path.basename(savedPath) });
+    } catch (error) {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      console.error('Save logo error:', error.message);
+      return res.status(500).json({ error: 'Không thể lưu logo' });
+    }
+  },
+
+  deleteLogo: async (req, res) => {
+    try {
+      const filename = path.basename(req.params.filename);
+      const filePath = path.join(shared.LOGOS_DIR, filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Không tìm thấy logo' });
+      fs.unlinkSync(filePath);
+      return res.json({ success: true, message: 'Đã xóa logo' });
+    } catch (error) {
+      console.error('Delete logo error:', error.message);
+      return res.status(500).json({ error: 'Không thể xóa logo' });
+    }
+  },
+
   saveVideo: async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'Thiếu file video' });
@@ -427,3 +475,5 @@ module.exports = {
     }
   }
 };
+
+module.exports.isSupportedLogoFile = isSupportedLogoFile;

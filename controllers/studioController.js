@@ -83,6 +83,55 @@ function hexToAssColor(hexStr) {
   return `&H00${bb}${gg}${rr}`;
 }
 
+function buildStudioLogoOverlay(body = {}, options = {}) {
+  if (!(body.logoEnabled === true || body.logoEnabled === 'true') || !body.savedLogoFile) {
+    return { enabled: false, segments: [] };
+  }
+  const inputIndex = Number(options.inputIndex);
+  const videoWidth = Math.max(2, Number(options.videoWidth) || 1080);
+  if (!Number.isInteger(inputIndex) || inputIndex < 1) throw new Error('Logo input index không hợp lệ');
+  const widthPercent = Math.max(3, Math.min(60, Number(body.logoWidthPercent) || 18));
+  const logoWidth = Math.max(2, Math.round(videoWidth * widthPercent / 100));
+  const opacity = Math.max(0.05, Math.min(1, Number(body.logoOpacity) || 0.9));
+  const position = String(body.logoPosition || 'br');
+  const margin = Math.max(8, Math.round(videoWidth * 0.015));
+  let x = `main_w-overlay_w-${margin}`;
+  let y = `main_h-overlay_h-${margin}`;
+  if (position === 'bl') { x = String(margin); y = `main_h-overlay_h-${margin}`; }
+  else if (position === 'tr') { x = `main_w-overlay_w-${margin}`; y = String(margin); }
+  else if (position === 'tl') { x = String(margin); y = String(margin); }
+  else if (position === 'center') { x = '(main_w-overlay_w)/2'; y = '(main_h-overlay_h)/2'; }
+  else if (position === 'custom') {
+    const xPercent = Math.max(0, Math.min(100, Number(body.logoXPercent) || 0));
+    const yPercent = Math.max(0, Math.min(100, Number(body.logoYPercent) || 0));
+    x = `min(max(main_w*${(xPercent / 100).toFixed(6)},0),main_w-overlay_w)`;
+    y = `min(max(main_h*${(yPercent / 100).toFixed(6)},0),main_h-overlay_h)`;
+  }
+  const start = Math.max(0, Number(body.logoStart) || 0);
+  const rawEnd = body.logoEnd;
+  const hasEnd = rawEnd !== '' && rawEnd !== null && rawEnd !== undefined && Number.isFinite(Number(rawEnd));
+  const end = hasEnd ? Math.max(start, Number(rawEnd)) : null;
+  const enable = end === null ? `gte(t,${start.toFixed(3)})` : `between(t,${start.toFixed(3)},${end.toFixed(3)})`;
+  const baseLabel = String(options.baseLabel || '0:v');
+  return {
+    enabled: true,
+    segments: [
+      `[${inputIndex}:v]format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},scale=${logoWidth}:-1[studio_logo]`,
+      `[${baseLabel}][studio_logo]overlay=x='${x}':y='${y}':enable='${enable}':eof_action=pass[vout]`
+    ]
+  };
+}
+
+function renameVideoOutput(filters, outputLabel) {
+  for (let index = filters.length - 1; index >= 0; index -= 1) {
+    if (/\[vout\]$/.test(filters[index])) {
+      filters[index] = filters[index].replace(/\[vout\]$/, `[${outputLabel}]`);
+      return true;
+    }
+  }
+  return false;
+}
+
 function getVideoDurationInSeconds(videoPath) {
   return new Promise((resolve) => {
     if (!videoPath || !fs.existsSync(videoPath)) {
@@ -789,6 +838,14 @@ async function executeRenderTask(task) {
       tempFiles.push(reactionVideoPath);
     } else if (reactionMode === 'library' && body.savedReactionFile) {
       reactionVideoPath = shared.resolveAssetPath('video', body.savedReactionFile);
+    }
+
+    let logoPath = null;
+    const logoRequested = body.logoEnabled === true || body.logoEnabled === 'true';
+    if (logoRequested && !body.savedLogoFile) throw new Error('Hãy chọn logo trước khi render');
+    if (logoRequested) {
+      logoPath = shared.resolveAssetPath('logo', body.savedLogoFile);
+      if (!logoPath) throw new Error('Logo đã chọn không còn tồn tại');
     }
 
     let subtitlePath = null;
@@ -1633,6 +1690,12 @@ async function executeRenderTask(task) {
       }
     }
 
+    let logoInputIndex = -1;
+    if (logoPath) {
+      args.push('-loop', '1', '-framerate', '25', '-i', logoPath);
+      logoInputIndex = args.filter(value => value === '-i').length - 1;
+    }
+
     let renderSubtitlePath = null;
     let videoFilter = null;
     let hasVideoFilter = false;
@@ -1880,6 +1943,20 @@ async function executeRenderTask(task) {
       }
     } else if (videoFilter) {
       filterComplex.push(videoFilter);
+    }
+
+    if (logoPath) {
+      const logoBaseLabel = hasVideoFilter ? 'v_logo_base' : '0:v';
+      if (hasVideoFilter && !renameVideoOutput(filterComplex, logoBaseLabel)) {
+        throw new Error('Không thể nối logo vào filter video');
+      }
+      const logoOverlay = buildStudioLogoOverlay(body, {
+        inputIndex: logoInputIndex,
+        videoWidth,
+        baseLabel: logoBaseLabel
+      });
+      filterComplex.push(...logoOverlay.segments);
+      hasVideoFilter = true;
     }
 
     let hasAudioFilter = false;
@@ -2363,6 +2440,8 @@ module.exports = {
   createRenderQueueHandlers,
   createRenderQueueTask,
   createRenderSourceResolver,
+  buildStudioLogoOverlay,
+  renameVideoOutput,
   createVoiceChunkCheckpoint,
   findNextPendingRenderTask,
   mapAutomaticSubtitleProgress,
@@ -2515,6 +2594,7 @@ module.exports = {
       renders: shared.listFiles(shared.RENDERS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       voices: shared.listFiles(shared.VOICES_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       music: shared.listFiles(shared.MUSIC_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
+      logos: shared.listFiles(shared.LOGOS_DIR, ['.png', '.jpg', '.jpeg', '.webp']),
       subtitles: shared.listFiles(shared.SUBTITLES_DIR, ['.srt', '.vtt', '.ass']),
       omiConfigured: defaultVoiceEngine?.status?.ready === true,
       defaultVoiceEngineId: DEFAULT_VOICE_ENGINE_ID,
