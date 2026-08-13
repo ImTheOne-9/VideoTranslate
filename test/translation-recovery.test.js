@@ -78,6 +78,7 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
     providerName: 'Gemini',
     targetLang: 'vi',
     srcLang: 'zho_Hans',
+    retryFailedRounds: 0,
     translateBatch: async (map) => {
       firstCalls.push(Object.keys(map));
       return { 1: 'Câu thứ nhất' };
@@ -116,6 +117,49 @@ test('translation checkpoint resumes only failed cues and never stores API keys'
   assert.deepEqual(resumedCalls, [['2']]);
   assert.equal(resumedItems[0].text, 'Câu thứ nhất');
   assert.equal(resumedItems[1].text, 'Câu thứ hai');
+});
+
+test('failed cues retry automatically with the selected provider in progressively smaller batches', async (t) => {
+  const outputPath = await tempOutput(t);
+  const items = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: '第一句' },
+    { id: '2', startTime: '00:00:01,000', endTime: '00:00:02,000', text: '第二句' },
+    { id: '3', startTime: '00:00:02,000', endTime: '00:00:03,000', text: '第三句' }
+  ];
+  const sourceById = { 1: '第一句', 2: '第二句', 3: '第三句' };
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText: Object.values(sourceById).join('\n'),
+    targetLang: 'vi'
+  });
+  const calls = [];
+  const sharedContext = { summary: 'Ngữ cảnh chung' };
+
+  const result = await translateJsonBatchesWithCheckpoint({
+    srtArray: items,
+    sourceById,
+    checkpoint,
+    providerName: 'Gemini Web',
+    targetLang: 'vi',
+    srcLang: 'zho_Hans',
+    batchSize: 4,
+    batchDelayMs: 0,
+    retryFailedRounds: 2,
+    globalContext: sharedContext,
+    translateBatch: async (map, previous, context) => {
+      const ids = Object.keys(map);
+      calls.push({ ids, context });
+      if (calls.length === 1) return { 1: 'Câu thứ nhất' };
+      if (calls.length === 2) return { 2: 'Câu thứ hai' };
+      return { 3: 'Câu thứ ba' };
+    }
+  });
+
+  assert.deepEqual(calls.map((call) => call.ids), [['1', '2', '3'], ['2', '3'], ['3']]);
+  assert.ok(calls.every((call) => call.context === sharedContext));
+  assert.equal(result.failedItems.length, 0);
+  assert.deepEqual(items.map((item) => item.text), ['Câu thứ nhất', 'Câu thứ hai', 'Câu thứ ba']);
+  assert.equal(checkpoint.report(3).fallbackUsed, 0);
+  assert.ok(Object.values(checkpoint.checkpoint.entries).every((entry) => entry.provider === 'Gemini Web'));
 });
 
 test('changing source invalidates a stale translation checkpoint', async (t) => {

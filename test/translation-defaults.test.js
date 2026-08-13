@@ -70,3 +70,40 @@ test('translation backend contains no configurable profile pipeline', () => {
     /normalizeTranslationProfile|buildTranslationProfileInstructions|applyTranslationProfileToText|translationProfile/
   );
 });
+
+test('Gemini Web uses the shared whole-SRT JSON translation pipeline instead of the legacy line translator', () => {
+  const root = path.resolve(__dirname, '..');
+  const source = fs.readFileSync(path.join(root, 'lib', 'translate-sub.js'), 'utf8');
+  const adapterSource = fs.readFileSync(path.join(root, 'lib', 'gemini-web-adapter.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+  const adapter = require('../lib/gemini-web-adapter');
+  const webService = require('../lib/gemini-web-service');
+
+  assert.equal(typeof adapter.requestViaGeminiWeb, 'function');
+  assert.equal(adapter.translateViaGeminiWeb, undefined);
+  assert.equal(webService.dichSrtNodeJS, undefined);
+  assert.match(source, /provider:\s*'gemini-web'/);
+  assert.match(source, /analyze:\s*requestGeminiWebJson/);
+  assert.match(source, /getTranslationPrompt\(map, targetLangName, prevContext, sharedContext\)/);
+  assert.match(source, /batchSize:\s*Math\.min\(80, srtArray\.length\)/);
+  assert.doesNotMatch(source, /translateViaGeminiWeb|dichSrtNodeJS/);
+  assert.doesNotMatch(adapterSource, /dichSrtNodeJS|translateViaGeminiWeb/);
+  assert.match(html, /Gemini Web · Phân tích toàn bộ SRT/);
+  assert.doesNotMatch(html, /Gemini Web Automation/);
+});
+
+test('Gemini Web and Gemini API never fall back to NLLB automatically', () => {
+  const root = path.resolve(__dirname, '..');
+  const source = fs.readFileSync(path.join(root, 'lib', 'translate-sub.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+  const webStart = source.indexOf("if (aiProvider === 'gemini-web')");
+  const webEnd = source.indexOf('// 4. Dịch bằng OpenCode', webStart);
+  const webBlock = source.slice(webStart, webEnd);
+
+  assert.doesNotMatch(webBlock, /fallbackFailedItemsWithNllb|translateWithNllb/);
+  assert.match(webBlock, /primary\.failedItems\.length > 0/);
+  assert.match(webBlock, /Giữ checkpoint để tiếp tục, không chuyển sang NLLB/);
+  assert.match(source, /const remaining = isGemini \? primary\.failedItems : await fallbackFailedItemsWithNllb/);
+  assert.match(source, /if \(isGemini\) \{[\s\S]*?không chuyển sang NLLB[\s\S]*?throw err;/);
+  assert.match(html, /Không tự chuyển sang NLLB/);
+});
