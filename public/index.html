@@ -267,9 +267,10 @@
               </div>
 
               <div class="crawl-login-panel">
-                <div class="crawl-side-head"><b>🔑 Đăng nhập nền tảng</b><button type="button" class="crawl-link-btn" onclick="crawlLoadLoginStatus()">Kiểm tra lại</button></div>
-                <p>Nền tảng Trung Quốc dùng MediaCrawler; TikTok, Facebook và Instagram dùng profile riêng của Video Studio. Bấm thẻ để đăng nhập đúng profile.</p>
+                <div class="crawl-side-head"><div><b>🔑 Đăng nhập nền tảng</b><small>Chỉ cần thực hiện lần đầu trên máy này</small></div><button type="button" class="crawl-login-refresh" onclick="crawlLoadLoginStatus()">↻ Kiểm tra lại</button></div>
+                <p>Chọn đúng nền tảng, bấm <b>Đăng nhập</b>, hoàn tất trong cửa sổ trình duyệt rồi đóng cửa sổ để lưu phiên.</p>
                 <div class="crawl-login-grid" id="crawl-login-grid"></div>
+                <div class="crawl-login-legend"><span class="in">● Đã đăng nhập</span><span class="out">● Chưa đăng nhập</span><span class="na">● Không bắt buộc</span></div>
               </div>
 
               <div class="crawl-now-label">Chọn nền tảng</div>
@@ -348,11 +349,6 @@
                 <div class="crawl-queue-list" id="crawl-queue-list"></div>
                 <div class="crawl-retry-platforms" id="crawl-retry-platforms"></div>
                 <div class="crawl-queue-actions"><button type="button" class="crawl-link-btn" id="crawl-pause-btn" onclick="crawlTogglePause()">⏸ Dừng sau task này</button><button type="button" class="crawl-link-btn" onclick="crawlRetryAll()">↻ Thử lại tất cả lỗi</button></div>
-              </div>
-              <div class="panel crawl-support-note">
-                <b>Khả năng hiện tại</b>
-                <p id="crawl-capability-note">Đang kiểm tra bộ tải...</p>
-                <button type="button" class="ghost-btn" onclick="switchDownloadMode('single')">Mở tải một link</button>
               </div>
             </aside>
           </div>

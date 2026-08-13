@@ -9,7 +9,8 @@ const {
   mapPreviewItem,
   mapJsonlPreviewRow,
   migrateLegacyBilibiliArchive,
-  resolveBilibiliShortUrls
+  resolveBilibiliShortUrls,
+  appendBrowserHistory
 } = require('../lib/mediacrawler-adapter');
 
 test('MediaCrawler adapter reports missing runtime without starting a crawl', () => {
@@ -152,6 +153,35 @@ test('XHS selected links use browser-first tai_links instead of MediaCrawler det
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('RedNote browser downloads write creator history into the separate rednote archive', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rednote-browser-history-'));
+  try {
+    const id = '64f0123456789abcdef01234';
+    const count = appendBrowserHistory(directory, 'rednote', {
+      sourceMode: 'creator',
+      sourceInput: 'https://www.rednote.com/user/profile/creator123',
+      sourceName: 'Creator RedNote'
+    }, [`https://www.rednote.com/explore/${id}?xsec_token=token`], [id]);
+    assert.equal(count, 1);
+    const files = fs.readdirSync(path.join(directory, 'rednote', 'jsonl'));
+    assert.match(files[0], /^creator_contents_/);
+    const row = JSON.parse(fs.readFileSync(path.join(directory, 'rednote', 'jsonl', files[0]), 'utf8').trim());
+    assert.equal(row.note_id, id);
+    assert.equal(row.source_mode, 'creator');
+    assert.equal(row.source_name, 'Creator RedNote');
+    assert.match(row.note_url, /^https:\/\/www\.rednote\.com\//);
+    assert.equal(fs.existsSync(path.join(directory, 'xhs', 'jsonl')), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('bundled XHS storage honors the rednote data leaf', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'MediaCrawler', 'store', 'xhs', '_store_impl.py'), 'utf8');
+  assert.equal((source.match(/os\.environ\.get\("MC_XHS_LEAF", "xhs"\)/g) || []).length, 3);
+  assert.doesNotMatch(source, /AsyncFileWriter\(platform="xhs"/);
 });
 
 test('resolves b23 short links to canonical Bilibili video URLs', async () => {

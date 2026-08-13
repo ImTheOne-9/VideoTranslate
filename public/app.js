@@ -5880,13 +5880,6 @@ function crawlUpdateCapabilities() {
     button.disabled = caps[button.dataset.mode] === false;
     button.title = button.disabled ? 'Bộ tải hiện tại chưa hỗ trợ chế độ này cho nền tảng đã chọn' : '';
   });
-  const supported = Object.entries(caps).filter(([, enabled]) => enabled).map(([mode]) => ({
-    search: 'từ khóa', detail: 'link', creator: 'kênh', chase: 'bộ/playlist'
-  })[mode]).filter(Boolean);
-  const note = $('crawl-capability-note');
-  if (note) note.textContent = supported.length
-    ? `Hỗ trợ ${crawlNowState.platform}: ${supported.join(', ')}. Các chế độ bị làm mờ chưa được backend hiện tại hỗ trợ.`
-    : 'Nền tảng này chưa có khả năng cào được xác nhận.';
   const previewButton = $('crawl-preview-btn');
   const canPreview = previewModes.includes(crawlNowState.mode);
   if (previewButton) {
@@ -5957,12 +5950,21 @@ async function crawlLoadLoginStatus() {
     const response = await fetch('/api/download-crawl/login-status');
     const data = await response.json();
     const platforms = data.platforms || {};
-    const labels = { douyin: 'Douyin', bilibili: 'Bilibili', xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram' };
+    const labels = {
+      douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
+      xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],
+      youtube: ['YouTube', '▶', 'youtube'], tiktok: ['TikTok', '♪', 'tiktok'],
+      facebook: ['Facebook', 'f', 'facebook'], instagram: ['Instagram', '◎', 'instagram']
+    };
     const grid = $('crawl-login-grid');
-    if (grid) grid.innerHTML = Object.entries(labels).map(([key, label]) => {
+    if (grid) grid.innerHTML = Object.entries(labels).map(([key, config]) => {
+      const [label, icon, theme] = config;
       const status = platforms[key] || 'out';
-      const text = status === 'in' ? 'Đã có cookies' : status === 'na' ? 'Không bắt buộc' : 'Chưa có cookies';
-      return `<button type="button" class="crawl-login-card ${status}" onclick="crawlOpenPlatformLogin('${key}')"><i></i><b>${label}</b><br><span>${text}</span></button>`;
+      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : 'Chưa đăng nhập';
+      const action = status === 'in' ? 'Mở lại' : status === 'na' ? 'Mở nền tảng' : 'Đăng nhập';
+      return `<button type="button" class="crawl-login-card ${status} ${theme}" onclick="crawlOpenPlatformLogin('${key}')">
+        <span class="crawl-login-icon">${icon}</span><span class="crawl-login-state"><i></i>${text}</span>
+        <b>${label}</b><span class="crawl-login-action">${action}</span></button>`;
     }).join('');
   } catch (_) {}
 }

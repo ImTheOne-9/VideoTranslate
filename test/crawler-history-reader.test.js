@@ -116,3 +116,53 @@ test('crawler history matches Bilibili files that use the final six AV-id digits
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('crawler history reconstructs TikTok and RedNote browser downloads without JSONL', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-history-browser-files-'));
+  try {
+    const tiktok = path.join(root, 'tiktok', 'videos', 'kenh', 'demo-channel');
+    const rednote = path.join(root, 'rednote', 'videos', 'kenh', 'red-channel');
+    fs.mkdirSync(tiktok, { recursive: true });
+    fs.mkdirSync(rednote, { recursive: true });
+    fs.writeFileSync(path.join(tiktok, 'TikTok clip [7673375293960178951].mp4'), 'video');
+    fs.writeFileSync(path.join(rednote, '6a636a3e000000000f012b3f.mp4'), 'video');
+
+    const items = readCrawlerHistory(root);
+    const tt = items.find((item) => item.platform === 'tiktok');
+    const rn = items.find((item) => item.platform === 'rednote');
+    assert.equal(tt.sourceMode, 'creator');
+    assert.equal(tt.sourceName, 'demo-channel');
+    assert.equal(tt.downloaded, true);
+    assert.equal(rn.sourceMode, 'creator');
+    assert.equal(rn.sourceName, 'red-channel');
+    assert.match(rn.url, /^https:\/\/www\.rednote\.com\/explore\//);
+    assert.equal(readCrawlerHistory(root, { platform: 'xiaohongshu' }).length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('crawler history prefers a Facebook video id origin over a generic watch URL origin', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-history-facebook-origin-'));
+  try {
+    const jsonl = path.join(root, 'facebook', 'jsonl');
+    fs.mkdirSync(jsonl, { recursive: true });
+    fs.writeFileSync(path.join(jsonl, 'detail_contents_test.jsonl'), `${JSON.stringify({
+      video_id: '873139862346525', title: 'Creator reel',
+      video_url: 'https://m.facebook.com/watch/?v=873139862346525&_rdr'
+    })}\n`);
+    recordCrawlerOrigins(root, {
+      platform: 'facebook', input: 'https://m.facebook.com/watch/?v=2188932098623568&_rdr',
+      sourceMode: 'detail', sourceInput: 'https://www.facebook.com/reel/2188932098623568'
+    });
+    recordCrawlerOrigins(root, {
+      platform: 'facebook', input: 'https://www.facebook.com/reel/873139862346525',
+      sourceMode: 'creator', sourceInput: 'https://www.facebook.com/demo/reels/', sourceName: 'Demo'
+    });
+    const item = readCrawlerHistory(root)[0];
+    assert.equal(item.sourceMode, 'creator');
+    assert.equal(item.sourceName, 'Demo');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -148,6 +148,17 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.match(app, /Number\(seconds\) <= 0\) return '--:--'/);
 });
 
+test('crawl-now shows explicit platform login actions and removes the capability panel', () => {
+  const html = read('public/index.html');
+  const app = read('public/app.js');
+  assert.match(html, /id="crawl-login-grid"/);
+  assert.match(html, /crawl-login-legend/);
+  assert.match(app, /const action = status === 'in' \? 'Mở lại'/);
+  assert.match(app, /crawl-login-action/);
+  assert.doesNotMatch(html, /Khả năng hiện tại/);
+  assert.doesNotMatch(html, /id="crawl-capability-note"/);
+});
+
 test('crawl history does not flood the local API with thumbnail requests', () => {
   const server = read('server.js');
   const controller = read('controllers/downloadController.js');
