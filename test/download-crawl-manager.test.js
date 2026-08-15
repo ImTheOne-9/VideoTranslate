@@ -246,7 +246,7 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
         douyin: async (config, hooks) => {
           received = config;
           hooks.onLog('đang tải trang 1');
-          return { engine: 'MediaCrawler', outputDir: directory, completedVideos: 7 };
+          return { engine: 'MediaCrawler', outputDir: directory, completedVideos: 7, failedVideos: 2 };
         }
       }
     });
@@ -258,6 +258,8 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
     assert.equal(task.status, 'success');
     assert.equal(task.engine, 'MediaCrawler');
     assert.equal(task.completedVideos, 7);
+    assert.equal(task.failedVideos, 2);
+    assert.match(task.step, /Hoàn tất 7, lỗi 2/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

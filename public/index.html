@@ -305,6 +305,7 @@
                 <label>Like tối thiểu<input type="number" id="crawl-now-min-like" value="0" min="0"></label>
                 <label>Lượt xem tối thiểu<input type="number" id="crawl-now-min-view" value="0" min="0"></label>
                 <label>Trong số ngày gần đây<input type="number" id="crawl-now-days" value="0" min="0" placeholder="0 = tất cả"></label>
+                <label id="crawl-now-quality-wrap" class="hidden">Chất lượng Bilibili<select id="crawl-now-quality"><option value="1080" selected>Tối đa 1080p</option><option value="best">Cao nhất có thể</option><option value="720">Tối đa 720p</option><option value="480">Tối đa 480p</option><option value="360">Tối đa 360p</option></select></label>
               </div>
 
               <label class="crawl-check-row">
@@ -484,7 +485,7 @@
           </div>
         </div>
 
-        <div class="panel" style="margin-top: 14px;">
+        <div class="panel hidden" id="download-history-panel" style="margin-top: 14px;">
           <div class="panel-head" style="margin-bottom: 14px;">
             <h3>Lịch sử tải video</h3>
             <button type="button" class="ghost-btn" id="clear-download-history-btn" onclick="clearDownloadHistory()"

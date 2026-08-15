@@ -71,16 +71,22 @@ test('download page keeps legacy modes and makes crawl-now the default', () => {
   assert.match(html, /id="crawl-activity-log"/);
   assert.match(html, /id="crawl-progress-speed"/);
   assert.match(html, /id="crawl-progress-eta"/);
+  assert.match(html, /id="download-history-panel"/);
+  assert.match(html, /class="panel hidden" id="download-history-panel"/);
   assert.match(html, /id="crawl-history-list"/);
   assert.match(html, /id="crawl-runtime-install-btn"/);
   assert.match(html, /id="crawl-now-sort"/);
   assert.match(html, /id="crawl-now-language"/);
+  assert.match(html, /id="crawl-now-quality"/);
+  assert.match(app, /quality: \$\('crawl-now-quality'\)\?\.value \|\| '1080'/);
+  assert.match(app, /crawlNowState\.platform !== 'bilibili'/);
   for (const id of ['studio-video-platform-filter', 'studio-video-mode-filter', 'studio-video-source-filter']) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.doesNotMatch(html, /id="studio-video-search"/);
   assert.match(app, /function studioDownloadUrl/);
   assert.match(app, /function studioApplyVideoFilters/);
+  assert.match(app, /historyPanel\.classList\.toggle\('hidden', mode === 'crawl'\)/);
   assert.match(app, /studioInitializeVideoFilters\(assets\.videos\)/);
 });
 
@@ -144,6 +150,10 @@ test('crawl-now client wires preview, queue controls, progress and duplicate his
   assert.doesNotMatch(read('public/index.html'), /onscroll="crawlPreviewScroll/);
   assert.match(app, /application\/x-ndjson|preview-stream/);
   assert.match(app, /function crawlLoadHistory/);
+  const css = read('public/style.css');
+  assert.match(css, /#view-download\.view\.active\s*\{\s*overflow-x:\s*hidden/);
+  assert.match(css, /\.crawl-queue-list[^}]*overflow-x:\s*hidden/);
+  assert.match(css, /\.crawl-queue-item-status[^}]*text-overflow:\s*ellipsis/);
   assert.match(app, /function crawlInstallRuntime/);
   assert.match(app, /Number\(seconds\) <= 0\) return '--:--'/);
 });

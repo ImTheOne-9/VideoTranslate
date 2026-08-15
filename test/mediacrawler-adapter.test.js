@@ -10,8 +10,62 @@ const {
   mapJsonlPreviewRow,
   migrateLegacyBilibiliArchive,
   resolveBilibiliShortUrls,
-  appendBrowserHistory
+  appendBrowserHistory,
+  normalizeBilibiliQuality,
+  bilibiliFormatSelector
 } = require('../lib/mediacrawler-adapter');
+
+test('Bilibili crawl quality defaults to 1080p and builds a DASH merge selector', () => {
+  assert.equal(normalizeBilibiliQuality(), '1080');
+  assert.equal(normalizeBilibiliQuality('720p'), '720');
+  assert.equal(normalizeBilibiliQuality('invalid'), '1080');
+  assert.match(bilibiliFormatSelector(), /bestvideo\[height<=1080\]/);
+  assert.match(bilibiliFormatSelector(), /\+bestaudio/);
+  assert.doesNotMatch(bilibiliFormatSelector('best'), /height<=/);
+});
+
+test('Bilibili crawl keeps MediaCrawler metadata but downloads DASH with yt-dlp into the source folder', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-ytdlp-crawl-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({
+      userRoot: path.join(directory, 'user'),
+      dataDir: directory,
+      ytDlpPath: path.join(directory, 'yt-dlp.exe'),
+      ffmpegPath: path.join(directory, 'ffmpeg.exe')
+    });
+    const pythonCalls = [];
+    let ytCall;
+    adapter._run = async (script, args, options) => {
+      pythonCalls.push({ script, args, options });
+      const jsonl = path.join(directory, 'bili', 'jsonl');
+      fs.mkdirSync(jsonl, { recursive: true });
+      fs.writeFileSync(path.join(jsonl, 'search_contents_demo.jsonl'), `${JSON.stringify({
+        video_id: '123456789', video_url: 'https://www.bilibili.com/video/av123456789',
+        title: 'Demo', nickname: 'UP Demo', user_id: '99887766'
+      })}\n`, 'utf8');
+      return { stdout: '' };
+    };
+    adapter._runExecutable = async (executable, args, options) => {
+      if (args[0] === '-c') return { stdout: '{"ok":false}\n', stderr: '', code: 0 };
+      ytCall = { executable, args, options };
+      fs.writeFileSync(path.join(options.cwd, 'Demo [123456789].mp4'), 'video');
+      return { stdout: '', stderr: '', code: 0 };
+    };
+
+    const result = await adapter.crawl({
+      platform: 'bilibili', mode: 'search', input: 'mèo', count: 1,
+      sourceMode: 'search', sourceInput: 'mèo', quality: '1080', outputDir: directory
+    });
+    assert.equal(pythonCalls[0].options.env.MC_GET_MEDIAS, '0');
+    assert.match(ytCall.args[ytCall.args.indexOf('-f') + 1], /height<=1080/);
+    assert.ok(ytCall.args.includes('--merge-output-format'));
+    assert.match(result.outputDir, /bili[\\/]videos[\\/]tu-khoa[\\/]mèo$/);
+    assert.equal(result.completedVideos, 1);
+    assert.match(fs.readFileSync(path.join(directory, 'bili', '_da_tai_ids.txt'), 'utf8'), /123456789/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('MediaCrawler adapter reports missing runtime without starting a crawl', () => {
   const adapter = new MediaCrawlerAdapter({

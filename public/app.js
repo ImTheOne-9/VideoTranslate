@@ -5816,6 +5816,7 @@ function crawlCurrentRequest() {
     count: Number($('crawl-now-count')?.value || 100),
     sort: $('crawl-now-sort')?.value || 'relevance',
     timeDays: Number($('crawl-now-time')?.value || 0),
+    quality: $('crawl-now-quality')?.value || '1080',
     language: $('crawl-now-language')?.value || '',
     deepNew: $('crawl-now-skip-dupe')?.checked !== false
   };
@@ -5875,6 +5876,7 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili');
   const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
     button.disabled = caps[button.dataset.mode] === false;
@@ -6535,7 +6537,7 @@ function crawlRenderQueue(snapshot) {
     list.innerHTML = queue.slice().reverse().map((task) => `<div class="crawl-queue-item">
       <div class="crawl-queue-item-head">
         <div style="min-width:0;flex:1"><div class="crawl-queue-item-title" title="${crawlEscape(task.title)}">${crawlEscape(task.title)}</div>
-          <div class="crawl-queue-item-status">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
+          <div class="crawl-queue-item-status" title="${crawlEscape(crawlTaskStatusLabel(task))}">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
           ${task.reason ? `<div class="crawl-queue-reason">${crawlEscape(task.reason)}${task.error ? ` · ${crawlEscape(task.error)}` : ''}</div>` : ''}</div>
         ${['pending', 'downloading'].includes(task.status) ? `<button class="crawl-queue-cancel" onclick="crawlCancelTask('${crawlEscape(task.id)}')">Hủy</button>` : ''}
         ${['error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
@@ -6714,6 +6716,7 @@ function switchDownloadMode(mode) {
   const crawlCont = $('download-crawl-container');
   const singleCont = $('download-single-container');
   const bulkCont = $('download-bulk-container');
+  const historyPanel = $('download-history-panel');
 
   if (crawlBtn) crawlBtn.classList.toggle('active', mode === 'crawl');
   if (singleBtn) singleBtn.classList.toggle('active', mode === 'single');
@@ -6721,6 +6724,7 @@ function switchDownloadMode(mode) {
   if (crawlCont) crawlCont.classList.toggle('hidden', mode !== 'crawl');
   if (singleCont) singleCont.classList.toggle('hidden', mode !== 'single');
   if (bulkCont) bulkCont.classList.toggle('hidden', mode !== 'bulk');
+  if (historyPanel) historyPanel.classList.toggle('hidden', mode === 'crawl');
 }
 
 // Khởi chạy nạp danh sách đã lưu
