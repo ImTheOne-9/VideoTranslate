@@ -327,6 +327,43 @@ test('accepted OCR quality returns cleaned metadata and never calls Whisper', as
   });
 });
 
+test('attempts intro recovery after VSE succeeds and before OCR quality validation', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory);
+    const order = [];
+    let recoveryOptions;
+    const dependencies = createDependencies({
+      runVse: async () => {
+        order.push('vse');
+        return { kind: 'success' };
+      },
+      recoverMissingIntroCue: async (received) => {
+        order.push('recovery');
+        recoveryOptions = received;
+        return { recovered: true, recoveredCueCount: 1 };
+      },
+      evaluateAndCleanSrt: async (rawPath, cleanPath) => {
+        order.push('quality');
+        return {
+          accepted: true,
+          path: cleanPath,
+          cueCount: 3,
+          removedRepeatedLines: []
+        };
+      }
+    });
+
+    await resolveAutomaticSubtitle(options, dependencies);
+
+    assert.deepEqual(order, ['vse', 'recovery', 'quality']);
+    assert.equal(recoveryOptions.rawPath, path.join(options.workDir, 'ocr-raw.srt'));
+    assert.equal(recoveryOptions.videoPath, options.videoPath);
+    assert.equal(recoveryOptions.ffmpegPath, options.ffmpegPath);
+    assert.equal(recoveryOptions.device, 'gpu');
+    assert.equal(recoveryOptions.runVse, dependencies.runVse);
+  });
+});
+
 test('VSE no-subtitles result falls back to Whisper', async () => {
   await withTempDirectory(async (directory) => {
     const options = createOptions(directory);
