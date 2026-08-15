@@ -86,6 +86,11 @@ test('download page keeps legacy modes and makes crawl-now the default', () => {
   assert.doesNotMatch(html, /id="studio-video-search"/);
   assert.match(app, /function studioDownloadUrl/);
   assert.match(app, /function studioApplyVideoFilters/);
+  assert.match(app, /function refreshStudioVideoAssets/);
+  assert.match(app, /fetch\('\/api\/studio-assets', \{ cache: 'no-store' \}\)/);
+  assert.match(app, /name === 'studio'[\s\S]*refreshStudioVideoAssets\(\)/);
+  assert.match(app, /candidate\.status === 'success'[\s\S]*shouldRefreshStudioVideos[\s\S]*refreshStudioVideoAssets\(\)/);
+  assert.doesNotMatch(app, /else if \(platforms\.includes\('local'\)\) platformSelect\.value = 'local'/);
   assert.match(app, /historyPanel\.classList\.toggle\('hidden', mode === 'crawl'\)/);
   assert.match(app, /studioInitializeVideoFilters\(assets\.videos\)/);
 });

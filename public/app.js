@@ -40,6 +40,7 @@ function setBusy(button, busy, text) {
 
 let pendingSwitchViewName = null;
 let studioAssetsReady = false;
+let studioVideoRefreshPromise = null;
 
 function closeSaveProjectConfirmModal() {
   const modal = $('save-project-confirm-modal');
@@ -107,6 +108,9 @@ function executeSwitchView(name) {
   } else if (name === 'crawl-history') {
     crawlLoadHistory();
   } else if (name === 'studio') {
+    refreshStudioVideoAssets().catch((error) => {
+      console.error('Không cập nhật được Video nguồn:', error);
+    });
     const homeView = $('studio-home-view');
     const editorView = $('studio-editor-view');
     if (homeView) homeView.classList.remove('hidden');
@@ -349,8 +353,7 @@ async function loadAssets() {
   }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
-  studioInitializeVideoFilters(assets.videos);
-  renderReactionVideoGrid(assets.videos);
+  applyStudioVideoAssets(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   renderQuickVoices();
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
@@ -358,7 +361,6 @@ async function loadAssets() {
   fillSelect('saved-logo-select', assets.logos || [], '-- Chọn logo --');
   updateLogoUi();
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
-  renderAssetList('asset-videos', assets.videos);
   renderAssetList('asset-voices', assets.voices);
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
@@ -2983,6 +2985,29 @@ const studioVideoPlatformLabels = {
 };
 const studioVideoModeLabels = { local: 'Tải đơn lẻ', detail: 'Theo link', search: 'Theo từ khóa', creator: 'Theo kênh', chase: 'Theo bộ' };
 
+function applyStudioVideoAssets(videos) {
+  assets.videos = Array.isArray(videos) ? videos : [];
+  studioInitializeVideoFilters(assets.videos);
+  renderReactionVideoGrid(assets.videos);
+  renderAssetList('asset-videos', assets.videos);
+}
+
+async function refreshStudioVideoAssets() {
+  if (studioVideoRefreshPromise) return studioVideoRefreshPromise;
+  studioVideoRefreshPromise = (async () => {
+    const response = await fetch('/api/studio-assets', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không đọc được danh sách video nguồn.');
+    applyStudioVideoAssets(data.videos);
+    return assets.videos;
+  })();
+  try {
+    return await studioVideoRefreshPromise;
+  } finally {
+    studioVideoRefreshPromise = null;
+  }
+}
+
 function studioDownloadUrl(relativePath) {
   const encoded = String(relativePath || '').replace(/\\/g, '/').split('/').filter(Boolean).map(encodeURIComponent).join('/');
   return `/downloads/${encoded}`;
@@ -2996,7 +3021,7 @@ function studioInitializeVideoFilters(videos = []) {
     platformSelect.innerHTML = '<option value="">Tất cả nền tảng</option>' + platforms
       .map((platform) => `<option value="${crawlEscape(platform)}">${crawlEscape(studioVideoPlatformLabels[platform] || platform)}</option>`).join('');
     if (platforms.includes(previous)) platformSelect.value = previous;
-    else if (platforms.includes('local')) platformSelect.value = 'local';
+    else platformSelect.value = '';
   }
   studioApplyVideoFilters();
 }
@@ -5772,6 +5797,7 @@ const crawlNowState = {
   selected: new Set(),
   pollTimer: null,
   recordedSuccess: crawlLoadRecordedTaskIds(),
+  studioRefreshSuccess: new Set(),
   lastSnapshot: null,
   previewBaseCount: 100,
   previewRequestedCount: 100,
@@ -6574,12 +6600,23 @@ function crawlRenderQueue(snapshot) {
     log.scrollTop = log.scrollHeight;
   }
 
-  for (const task of queue.filter((candidate) => candidate.status === 'success' && candidate.kind !== 'crawl')) {
+  let shouldRefreshStudioVideos = false;
+  for (const task of queue.filter((candidate) => candidate.status === 'success')) {
+    if (!crawlNowState.studioRefreshSuccess.has(task.id)) {
+      crawlNowState.studioRefreshSuccess.add(task.id);
+      shouldRefreshStudioVideos = true;
+    }
+    if (task.kind === 'crawl') continue;
     if (crawlNowState.recordedSuccess.has(task.id)) continue;
     crawlNowState.recordedSuccess.add(task.id);
     crawlSaveRecordedTaskIds(crawlNowState.recordedSuccess);
     const filename = String(task.outputPath || '').split(/[\\/]/).pop();
     addDownloadHistory(task.title, task.sourceUrl || task.url, 'success', filename, task.platform);
+  }
+  if (shouldRefreshStudioVideos) {
+    refreshStudioVideoAssets().catch((error) => {
+      console.error('Không cập nhật được Video nguồn sau khi tải:', error);
+    });
   }
   crawlRefreshStats();
 }
