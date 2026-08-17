@@ -45,3 +45,19 @@ test('crawler keeps Python Playwright browsers isolated from Node Playwright', (
   assert.match(pathsSource, /ms-playwright-python/);
   assert.match(setupSource, /ms-playwright-python/);
 });
+
+test('packaging keeps the complete ViralCrawl OCR source and runtime dependencies', () => {
+  const requirements = fs.readFileSync(path.join(root, 'tools', 'crawler', 'requirements-crawler.txt'), 'utf8');
+  for (const dependency of ['rapidocr==3.9.1', 'rapidocr-onnxruntime==1.4.4', 'onnxruntime==1.26.0', 'zhconv==1.4.3']) {
+    assert.match(requirements, new RegExp(dependency.replace(/[.-]/g, '\\$&')));
+  }
+  const gpuInstaller = fs.readFileSync(path.join(root, 'tools', 'crawler', 'install-ocr-gpu.py'), 'utf8');
+  assert.match(gpuInstaller, /GPU_VERSION = ["']1\.22\.0["']/);
+  assert.match(gpuInstaller, /onnxruntime-gpu==/);
+  assert.match(gpuInstaller, /CUDAExecutionProvider/);
+  const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
+  assert.ok(crawler.filter.includes('install-ocr-gpu.py'));
+  for (const filename of ['viral_ocr_cli.py', 'ocr_text.py', 'dai_sub_rapid.py', 'clean_segments.py']) {
+    assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'viral_ocr', filename)), true);
+  }
+});

@@ -33,3 +33,27 @@ test('runtime manager launches project setup with bundled uv and AppData runtime
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('runtime readiness requires the OCR dependency marker', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-runtime-ready-'));
+  try {
+    const runtimeRoot = path.join(root, 'user', 'runtime');
+    const python = path.join(runtimeRoot, 'venv', 'Scripts', 'python.exe');
+    const browser = path.join(runtimeRoot, 'ms-playwright-python', 'chromium-123');
+    fs.mkdirSync(path.dirname(python), { recursive: true });
+    fs.mkdirSync(browser, { recursive: true });
+    fs.writeFileSync(python, 'python');
+    const manager = new CrawlerRuntimeManager({
+      bundledRoot: root,
+      userRoot: path.join(root, 'user'),
+      runtimeRoot,
+      python,
+      playwrightBrowsersDir: path.dirname(browser)
+    });
+    assert.equal(manager.ready(), false);
+    fs.writeFileSync(path.join(runtimeRoot, 'ocr-runtime-v2.json'), '{}');
+    assert.equal(manager.ready(), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

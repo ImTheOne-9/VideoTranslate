@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -92,6 +92,7 @@
           "!app/**/media_data/**/*",
           "requirements-crawler.txt",
           "README.md",
+          "install-ocr-gpu.py",
           "setup-runtime.ps1",
           "runtime/**/*"
         ]

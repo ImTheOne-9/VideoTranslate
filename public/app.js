@@ -945,6 +945,7 @@ function updateOcrLanguages(languages) {
     select.appendChild(option);
   });
   if (normalized.some(language => language.id === previous)) select.value = previous;
+  updateOcrPipelineUi();
 }
 
 async function refreshOcrComponentStatusForUi() {
@@ -1040,6 +1041,7 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
+const OCR_PIPELINES = new Set(['auto', 'viral', 'vse']);
 const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
 const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
 const WHISPER_DEVICES = new Set(['auto', 'cpu', 'dml']);
@@ -1078,8 +1080,46 @@ function updateSubtitleEngineUi() {
   document.querySelectorAll('.whisper-engine-settings').forEach(element => {
     element.classList.toggle('hidden', engine === 'ocr');
   });
-  updateOcrRegionOverlay();
+  updateOcrPipelineUi();
   return engine;
+}
+
+function isChineseOcrLanguage() {
+  return ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String($('ocr-language-select')?.value || '').toLowerCase());
+}
+
+function usesRapidOcrUi() {
+  const pipeline = $('ocr-pipeline-value')?.value;
+  return pipeline === 'viral' || (pipeline === 'auto' && isChineseOcrLanguage());
+}
+
+function updateOcrPipelineUi() {
+  const input = $('ocr-pipeline-value');
+  if (!input) return 'auto';
+  let pipeline = OCR_PIPELINES.has(input.value) ? input.value : 'auto';
+  const chinese = isChineseOcrLanguage();
+  if (pipeline === 'viral' && !chinese) {
+    pipeline = 'auto';
+    input.value = pipeline;
+  }
+  const rapidOption = input.querySelector('option[value="viral"]');
+  if (rapidOption) rapidOption.disabled = !chinese;
+  const usesRapid = usesRapidOcrUi();
+  const shouldHideRegion = $('subtitle-engine-value')?.value === 'whisper' || usesRapid;
+  document.querySelectorAll('.ocr-region-settings').forEach(element => {
+    element.classList.toggle('hidden', shouldHideRegion);
+  });
+  const hint = $('ocr-pipeline-hint');
+  if (hint) {
+    hint.textContent = usesRapid
+      ? 'RapidOCR tự quét và theo dõi chữ trên toàn khung hình; không dùng vùng OCR thủ công.'
+      : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
+  }
+  updateOcrRegionOverlay();
+  const showRapidRuntime = usesRapid && $('subtitle-engine-value')?.value !== 'whisper';
+  updateRapidOcrRuntimeUi({ visible: showRapidRuntime });
+  if (showRapidRuntime) void refreshRapidOcrRuntimeStatusForUi();
+  return pipeline;
 }
 
 function updateWhisperOnnxVariantButtons() {
@@ -1127,6 +1167,7 @@ function updateOcrRegionOverlay() {
   const wrapper = $('video-preview-wrapper');
   const shouldShow = $('subtitle-mode')?.value === 'generate'
     && $('subtitle-engine-value')?.value !== 'whisper'
+    && !usesRapidOcrUi()
     && wrapper
     && !wrapper.classList.contains('hidden');
   if (!overlay || !shouldShow) {
@@ -1231,11 +1272,13 @@ document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
     if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
     input.value = button.dataset.subtitleEngine;
     const engine = updateSubtitleEngineUi();
-    if (engine !== 'whisper' && $('subtitle-mode')?.value === 'generate') {
+    if (engine !== 'whisper' && !usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
       refreshOcrComponentStatusForUi();
     }
   });
 });
+$('ocr-pipeline-value')?.addEventListener('change', updateOcrPipelineUi);
+$('ocr-language-select')?.addEventListener('change', updateOcrPipelineUi);
 document.querySelectorAll('.ocr-mode-btn').forEach(button => {
   button.addEventListener('click', () => {
     const input = $('ocr-mode-value');
@@ -1260,6 +1303,108 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 });
 
 initOcrRegionOverlay();
+
+let rapidOcrRuntimeInstallPromise = null;
+
+function updateRapidOcrRuntimeUi({ visible, status } = {}) {
+  const row = $('rapidocr-runtime-row');
+  const label = $('rapidocr-runtime-status');
+  const button = $('rapidocr-runtime-install-btn');
+  if (!row || !label || !button) return;
+  if (visible !== undefined) row.classList.toggle('hidden', !visible);
+  if (row.classList.contains('hidden') || !status) return;
+
+  if (status.ready) {
+    label.textContent = 'RapidOCR đã sẵn sàng.';
+    button.textContent = 'Đã sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'installing') {
+    const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
+    label.textContent = status.message || `Đang cài RapidOCR${percent}…`;
+    button.textContent = `Đang tải${percent}`;
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'error') {
+    label.textContent = status.error || status.message || 'Cài RapidOCR chưa thành công.';
+    button.textContent = 'Thử lại';
+    button.disabled = false;
+    return;
+  }
+  label.textContent = 'RapidOCR chưa được cài trên máy này.';
+  button.textContent = 'Tải RapidOCR';
+  button.disabled = false;
+}
+
+async function readRapidOcrRuntimeStatus() {
+  const response = await fetch('/api/download-crawl/runtime-status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được runtime RapidOCR.');
+  return status;
+}
+
+async function refreshRapidOcrRuntimeStatusForUi() {
+  if (!usesRapidOcrUi()) return null;
+  try {
+    const status = await readRapidOcrRuntimeStatus();
+    updateRapidOcrRuntimeUi({ visible: true, status });
+    return status;
+  } catch (error) {
+    updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    return null;
+  }
+}
+
+async function installRapidOcrRuntime() {
+  if (rapidOcrRuntimeInstallPromise) return rapidOcrRuntimeInstallPromise;
+  rapidOcrRuntimeInstallPromise = (async () => {
+    let status = await readRapidOcrRuntimeStatus();
+    if (status.ready) {
+      updateRapidOcrRuntimeUi({ visible: true, status });
+      return true;
+    }
+    const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const installResult = await installResponse.json();
+    if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
+    toast('Đang cài/cập nhật runtime RapidOCR. Chỉ cần thực hiện một lần.', 'info');
+
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      status = await readRapidOcrRuntimeStatus();
+      updateRapidOcrRuntimeUi({ visible: true, status });
+      if ($('render-status') && status.message) $('render-status').textContent = status.message;
+      if (status.ready) {
+        toast('RapidOCR đã sẵn sàng.', 'success');
+        return true;
+      }
+      if (status.status === 'error') throw new Error(status.error || status.message || 'Cài RapidOCR thất bại.');
+    }
+    throw new Error('Cài RapidOCR quá thời gian chờ.');
+  })();
+  try {
+    return await rapidOcrRuntimeInstallPromise;
+  } finally {
+    rapidOcrRuntimeInstallPromise = null;
+  }
+}
+
+$('rapidocr-runtime-install-btn')?.addEventListener('click', async () => {
+  try {
+    await installRapidOcrRuntime();
+  } catch (error) {
+    updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    toast(error.message, 'error');
+  }
+});
+
+async function ensureViralOcrRuntimeReady() {
+  let status = await readRapidOcrRuntimeStatus();
+  updateRapidOcrRuntimeUi({ visible: true, status });
+  if (status.ready) return true;
+  return installRapidOcrRuntime();
+}
 
 async function renderStudio(event) {
   event.preventDefault();
@@ -1301,9 +1446,18 @@ async function renderStudio(event) {
     if (subtitleEngine !== 'whisper') {
       try {
         data.set('ocrRegion', syncOcrRegion());
-        const ready = await ensureOcrComponentReady();
+        const ocrPipeline = OCR_PIPELINES.has(data.get('ocrPipeline')) ? data.get('ocrPipeline') : 'auto';
+        const isChinese = ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String(data.get('ocrLanguage') || '').toLowerCase());
+        if (ocrPipeline === 'viral' && !isChinese) {
+          toast('RapidOCR hiện chỉ hỗ trợ tiếng Trung. Hãy chọn VSE hoặc đổi ngôn ngữ chữ gốc thành Trung.', 'error');
+          return;
+        }
+        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && isChinese);
+        const ready = usesViralOcr
+          ? await ensureViralOcrRuntimeReady()
+          : await ensureOcrComponentReady();
         if (!ready) return;
-        if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
+        if (!usesViralOcr && currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
           toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
           return;
         }
@@ -3322,14 +3476,14 @@ function renderCurrentConfigSummary() {
     summary.push(`<div>📝 <b>Phụ đề:</b> ${subtitleParts.join(' | ') || 'Không thiết lập'}</div>`);
   }
 
-  // Làm mờ phụ đề gốc
+  // Che phụ đề gốc
   if (blurBoxes && blurBoxes.length > 0) {
     const details = blurBoxes.map((box, idx) => {
       const startSec = Number(box.start || 0).toFixed(1);
       const endSec = box.end === 99999 ? 'Hết video' : `${Number(box.end || 0).toFixed(1)}s`;
-      return `Vùng ${idx + 1}: ${startSec}s - ${endSec} (Độ mờ: ${box.radius || 20}px)`;
+      return `Vùng ${idx + 1}: ${startSec}s - ${endSec}`;
     }).join(' | ');
-    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes.length} vùng mờ)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
+    summary.push(`<div>🛡️ <b>Che chữ gốc:</b> Làm mờ (${blurBoxes.length} vùng)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
   }
 
   // 2. Thuyết minh (Voiceover)
@@ -3676,9 +3830,6 @@ function loadStudioTemplate(templateName) {
   const marginRInput = document.querySelector('input[name="subtitleMarginR"]');
   if (marginLInput) marginLInput.value = template.subtitleMarginL || '';
   if (marginRInput) marginRInput.value = template.subtitleMarginR || '';
-
-  // Restore blur settings
-
 
   blurBoxes = template.blurBoxes || [];
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
@@ -4689,7 +4840,7 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
       input.value = mode;
       $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
       updateOcrRegionOverlay();
-      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper') {
+      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper' && !usesRapidOcrUi()) {
         refreshOcrComponentStatusForUi();
       }
       // Automatically center subtitle overlay when any active subtitle mode is selected
@@ -8157,7 +8308,6 @@ function resetStudioConfig() {
   blurBoxes = [];
   activeBlurBoxId = null;
   renderBlurBoxesList();
-
   // Reset voice mode
   const voiceModeBtn = document.querySelector('.voice-tab-btn[data-voice-mode="none"]');
   if (voiceModeBtn) {
@@ -9267,7 +9417,6 @@ function deserializeStudioForm(obj) {
   // Cập nhật lại các trường phụ đề
   updateConditionalFields();
   updateLogoUi();
-
   // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark
   ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
     const el = $(id);

@@ -1340,6 +1340,19 @@
                           <option value="korean">Hàn</option>
                         </select>
                       </div>
+                      <div class="form-group ocr-engine-settings">
+                        <label for="ocr-pipeline-value">Bộ OCR</label>
+                        <select id="ocr-pipeline-value" name="ocrPipeline" class="premium-select">
+                          <option value="auto" selected>Tự động</option>
+                          <option value="viral">RapidOCR — quét toàn khung hình</option>
+                          <option value="vse">VSE — dùng vùng OCR đã chọn</option>
+                        </select>
+                        <span id="ocr-pipeline-hint" class="form-hint">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
+                        <div id="rapidocr-runtime-row" class="hidden" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(8,12,16,.35);">
+                          <span id="rapidocr-runtime-status" class="form-hint" style="margin:0;">Đang kiểm tra RapidOCR...</span>
+                          <button type="button" id="rapidocr-runtime-install-btn" class="ocr-icon-btn" style="width:auto;padding:7px 10px;white-space:nowrap;">Tải RapidOCR</button>
+                        </div>
+                      </div>
                       <div class="form-group whisper-engine-settings">
                         <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
                         <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
@@ -1369,8 +1382,16 @@
                         </select>
                         <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>
                       </div>
-                      <details class="ocr-region-details ocr-engine-settings">
+                      <details class="ocr-region-details ocr-engine-settings ocr-region-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
+                        <div class="form-group" style="margin-top: 10px;">
+                          <label for="ocr-region-strategy">Cách chọn vùng OCR</label>
+                          <select id="ocr-region-strategy" name="ocrRegionStrategy" class="premium-select">
+                            <option value="auto" selected>Tự dò khi vùng chính thiếu chữ</option>
+                            <option value="manual">Chỉ dùng vùng đã chọn</option>
+                          </select>
+                          <span class="form-hint">Tự dò sẽ thử thêm vùng dưới, giữa và trên rồi chọn SRT đạt chất lượng tốt nhất.</span>
+                        </div>
                         <div class="ocr-region-grid">
                           <label>Trên<input id="ocr-region-top" type="number" value="0.70" min="0" max="1" step="0.01"></label>
                           <label>Dưới<input id="ocr-region-bottom" type="number" value="0.98" min="0" max="1" step="0.01"></label>
@@ -1389,8 +1410,8 @@
                       style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
                       <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng làm
-                          mờ</label>
+                        <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng che
+                          thủ công</label>
                         <button type="button" class="premium-dropdown-btn"
                           style="padding: 4px 10px; font-size: 11px; height: auto; margin: 0; background: var(--accent); color: white;"
                           onclick="addBlurBox()">Thêm vùng</button>

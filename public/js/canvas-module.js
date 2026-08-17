@@ -1257,9 +1257,15 @@ function updateSubtitleOverlayFromInputs() {
 
             ctx.save();
 
-            // Vẽ nội dung video đã làm mờ
+            // Xem trước đúng kiểu che đã chọn: blur, thanh đục đen hoặc màu tùy chỉnh.
             const mainVideo = $('studio-video-preview');
-            if (mainVideo && mainVideo.readyState >= 2) {
+            const maskStyle = $('ocr-mask-style')?.value || 'blur';
+            if (maskStyle !== 'blur') {
+              ctx.fillStyle = maskStyle === 'custom'
+                ? ($('ocr-mask-color')?.value || '#000000')
+                : '#000000';
+              ctx.fillRect(0, 0, w, h);
+            } else if (mainVideo && mainVideo.readyState >= 2) {
               ctx.beginPath();
               ctx.rect(0, 0, w, h);
               ctx.clip();
@@ -1484,10 +1490,10 @@ function selectBlurBox(id) {
     // Update title span text and color
     const titleSpan = item.querySelector('span');
     if (titleSpan) {
-      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
+      const match = titleSpan.textContent.match(/Vùng che\s+#(\d+)/);
       if (match) {
         const num = match[1];
-        titleSpan.textContent = `Vùng mờ #${num} ${isActive ? '(Đang chỉnh)' : ''}`;
+        titleSpan.textContent = `Vùng che #${num} ${isActive ? '(Đang chỉnh)' : ''}`;
       }
       titleSpan.style.color = isActive ? 'var(--accent)' : 'var(--text)';
     }
@@ -1511,8 +1517,8 @@ function deselectBlurBox() {
     item.style.borderColor = 'var(--border)';
     const titleSpan = item.querySelector('span');
     if (titleSpan) {
-      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
-      if (match) titleSpan.textContent = `Vùng mờ #${match[1]}`;
+      const match = titleSpan.textContent.match(/Vùng che\s+#(\d+)/);
+      if (match) titleSpan.textContent = `Vùng che #${match[1]}`;
       titleSpan.style.color = 'var(--text)';
     }
   });
@@ -1526,7 +1532,7 @@ function renderBlurBoxesList() {
   container.innerHTML = '';
   
   if (blurBoxes.length === 0) {
-    container.innerHTML = `<div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">Chưa có vùng làm mờ nào. Nhấn "Thêm vùng mờ" để bắt đầu.</div>`;
+    container.innerHTML = `<div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">Chưa có vùng che thủ công. Nhấn "Thêm vùng" để bắt đầu.</div>`;
     if (typeof renderTimeline === 'function') {
       renderTimeline();
     }
@@ -1554,7 +1560,7 @@ function renderBlurBoxesList() {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${isCollapsed ? '0' : '8'}px;">
         <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;" onclick="event.stopPropagation(); toggleBlurBoxCollapse(${box.id})">
           <span style="font-size: 10px; color: var(--muted); cursor: pointer; flex-shrink: 0;">${collapseIcon}</span>
-          <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+          <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng che #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
         </div>
         <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">Xóa</button>
       </div>
@@ -1581,7 +1587,7 @@ function renderBlurBoxesList() {
         </div>
         
         <!-- Blur Radius Slider -->
-        <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
+        <div class="form-group" style="margin: 8px 0 0 0; display: ${$('ocr-mask-style')?.value === 'blur' ? 'flex' : 'none'}; flex-direction: column; gap: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
             <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
@@ -1731,7 +1737,7 @@ function renderTimeline() {
       
       block.innerHTML = `
         <div class="timeline-resize-handle left-handle"></div>
-        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; pointer-events: none; user-select: none;">Vùng mờ #${index + 1} (${start.toFixed(1)}s-${end.toFixed(1)}s)</span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; pointer-events: none; user-select: none;">Vùng che #${index + 1} (${start.toFixed(1)}s-${end.toFixed(1)}s)</span>
         <div class="timeline-resize-handle right-handle"></div>
       `;
       
@@ -1819,7 +1825,7 @@ function renderTimeline() {
                 block.style.width = `${Math.max(15, ((finalEnd - finalStart) / duration) * rulerWidth)}px`;
                 const textSpan = block.querySelector('span');
                 if (textSpan) {
-                  textSpan.textContent = `Vùng mờ #${index + 1} (${finalStart.toFixed(1)}s-${finalEnd.toFixed(1)}s)`;
+                  textSpan.textContent = `Vùng che #${index + 1} (${finalStart.toFixed(1)}s-${finalEnd.toFixed(1)}s)`;
                 }
                 
                 syncBoxInputs(box);

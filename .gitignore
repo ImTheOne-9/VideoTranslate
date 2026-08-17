@@ -31,6 +31,7 @@ Thumbs.db
 # Build output
 dist/
 .tmp-mdx-cuda/
+.tmp-ffmpeg-rollback/
 release/mdx-onnx-cuda/*.zip
 
 # Logs

@@ -4,6 +4,7 @@ const shared = require('../lib/shared-state');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
 const anti = require('../lib/anti-dupe');
+const { buildTimedBlurFilterGraph } = require('../lib/render-blur-helper');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
 const { createRenderOrchestrator } = require('../lib/render-orchestrator');
 const { SegmentService } = require('../lib/segment-service');
@@ -71,6 +72,44 @@ function escapeSubtitleForFilter(filePath) {
   const noColon = noBackslash.replace(/:/g, '\\:');
   const escaped = noColon.replace(/'/g, "'\\''");
   return escaped;
+}
+
+function mergeRenderBlurBoxes(manualBoxes, automaticBoxes, automaticEnabled) {
+  const manual = Array.isArray(manualBoxes) ? manualBoxes : [];
+  const automatic = automaticEnabled && Array.isArray(automaticBoxes) ? automaticBoxes : [];
+  return [...manual, ...automatic];
+}
+
+function readSubtitleTimingCues(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+  try {
+    const Parser = require('srt-parser-2').default;
+    const parser = new Parser();
+    return parser.fromSrt(fs.readFileSync(filePath, 'utf8')).flatMap((cue) => {
+      const startMs = srtTimeToMs(cue.startTime);
+      const endMs = srtTimeToMs(cue.endTime);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+      return [{ startMs, endMs }];
+    });
+  } catch (error) {
+    console.warn('[Studio Blur] Không đọc được timing SRT để đồng bộ vùng che:', error.message);
+    return [];
+  }
+}
+
+function appendFilterComplexArgs(args, filterSegments, workDir, inlineLimit = 24000) {
+  const filterText = filterSegments.join(';');
+  if (filterText.length <= inlineLimit) {
+    args.push('-filter_complex', filterText);
+    return { mode: 'inline', filterText };
+  }
+
+  const scriptPath = path.join(workDir, 'render-filter-complex.txt');
+  fs.writeFileSync(scriptPath, filterText, 'utf8');
+  // Current bundled FFmpeg uses the documented option-file form; the removed
+  // legacy -filter_complex_script switch fails on FFmpeg 8/nightly builds.
+  args.push('-/filter_complex', scriptPath);
+  return { mode: 'script', filterText, scriptPath };
 }
 
 function hexToAssColor(hexStr) {
@@ -358,6 +397,8 @@ function mapAutomaticSubtitleProgress(event = {}) {
     }
     case 'ocr_retry_cpu':
       return { percent: 24, step: 'OCR đang thử lại bằng CPU...' };
+    case 'ocr_region_scan':
+      return { percent: 28, step: 'Đang tự dò vùng phụ đề khác...' };
     case 'ocr_validating':
       return { percent: 32, step: 'Đang kiểm tra phụ đề OCR...' };
     case 'whisper_fallback':
@@ -413,6 +454,8 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
+      ocrRegionStrategy: body.ocrRegionStrategy === 'manual' ? 'manual' : 'auto',
+      ocrPipeline: ['auto', 'viral', 'vse'].includes(body.ocrPipeline) ? body.ocrPipeline : 'auto',
       forceWhisper,
       ocrOnly,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)
@@ -862,6 +905,7 @@ async function executeRenderTask(task) {
 
     const subtitleStage = await renderOrchestrator.runStage(task, 'subtitle', async () => {
       let resolvedSubtitlePath = null;
+      let ocrReport = null;
       if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
         shared.updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
         resolvedSubtitlePath = shared.moveUploadedFile(files.subtitleUpload[0], shared.SUBTITLES_DIR, files.subtitleUpload[0].originalname);
@@ -879,10 +923,12 @@ async function executeRenderTask(task) {
           forceWhisper: task.forceWhisper === true,
           ffmpegPath: shared.FFMPEG_PATH
         });
+        ocrReport = readJsonFile(path.join(workDir, 'ocr-report.json'));
       }
-      return { subtitlePath: resolvedSubtitlePath };
+      return { subtitlePath: resolvedSubtitlePath, ocrReport };
     });
     subtitlePath = subtitleStage.subtitlePath;
+    const ocrReport = subtitleStage.ocrReport || null;
     const sourceSubtitlePath = subtitlePath;
 
     let originalIsChinese = false;
@@ -1798,17 +1844,27 @@ async function executeRenderTask(task) {
       baseVideoLabel = 'v_flipped';
     }
 
-    if (body.blurOriginalSub === 'true') {
+    let requestedBlurBoxes = [];
+    if (body.blurBoxes) {
+      try {
+        requestedBlurBoxes = JSON.parse(body.blurBoxes);
+      } catch (e) {
+        console.error('Lỗi parse blurBoxes JSON:', e.message);
+      }
+    }
+    if (!Array.isArray(requestedBlurBoxes)) requestedBlurBoxes = [];
+    const automaticOcrBlurBoxes = [];
+    const useAutomaticOcrBlur = false;
+    const shouldBlurOriginalSub = body.blurOriginalSub === 'true' || useAutomaticOcrBlur;
+
+    if (shouldBlurOriginalSub) {
       hasVideoFilter = true;
       baseVideoLabel = (hasReaction || hasSubtitles) ? 'v_base' : 'vout';
-      let blurBoxes = [];
-      if (body.blurBoxes) {
-        try {
-          blurBoxes = JSON.parse(body.blurBoxes);
-        } catch (e) {
-          console.error('Lỗi parse blurBoxes JSON:', e.message);
-        }
-      }
+      const blurBoxes = mergeRenderBlurBoxes(
+        requestedBlurBoxes,
+        automaticOcrBlurBoxes,
+        useAutomaticOcrBlur
+      );
 
       if (!Array.isArray(blurBoxes) || blurBoxes.length === 0) {
         const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
@@ -1839,51 +1895,20 @@ async function executeRenderTask(task) {
 
         blurFilterString = `[0:v]split[orig][copy];[copy]crop=${evenCropW}:${evenCropH}:${evenCropX}:${evenCropY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius},format=yuv420p[blurred];[orig][blurred]overlay=${evenCropX}:${evenCropY}[${baseVideoLabel}]`;
       } else {
-        let currentInputLabel = '0:v';
-        const filters = [];
-
-        blurBoxes.forEach((box, index) => {
-          const isLast = index === blurBoxes.length - 1;
-          const outputLabel = isLast ? baseVideoLabel : `v_blur_${index}`;
-          const xPercent = Math.min(100, Math.max(0, Number(box.x !== undefined ? box.x : 10))) / 100;
-          const widthPercent = Math.min(100, Math.max(1, Number(box.width !== undefined ? box.width : 80))) / 100;
-          const yPercent = Math.min(100, Math.max(0, Number(box.y !== undefined ? box.y : 75))) / 100;
-          const heightPercent = Math.min(100, Math.max(1, Number(box.height !== undefined ? box.height : 15))) / 100;
-          const radius = Math.min(50, Math.max(1, Number(box.radius || 20)));
-
-          let clampedX = xPercent;
-          if (clampedX + widthPercent > 1) clampedX = 1 - widthPercent;
-          let clampedY = yPercent;
-          if (clampedY + heightPercent > 1) clampedY = 1 - heightPercent;
-
-          const rawCropW = videoWidth * widthPercent;
-          const rawCropH = videoHeight * heightPercent;
-          const rawCropX = videoWidth * clampedX;
-          const rawCropY = videoHeight * clampedY;
-
-          const evenCropW = Math.max(2, Math.floor(rawCropW / 2) * 2);
-          const evenCropH = Math.max(2, Math.floor(rawCropH / 2) * 2);
-          const evenCropX = Math.max(0, Math.floor(rawCropX / 2) * 2);
-          const evenCropY = Math.max(0, Math.floor(rawCropY / 2) * 2);
-
-          const maxLumaR = Math.max(1, Math.floor(Math.min(evenCropW, evenCropH) / 2) - 1);
-          const maxChromaR = Math.max(1, Math.floor(Math.min(evenCropW / 2, evenCropH / 2) / 2) - 1);
-          const safeLumaRadius = Math.min(radius, maxLumaR);
-          const safeChromaRadius = Math.min(radius, maxChromaR);
-
-          const start = Number(box.start !== undefined ? box.start : 0);
-          const end = Number(box.end !== undefined ? box.end : 99999);
-
-          const origLabel = `orig_${index}`;
-          const copyLabel = `copy_${index}`;
-          const blurredLabel = `blurred_${index}`;
-
-          filters.push(`[${currentInputLabel}]split[${origLabel}][${copyLabel}]`);
-          filters.push(`[${copyLabel}]crop=${evenCropW}:${evenCropH}:${evenCropX}:${evenCropY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius},format=yuv420p[${blurredLabel}]`);
-          filters.push(`[${origLabel}][${blurredLabel}]overlay=${evenCropX}:${evenCropY}:enable='between(t,${start},${end})'[${outputLabel}]`);
-          currentInputLabel = outputLabel;
+        const timedBlur = buildTimedBlurFilterGraph({
+          inputLabel: '0:v',
+          outputLabel: baseVideoLabel,
+          videoWidth,
+          videoHeight,
+          manualBoxes: requestedBlurBoxes,
+          automaticBoxes: useAutomaticOcrBlur ? automaticOcrBlurBoxes : [],
+          displayCues: useAutomaticOcrBlur ? readSubtitleTimingCues(sourceSubtitlePath) : [],
+          maskStyle: 'blur',
+          maskColor: '#000000',
+          mirrored: flipEnabled
         });
-        blurFilterString = filters.join(';');
+        blurFilterString = timedBlur.filter;
+        console.log('[Studio Mask] ViralCrawl style:', JSON.stringify(timedBlur.stats));
       }
     }
 
@@ -1923,7 +1948,7 @@ async function executeRenderTask(task) {
       }
       filterChain += `[${baseVideoLabel}]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
       videoFilter = filterChain;
-    } else if (body.blurOriginalSub === 'true') {
+    } else if (shouldBlurOriginalSub) {
       videoFilter = blurFilterString;
     }
 
@@ -2027,7 +2052,7 @@ async function executeRenderTask(task) {
     }
 
     if (filterComplex.length > 0) {
-      args.push('-filter_complex', filterComplex.join(';'));
+      appendFilterComplexArgs(args, filterComplex, workDir);
     }
 
     if (hasVideoFilter) {
@@ -2440,7 +2465,10 @@ module.exports = {
   createRenderQueueHandlers,
   createRenderQueueTask,
   createRenderSourceResolver,
+  appendFilterComplexArgs,
   buildStudioLogoOverlay,
+  mergeRenderBlurBoxes,
+  readSubtitleTimingCues,
   renameVideoOutput,
   createVoiceChunkCheckpoint,
   findNextPendingRenderTask,

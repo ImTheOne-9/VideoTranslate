@@ -7,6 +7,7 @@ const studioController = require('../controllers/studioController');
 const { withTempDir } = require('./helpers/temp-dir');
 
 const {
+  appendFilterComplexArgs,
   applyRenderTaskFailure,
   applyRenderTaskSuccess,
   cleanupLegacyCheckpointFiles,
@@ -17,7 +18,9 @@ const {
   createRenderQueueTask,
   createRenderSourceResolver,
   createVoiceChunkCheckpoint,
-  findNextPendingRenderTask
+  findNextPendingRenderTask,
+  mergeRenderBlurBoxes,
+  readSubtitleTimingCues
 } = studioController;
 
 function requireFunction(value, name) {
@@ -48,6 +51,60 @@ function createQueueState(tasks = []) {
     studioProgress: { status: 'idle', percent: 0, step: '', error: null }
   };
 }
+
+test('manual watermark blur and automatic OCR subtitle boxes are rendered together', () => {
+  const manual = [{ id: 'watermark', start: 0, end: 99999 }];
+  const automatic = [
+    { source: 'viral_ocr', start: 0, end: 1.5 },
+    { source: 'viral_ocr', start: 2, end: 3.5 }
+  ];
+
+  assert.deepEqual(
+    mergeRenderBlurBoxes(manual, automatic, true),
+    [...manual, ...automatic]
+  );
+  assert.deepEqual(mergeRenderBlurBoxes(manual, automatic, false), manual);
+});
+
+test('render never auto-masks OCR boxes and keeps manual masks as blur', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'controllers', 'studioController.js'), 'utf8');
+  assert.match(source, /const useAutomaticOcrBlur = false;/);
+  assert.doesNotMatch(source, /body\.ocrAutoBlur/);
+  assert.match(source, /maskStyle: 'blur'/);
+});
+
+test('OCR blur reads source SRT timing for cue end alignment', async () => {
+  await withTempDir('studio-blur-timing-', async (directory) => {
+    const srtPath = path.join(directory, 'source.srt');
+    fs.writeFileSync(srtPath, [
+      '1',
+      '00:00:01,000 --> 00:00:02,500',
+      '第一句',
+      '',
+      '2',
+      '00:00:03,000 --> 00:00:04,000',
+      '第二句',
+      ''
+    ].join('\n'), 'utf8');
+
+    assert.deepEqual(readSubtitleTimingCues(srtPath), [
+      { startMs: 1000, endMs: 2500 },
+      { startMs: 3000, endMs: 4000 }
+    ]);
+  });
+});
+
+test('large FFmpeg filter graphs use a script file to avoid the Windows command limit', async () => {
+  await withTempDir('studio-filter-script-', async (directory) => {
+    const args = [];
+    const segments = ['[0:v]null[v0]', '[v0]null[vout]'];
+    const result = appendFilterComplexArgs(args, segments, directory, 1);
+
+    assert.equal(result.mode, 'script');
+    assert.deepEqual(args, ['-/filter_complex', result.scriptPath]);
+    assert.equal(fs.readFileSync(result.scriptPath, 'utf8'), segments.join(';'));
+  });
+});
 
 function createQueueHandlers(state, overrides = {}) {
   requireFunction(createRenderQueueHandlers, 'createRenderQueueHandlers');
@@ -197,11 +254,31 @@ test('generate resolver wires coordinator options and returns result.path downst
       ocrLanguage: 'zh',
       ocrMode: 'accurate',
       ocrRegion: '0.6,0.95,0.1,0.9',
+      ocrRegionStrategy: 'auto',
+      ocrPipeline: 'auto',
       forceWhisper: false,
       ocrOnly: false,
       onProgress: 'function'
     }
   );
+});
+
+test('generate resolver preserves an explicitly selected OCR pipeline', async () => {
+  let receivedOptions;
+  const resolveSubtitle = createAutomaticSubtitleResolver({
+    resolveAutomaticSubtitle: async (options) => {
+      receivedOptions = options;
+      return { path: 'work/subtitles.srt' };
+    },
+    updateStudioProgress: () => {}
+  });
+
+  await resolveSubtitle({
+    body: { ocrLanguage: 'ch', ocrPipeline: 'vse' },
+    sourceVideo: 'source.mp4', workDir: 'work', totalDuration: 3, ffmpegPath: 'ffmpeg.exe'
+  });
+
+  assert.equal(receivedOptions.ocrPipeline, 'vse');
 });
 
 test('Omi voice-only subtitle generation still tries OCR first', async () => {
