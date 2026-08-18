@@ -185,7 +185,7 @@ export default function Dashboard({ currentUser, isDevMode, showToast }) {
   const amount = pendingKey ? (pendingKey.price !== undefined ? pendingKey.price : (pendingKey.planType === 'monthly' ? 299000 : 1499000)) : 0;
   const priceText = pendingKey ? (amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ') : '';
   const keyRef = pendingKey ? pendingKey.key.split('-')[1] : '';
-  const memo = pendingKey ? `VST ${keyRef}` : '';
+  const memo = pendingKey ? `VST${keyRef}` : '';
   const bankCode = pendingKey ? (pendingKey.bankCode || 'MB') : 'MB';
   const bankAccount = pendingKey ? (pendingKey.bankAccount || '0385464403') : '0385464403';
   const bankAccountName = pendingKey ? (pendingKey.bankAccountName || 'DOAN VIET HOANG') : 'DOAN VIET HOANG';

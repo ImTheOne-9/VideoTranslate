@@ -5,6 +5,7 @@ const path = require('path');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
+const { extractPaymentKeyRef, buildPaymentMemo } = require('./payment-utils');
 const { sendCapiEvent } = require('./lib/meta-capi');
 
 async function triggerCapiEvent(params) {
@@ -977,6 +978,87 @@ const DB = {
       }
     },
 
+    // SePay có thể replay một giao dịch đã được lưu pending. Chỉ nâng trạng thái
+    // lên confirm; webhook pending gửi lặp không được hạ một giao dịch đã confirm.
+    async upsert(data) {
+      const status = data.status || 'pending';
+      const mutableFields = [
+        'amount', 'content', 'transferCode', 'licenseKey', 'userEmail',
+        'customerName', 'phoneNumber', 'planType', 'gateway', 'rawBody',
+        'metaEventId', 'metaEventStatus', 'metaEventError'
+      ];
+      const fieldsToSet = { status };
+      for (const field of mutableFields) {
+        if (data[field] !== undefined) fieldsToSet[field] = data[field];
+      }
+
+      if (useMongo) {
+        if (status === 'confirm') {
+          return await PaymentTransactionModel.findOneAndUpdate(
+            { transactionId: data.transactionId },
+            {
+              $set: fieldsToSet,
+              $setOnInsert: {
+                transactionId: data.transactionId,
+                paidAt: data.paidAt || new Date()
+              }
+            },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+          );
+        }
+
+        return await PaymentTransactionModel.findOneAndUpdate(
+          { transactionId: data.transactionId },
+          {
+            $setOnInsert: {
+              transactionId: data.transactionId,
+              ...fieldsToSet,
+              paidAt: data.paidAt || new Date()
+            }
+          },
+          { new: true, upsert: true, setDefaultsOnInsert: true }
+        );
+      }
+
+      const db = readJSON();
+      if (!db.paymentTransactions) db.paymentTransactions = [];
+      const index = db.paymentTransactions.findIndex(t => t.transactionId === data.transactionId);
+
+      if (index !== -1) {
+        if (status === 'confirm') {
+          db.paymentTransactions[index] = {
+            ...db.paymentTransactions[index],
+            ...fieldsToSet,
+            paidAt: db.paymentTransactions[index].paidAt || data.paidAt || new Date().toISOString()
+          };
+          await writeJSON(db);
+        }
+        return db.paymentTransactions[index];
+      }
+
+      const newTx = {
+        transactionId: data.transactionId,
+        amount: data.amount,
+        content: data.content || '',
+        transferCode: data.transferCode || '',
+        licenseKey: data.licenseKey || null,
+        userEmail: data.userEmail || null,
+        customerName: data.customerName || null,
+        phoneNumber: data.phoneNumber || null,
+        planType: data.planType || null,
+        status,
+        gateway: data.gateway || 'sepay',
+        rawBody: data.rawBody || {},
+        metaEventId: data.metaEventId || null,
+        metaEventStatus: data.metaEventStatus || 'pending',
+        metaEventError: data.metaEventError || null,
+        paidAt: data.paidAt || new Date().toISOString()
+      };
+      db.paymentTransactions.push(newTx);
+      await writeJSON(db);
+      return newTx;
+    },
+
     async updateOne(query, update) {
       if (useMongo) {
         return await PaymentTransactionModel.updateOne(query, update);
@@ -1750,8 +1832,8 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
   let bodyContent = '';
   if (status === 'pending') {
     const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '299.000đ' : '1.499.000đ');
-    const keyRef = key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
-    const memo = `VST ${keyRef}`;
+    const keyRef = key.split('-')[1]; // STUDIO-XXXXXXXX-... => VSTXXXXXXXX
+    const memo = buildPaymentMemo(keyRef);
     
     bodyContent = `
       <h3>Chào bạn ${escapedName},</h3>
@@ -2738,12 +2820,12 @@ app.post('/api/payment/webhook', async (req, res) => {
       const { amount, content, transactionId, transferCode } = tx;
       console.log(`[Payment Webhook] Xử lý giao dịch #${transactionId}: Số tiền=${amount}, Nội dung="${content}"`);
 
-      // Trích xuất mã keyRef từ nội dung chuyển khoản (Ví dụ: "VST A9B8C7D6" -> "A9B8C7D6")
-      const match = content.match(/vst\s+([a-z0-9]+)/i);
-      if (!match) {
-        console.log(`[Payment Webhook] Giao dịch #${transactionId} bỏ qua: Không tìm thấy cú pháp 'VST <mã_key>'`);
+      // Chấp nhận cả "VST A9B8C7D6" (cũ) và "VSTA9B8C7D6" (chuẩn mới của SePay).
+      const keyRef = extractPaymentKeyRef(content);
+      if (!keyRef) {
+        console.log(`[Payment Webhook] Giao dịch #${transactionId} bỏ qua: Không tìm thấy mã thanh toán VST hợp lệ.`);
         // Lưu lại giao dịch với trạng thái pending (không khớp key)
-        await DB.paymentTransactions.create({
+        await DB.paymentTransactions.upsert({
           transactionId,
           amount,
           content,
@@ -2755,7 +2837,6 @@ app.post('/api/payment/webhook', async (req, res) => {
         continue;
       }
 
-      const keyRef = match[1].toUpperCase();
       console.log(`[Payment Webhook] Tìm thấy keyRef: "${keyRef}"`);
 
       // Khóa Concurrency dựa trên keyRef ngay lập tức (Chống race condition trước khi gọi DB bất đồng bộ)
@@ -2785,7 +2866,7 @@ app.post('/api/payment/webhook', async (req, res) => {
         if (!license) {
           console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Không tìm thấy License tương ứng với mã "${keyRef}" trong database.`);
           // Lưu pending: không tìm thấy key
-          await DB.paymentTransactions.create({
+          await DB.paymentTransactions.upsert({
             transactionId, amount, content,
             transferCode: transferCode || '',
             status: 'pending', gateway,
@@ -2800,7 +2881,7 @@ app.post('/api/payment/webhook', async (req, res) => {
           // Vẫn lưu confirm vì đã thanh toán thành công (dù key đã active)
           try {
             const u = await DB.users.findOne({ email: license.userEmail });
-            await DB.paymentTransactions.create({
+            await DB.paymentTransactions.upsert({
               transactionId, amount, content,
               transferCode: transferCode || '',
               licenseKey: license.key,
@@ -2825,7 +2906,7 @@ app.post('/api/payment/webhook', async (req, res) => {
           // Lưu pending: số tiền không đủ
           try {
             const u = await DB.users.findOne({ email: license.userEmail });
-            await DB.paymentTransactions.create({
+            await DB.paymentTransactions.upsert({
               transactionId, amount, content,
               transferCode: transferCode || '',
               licenseKey: license.key,
@@ -2862,7 +2943,7 @@ app.post('/api/payment/webhook', async (req, res) => {
         let purchaseUser = null;
         try {
           purchaseUser = await DB.users.findOne({ email: license.userEmail });
-          await DB.paymentTransactions.create({
+          await DB.paymentTransactions.upsert({
             transactionId,
             amount,
             content,
