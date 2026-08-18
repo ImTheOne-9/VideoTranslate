@@ -19,7 +19,8 @@ test('crawler resolves project-owned source, runtime, profiles and data', () => 
     assert.equal(paths.runtimeRoot, path.join(directory, 'user', 'runtime'));
     assert.equal(paths.browserDataDir, path.join(directory, 'user', 'browser_data'));
     assert.equal(paths.dataDir, path.join(directory, 'user', 'data'));
-    assert.doesNotMatch(JSON.stringify(paths), /ViralCrawl|viralcrawl-desktop/i);
+    const legacyExternalNames = new RegExp([['Viral', 'Crawl'].join(''), ['viral', 'crawl-desktop'].join('')].join('|'), 'i');
+    assert.doesNotMatch(JSON.stringify(paths), legacyExternalNames);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

@@ -58,7 +58,7 @@ test('accepts and canonicalizes only mainland Bilibili video links', () => {
   );
 });
 
-test('maps Video Studio sort options to the values used by ViralCrawl', () => {
+test('maps Video Studio sort options to the crawler sort values', () => {
   assert.equal(mapDouyinSort('relevance'), '0');
   assert.equal(mapDouyinSort('likes'), '1');
   assert.equal(mapDouyinSort('newest'), '2');

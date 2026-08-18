@@ -4,9 +4,25 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const {
+  buildTranslationStyleRule,
+  detectSourceLanguage,
   getSubtitleAnalysisPrompt,
-  getTranslationPrompt
+  getTranslationPrompt,
+  sourceMatchesTarget
 } = require('../lib/translate-sub');
+
+test('Gemini Web detects source equals target and builds fixed translation style rules', () => {
+  assert.equal(detectSourceLanguage('Hóa ra cô ấy vẫn luôn chờ anh.', 'auto'), 'vie_Latn');
+  assert.equal(detectSourceLanguage('原来她一直在等他', 'auto'), 'zho_Hans');
+  assert.equal(sourceMatchesTarget('vie_Latn', 'vi'), true);
+  assert.equal(sourceMatchesTarget('zho_Hans', 'vi'), false);
+  assert.equal(sourceMatchesTarget('jpn_Jpan', 'ja'), true);
+  assert.equal(sourceMatchesTarget('kor_Hang', 'ko'), true);
+  assert.equal(
+    buildTranslationStyleRule(['viral', 'ngan_gon']),
+    'VIẾT LẠI lời thoại theo phong cách: viral kiểu TikTok (câu mở gây tò mò, cuốn người xem), ngắn gọn, súc tích. GIỮ NGUYÊN ý nghĩa, KHÔNG thêm/bớt tình tiết, KHÔNG đổi timeline hay số câu.'
+  );
+});
 
 test('studio no longer exposes, sends, or restores a translation profile', () => {
   const root = path.join(__dirname, '..');
@@ -71,7 +87,7 @@ test('translation backend contains no configurable profile pipeline', () => {
   );
 });
 
-test('Gemini Web uses the shared whole-SRT JSON translation pipeline instead of the legacy line translator', () => {
+test('Gemini Web uses the isolated line pipeline while Gemini API keeps JSON translation', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'lib', 'translate-sub.js'), 'utf8');
   const adapterSource = fs.readFileSync(path.join(root, 'lib', 'gemini-web-adapter.js'), 'utf8');
@@ -80,15 +96,21 @@ test('Gemini Web uses the shared whole-SRT JSON translation pipeline instead of 
   const webService = require('../lib/gemini-web-service');
 
   assert.equal(typeof adapter.requestViaGeminiWeb, 'function');
-  assert.equal(adapter.translateViaGeminiWeb, undefined);
+  assert.equal(typeof adapter.translateViaGeminiWeb, 'function');
+  assert.equal(typeof webService.translateSrtItemsByGeminiWeb, 'function');
   assert.equal(webService.dichSrtNodeJS, undefined);
-  assert.match(source, /provider:\s*'gemini-web'/);
-  assert.match(source, /analyze:\s*requestGeminiWebJson/);
-  assert.match(source, /getTranslationPrompt\(map, targetLangName, prevContext, sharedContext\)/);
-  assert.match(source, /batchSize:\s*Math\.min\(80, srtArray\.length\)/);
-  assert.doesNotMatch(source, /translateViaGeminiWeb|dichSrtNodeJS/);
-  assert.doesNotMatch(adapterSource, /dichSrtNodeJS|translateViaGeminiWeb/);
-  assert.match(html, /Gemini Web · Phân tích toàn bộ SRT/);
+  assert.match(source, /translateViaGeminiWeb\(srtArray/);
+  assert.doesNotMatch(source.slice(
+    source.indexOf("if (aiProvider === 'gemini-web')"),
+    source.indexOf('// 4. Dịch bằng OpenCode')
+  ), /resolveGlobalTranslationContext|requestGeminiWebJson|getTranslationPrompt/);
+  assert.match(adapterSource, /translateSrtItemsByGeminiWeb/);
+  assert.doesNotMatch(adapterSource, /dichSrtNodeJS/);
+  assert.match(html, /Gemini Web · Dịch phụ đề thông minh/);
+  assert.match(html, /global-translation-style-options/);
+  assert.match(html, /<option value="tr">Türkçe<\/option>/);
+  assert.match(source, /VC_GEMINI_KEEP_HOT !== '1'/);
+  assert.match(source, /closeGeminiWebSession\(\)/);
   assert.doesNotMatch(html, /Gemini Web Automation/);
 });
 
@@ -102,6 +124,8 @@ test('Gemini Web and Gemini API never fall back to NLLB automatically', () => {
 
   assert.doesNotMatch(webBlock, /fallbackFailedItemsWithNllb|translateWithNllb/);
   assert.match(webBlock, /primary\.failedItems\.length > 0/);
+  assert.match(webBlock, /để trống các cue đó và tiếp tục render/);
+  assert.doesNotMatch(webBlock, /createTranslationIncompleteError/);
   assert.match(webBlock, /Giữ checkpoint để tiếp tục, không chuyển sang NLLB/);
   assert.match(source, /const remaining = isGemini \? primary\.failedItems : await fallbackFailedItemsWithNllb/);
   assert.match(source, /if \(isGemini\) \{[\s\S]*?không chuyển sang NLLB[\s\S]*?throw err;/);

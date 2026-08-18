@@ -655,7 +655,7 @@ app.post('/api/gemini-web/login', async (req, res) => {
   try {
     const { openGeminiLogin } = require('./lib/gemini-web-adapter');
     const result = await openGeminiLogin();
-    res.json({ success: true, message: 'Đã mở trình duyệt đăng nhập Gemini', ...result });
+    res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

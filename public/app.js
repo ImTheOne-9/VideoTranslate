@@ -1539,6 +1539,7 @@ async function renderStudio(event) {
   data.set('opencodeModel', aiSettings.opencodeModel || 'DeepSeek V4 Flash (Free)');
   data.set('openaiApiKey', aiSettings.openaiApiKey || '');
   data.set('openaiModel', aiSettings.openaiModel || 'gpt-4o-mini');
+  data.set('translationStyles', JSON.stringify(aiSettings.translationStyles || []));
   
   const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
   if (keepBgmAi) {
@@ -6946,6 +6947,11 @@ window.crawlClearFinished = crawlClearFinished;
    ========================================================================== */
 
 function getGlobalAiSettings() {
+  let translationStyles = [];
+  try {
+    const savedStyles = JSON.parse(localStorage.getItem('global_translation_styles') || '[]');
+    if (Array.isArray(savedStyles)) translationStyles = savedStyles.map(String);
+  } catch {}
   return {
     aiProvider: localStorage.getItem('global_ai_provider') || 'gemini-web',
     geminiApiKey: localStorage.getItem('global_gemini_key') || '',
@@ -6958,6 +6964,7 @@ function getGlobalAiSettings() {
     opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
     openaiApiKey: localStorage.getItem('global_openai_key') || '',
     openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
+    translationStyles,
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -6966,7 +6973,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&translationStyles=${encodeURIComponent(settings.translationStyles.join(','))}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -7310,6 +7317,9 @@ function openGlobalSettingsModal() {
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
+  document.querySelectorAll('#global-translation-style-options input[type="checkbox"]').forEach((input) => {
+    input.checked = settings.translationStyles.includes(input.value);
+  });
   if (openaiInput) {
     openaiInput.value = settings.openaiApiKey;
     if (settings.openaiApiKey) {
@@ -7436,7 +7446,9 @@ async function openGeminiWebLoginWindow() {
     const data = await res.json();
     if (data.success) {
       if (typeof toast === 'function') {
-        toast('Đã mở cửa sổ đăng nhập Gemini! Vui lòng đăng nhập trên Chrome.', 'success');
+        toast(data.message || (data.loggedIn
+          ? 'Đã xác nhận đăng nhập Gemini.'
+          : 'Đã đóng trình duyệt. Gemini Web vẫn có thể dịch ở chế độ khách.'), data.loggedIn ? 'success' : 'info');
       }
     } else {
       if (typeof toast === 'function') {
@@ -7462,6 +7474,8 @@ function saveGlobalSettings() {
   const ninerouterModelSelect = $('global-ninerouter-model');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
+  const translationStyles = Array.from(document.querySelectorAll('#global-translation-style-options input[type="checkbox"]:checked'))
+    .map(input => input.value);
 
   if (providerSelect) localStorage.setItem('global_ai_provider', providerSelect.value);
   if (geminiInput) localStorage.setItem('global_gemini_key', geminiInput.value);
@@ -7474,6 +7488,7 @@ function saveGlobalSettings() {
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
+  localStorage.setItem('global_translation_styles', JSON.stringify(translationStyles));
   const globalOcrSelect = $('global-ocr-mode-select');
   if (globalOcrSelect) localStorage.setItem('global_ocr_mode', globalOcrSelect.value);
 
@@ -7618,7 +7633,12 @@ function updateOutputLangInfo() {
   const info = document.getElementById('output-lang-info');
   if (!sel || !info) return;
   const val = sel.value;
-  const names = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
+  const names = {
+    vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc', ja: '日本語', ko: '한국어',
+    th: 'ไทย', fr: 'Français', es: 'Español', pt: 'Português', de: 'Deutsch',
+    it: 'Italiano', ru: 'Русский', id: 'Bahasa Indonesia', ms: 'Bahasa Melayu',
+    ar: 'العربية', hi: 'हिन्दी', tr: 'Türkçe'
+  };
   info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
   info.style.color = 'var(--muted)';
 }

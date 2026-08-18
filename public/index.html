@@ -1871,6 +1871,20 @@
                           <option value="vi">Việt Nam</option>
                           <option value="en">English</option>
                           <option value="zh">Trung Quốc</option>
+                          <option value="ja">日本語</option>
+                          <option value="ko">한국어</option>
+                          <option value="th">ไทย</option>
+                          <option value="fr">Français</option>
+                          <option value="es">Español</option>
+                          <option value="pt">Português</option>
+                          <option value="de">Deutsch</option>
+                          <option value="it">Italiano</option>
+                          <option value="ru">Русский</option>
+                          <option value="id">Bahasa Indonesia</option>
+                          <option value="ms">Bahasa Melayu</option>
+                          <option value="ar">العربية</option>
+                          <option value="hi">हिन्दी</option>
+                          <option value="tr">Türkçe</option>
                         </select>
                       </div>
                       <p id="output-lang-info" style="font-size: 11px; color: var(--muted); margin: 2px 0 0 0;"></p>
@@ -2994,7 +3008,7 @@
             <div class="dl-config-group">
               <label>Dịch phụ đề bằng (AI Provider)</label>
               <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
-                <option value="gemini-web" selected>🌐 Gemini Web · Phân tích toàn bộ SRT (Mặc định)</option>
+                <option value="gemini-web" selected>🌐 Gemini Web · Dịch phụ đề thông minh (Mặc định)</option>
                 <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
                 <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
                 <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
@@ -3037,6 +3051,14 @@
                   <option value="de">Tiếng Đức (German)</option>
                   <option value="es">Tiếng Tây Ban Nha (Spanish)</option>
                   <option value="th">Tiếng Thái (Thai)</option>
+                  <option value="pt">Tiếng Bồ Đào Nha (Portuguese)</option>
+                  <option value="it">Tiếng Ý (Italian)</option>
+                  <option value="ru">Tiếng Nga (Russian)</option>
+                  <option value="id">Tiếng Indonesia (Indonesian)</option>
+                  <option value="ms">Tiếng Malaysia (Malay)</option>
+                  <option value="ar">Tiếng Ả Rập (Arabic)</option>
+                  <option value="hi">Tiếng Hindi (Hindi)</option>
+                  <option value="tr">Tiếng Thổ Nhĩ Kỳ (Turkish)</option>
                 </select>
               </div>
               <div class="dl-config-group">
@@ -3362,7 +3384,7 @@
             <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
             <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()"
               style="margin: 0; height: 38px;">
-              <option value="gemini-web" selected>🌐 Gemini Web · Phân tích toàn bộ SRT (Mặc định)</option>
+              <option value="gemini-web" selected>🌐 Gemini Web · Dịch phụ đề thông minh (Mặc định)</option>
               <option value="nllb">🤖 AI Dịch Offline NLLB-200 (Nhẹ &amp; Không cần mạng)</option>
               <option value="google-translate">🌐 Google Translate (An toàn &amp; Khuyên dùng)</option>
               <option value="openai">💬 ChatGPT OpenAI (Cần API Key &amp; chọn Model)</option>
@@ -3378,7 +3400,20 @@
             style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
             <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tài khoản Google Gemini Web</label>
-              <p style="font-size: 11px; color: var(--muted); margin: 0;">Dùng pipeline dịch mới: phân tích toàn bộ SRT, giữ ngữ cảnh giữa các lô, kiểm tra JSON và lưu checkpoint để tiếp tục cue lỗi bằng Gemini. Không tự chuyển sang NLLB. Chỉ cần đăng nhập Gemini Web một lần.</p>
+              <p style="font-size: 11px; color: var(--muted); margin: 0;">Giới hạn số từ theo thời lượng, giữ đúng 1 cue gốc → 1 cue dịch, kiểm tra chữ Hán/gộp câu, ghi lũy tiến và dịch lại cue lỗi bằng Gemini Web. Không tự chuyển sang NLLB.</p>
+              <div class="form-group" style="margin-top: 8px;">
+                <label style="font-size: 12px; font-weight: 600; color: var(--text);">Phong cách dịch (có thể chọn nhiều)</label>
+                <div id="global-translation-style-options" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 7px;">
+                  <label><input type="checkbox" value="hai_huoc"> Hài hước</label>
+                  <label><input type="checkbox" value="viral"> Viral TikTok</label>
+                  <label><input type="checkbox" value="kich_tinh"> Kịch tính</label>
+                  <label><input type="checkbox" value="cam_xuc"> Cảm xúc</label>
+                  <label><input type="checkbox" value="doi_thuong"> Đời thường</label>
+                  <label><input type="checkbox" value="van_hoc"> Văn học</label>
+                  <label><input type="checkbox" value="ngan_gon"> Ngắn gọn</label>
+                </div>
+                <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">Không chọn = Gemini tự nhận diện thể loại và giữ văn phong phù hợp.</p>
+              </div>
               <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
                 <button type="button" class="premium-render-btn ghost-btn"
                   style="margin: 0; width: auto; padding: 0 14px; height: 36px; font-size: 12px; border-color: #4285f4; color: #4285f4;"

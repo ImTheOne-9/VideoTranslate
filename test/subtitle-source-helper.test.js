@@ -436,7 +436,7 @@ test('automatic region scan recovers subtitles outside the selected lower region
   });
 });
 
-test('ViralCrawl pipeline is used directly for Chinese OCR and keeps its exact cleaned SRT', async () => {
+test('RapidOCR pipeline is used directly for Chinese OCR and keeps its exact cleaned SRT', async () => {
   await withTempDirectory(async (directory) => {
     const options = createOptions(directory, { ocrLanguage: 'ch', ocrPipeline: 'viral' });
     let vseCalled = false;
@@ -519,7 +519,7 @@ test('explicit RapidOCR rejects non-Chinese before starting an OCR engine', asyn
   });
 });
 
-test('ViralCrawl boxes survive Whisper text fallback when fewer than three OCR cues are read', async () => {
+test('RapidOCR boxes survive Whisper text fallback when fewer than three OCR cues are read', async () => {
   await withTempDirectory(async (directory) => {
     const options = createOptions(directory, { ocrLanguage: 'ch', ocrPipeline: 'viral' });
     const dependencies = createDependencies({

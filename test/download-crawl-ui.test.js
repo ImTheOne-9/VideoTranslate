@@ -95,7 +95,7 @@ test('download page keeps legacy modes and makes crawl-now the default', () => {
   assert.match(app, /studioInitializeVideoFilters\(assets\.videos\)/);
 });
 
-test('crawl history is a dedicated navbar view with ViralCrawl-style filters and bulk download', () => {
+test('crawl history is a dedicated navbar view with platform filters and bulk download', () => {
   const html = read('public/index.html');
   const app = read('public/app.js');
   const globals = read('public/js/globals.js');

@@ -954,7 +954,12 @@ async function executeRenderTask(task) {
     const translationStage = await renderOrchestrator.runStage(task, 'translation', async () => {
       let finalSubtitlePath = subtitlePath;
       if (subtitlePath && body.translateVi === 'true') {
-        const langNames = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
+        const langNames = {
+          vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc', ja: 'Japanese', ko: 'Korean',
+          th: 'Thai', fr: 'French', es: 'Spanish', pt: 'Portuguese', de: 'German',
+          it: 'Italian', ru: 'Russian', id: 'Indonesian', ms: 'Malay', ar: 'Arabic',
+          hi: 'Hindi', tr: 'Turkish'
+        };
         shared.updateStudioProgress(35, `Đang dịch phụ đề sang ${langNames[targetLang] || 'Tiếng Việt'} bằng AI...`);
         const translatedPath = path.join(workDir, 'translated.srt');
         const translationResult = await translateSubtitles(subtitlePath, translatedPath, {
@@ -969,7 +974,11 @@ async function executeRenderTask(task) {
           opencodeModel: body.opencodeModel,
           openaiApiKey: body.openaiApiKey,
           openaiModel: body.openaiModel,
-          targetLang
+          targetLang,
+          srcLang: originalIsChinese
+            ? 'zho_Hans'
+            : (body.whisperLanguage || body.ocrLanguage || 'auto'),
+          translationStyles: body.translationStyles
         }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
         task.translationReport = translationResult?.report || null;
         finalSubtitlePath = translatedPath;
@@ -1908,7 +1917,7 @@ async function executeRenderTask(task) {
           mirrored: flipEnabled
         });
         blurFilterString = timedBlur.filter;
-        console.log('[Studio Mask] ViralCrawl style:', JSON.stringify(timedBlur.stats));
+        console.log('[Studio Mask] OCR timing:', JSON.stringify(timedBlur.stats));
       }
     }
 
@@ -2356,6 +2365,7 @@ function createRenderQueueHandlers(dependencies = {}) {
         'openaiApiKey',
         'openaiModel',
         'translateTargetLang',
+        'translationStyles',
         'whisperModel',
         'whisperOnnxVariant'
       ];

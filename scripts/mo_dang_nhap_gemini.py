@@ -19,11 +19,23 @@ if not (os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or "").strip():
     except Exception:
         pass
 
+def clean_profile_locks(profile_dir):
+    if not profile_dir or not os.path.exists(profile_dir):
+        return
+    for name in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"):
+        fp = os.path.join(profile_dir, name)
+        try:
+            if os.path.lexists(fp):
+                os.remove(fp)
+        except Exception:
+            pass
+
 def main():
     profile = os.environ.get("GEMINI_PROFILE_DIR")
     if not profile:
         profile = os.path.join(tempfile.gettempdir(), "vc_gemini_profile")
     os.makedirs(profile, exist_ok=True)
+    clean_profile_locks(profile)
 
     print("====================================================")
     print("MỞ TRÌNH DUYỆT ĐĂNG NHẬP GEMINI (PERSISTENT PROFILE)")
@@ -33,13 +45,17 @@ def main():
     print("====================================================")
 
     with sync_playwright() as pw:
+        clean_profile_locks(profile)
         ctx = pw.chromium.launch_persistent_context(
             profile,
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
-                "--no-sandbox"
+                "--disable-gpu",
+                "--no-sandbox",
+                "--no-first-run",
+                "--no-default-browser-check"
             ],
             viewport={"width": 1200, "height": 900}
         )

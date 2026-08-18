@@ -46,7 +46,7 @@ test('crawler keeps Python Playwright browsers isolated from Node Playwright', (
   assert.match(setupSource, /ms-playwright-python/);
 });
 
-test('packaging keeps the complete ViralCrawl OCR source and runtime dependencies', () => {
+test('packaging keeps the complete RapidOCR source and runtime dependencies', () => {
   const requirements = fs.readFileSync(path.join(root, 'tools', 'crawler', 'requirements-crawler.txt'), 'utf8');
   for (const dependency of ['rapidocr==3.9.1', 'rapidocr-onnxruntime==1.4.4', 'onnxruntime==1.26.0', 'zhconv==1.4.3']) {
     assert.match(requirements, new RegExp(dependency.replace(/[.-]/g, '\\$&')));
