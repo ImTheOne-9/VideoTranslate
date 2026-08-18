@@ -175,7 +175,7 @@ export default function Payment({ isDevMode, showToast }) {
   const amount = keyDetails.price !== undefined ? keyDetails.price : (keyDetails.planType === 'monthly' ? 299000 : 1499000);
   const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
   const keyRef = licenseKey.split('-')[1];
-  const memo = `VST ${keyRef}`;
+  const memo = `VST${keyRef}`;
   const bankCode = keyDetails.bankCode || 'MB';
   const bankAccount = keyDetails.bankAccount || '0385464403';
   const bankAccountName = keyDetails.bankAccountName || 'DOAN VIET HOANG';

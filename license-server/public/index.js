@@ -642,8 +642,8 @@ function renderPaymentInstruction(keyObj) {
 
   const amount = keyObj.price !== undefined ? keyObj.price : (keyObj.planType === 'monthly' ? 199000 : 1499000);
   const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
-  const keyRef = keyObj.key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
-  const memo = `VST ${keyRef}`;
+  const keyRef = keyObj.key.split('-')[1]; // STUDIO-XXXXXXXX-... => VSTXXXXXXXX
+  const memo = `VST${keyRef}`;
   
   const qrUrl = `https://img.vietqr.io/image/MB-0352516480-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=HOANG%20DEVS`;
 
