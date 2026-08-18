@@ -67,6 +67,15 @@
             </svg></span>
           <strong>Tải video</strong>
         </button>
+        <button class="nav-btn" data-view="crawl-history" title="Lịch sử cào">
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 14" />
+              <path d="M3 12H1m22 0h-2" />
+            </svg></span>
+          <strong>Lịch sử cào</strong>
+        </button>
         <button class="nav-btn" data-view="studio" title="Render studio">
           <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">
@@ -245,7 +254,7 @@
               <div class="panel-head crawl-now-heading">
                 <div>
                   <h3>⚡ Cào ngay — tải video về máy</h3>
-                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b></span>
+                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Cài bộ cào</button></span>
                 </div>
                 <span class="crawl-now-status-pill" id="crawl-now-ready">Sẵn sàng</span>
               </div>
@@ -258,9 +267,10 @@
               </div>
 
               <div class="crawl-login-panel">
-                <div class="crawl-side-head"><b>🔑 Đăng nhập nền tảng</b><button type="button" class="crawl-link-btn" onclick="crawlLoadLoginStatus()">Kiểm tra lại</button></div>
-                <p>Nền tảng Trung Quốc dùng MediaCrawler; TikTok, Facebook, Instagram và X dùng profile của ViralCrawl. Bấm thẻ để đăng nhập đúng profile.</p>
+                <div class="crawl-side-head"><div><b>🔑 Đăng nhập nền tảng</b><small>Chỉ cần thực hiện lần đầu trên máy này</small></div><button type="button" class="crawl-login-refresh" onclick="crawlLoadLoginStatus()">↻ Kiểm tra lại</button></div>
+                <p>Chọn đúng nền tảng, bấm <b>Đăng nhập</b>, hoàn tất trong cửa sổ trình duyệt rồi đóng cửa sổ để lưu phiên.</p>
                 <div class="crawl-login-grid" id="crawl-login-grid"></div>
+                <div class="crawl-login-legend"><span class="in">● Đã đăng nhập</span><span class="out">● Chưa đăng nhập</span><span class="na">● Không bắt buộc</span></div>
               </div>
 
               <div class="crawl-now-label">Chọn nền tảng</div>
@@ -272,10 +282,7 @@
                 <button type="button" class="crawl-platform" data-platform="xiaohongshu"><b>小</b><span>Xiaohongshu</span><small id="crawl-count-xiaohongshu">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="rednote"><b>小</b><span>RedNote</span><small id="crawl-count-rednote">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="facebook"><b>f</b><span>Facebook</span><small id="crawl-count-facebook">0 đã cào</small></button>
-                <button type="button" class="crawl-platform" data-platform="weibo"><b>微</b><span>Weibo</span><small id="crawl-count-weibo">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="instagram"><b>◎</b><span>Instagram</span><small id="crawl-count-instagram">0 đã cào</small></button>
-                <button type="button" class="crawl-platform" data-platform="twitter"><b>𝕏</b><span>Twitter/X</span><small id="crawl-count-twitter">0 đã cào</small></button>
-                <button type="button" class="crawl-platform" data-platform="reddit"><b>r/</b><span>Reddit</span><small id="crawl-count-reddit">0 đã cào</small></button>
               </div>
 
               <div class="crawl-now-label">Cách cào</div>
@@ -298,11 +305,12 @@
                 <label>Like tối thiểu<input type="number" id="crawl-now-min-like" value="0" min="0"></label>
                 <label>Lượt xem tối thiểu<input type="number" id="crawl-now-min-view" value="0" min="0"></label>
                 <label>Trong số ngày gần đây<input type="number" id="crawl-now-days" value="0" min="0" placeholder="0 = tất cả"></label>
+                <label id="crawl-now-quality-wrap" class="hidden">Chất lượng Bilibili<select id="crawl-now-quality"><option value="1080" selected>Tối đa 1080p</option><option value="best">Cao nhất có thể</option><option value="720">Tối đa 720p</option><option value="480">Tối đa 480p</option><option value="360">Tối đa 360p</option></select></label>
               </div>
 
               <label class="crawl-check-row">
                 <input type="checkbox" id="crawl-now-skip-dupe" checked>
-                <span><b>Cào không trùng</b> — MediaCrawler đào sâu nền tảng hỗ trợ; ViralCrawl yt-dlp dùng archive để bỏ qua video đã tải.</span>
+                <span><b>Cào không trùng</b> — MediaCrawler đào sâu nền tảng hỗ trợ; Video Studio yt-dlp dùng archive để bỏ qua video đã tải.</span>
               </label>
 
               <div class="crawl-action-grid">
@@ -321,7 +329,7 @@
                     <button type="button" class="ghost-btn" id="crawl-preview-more" onclick="crawlLoadMore()">＋ Tải thêm</button>
                     <button type="button" class="primary-btn" onclick="crawlEnqueueSelected()">Cào video đã chọn</button>
                   </div>
-                  <div class="crawl-preview-grid" id="crawl-preview-grid" onscroll="crawlPreviewScroll(this)"></div>
+                  <div class="crawl-preview-grid" id="crawl-preview-grid"></div>
                 </div>
               </div>
 
@@ -342,11 +350,6 @@
                 <div class="crawl-queue-list" id="crawl-queue-list"></div>
                 <div class="crawl-retry-platforms" id="crawl-retry-platforms"></div>
                 <div class="crawl-queue-actions"><button type="button" class="crawl-link-btn" id="crawl-pause-btn" onclick="crawlTogglePause()">⏸ Dừng sau task này</button><button type="button" class="crawl-link-btn" onclick="crawlRetryAll()">↻ Thử lại tất cả lỗi</button></div>
-              </div>
-              <div class="panel crawl-support-note">
-                <b>Khả năng hiện tại</b>
-                <p id="crawl-capability-note">Đang kiểm tra bộ tải...</p>
-                <button type="button" class="ghost-btn" onclick="switchDownloadMode('single')">Mở tải một link</button>
               </div>
             </aside>
           </div>
@@ -482,7 +485,7 @@
           </div>
         </div>
 
-        <div class="panel" style="margin-top: 14px;">
+        <div class="panel hidden" id="download-history-panel" style="margin-top: 14px;">
           <div class="panel-head" style="margin-bottom: 14px;">
             <h3>Lịch sử tải video</h3>
             <button type="button" class="ghost-btn" id="clear-download-history-btn" onclick="clearDownloadHistory()"
@@ -493,6 +496,45 @@
           </div>
           <div id="download-history-pagination"
             style="display: flex; justify-content: center; gap: 6px; margin-top: 12px;"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-crawl-history">
+        <div class="crawl-history-page-head">
+          <div>
+            <p>Tất cả video đã tìm thấy từ Cào ngay. Video đã tải được làm mờ và vẫn có thể chọn để tải lại.</p>
+          </div>
+          <div class="crawl-history-head-actions">
+            <select id="crawl-history-delete-range" onchange="crawlHistoryDelete(this.value)">
+              <option value="">🗑 Xóa lịch sử...</option><option value="1">Trong 1 giờ qua</option><option value="24">Trong 24 giờ qua</option><option value="168">Trong 7 ngày qua</option><option value="720">Trong 30 ngày qua</option><option value="0">Tất cả lịch sử</option>
+            </select>
+            <button type="button" class="ghost-btn" onclick="crawlLoadHistory()">↻ Làm mới dữ liệu</button>
+          </div>
+        </div>
+
+        <div class="panel crawl-history-page-panel">
+          <div class="crawl-history-toolbar">
+            <input id="crawl-history-query" type="search" placeholder="Tìm tiêu đề, kênh hoặc từ khóa..." oninput="crawlScheduleHistory()">
+            <select id="crawl-history-platform" onchange="crawlLoadHistory()">
+              <option value="">Tất cả nền tảng</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option><option value="douyin">Douyin</option><option value="bilibili">Bilibili</option><option value="xiaohongshu">Xiaohongshu</option><option value="rednote">RedNote</option><option value="facebook">Facebook</option><option value="instagram">Instagram</option>
+            </select>
+            <select id="crawl-history-days" onchange="crawlLoadHistory()">
+              <option value="0">Mọi thời gian</option><option value="1">Hôm nay</option><option value="7">7 ngày qua</option><option value="30">30 ngày qua</option><option value="90">90 ngày qua</option>
+            </select>
+            <select id="crawl-history-mode" onchange="crawlRenderHistory()"><option value="">Mọi kiểu cào</option><option value="search">Theo từ khóa</option><option value="creator">Theo kênh</option><option value="detail">Theo link</option><option value="chase">Theo bộ</option></select>
+            <select id="crawl-history-source" onchange="crawlRenderHistory()"><option value="">Mọi kênh / từ khóa</option></select>
+            <select id="crawl-history-sort" onchange="crawlRenderHistory()"><option value="newest">Mới nhất trước</option><option value="oldest">Cũ nhất trước</option></select>
+            <label class="crawl-history-check"><input id="crawl-history-undownloaded" type="checkbox" onchange="crawlLoadHistory()"> Chỉ chưa tải</label>
+          </div>
+
+          <div class="crawl-history-selection-bar">
+            <label><input id="crawl-history-select-all" type="checkbox" onchange="crawlHistoryToggleAll(this.checked)"> Chọn tất cả đang hiển thị</label>
+            <span id="crawl-history-summary">0 video</span>
+            <span id="crawl-history-selected-count">Đã chọn 0</span>
+            <button type="button" class="primary-btn" id="crawl-history-download-selected" onclick="crawlHistoryDownloadSelected()" disabled>⬇ Tải video đã chọn</button>
+          </div>
+
+          <div id="crawl-history-list" class="crawl-history-list"><div class="crawl-history-empty">Đang đọc lịch sử cào...</div></div>
         </div>
       </section>
 
@@ -983,6 +1025,13 @@
                       <rect x="2" y="2" width="20" height="20" rx="2.18" />
                       <rect x="9" y="9" width="10" height="10" rx="1.5" />
                     </svg></button>
+                  <button type="button" class="config-tab-icon-btn" data-target="panel-logo"
+                    title="Chèn logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <circle cx="9" cy="9" r="2" />
+                      <path d="m21 15-5-5L5 21" />
+                    </svg></button>
                   <button type="button" class="config-tab-icon-btn" data-target="panel-subtitle"
                     title="Phụ đề Subtitle"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                       stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1032,6 +1081,23 @@
 
                     <div id="source-library-container" class="source-section">
                       <label>Chọn video từ thư mục downloads</label>
+                      <div class="studio-video-filters">
+                        <select id="studio-video-platform-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Tất cả nền tảng</option>
+                        </select>
+                        <select id="studio-video-mode-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Mọi kiểu nguồn</option>
+                          <option value="local">Tải đơn lẻ</option>
+                          <option value="detail">Theo link</option>
+                          <option value="search">Theo từ khóa</option>
+                          <option value="creator">Theo kênh</option>
+                          <option value="chase">Theo bộ</option>
+                        </select>
+                        <select id="studio-video-source-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Mọi nguồn</option>
+                        </select>
+                      </div>
+                      <div id="studio-video-filter-summary" class="studio-video-filter-summary">0 video</div>
                       <div id="studio-video-grid" class="studio-video-grid">
                         <!-- Video grid items will be inserted here dynamically -->
                       </div>
@@ -1137,6 +1203,87 @@
                     </div>
                   </div>
 
+                  <!-- Panel: Chèn logo -->
+                  <div id="panel-logo" class="panel hidden">
+                    <div class="panel-head logo-panel-head">
+                      <div>
+                        <h3>Chèn logo</h3>
+                        <p>Thêm nhận diện thương hiệu vào video</p>
+                      </div>
+                    </div>
+                    <div class="studio-source-tabs logo-source-tabs">
+                      <button type="button" class="logo-tab-btn active" data-logo-mode="none">Không ghép</button>
+                      <button type="button" class="logo-tab-btn" data-logo-mode="saved">Logo đã tải</button>
+                      <button type="button" class="logo-tab-btn" data-logo-mode="upload">Tải lên</button>
+                    </div>
+                    <input type="hidden" id="logo-mode" name="logoMode" value="none">
+                    <input type="checkbox" id="logo-enabled" name="logoEnabled" value="true" class="hidden">
+
+                    <div id="logo-saved-wrapper" class="logo-source-card hidden">
+                      <div class="form-group logo-select-group">
+                        <label for="saved-logo-select">Chọn logo trong thư viện</label>
+                        <select id="saved-logo-select" name="savedLogoFile" class="premium-select">
+                          <option value="">-- Chọn logo --</option>
+                        </select>
+                        <span class="form-hint">Logo tải lên được lưu lại để dùng cho các video sau.</span>
+                      </div>
+                    </div>
+
+                    <div id="logo-upload-wrapper" class="logo-source-card hidden">
+                      <div class="form-group logo-upload-group">
+                        <input type="file" id="logo-library-upload" accept=".png,.jpg,.jpeg,.webp" class="hidden-input">
+                        <label for="logo-library-upload" class="premium-upload-zone logo-upload-zone">
+                          <span class="logo-upload-icon">＋</span>
+                          <strong>Chọn logo từ máy</strong>
+                          <small>PNG, JPG hoặc WebP · nên dùng PNG nền trong suốt</small>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div id="logo-settings" class="logo-editor-card hidden">
+                      <div id="selected-logo-preview" class="studio-logo-preview">
+                        <div class="studio-logo-thumb"><img id="selected-logo-image" alt="Logo đã chọn"></div>
+                        <div class="studio-logo-meta">
+                          <span>Logo đang dùng</span>
+                          <strong id="selected-logo-name"></strong>
+                        </div>
+                        <span class="studio-logo-ready">Sẵn sàng</span>
+                      </div>
+                      <div class="logo-control-grid">
+                        <div class="form-group">
+                          <label>Vị trí</label>
+                          <select id="logo-position" name="logoPosition" class="premium-select">
+                            <option value="br">Dưới - Phải</option>
+                            <option value="bl">Dưới - Trái</option>
+                            <option value="tr">Trên - Phải</option>
+                            <option value="tl">Trên - Trái</option>
+                            <option value="center">Chính giữa</option>
+                            <option value="custom">Tự chọn (kéo thả)</option>
+                          </select>
+                        </div>
+                        <div class="form-group logo-drag-hint">
+                          <span>Kéo trực tiếp logo trên màn hình xem trước để đặt vị trí tự do.</span>
+                        </div>
+                      </div>
+                      <input type="hidden" id="logo-x-percent" name="logoXPercent" value="80">
+                      <input type="hidden" id="logo-y-percent" name="logoYPercent" value="85">
+                      <div class="logo-slider-grid">
+                        <div class="form-group">
+                          <label>Kích thước <span id="logo-width-val" class="logo-control-value">18%</span></label>
+                          <input id="logo-width-percent" name="logoWidthPercent" type="range" min="3" max="60" step="1" value="18">
+                        </div>
+                        <div class="form-group">
+                          <label>Độ hiển thị <span id="logo-opacity-val" class="logo-control-value">90%</span></label>
+                          <input id="logo-opacity" name="logoOpacity" type="range" min="0.05" max="1" step="0.05" value="0.9">
+                        </div>
+                      </div>
+                      <div class="sub-settings-grid logo-time-grid">
+                        <div><label>Bắt đầu (giây)</label><input id="logo-start" name="logoStart" type="number" min="0" step="0.1" value="0" class="premium-input"></div>
+                        <div><label>Kết thúc (giây)</label><input id="logo-end" name="logoEnd" type="number" min="0" step="0.1" placeholder="Đến hết video" class="premium-input"></div>
+                      </div>
+                    </div>
+                  </div>
+
                   <!-- Panel 3: Phụ đề -->
                   <div id="panel-subtitle" class="panel premium-sub-panel hidden">
                     <div class="panel-head">
@@ -1193,6 +1340,19 @@
                           <option value="korean">Hàn</option>
                         </select>
                       </div>
+                      <div class="form-group ocr-engine-settings">
+                        <label for="ocr-pipeline-value">Bộ OCR</label>
+                        <select id="ocr-pipeline-value" name="ocrPipeline" class="premium-select">
+                          <option value="auto" selected>Tự động</option>
+                          <option value="viral">RapidOCR — quét toàn khung hình</option>
+                          <option value="vse">VSE — dùng vùng OCR đã chọn</option>
+                        </select>
+                        <span id="ocr-pipeline-hint" class="form-hint">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
+                        <div id="rapidocr-runtime-row" class="hidden" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(8,12,16,.35);">
+                          <span id="rapidocr-runtime-status" class="form-hint" style="margin:0;">Đang kiểm tra RapidOCR...</span>
+                          <button type="button" id="rapidocr-runtime-install-btn" class="ocr-icon-btn" style="width:auto;padding:7px 10px;white-space:nowrap;">Tải RapidOCR</button>
+                        </div>
+                      </div>
                       <div class="form-group whisper-engine-settings">
                         <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
                         <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
@@ -1222,8 +1382,16 @@
                         </select>
                         <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>
                       </div>
-                      <details class="ocr-region-details ocr-engine-settings">
+                      <details class="ocr-region-details ocr-engine-settings ocr-region-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
+                        <div class="form-group" style="margin-top: 10px;">
+                          <label for="ocr-region-strategy">Cách chọn vùng OCR</label>
+                          <select id="ocr-region-strategy" name="ocrRegionStrategy" class="premium-select">
+                            <option value="auto" selected>Tự dò khi vùng chính thiếu chữ</option>
+                            <option value="manual">Chỉ dùng vùng đã chọn</option>
+                          </select>
+                          <span class="form-hint">Tự dò sẽ thử thêm vùng dưới, giữa và trên rồi chọn SRT đạt chất lượng tốt nhất.</span>
+                        </div>
                         <div class="ocr-region-grid">
                           <label>Trên<input id="ocr-region-top" type="number" value="0.70" min="0" max="1" step="0.01"></label>
                           <label>Dưới<input id="ocr-region-bottom" type="number" value="0.98" min="0" max="1" step="0.01"></label>
@@ -1242,8 +1410,8 @@
                       style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
                       <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng làm
-                          mờ</label>
+                        <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng che
+                          thủ công</label>
                         <button type="button" class="premium-dropdown-btn"
                           style="padding: 4px 10px; font-size: 11px; height: auto; margin: 0; background: var(--accent); color: white;"
                           onclick="addBlurBox()">Thêm vùng</button>
@@ -1703,6 +1871,20 @@
                           <option value="vi">Việt Nam</option>
                           <option value="en">English</option>
                           <option value="zh">Trung Quốc</option>
+                          <option value="ja">日本語</option>
+                          <option value="ko">한국어</option>
+                          <option value="th">ไทย</option>
+                          <option value="fr">Français</option>
+                          <option value="es">Español</option>
+                          <option value="pt">Português</option>
+                          <option value="de">Deutsch</option>
+                          <option value="it">Italiano</option>
+                          <option value="ru">Русский</option>
+                          <option value="id">Bahasa Indonesia</option>
+                          <option value="ms">Bahasa Melayu</option>
+                          <option value="ar">العربية</option>
+                          <option value="hi">हिन्दी</option>
+                          <option value="tr">Türkçe</option>
                         </select>
                       </div>
                       <p id="output-lang-info" style="font-size: 11px; color: var(--muted); margin: 2px 0 0 0;"></p>
@@ -2826,7 +3008,7 @@
             <div class="dl-config-group">
               <label>Dịch phụ đề bằng (AI Provider)</label>
               <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
-                <option value="gemini-web" selected>🌐 Gemini Web Automation (Miễn phí & Tự nhiên - Mặc định)</option>
+                <option value="gemini-web" selected>🌐 Gemini Web · Dịch phụ đề thông minh (Mặc định)</option>
                 <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
                 <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
                 <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
@@ -2869,6 +3051,14 @@
                   <option value="de">Tiếng Đức (German)</option>
                   <option value="es">Tiếng Tây Ban Nha (Spanish)</option>
                   <option value="th">Tiếng Thái (Thai)</option>
+                  <option value="pt">Tiếng Bồ Đào Nha (Portuguese)</option>
+                  <option value="it">Tiếng Ý (Italian)</option>
+                  <option value="ru">Tiếng Nga (Russian)</option>
+                  <option value="id">Tiếng Indonesia (Indonesian)</option>
+                  <option value="ms">Tiếng Malaysia (Malay)</option>
+                  <option value="ar">Tiếng Ả Rập (Arabic)</option>
+                  <option value="hi">Tiếng Hindi (Hindi)</option>
+                  <option value="tr">Tiếng Thổ Nhĩ Kỳ (Turkish)</option>
                 </select>
               </div>
               <div class="dl-config-group">
@@ -3194,7 +3384,7 @@
             <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
             <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()"
               style="margin: 0; height: 38px;">
-              <option value="gemini-web" selected>🌐 Gemini Web Automation (Miễn phí &amp; Tự nhiên - Mặc định)</option>
+              <option value="gemini-web" selected>🌐 Gemini Web · Dịch phụ đề thông minh (Mặc định)</option>
               <option value="nllb">🤖 AI Dịch Offline NLLB-200 (Nhẹ &amp; Không cần mạng)</option>
               <option value="google-translate">🌐 Google Translate (An toàn &amp; Khuyên dùng)</option>
               <option value="openai">💬 ChatGPT OpenAI (Cần API Key &amp; chọn Model)</option>
@@ -3210,7 +3400,20 @@
             style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
             <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tài khoản Google Gemini Web</label>
-              <p style="font-size: 11px; color: var(--muted); margin: 0;">Đăng nhập tài khoản Google của bạn trên cửa sổ Chrome Playwright 1 lần để sử dụng dịch Gemini Web hoàn toàn miễn phí.</p>
+              <p style="font-size: 11px; color: var(--muted); margin: 0;">Giới hạn số từ theo thời lượng, giữ đúng 1 cue gốc → 1 cue dịch, kiểm tra chữ Hán/gộp câu, ghi lũy tiến và dịch lại cue lỗi bằng Gemini Web. Không tự chuyển sang NLLB.</p>
+              <div class="form-group" style="margin-top: 8px;">
+                <label style="font-size: 12px; font-weight: 600; color: var(--text);">Phong cách dịch (có thể chọn nhiều)</label>
+                <div id="global-translation-style-options" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 7px;">
+                  <label><input type="checkbox" value="hai_huoc"> Hài hước</label>
+                  <label><input type="checkbox" value="viral"> Viral TikTok</label>
+                  <label><input type="checkbox" value="kich_tinh"> Kịch tính</label>
+                  <label><input type="checkbox" value="cam_xuc"> Cảm xúc</label>
+                  <label><input type="checkbox" value="doi_thuong"> Đời thường</label>
+                  <label><input type="checkbox" value="van_hoc"> Văn học</label>
+                  <label><input type="checkbox" value="ngan_gon"> Ngắn gọn</label>
+                </div>
+                <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">Không chọn = Gemini tự nhận diện thể loại và giữ văn phong phù hợp.</p>
+              </div>
               <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
                 <button type="button" class="premium-render-btn ghost-btn"
                   style="margin: 0; width: auto; padding: 0 14px; height: 36px; font-size: 12px; border-color: #4285f4; color: #4285f4;"

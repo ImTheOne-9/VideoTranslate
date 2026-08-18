@@ -121,6 +121,9 @@ module.exports = {
         timeout: 10000
       });
       res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+      // Thumbnail URLs are stable enough for the browser to reuse between views.
+      // This avoids re-fetching the same remote image whenever history is rendered.
+      res.set('Cache-Control', 'public, max-age=86400');
       response.data.pipe(res);
     } catch (error) {
       console.error('Proxy image error:', error.message);
@@ -321,7 +324,7 @@ module.exports = {
     });
 
     try {
-      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, translateTargetLang } = req.query;
+      let { url, aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, translateTargetLang, translationStyles } = req.query;
       url = shared.extractUrl(url);
       if (!url) return res.status(400).json({ error: 'Thiếu URL' });
       if (!shared.isValidVideoUrl(url)) return res.status(400).json({ error: 'URL không hợp lệ' });
@@ -377,7 +380,7 @@ module.exports = {
         const dlTargetLang = translateTargetLang || 'vi';
         const dlCharRatio = dlTargetLang === 'zh' ? 1.0 : 0.5;
         const downloadMaxChars = Math.max(10, Math.floor(downloadBoxWidth / (downloadFontSize * dlCharRatio)));
-        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, targetLang: dlTargetLang }, downloadMaxLines, downloadMaxChars);
+        await translateSubtitles(actualSubPath, translatedSubPath, { aiProvider, geminiApiKey, geminiModel, openRouterApiKey, openRouterModel, ninerouterApiKey, ninerouterModel, ninerouterBaseUrl, opencodeModel, targetLang: dlTargetLang, translationStyles }, downloadMaxLines, downloadMaxChars);
 
         let hasSubtitles = false;
         try {
@@ -624,7 +627,7 @@ module.exports = {
           const downloadMarginH = Number(subtitleMarginH || 20);
           let downloadWidth = 1080;
           try {
-            const ffprobePath = shared.FFMPEG_PATH.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
+            const ffprobePath = shared.FFPROBE_PATH;
             if (fs.existsSync(ffprobePath)) {
               const { execFileSync } = require('child_process');
               const widthOut = execFileSync(ffprobePath, [

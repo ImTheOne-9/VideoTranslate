@@ -99,6 +99,46 @@ test('specialized browser preview resolver also honors deep-new history', async 
   }
 });
 
+test('specialized preview streams normalized items before returning the final result', async () => {
+  const directory = makeTempDir();
+  try {
+    const streamed = [];
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({ DOWNLOADS_DIR: directory }),
+      downloadsDir: directory,
+      previewResolvers: {
+        'douyin:search': async ({ onItem }) => {
+          onItem({ id: 'live', title: 'Live', url: 'https://douyin.test/live' });
+          return [{ id: 'live', title: 'Live', url: 'https://douyin.test/live' }];
+        }
+      }
+    });
+    const result = await manager.preview(
+      { platform: 'douyin', mode: 'search', input: 'cat', count: 5, deepNew: false },
+      { onItem: (item) => streamed.push(item) }
+    );
+    assert.equal(streamed.length, 1);
+    assert.equal(streamed[0].key, 'douyin:live');
+    assert.equal(result.items[0].id, 'live');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('preview capability is separate from crawl capability', async () => {
+  const directory = makeTempDir();
+  try {
+    const manager = new DownloadCrawlManager({ shared: makeShared({ DOWNLOADS_DIR: directory }), downloadsDir: directory });
+    assert.equal(manager.capabilities().xiaohongshu.detail, true);
+    await assert.rejects(
+      manager.preview({ platform: 'xiaohongshu', mode: 'detail', input: 'https://www.xiaohongshu.com/explore/abc', count: 1 }),
+      /chưa hỗ trợ xem trước ổn định/
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('queue pause, retry and stats expose persistent operator controls', () => {
   const directory = makeTempDir();
   try {
@@ -206,7 +246,7 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
         douyin: async (config, hooks) => {
           received = config;
           hooks.onLog('đang tải trang 1');
-          return { engine: 'MediaCrawler', outputDir: directory, completedVideos: 7 };
+          return { engine: 'MediaCrawler', outputDir: directory, completedVideos: 7, failedVideos: 2 };
         }
       }
     });
@@ -218,6 +258,28 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
     assert.equal(task.status, 'success');
     assert.equal(task.engine, 'MediaCrawler');
     assert.equal(task.completedVideos, 7);
+    assert.equal(task.failedVideos, 2);
+    assert.match(task.step, /Hoàn tất 7, lỗi 2/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('selected detail job persists the original crawl source for output grouping', () => {
+  const directory = makeTempDir();
+  try {
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({ DOWNLOADS_DIR: directory }), downloadsDir: directory
+    });
+    manager._processQueue = () => {};
+    const { taskId } = manager.enqueueJob({
+      platform: 'tiktok', mode: 'detail', input: 'https://www.tiktok.com/@demo/video/1', count: 1,
+      sourceMode: 'search', sourceInput: 'mèo vui'
+    });
+    const config = manager.tasks.find((task) => task.id === taskId).config;
+    assert.equal(config.mode, 'detail');
+    assert.equal(config.sourceMode, 'search');
+    assert.equal(config.sourceInput, 'mèo vui');
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

@@ -1,0 +1,140 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
+
+const { getViralOcrStatus, runViralOcr } = require('../lib/viral-ocr-helper');
+
+function preparePaths(root) {
+  const appRoot = path.join(root, 'app');
+  const runtimeRoot = path.join(root, 'runtime');
+  const moduleRoot = path.join(appRoot, 'viral_ocr');
+  const python = path.join(runtimeRoot, 'venv', 'Scripts', 'python.exe');
+  fs.mkdirSync(path.dirname(python), { recursive: true });
+  fs.mkdirSync(moduleRoot, { recursive: true });
+  fs.writeFileSync(python, 'python');
+  fs.writeFileSync(path.join(runtimeRoot, 'ocr-runtime-v2.json'), '{}');
+  for (const filename of ['viral_ocr_cli.py', 'dai_sub_rapid.py', 'ocr_text.py']) {
+    fs.writeFileSync(path.join(moduleRoot, filename), '# test');
+  }
+  return { bundledRoot: root, userRoot: root, runtimeRoot, appRoot, python };
+}
+
+function fakeProcess(onStart) {
+  const process = new EventEmitter();
+  process.pid = 456;
+  process.stdout = new PassThrough();
+  process.stderr = new PassThrough();
+  queueMicrotask(() => onStart(process));
+  return process;
+}
+
+test('Viral OCR status requires project runtime marker and all copied pipeline modules', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-ocr-status-'));
+  try {
+    const options = preparePaths(root);
+    assert.equal(getViralOcrStatus(options).ready, true);
+    fs.rmSync(path.join(options.appRoot, 'viral_ocr', 'ocr_text.py'));
+    const status = getViralOcrStatus(options);
+    assert.equal(status.ready, false);
+    assert.match(status.missing.join(' '), /ocr_text\.py/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Viral OCR runner invokes the copied Python pipeline and forwards progress', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-ocr-run-'));
+  try {
+    const pathOptions = preparePaths(root);
+    const outputPath = path.join(root, 'work', 'ocr.srt');
+    const reportPath = path.join(root, 'work', 'report.json');
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    const progress = [];
+    let invocation;
+    const result = await runViralOcr({
+      videoPath: path.join(root, 'video.mp4'),
+      outputPath,
+      reportPath,
+      device: 'gpu',
+      model: 'v6-medium',
+      pathOptions,
+      onProgress: (event) => progress.push(event),
+      spawnImpl: (command, args, options) => {
+        invocation = { command, args, options };
+        return fakeProcess((child) => {
+          fs.writeFileSync(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n你好\n');
+          fs.writeFileSync(reportPath, '{"cueCount":3,"blurBoxes":[]}');
+          child.stdout.write('{"stage":"progress","pct":55}\n');
+          child.stdout.write('{"stage":"result","cues":3,"boxes":2}\n');
+          child.stdout.end();
+          child.emit('close', 0);
+        });
+      }
+    });
+
+    assert.equal(result.kind, 'success');
+    assert.equal(invocation.command, pathOptions.python);
+    assert.ok(invocation.args.includes('v6-medium'));
+    assert.ok(invocation.args.includes('gpu'));
+    assert.equal(progress[0].pct, 55);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Viral OCR runner forwards the actual RapidOCR device log to the UI', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-ocr-device-log-'));
+  try {
+    const pathOptions = preparePaths(root);
+    const outputPath = path.join(root, 'work', 'ocr.srt');
+    const reportPath = path.join(root, 'work', 'report.json');
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    const progress = [];
+    await runViralOcr({
+      videoPath: 'video.mp4', outputPath, reportPath, pathOptions,
+      onProgress: (event) => progress.push(event),
+      spawnImpl: () => fakeProcess((child) => {
+        fs.writeFileSync(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n你好\n');
+        fs.writeFileSync(reportPath, '{"cueCount":1,"blurBoxes":[]}');
+        child.stdout.write('LOG:👁 RapidOCR GPU đang hoạt động (CUDAExecutionProvider).\n');
+        child.stdout.write('{"stage":"result","cues":1,"boxes":1}\n');
+        child.stdout.end();
+        child.emit('close', 0);
+      })
+    });
+    assert.equal(progress[0].kind, 'log');
+    assert.match(progress[0].message, /RapidOCR GPU/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Viral OCR runner preserves a zero-cue report as a confirmed no-subtitles result', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-ocr-empty-'));
+  try {
+    const pathOptions = preparePaths(root);
+    const outputPath = path.join(root, 'work', 'ocr.srt');
+    const reportPath = path.join(root, 'work', 'report.json');
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    const result = await runViralOcr({
+      videoPath: 'video.mp4',
+      outputPath,
+      reportPath,
+      pathOptions,
+      spawnImpl: () => fakeProcess((child) => {
+        fs.writeFileSync(outputPath, '');
+        fs.writeFileSync(reportPath, '{"cueCount":0,"blurBoxes":[]}');
+        child.stdout.write('{"stage":"result","cues":0,"boxes":0}\n');
+        child.stdout.end();
+        child.emit('close', 2);
+      })
+    });
+    assert.equal(result.kind, 'no_subtitles');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

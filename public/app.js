@@ -40,6 +40,7 @@ function setBusy(button, busy, text) {
 
 let pendingSwitchViewName = null;
 let studioAssetsReady = false;
+let studioVideoRefreshPromise = null;
 
 function closeSaveProjectConfirmModal() {
   const modal = $('save-project-confirm-modal');
@@ -104,7 +105,12 @@ function executeSwitchView(name) {
   $('view-desc').textContent = views[name].desc;
   if (name === 'library') {
     switchLibraryTab(currentLibraryTab);
+  } else if (name === 'crawl-history') {
+    crawlLoadHistory();
   } else if (name === 'studio') {
+    refreshStudioVideoAssets().catch((error) => {
+      console.error('Không cập nhật được Video nguồn:', error);
+    });
     const homeView = $('studio-home-view');
     const editorView = $('studio-editor-view');
     if (homeView) homeView.classList.remove('hidden');
@@ -175,12 +181,13 @@ function refreshStudioPreviewLayout() {
 // Setup bottom configuration tabs switcher
 document.querySelectorAll('.config-tab-icon-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.config-tab-icon-btn').forEach(b => b.classList.remove('active'));
+    const tabButtons = Array.from(document.querySelectorAll('.config-tab-icon-btn'));
+    tabButtons.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const targetPanelId = btn.dataset.target;
 
-    const panels = ['panel-source-video', 'panel-reaction', 'panel-subtitle', 'panel-voice', 'panel-music'];
-    panels.forEach(id => {
+    const panelIds = [...new Set(tabButtons.map(button => button.dataset.target).filter(Boolean))];
+    panelIds.forEach(id => {
       const el = $(id);
       if (el) el.classList.toggle('hidden', id !== targetPanelId);
     });
@@ -346,14 +353,14 @@ async function loadAssets() {
   }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
-  renderVideoGrid(assets.videos);
-  renderReactionVideoGrid(assets.videos);
+  applyStudioVideoAssets(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   renderQuickVoices();
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
   renderQuickMusic();
+  fillSelect('saved-logo-select', assets.logos || [], '-- Chọn logo --');
+  updateLogoUi();
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
-  renderAssetList('asset-videos', assets.videos);
   renderAssetList('asset-voices', assets.voices);
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
@@ -938,6 +945,7 @@ function updateOcrLanguages(languages) {
     select.appendChild(option);
   });
   if (normalized.some(language => language.id === previous)) select.value = previous;
+  updateOcrPipelineUi();
 }
 
 async function refreshOcrComponentStatusForUi() {
@@ -1033,6 +1041,7 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
+const OCR_PIPELINES = new Set(['auto', 'viral', 'vse']);
 const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
 const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
 const WHISPER_DEVICES = new Set(['auto', 'cpu', 'dml']);
@@ -1071,8 +1080,46 @@ function updateSubtitleEngineUi() {
   document.querySelectorAll('.whisper-engine-settings').forEach(element => {
     element.classList.toggle('hidden', engine === 'ocr');
   });
-  updateOcrRegionOverlay();
+  updateOcrPipelineUi();
   return engine;
+}
+
+function isChineseOcrLanguage() {
+  return ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String($('ocr-language-select')?.value || '').toLowerCase());
+}
+
+function usesRapidOcrUi() {
+  const pipeline = $('ocr-pipeline-value')?.value;
+  return pipeline === 'viral' || (pipeline === 'auto' && isChineseOcrLanguage());
+}
+
+function updateOcrPipelineUi() {
+  const input = $('ocr-pipeline-value');
+  if (!input) return 'auto';
+  let pipeline = OCR_PIPELINES.has(input.value) ? input.value : 'auto';
+  const chinese = isChineseOcrLanguage();
+  if (pipeline === 'viral' && !chinese) {
+    pipeline = 'auto';
+    input.value = pipeline;
+  }
+  const rapidOption = input.querySelector('option[value="viral"]');
+  if (rapidOption) rapidOption.disabled = !chinese;
+  const usesRapid = usesRapidOcrUi();
+  const shouldHideRegion = $('subtitle-engine-value')?.value === 'whisper' || usesRapid;
+  document.querySelectorAll('.ocr-region-settings').forEach(element => {
+    element.classList.toggle('hidden', shouldHideRegion);
+  });
+  const hint = $('ocr-pipeline-hint');
+  if (hint) {
+    hint.textContent = usesRapid
+      ? 'RapidOCR tự quét và theo dõi chữ trên toàn khung hình; không dùng vùng OCR thủ công.'
+      : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
+  }
+  updateOcrRegionOverlay();
+  const showRapidRuntime = usesRapid && $('subtitle-engine-value')?.value !== 'whisper';
+  updateRapidOcrRuntimeUi({ visible: showRapidRuntime });
+  if (showRapidRuntime) void refreshRapidOcrRuntimeStatusForUi();
+  return pipeline;
 }
 
 function updateWhisperOnnxVariantButtons() {
@@ -1120,6 +1167,7 @@ function updateOcrRegionOverlay() {
   const wrapper = $('video-preview-wrapper');
   const shouldShow = $('subtitle-mode')?.value === 'generate'
     && $('subtitle-engine-value')?.value !== 'whisper'
+    && !usesRapidOcrUi()
     && wrapper
     && !wrapper.classList.contains('hidden');
   if (!overlay || !shouldShow) {
@@ -1224,11 +1272,13 @@ document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
     if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
     input.value = button.dataset.subtitleEngine;
     const engine = updateSubtitleEngineUi();
-    if (engine !== 'whisper' && $('subtitle-mode')?.value === 'generate') {
+    if (engine !== 'whisper' && !usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
       refreshOcrComponentStatusForUi();
     }
   });
 });
+$('ocr-pipeline-value')?.addEventListener('change', updateOcrPipelineUi);
+$('ocr-language-select')?.addEventListener('change', updateOcrPipelineUi);
 document.querySelectorAll('.ocr-mode-btn').forEach(button => {
   button.addEventListener('click', () => {
     const input = $('ocr-mode-value');
@@ -1253,6 +1303,108 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 });
 
 initOcrRegionOverlay();
+
+let rapidOcrRuntimeInstallPromise = null;
+
+function updateRapidOcrRuntimeUi({ visible, status } = {}) {
+  const row = $('rapidocr-runtime-row');
+  const label = $('rapidocr-runtime-status');
+  const button = $('rapidocr-runtime-install-btn');
+  if (!row || !label || !button) return;
+  if (visible !== undefined) row.classList.toggle('hidden', !visible);
+  if (row.classList.contains('hidden') || !status) return;
+
+  if (status.ready) {
+    label.textContent = 'RapidOCR đã sẵn sàng.';
+    button.textContent = 'Đã sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'installing') {
+    const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
+    label.textContent = status.message || `Đang cài RapidOCR${percent}…`;
+    button.textContent = `Đang tải${percent}`;
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'error') {
+    label.textContent = status.error || status.message || 'Cài RapidOCR chưa thành công.';
+    button.textContent = 'Thử lại';
+    button.disabled = false;
+    return;
+  }
+  label.textContent = 'RapidOCR chưa được cài trên máy này.';
+  button.textContent = 'Tải RapidOCR';
+  button.disabled = false;
+}
+
+async function readRapidOcrRuntimeStatus() {
+  const response = await fetch('/api/download-crawl/runtime-status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được runtime RapidOCR.');
+  return status;
+}
+
+async function refreshRapidOcrRuntimeStatusForUi() {
+  if (!usesRapidOcrUi()) return null;
+  try {
+    const status = await readRapidOcrRuntimeStatus();
+    updateRapidOcrRuntimeUi({ visible: true, status });
+    return status;
+  } catch (error) {
+    updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    return null;
+  }
+}
+
+async function installRapidOcrRuntime() {
+  if (rapidOcrRuntimeInstallPromise) return rapidOcrRuntimeInstallPromise;
+  rapidOcrRuntimeInstallPromise = (async () => {
+    let status = await readRapidOcrRuntimeStatus();
+    if (status.ready) {
+      updateRapidOcrRuntimeUi({ visible: true, status });
+      return true;
+    }
+    const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const installResult = await installResponse.json();
+    if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
+    toast('Đang cài/cập nhật runtime RapidOCR. Chỉ cần thực hiện một lần.', 'info');
+
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      status = await readRapidOcrRuntimeStatus();
+      updateRapidOcrRuntimeUi({ visible: true, status });
+      if ($('render-status') && status.message) $('render-status').textContent = status.message;
+      if (status.ready) {
+        toast('RapidOCR đã sẵn sàng.', 'success');
+        return true;
+      }
+      if (status.status === 'error') throw new Error(status.error || status.message || 'Cài RapidOCR thất bại.');
+    }
+    throw new Error('Cài RapidOCR quá thời gian chờ.');
+  })();
+  try {
+    return await rapidOcrRuntimeInstallPromise;
+  } finally {
+    rapidOcrRuntimeInstallPromise = null;
+  }
+}
+
+$('rapidocr-runtime-install-btn')?.addEventListener('click', async () => {
+  try {
+    await installRapidOcrRuntime();
+  } catch (error) {
+    updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    toast(error.message, 'error');
+  }
+});
+
+async function ensureViralOcrRuntimeReady() {
+  let status = await readRapidOcrRuntimeStatus();
+  updateRapidOcrRuntimeUi({ visible: true, status });
+  if (status.ready) return true;
+  return installRapidOcrRuntime();
+}
 
 async function renderStudio(event) {
   event.preventDefault();
@@ -1294,9 +1446,18 @@ async function renderStudio(event) {
     if (subtitleEngine !== 'whisper') {
       try {
         data.set('ocrRegion', syncOcrRegion());
-        const ready = await ensureOcrComponentReady();
+        const ocrPipeline = OCR_PIPELINES.has(data.get('ocrPipeline')) ? data.get('ocrPipeline') : 'auto';
+        const isChinese = ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String(data.get('ocrLanguage') || '').toLowerCase());
+        if (ocrPipeline === 'viral' && !isChinese) {
+          toast('RapidOCR hiện chỉ hỗ trợ tiếng Trung. Hãy chọn VSE hoặc đổi ngôn ngữ chữ gốc thành Trung.', 'error');
+          return;
+        }
+        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && isChinese);
+        const ready = usesViralOcr
+          ? await ensureViralOcrRuntimeReady()
+          : await ensureOcrComponentReady();
         if (!ready) return;
-        if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
+        if (!usesViralOcr && currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
           toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
           return;
         }
@@ -1349,6 +1510,11 @@ async function renderStudio(event) {
     return;
   }
 
+  if (data.get('logoMode') === 'saved' && !data.get('savedLogoFile')) {
+    toast('Hãy chọn một logo đã tải trước khi render.', 'error');
+    return;
+  }
+
   // Load global AI settings and set whisperModel
   const aiSettings = getGlobalAiSettings();
   const whisperModel = aiSettings.whisperModel || 'small';
@@ -1373,6 +1539,7 @@ async function renderStudio(event) {
   data.set('opencodeModel', aiSettings.opencodeModel || 'DeepSeek V4 Flash (Free)');
   data.set('openaiApiKey', aiSettings.openaiApiKey || '');
   data.set('openaiModel', aiSettings.openaiModel || 'gpt-4o-mini');
+  data.set('translationStyles', JSON.stringify(aiSettings.translationStyles || []));
   
   const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
   if (keepBgmAi) {
@@ -2966,6 +3133,73 @@ function updateConditionalFields() {
   }
 }
 
+const studioVideoPlatformLabels = {
+  local: 'Tải đơn lẻ', youtube: 'YouTube', tiktok: 'TikTok', douyin: 'Douyin',
+  bilibili: 'Bilibili', facebook: 'Facebook', instagram: 'Instagram',
+  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote'
+};
+const studioVideoModeLabels = { local: 'Tải đơn lẻ', detail: 'Theo link', search: 'Theo từ khóa', creator: 'Theo kênh', chase: 'Theo bộ' };
+
+function applyStudioVideoAssets(videos) {
+  assets.videos = Array.isArray(videos) ? videos : [];
+  studioInitializeVideoFilters(assets.videos);
+  renderReactionVideoGrid(assets.videos);
+  renderAssetList('asset-videos', assets.videos);
+}
+
+async function refreshStudioVideoAssets() {
+  if (studioVideoRefreshPromise) return studioVideoRefreshPromise;
+  studioVideoRefreshPromise = (async () => {
+    const response = await fetch('/api/studio-assets', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không đọc được danh sách video nguồn.');
+    applyStudioVideoAssets(data.videos);
+    return assets.videos;
+  })();
+  try {
+    return await studioVideoRefreshPromise;
+  } finally {
+    studioVideoRefreshPromise = null;
+  }
+}
+
+function studioDownloadUrl(relativePath) {
+  const encoded = String(relativePath || '').replace(/\\/g, '/').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  return `/downloads/${encoded}`;
+}
+
+function studioInitializeVideoFilters(videos = []) {
+  const platformSelect = $('studio-video-platform-filter');
+  if (platformSelect) {
+    const previous = platformSelect.value;
+    const platforms = [...new Set(videos.map((item) => item.platform || 'local'))];
+    platformSelect.innerHTML = '<option value="">Tất cả nền tảng</option>' + platforms
+      .map((platform) => `<option value="${crawlEscape(platform)}">${crawlEscape(studioVideoPlatformLabels[platform] || platform)}</option>`).join('');
+    if (platforms.includes(previous)) platformSelect.value = previous;
+    else platformSelect.value = '';
+  }
+  studioApplyVideoFilters();
+}
+
+function studioApplyVideoFilters() {
+  const allVideos = Array.isArray(assets.videos) ? assets.videos : [];
+  const platform = $('studio-video-platform-filter')?.value || '';
+  const mode = $('studio-video-mode-filter')?.value || '';
+  const sourceSelect = $('studio-video-source-filter');
+  const sourceCandidates = allVideos.filter((item) => (!platform || item.platform === platform) && (!mode || item.mode === mode));
+  if (sourceSelect) {
+    const previous = sourceSelect.value;
+    const sources = [...new Set(sourceCandidates.map((item) => item.source).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+    sourceSelect.innerHTML = '<option value="">Mọi nguồn</option>' + sources
+      .map((source) => `<option value="${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('');
+    sourceSelect.value = sources.includes(previous) ? previous : '';
+  }
+  const source = sourceSelect?.value || '';
+  const filtered = sourceCandidates.filter((item) => !source || item.source === source);
+  if ($('studio-video-filter-summary')) $('studio-video-filter-summary').textContent = `${filtered.length}/${allVideos.length} video`;
+  renderVideoGrid(filtered);
+}
+
 function renderVideoGrid(videos) {
   const grid = $('studio-video-grid');
   if (!grid) return;
@@ -2986,7 +3220,10 @@ function renderVideoGrid(videos) {
     }
     card.dataset.filename = item.filename;
 
-    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    const videoUrl = studioDownloadUrl(item.filename);
+    const displayName = item.name || String(item.filename).split(/[\\/]/).pop();
+    const platformLabel = studioVideoPlatformLabels[item.platform] || item.platform || 'Tải đơn lẻ';
+    const modeLabel = studioVideoModeLabels[item.mode] || '';
 
     card.innerHTML = `
       <div class="video-card-thumb">
@@ -2995,7 +3232,8 @@ function renderVideoGrid(videos) {
         <div class="video-card-duration">--:--</div>
       </div>
       <div class="video-card-info">
-        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
+        <div class="video-card-meta">${crawlEscape(platformLabel)}${modeLabel ? ` · ${crawlEscape(modeLabel)}` : ''}${item.source ? ` · ${crawlEscape(item.source)}` : ''}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
       </div>
     `;
@@ -3051,7 +3289,8 @@ function renderReactionVideoGrid(videos) {
     }
     card.dataset.filename = item.filename;
 
-    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    const videoUrl = studioDownloadUrl(item.filename);
+    const displayName = item.name || String(item.filename).split(/[\\/]/).pop();
 
     card.innerHTML = `
       <div class="video-card-thumb">
@@ -3060,7 +3299,7 @@ function renderReactionVideoGrid(videos) {
         <div class="video-card-duration">--:--</div>
       </div>
       <div class="video-card-info">
-        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
       </div>
     `;
@@ -3238,14 +3477,14 @@ function renderCurrentConfigSummary() {
     summary.push(`<div>📝 <b>Phụ đề:</b> ${subtitleParts.join(' | ') || 'Không thiết lập'}</div>`);
   }
 
-  // Làm mờ phụ đề gốc
+  // Che phụ đề gốc
   if (blurBoxes && blurBoxes.length > 0) {
     const details = blurBoxes.map((box, idx) => {
       const startSec = Number(box.start || 0).toFixed(1);
       const endSec = box.end === 99999 ? 'Hết video' : `${Number(box.end || 0).toFixed(1)}s`;
-      return `Vùng ${idx + 1}: ${startSec}s - ${endSec} (Độ mờ: ${box.radius || 20}px)`;
+      return `Vùng ${idx + 1}: ${startSec}s - ${endSec}`;
     }).join(' | ');
-    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes.length} vùng mờ)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
+    summary.push(`<div>🛡️ <b>Che chữ gốc:</b> Làm mờ (${blurBoxes.length} vùng)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
   }
 
   // 2. Thuyết minh (Voiceover)
@@ -3369,6 +3608,16 @@ function submitSaveTemplate(event) {
     omiCustomSeed: $('omi-seed-input').value,
     musicMode: $('music-mode').value,
     savedMusicFile: $('saved-music-select').value,
+    logoMode: $('logo-mode')?.value || 'none',
+    logoEnabled: $('logo-mode')?.value === 'saved',
+    savedLogoFile: $('saved-logo-select')?.value || '',
+    logoPosition: $('logo-position')?.value || 'br',
+    logoXPercent: $('logo-x-percent')?.value || '80',
+    logoYPercent: $('logo-y-percent')?.value || '85',
+    logoWidthPercent: $('logo-width-percent')?.value || '18',
+    logoOpacity: $('logo-opacity')?.value || '0.9',
+    logoStart: $('logo-start')?.value || '0',
+    logoEnd: $('logo-end')?.value || '',
     originalVolume: sliderToVolume(document.querySelector('input[name="originalVolume"]').value),
     voiceVolume: sliderToVolume(document.querySelector('input[name="voiceVolume"]').value),
     musicVolume: sliderToVolume(document.querySelector('input[name="musicVolume"]').value),
@@ -3583,9 +3832,6 @@ function loadStudioTemplate(templateName) {
   if (marginLInput) marginLInput.value = template.subtitleMarginL || '';
   if (marginRInput) marginRInput.value = template.subtitleMarginR || '';
 
-  // Restore blur settings
-
-
   blurBoxes = template.blurBoxes || [];
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
   renderBlurBoxesList();
@@ -3641,6 +3887,19 @@ function loadStudioTemplate(templateName) {
   if (template.savedMusicFile) {
     $('saved-music-select').value = template.savedMusicFile;
   }
+
+  const templateLogoMode = template.logoMode || ((template.logoEnabled === true || template.logoEnabled === 'true') ? 'saved' : 'none');
+  const logoModeBtn = document.querySelector(`.logo-tab-btn[data-logo-mode="${templateLogoMode}"]`);
+  if (logoModeBtn) logoModeBtn.click();
+  if ($('saved-logo-select')) $('saved-logo-select').value = template.savedLogoFile || '';
+  if ($('logo-position')) $('logo-position').value = template.logoPosition || 'br';
+  if ($('logo-x-percent')) $('logo-x-percent').value = template.logoXPercent || '80';
+  if ($('logo-y-percent')) $('logo-y-percent').value = template.logoYPercent || '85';
+  if ($('logo-width-percent')) $('logo-width-percent').value = template.logoWidthPercent || '18';
+  if ($('logo-opacity')) $('logo-opacity').value = template.logoOpacity || '0.9';
+  if ($('logo-start')) $('logo-start').value = template.logoStart || '0';
+  if ($('logo-end')) $('logo-end').value = template.logoEnd || '';
+  updateLogoUi();
 
   // Restore volumes
   const originalSlider = document.querySelector('input[name="originalVolume"]');
@@ -3715,7 +3974,7 @@ document.querySelectorAll('.source-tab-btn').forEach(btn => {
       // Khôi phục preview nếu đã có video library được chọn
       const selectedFile = $('selected-video-file')?.value;
       if (selectedFile) {
-        setPreviewVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+        setPreviewVideo(studioDownloadUrl(selectedFile));
       }
     }
     updateConditionalFields();
@@ -3742,7 +4001,7 @@ document.querySelectorAll('.reaction-tab-btn').forEach(btn => {
       // Khôi phục preview nếu đã có reaction video được chọn
       const selectedFile = $('selected-reaction-video-file')?.value;
       if (selectedFile) {
-        setPreviewReactionVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+        setPreviewReactionVideo(studioDownloadUrl(selectedFile));
       }
     } else {
       // "none" mode: clear reaction hoàn toàn
@@ -4582,7 +4841,7 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
       input.value = mode;
       $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
       updateOcrRegionOverlay();
-      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper') {
+      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper' && !usesRapidOcrUi()) {
         refreshOcrComponentStatusForUi();
       }
       // Automatically center subtitle overlay when any active subtitle mode is selected
@@ -5690,10 +5949,13 @@ const crawlNowState = {
   selected: new Set(),
   pollTimer: null,
   recordedSuccess: crawlLoadRecordedTaskIds(),
+  studioRefreshSuccess: new Set(),
   lastSnapshot: null,
   previewBaseCount: 100,
+  previewRequestedCount: 100,
   previewLoadingMore: false
 };
+const hiddenCrawlPlatforms = new Set(['weibo', 'twitter', 'reddit']);
 
 function crawlEscape(value) {
   return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
@@ -5702,6 +5964,7 @@ function crawlEscape(value) {
 }
 
 function crawlFormatDuration(seconds) {
+  if (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return '--:--';
   const value = Math.max(0, Number(seconds) || 0);
   const hours = Math.floor(value / 3600);
   const minutes = Math.floor((value % 3600) / 60);
@@ -5711,10 +5974,11 @@ function crawlFormatDuration(seconds) {
 }
 
 function crawlSetBusy(busy, label = '') {
-  ['crawl-preview-btn', 'crawl-all-btn'].forEach((id) => {
-    const button = $(id);
-    if (button) button.disabled = busy;
-  });
+  const previewButton = $('crawl-preview-btn');
+  const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
+  if (previewButton) previewButton.disabled = busy || !previewModes.includes(crawlNowState.mode);
+  const crawlAllButton = $('crawl-all-btn');
+  if (crawlAllButton) crawlAllButton.disabled = busy;
   const pill = $('crawl-now-ready');
   if (pill) {
     pill.classList.toggle('busy', busy);
@@ -5730,6 +5994,7 @@ function crawlCurrentRequest() {
     count: Number($('crawl-now-count')?.value || 100),
     sort: $('crawl-now-sort')?.value || 'relevance',
     timeDays: Number($('crawl-now-time')?.value || 0),
+    quality: $('crawl-now-quality')?.value || '1080',
     language: $('crawl-now-language')?.value || '',
     deepNew: $('crawl-now-skip-dupe')?.checked !== false
   };
@@ -5789,17 +6054,18 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili');
+  const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
     button.disabled = caps[button.dataset.mode] === false;
     button.title = button.disabled ? 'Bộ tải hiện tại chưa hỗ trợ chế độ này cho nền tảng đã chọn' : '';
   });
-  const supported = Object.entries(caps).filter(([, enabled]) => enabled).map(([mode]) => ({
-    search: 'từ khóa', detail: 'link', creator: 'kênh', chase: 'bộ/playlist'
-  })[mode]).filter(Boolean);
-  const note = $('crawl-capability-note');
-  if (note) note.textContent = supported.length
-    ? `Hỗ trợ ${crawlNowState.platform}: ${supported.join(', ')}. Các chế độ bị làm mờ chưa được backend hiện tại hỗ trợ.`
-    : 'Nền tảng này chưa có khả năng cào được xác nhận.';
+  const previewButton = $('crawl-preview-btn');
+  const canPreview = previewModes.includes(crawlNowState.mode);
+  if (previewButton) {
+    previewButton.disabled = !canPreview;
+    previewButton.title = canPreview ? '' : 'Chế độ này vẫn cào được nhưng chưa hỗ trợ xem trước ổn định; hãy dùng Cào hết hoặc Thêm vào hàng đợi.';
+  }
 }
 
 async function crawlLoadCapabilities() {
@@ -5815,15 +6081,48 @@ async function crawlLoadCapabilities() {
     crawlNowState.engines = [];
   }
   const engineBadge = $('crawl-engine-badge');
+  const installButton = $('crawl-runtime-install-btn');
   if (engineBadge) {
     const ready = crawlNowState.engine?.available;
-    const viralReady = crawlNowState.engines.some((engine) => engine.engine === 'ViralCrawl yt-dlp' && engine.available);
-    engineBadge.classList.toggle('unavailable', !ready && !viralReady);
-    engineBadge.textContent = ready && viralReady
-      ? 'MediaCrawler + ViralCrawl yt-dlp sẵn sàng'
-      : ready ? 'MediaCrawler sẵn sàng' : viralReady ? 'ViralCrawl yt-dlp sẵn sàng' : 'Engine ViralCrawl chưa sẵn sàng · dùng fallback';
+    const projectReady = crawlNowState.engines.some((engine) => engine.engine === 'Video Studio yt-dlp' && engine.available);
+    engineBadge.classList.toggle('unavailable', !ready && !projectReady);
+    engineBadge.textContent = ready && projectReady
+      ? 'MediaCrawler + Video Studio yt-dlp sẵn sàng'
+      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Crawler chưa sẵn sàng · hãy cài runtime';
+    installButton?.classList.toggle('hidden', ready || projectReady);
   }
   crawlUpdateCapabilities();
+}
+
+async function crawlInstallRuntime() {
+  const button = $('crawl-runtime-install-btn');
+  const badge = $('crawl-engine-badge');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu cài bộ cào.');
+    toast(data.alreadyReady ? 'Bộ cào đã sẵn sàng.' : 'Đang cài bộ cào. Có thể theo dõi trong nhật ký.', 'success');
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const statusResponse = await fetch('/api/download-crawl/runtime-status');
+      const status = await statusResponse.json();
+      if (badge) badge.textContent = status.status === 'installing'
+        ? `Đang cài crawler ${Number(status.percent || 0)}% · ${status.message || 'vui lòng chờ'}`
+        : status.message || 'Đang kiểm tra crawler…';
+      if (status.ready) {
+        toast('Đã cài xong bộ cào video.', 'success');
+        await crawlLoadCapabilities();
+        break;
+      }
+      if (status.status === 'error') throw new Error(status.message || 'Cài bộ cào thất bại.');
+    }
+  } catch (error) {
+    toast(error.message, 'error');
+    await crawlLoadCapabilities();
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function crawlLoadLoginStatus() {
@@ -5831,12 +6130,21 @@ async function crawlLoadLoginStatus() {
     const response = await fetch('/api/download-crawl/login-status');
     const data = await response.json();
     const platforms = data.platforms || {};
-    const labels = { douyin: 'Douyin', bilibili: 'Bilibili', xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', weibo: 'Weibo', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram', twitter: 'Twitter/X', reddit: 'Reddit' };
+    const labels = {
+      douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
+      xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],
+      youtube: ['YouTube', '▶', 'youtube'], tiktok: ['TikTok', '♪', 'tiktok'],
+      facebook: ['Facebook', 'f', 'facebook'], instagram: ['Instagram', '◎', 'instagram']
+    };
     const grid = $('crawl-login-grid');
-    if (grid) grid.innerHTML = Object.entries(labels).map(([key, label]) => {
+    if (grid) grid.innerHTML = Object.entries(labels).map(([key, config]) => {
+      const [label, icon, theme] = config;
       const status = platforms[key] || 'out';
-      const text = status === 'in' ? 'Đã có cookies' : status === 'na' ? 'Không bắt buộc' : 'Chưa có cookies';
-      return `<button type="button" class="crawl-login-card ${status}" onclick="crawlOpenPlatformLogin('${key}')"><i></i><b>${label}</b><br><span>${text}</span></button>`;
+      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : 'Chưa đăng nhập';
+      const action = status === 'in' ? 'Mở lại' : status === 'na' ? 'Mở nền tảng' : 'Đăng nhập';
+      return `<button type="button" class="crawl-login-card ${status} ${theme}" onclick="crawlOpenPlatformLogin('${key}')">
+        <span class="crawl-login-icon">${icon}</span><span class="crawl-login-state"><i></i>${text}</span>
+        <b>${label}</b><span class="crawl-login-action">${action}</span></button>`;
     }).join('');
   } catch (_) {}
 }
@@ -5883,6 +6191,281 @@ function crawlRefreshAll() {
   crawlLoadLoginStatus();
   crawlRefreshStats();
   crawlPollStatus();
+  crawlLoadHistory();
+}
+
+let crawlHistoryTimer = null;
+let crawlHistoryItems = [];
+const crawlHistorySelected = new Set();
+
+function crawlScheduleHistory() {
+  clearTimeout(crawlHistoryTimer);
+  crawlHistoryTimer = setTimeout(crawlLoadHistory, 250);
+}
+
+function updateLogoUi() {
+  const mode = $('logo-mode')?.value || 'none';
+  const filename = $('saved-logo-select')?.value || '';
+  const enabled = mode === 'saved' && Boolean(filename);
+  if ($('logo-enabled')) $('logo-enabled').checked = mode === 'saved';
+  $('logo-saved-wrapper')?.classList.toggle('hidden', mode !== 'saved');
+  $('logo-upload-wrapper')?.classList.toggle('hidden', mode !== 'upload');
+  $('logo-settings')?.classList.toggle('hidden', !enabled);
+  const preview = $('selected-logo-preview');
+  const image = $('selected-logo-image');
+  const name = $('selected-logo-name');
+  preview?.classList.toggle('hidden', !enabled);
+  if (image) {
+    const nextSrc = filename ? `/logos/${encodeURIComponent(filename)}` : '';
+    if (image.getAttribute('src') !== nextSrc) image.src = nextSrc;
+  }
+  if (name) name.textContent = filename;
+  if ($('logo-width-val')) $('logo-width-val').textContent = `${$('logo-width-percent')?.value || 18}%`;
+  if ($('logo-opacity-val')) $('logo-opacity-val').textContent = `${Math.round(Number($('logo-opacity')?.value || 0.9) * 100)}%`;
+  if (typeof updateSubtitleOverlayFromInputs === 'function') updateSubtitleOverlayFromInputs();
+}
+
+async function uploadStudioLogo(file) {
+  if (!file) return;
+  const data = new FormData();
+  data.append('logo', file);
+  data.append('logoName', file.name);
+  try {
+    const response = await fetch('/api/save-logo', { method: 'POST', body: data });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không tải được logo.');
+    await loadAssets();
+    if ($('saved-logo-select')) $('saved-logo-select').value = result.logo;
+    const savedTab = document.querySelector('.logo-tab-btn[data-logo-mode="saved"]');
+    if (savedTab) savedTab.click();
+    else updateLogoUi();
+    toast('Đã thêm logo vào thư viện.', 'success');
+  } catch (error) {
+    toast(error.message || 'Không tải được logo.', 'error');
+  } finally {
+    if ($('logo-library-upload')) $('logo-library-upload').value = '';
+  }
+}
+
+document.querySelectorAll('.logo-tab-btn').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.logo-tab-btn').forEach((item) => item.classList.remove('active'));
+    button.classList.add('active');
+    if ($('logo-mode')) $('logo-mode').value = button.dataset.logoMode || 'none';
+    updateLogoUi();
+  });
+});
+$('saved-logo-select')?.addEventListener('change', updateLogoUi);
+$('logo-library-upload')?.addEventListener('change', (event) => uploadStudioLogo(event.target.files?.[0]));
+$('selected-logo-image')?.addEventListener('load', updateLogoUi);
+['logo-position', 'logo-width-percent', 'logo-opacity', 'logo-start', 'logo-end'].forEach((id) => {
+  $(id)?.addEventListener('input', updateLogoUi);
+  $(id)?.addEventListener('change', updateLogoUi);
+});
+
+async function crawlLoadHistory() {
+  const list = $('crawl-history-list');
+  if (!list) return;
+  list.innerHTML = '<div class="crawl-history-empty">Đang đọc lịch sử cào...</div>';
+  const params = new URLSearchParams({
+    platform: $('crawl-history-platform')?.value || '',
+    q: $('crawl-history-query')?.value || '',
+    onlyUndownloaded: $('crawl-history-undownloaded')?.checked ? '1' : '0',
+    days: $('crawl-history-days')?.value || '0',
+    limit: '800'
+  });
+  try {
+    const response = await fetch(`/api/download-crawl/history?${params}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không đọc được lịch sử cào.');
+    crawlHistoryItems = (Array.isArray(data.items) ? data.items : [])
+      .filter((item) => !hiddenCrawlPlatforms.has(String(item.platform || '').toLowerCase()));
+    const liveKeys = new Set(crawlHistoryItems.map((item) => item.key));
+    for (const key of crawlHistorySelected) if (!liveKeys.has(key)) crawlHistorySelected.delete(key);
+    crawlHistoryPopulateSources();
+    crawlRenderHistory();
+  } catch (error) {
+    crawlHistoryItems = [];
+    list.innerHTML = `<div class="crawl-history-empty error">${crawlEscape(error.message || 'Không đọc được lịch sử cào.')}</div>`;
+  }
+}
+
+function crawlHistorySource(item) {
+  if (item.sourceMode === 'search') return String(item.sourceInput || item.keyword || item.uploader || '').trim();
+  if (item.sourceMode === 'creator') return String(item.sourceName || item.uploader || item.sourceInput || '').trim();
+  return String(item.sourceName || item.uploader || item.keyword || '').trim();
+}
+
+function crawlHistoryModeLabel(mode) {
+  return ({ search: 'Từ khóa', creator: 'Kênh', detail: 'Link', chase: 'Bộ' })[mode] || 'Link';
+}
+
+function crawlHistoryPopulateSources() {
+  const select = $('crawl-history-source');
+  if (!select) return;
+  const current = select.value;
+  const channels = [...new Set(crawlHistoryItems.filter((item) => item.sourceMode === 'creator').map(crawlHistorySource).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  const keywords = [...new Set(crawlHistoryItems.filter((item) => item.sourceMode === 'search').map(crawlHistorySource).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  let html = '<option value="">Mọi kênh / từ khóa</option>';
+  if (channels.length) html += `<optgroup label="Kênh (${channels.length})">${channels.map((source) => `<option value="creator:${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('')}</optgroup>`;
+  if (keywords.length) html += `<optgroup label="Từ khóa (${keywords.length})">${keywords.map((source) => `<option value="search:${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('')}</optgroup>`;
+  select.innerHTML = html;
+  if (Array.from(select.options).some((option) => option.value === current)) select.value = current;
+}
+
+function crawlHistoryVisibleItems() {
+  const source = $('crawl-history-source')?.value || '';
+  const mode = $('crawl-history-mode')?.value || '';
+  const oldestFirst = $('crawl-history-sort')?.value === 'oldest';
+  return crawlHistoryItems
+    .filter((item) => !mode || item.sourceMode === mode)
+    .filter((item) => !source || `${item.sourceMode}:${crawlHistorySource(item)}` === source)
+    .sort((a, b) => oldestFirst ? Number(a.timestamp || 0) - Number(b.timestamp || 0) : Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+function crawlHistoryDate(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return 'Không rõ ngày';
+  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value * 1000));
+}
+
+function crawlRenderHistory() {
+  const list = $('crawl-history-list');
+  if (!list) return;
+  const items = crawlHistoryVisibleItems();
+  const selectedVisible = items.filter((item) => crawlHistorySelected.has(item.key)).length;
+  if ($('crawl-history-summary')) $('crawl-history-summary').textContent = `${items.length} video`;
+  if ($('crawl-history-selected-count')) $('crawl-history-selected-count').textContent = `Đã chọn ${crawlHistorySelected.size}`;
+  const selectAll = $('crawl-history-select-all');
+  if (selectAll) {
+    selectAll.checked = items.length > 0 && selectedVisible === items.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < items.length;
+  }
+  const downloadButton = $('crawl-history-download-selected');
+  if (downloadButton) downloadButton.disabled = crawlHistorySelected.size === 0;
+  if (!items.length) {
+    list.innerHTML = '<div class="crawl-history-empty">Chưa có dữ liệu lịch sử phù hợp với bộ lọc.</div>';
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const encodedKey = encodeURIComponent(item.key).replace(/'/g, '%27');
+    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : '';
+    const source = crawlHistorySource(item) || item.platform;
+    return `<article class="crawl-history-item${item.downloaded ? ' downloaded' : ''}">
+      <div class="crawl-history-thumb">
+        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span>▶</span>'}
+        <input type="checkbox" aria-label="Chọn video" ${crawlHistorySelected.has(item.key) ? 'checked' : ''} onchange="crawlHistoryToggleItem('${encodedKey}', this.checked)">
+        <em>${item.downloaded ? '✓ Đã tải' : 'Chưa tải'}</em>
+      </div>
+      <div class="crawl-history-content">
+        <span class="crawl-history-kind ${crawlEscape(item.sourceMode || 'detail')}">${crawlHistoryModeLabel(item.sourceMode)}</span>
+        <b title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</b>
+        <small>${crawlEscape(item.platform)} · ${crawlEscape(source)}</small>
+        <small>${crawlHistoryDate(item.timestamp)}${item.keyword ? ` · ${crawlEscape(item.keyword)}` : ''}</small>
+      </div>
+      <div class="crawl-history-actions">
+        ${item.url ? `<a href="${crawlEscape(item.url)}" target="_blank" rel="noreferrer">Mở bài gốc</a>` : ''}
+        ${item.downloaded && item.mediaPath ? `<button type="button" onclick="crawlHistoryOpenFolder('${encodeURIComponent(item.mediaPath).replace(/'/g, '%27')}')">Mở thư mục</button>` : ''}
+        <button type="button" onclick="crawlHistoryDownloadOne('${encodedKey}')">${item.downloaded ? 'Tải lại' : 'Tải video'}</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function crawlHistoryOpenFolder(encodedPath) {
+  try {
+    const relativePath = decodeURIComponent(encodedPath);
+    const response = await fetch(`/api/download-crawl/open-file-folder?path=${encodeURIComponent(relativePath)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không mở được vị trí video.');
+  } catch (error) {
+    toast(error.message || 'Không mở được vị trí video.', 'error');
+    await crawlLoadHistory();
+  }
+}
+
+function crawlHistoryToggleItem(encodedKey, checked) {
+  const key = decodeURIComponent(encodedKey);
+  if (checked) crawlHistorySelected.add(key);
+  else crawlHistorySelected.delete(key);
+  crawlRenderHistory();
+}
+
+function crawlHistoryToggleAll(checked) {
+  for (const item of crawlHistoryVisibleItems()) {
+    if (checked) crawlHistorySelected.add(item.key);
+    else crawlHistorySelected.delete(item.key);
+  }
+  crawlRenderHistory();
+}
+
+async function crawlHistoryEnqueue(items) {
+  const groups = new Map();
+  for (const item of items) {
+    if (!item.url) continue;
+    const sourceMode = item.sourceMode || 'detail';
+    const sourceInput = item.sourceInput || '';
+    const sourceName = item.sourceName || item.uploader || '';
+    const groupKey = `${item.platform}\u0000${sourceMode}\u0000${sourceInput}\u0000${sourceName}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, { platform: item.platform, sourceMode, sourceInput, sourceName, urls: [] });
+    groups.get(groupKey).urls.push(item.url);
+  }
+  if (!groups.size) {
+    toast('Các mục đã chọn không có link video hợp lệ.', 'error');
+    return;
+  }
+  let queued = 0;
+  try {
+    for (const { platform, sourceMode, sourceInput, sourceName, urls } of groups.values()) {
+      const response = await fetch('/api/download-crawl/enqueue-job', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, mode: 'detail', input: urls.join('\n'), count: urls.length, deepNew: false,
+          sourceMode, sourceInput, sourceName, label: `${platform} · ${urls.length} video từ lịch sử` })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Không thêm được job ${platform}.`);
+      queued += urls.length;
+    }
+    crawlHistorySelected.clear();
+    crawlRenderHistory();
+    toast(`Đã thêm ${queued} video từ lịch sử vào hàng đợi.`, 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message || 'Không thêm được video từ lịch sử.', 'error');
+  }
+}
+
+function crawlHistoryDownloadOne(encodedKey) {
+  const key = decodeURIComponent(encodedKey);
+  const item = crawlHistoryItems.find((entry) => entry.key === key);
+  return item ? crawlHistoryEnqueue([item]) : undefined;
+}
+
+function crawlHistoryDownloadSelected() {
+  return crawlHistoryEnqueue(crawlHistoryItems.filter((item) => crawlHistorySelected.has(item.key)));
+}
+
+async function crawlHistoryDelete(value) {
+  const select = $('crawl-history-delete-range');
+  if (select) select.value = '';
+  if (value === '' || value == null) return;
+  const labels = { '1': 'trong 1 giờ qua', '24': 'trong 24 giờ qua', '168': 'trong 7 ngày qua', '720': 'trong 30 ngày qua', '0': 'TẤT CẢ' };
+  const label = labels[String(value)] || '';
+  const confirmed = window.confirm(`Xóa lịch sử cào ${label}?\n\nChỉ danh sách metadata bị xóa. Video đã tải và dữ liệu đánh dấu chống trùng vẫn được giữ nguyên. Danh sách đã xóa không thể khôi phục.`);
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/download-crawl/history/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours: Number(value) })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không xóa được lịch sử cào.');
+    crawlHistorySelected.clear();
+    toast(`Đã xóa ${Number(data.deleted || 0)} mục khỏi lịch sử cào.`, 'success');
+    await crawlLoadHistory();
+  } catch (error) {
+    toast(error.message || 'Không xóa được lịch sử cào.', 'error');
+  }
 }
 
 function crawlFilteredItems() {
@@ -5932,17 +6515,77 @@ function crawlRenderPreview() {
 
 async function crawlPreview(options = {}) {
   const request = await crawlPrepareRequest();
+  if (Number.isFinite(Number(options.requestCount))) {
+    request.count = Math.min(500, Math.max(1, Number(options.requestCount)));
+  }
+  const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
+  if (!previewModes.includes(crawlNowState.mode)) {
+    toast('Chế độ này chưa hỗ trợ xem trước ổn định. Hãy dùng Cào hết hoặc Thêm vào hàng đợi.', 'warn');
+    return [];
+  }
   if (!request.input) {
     toast('Hãy nhập từ khóa, link hoặc kênh trước.', 'error');
     return [];
   }
   crawlSetBusy(true, 'Đang tìm video');
+  crawlStartPolling();
+  await crawlPollStatus();
   try {
-    const response = await fetch('/api/download-crawl/preview', {
+    if (!options.append) {
+      crawlNowState.previewItems = [];
+      crawlNowState.selected = new Set();
+    }
+    let renderQueued = false;
+    const schedulePreviewRender = () => {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        crawlRenderPreview();
+      });
+    };
+    const response = await fetch('/api/download-crawl/preview-stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Không lấy được danh sách video.');
+    if (!response.ok) {
+      const failed = await response.json().catch(() => ({}));
+      throw new Error(failed.error || 'Không lấy được danh sách video.');
+    }
+    let data = null;
+    let streamError = '';
+    const reader = response.body?.getReader?.();
+    if (reader) {
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      const consumeLine = (line) => {
+        if (!line.trim()) return;
+        let event;
+        try { event = JSON.parse(line); } catch (_) { return; }
+        if (event.type === 'item' && event.item) {
+          const item = event.item;
+          const key = item.key || `${item.platform}:${item.id}`;
+          const index = crawlNowState.previewItems.findIndex((current) => (current.key || `${current.platform}:${current.id}`) === key);
+          if (index >= 0) crawlNowState.previewItems[index] = item;
+          else crawlNowState.previewItems.push(item);
+          crawlNowState.selected.add(key);
+          schedulePreviewRender();
+        } else if (event.type === 'result') data = event.data;
+        else if (event.type === 'error') streamError = event.error || 'Không lấy được danh sách video.';
+      };
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (const line of lines) consumeLine(line);
+        if (done) break;
+      }
+      consumeLine(buffer);
+    } else {
+      data = await response.json();
+    }
+    if (streamError) throw new Error(streamError);
+    if (!data) throw new Error('Luồng xem trước kết thúc nhưng không trả về kết quả.');
     const received = Array.isArray(data.items) ? data.items : [];
     if (options.append) {
       const merged = new Map(crawlNowState.previewItems.map((item) => [item.key || `${item.platform}:${item.id}`, item]));
@@ -5954,6 +6597,7 @@ async function crawlPreview(options = {}) {
       crawlNowState.selected = new Set(crawlNowState.previewItems.map((item) => item.key || `${item.platform}:${item.id}`));
       crawlNowState.previewBaseCount = request.count;
     }
+    crawlNowState.previewRequestedCount = request.count;
     if (!options.silent) crawlRenderPreview();
     if (!crawlNowState.previewItems.length) toast('Không tìm thấy video nào.', 'warn');
     return crawlNowState.previewItems;
@@ -5962,6 +6606,7 @@ async function crawlPreview(options = {}) {
     return [];
   } finally {
     crawlSetBusy(false);
+    await crawlPollStatus();
   }
 }
 
@@ -5972,19 +6617,13 @@ function crawlClosePreview() {
 async function crawlLoadMore() {
   if (crawlNowState.previewLoadingMore) return;
   crawlNowState.previewLoadingMore = true;
-  const input = $('crawl-now-count');
-  const previous = Number(input?.value || crawlNowState.previewBaseCount || 100);
-  if (input) input.value = Math.min(500, previous + crawlNowState.previewBaseCount);
+  const previous = Number(crawlNowState.previewRequestedCount || crawlNowState.previewBaseCount || 100);
+  const requestCount = Math.min(500, previous + crawlNowState.previewBaseCount);
   try {
-    await crawlPreview({ append: true });
+    await crawlPreview({ append: true, requestCount });
   } finally {
     crawlNowState.previewLoadingMore = false;
   }
-}
-
-function crawlPreviewScroll(element) {
-  if (!element || crawlNowState.previewLoadingMore) return;
-  if (element.scrollHeight - element.scrollTop - element.clientHeight < 240) crawlLoadMore();
 }
 
 function crawlToggleItem(key, checked) {
@@ -6012,19 +6651,24 @@ async function crawlEnqueue(items) {
     return;
   }
   try {
-    const viralPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'];
-    if (viralPlatforms.includes(crawlNowState.platform)) {
+    const jobCrawlerPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+    if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
       const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
+      const sourceRequest = crawlCurrentRequest();
+      const sourceName = sourceRequest.mode === 'creator'
+        ? String(selectedItems.find((item) => item.uploader)?.uploader || '')
+        : '';
       const response = await fetch('/api/download-crawl/enqueue-job', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...crawlCurrentRequest(), mode: 'detail', input: urls.join('\n'), count: urls.length,
+          ...sourceRequest, mode: 'detail', input: urls.join('\n'), count: urls.length,
+          sourceMode: sourceRequest.mode, sourceInput: sourceRequest.input, sourceName,
           label: `${crawlNowState.platform} · ${urls.length} video đã chọn`
         })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Không thêm được job ViralCrawl vào hàng đợi.');
-      toast(`Đã thêm ${urls.length} video vào job ViralCrawl yt-dlp.`, 'success');
+      if (!response.ok) throw new Error(data.error || 'Không thêm được job crawler vào hàng đợi.');
+      toast(`Đã thêm ${urls.length} video vào job Video Studio yt-dlp.`, 'success');
       crawlStartPolling();
       await crawlPollStatus();
       return;
@@ -6071,7 +6715,7 @@ function crawlRenderQueue(snapshot) {
     list.innerHTML = queue.slice().reverse().map((task) => `<div class="crawl-queue-item">
       <div class="crawl-queue-item-head">
         <div style="min-width:0;flex:1"><div class="crawl-queue-item-title" title="${crawlEscape(task.title)}">${crawlEscape(task.title)}</div>
-          <div class="crawl-queue-item-status">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
+          <div class="crawl-queue-item-status" title="${crawlEscape(crawlTaskStatusLabel(task))}">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
           ${task.reason ? `<div class="crawl-queue-reason">${crawlEscape(task.reason)}${task.error ? ` · ${crawlEscape(task.error)}` : ''}</div>` : ''}</div>
         ${['pending', 'downloading'].includes(task.status) ? `<button class="crawl-queue-cancel" onclick="crawlCancelTask('${crawlEscape(task.id)}')">Hủy</button>` : ''}
         ${['error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
@@ -6108,12 +6752,23 @@ function crawlRenderQueue(snapshot) {
     log.scrollTop = log.scrollHeight;
   }
 
-  for (const task of queue.filter((candidate) => candidate.status === 'success' && candidate.kind !== 'crawl')) {
+  let shouldRefreshStudioVideos = false;
+  for (const task of queue.filter((candidate) => candidate.status === 'success')) {
+    if (!crawlNowState.studioRefreshSuccess.has(task.id)) {
+      crawlNowState.studioRefreshSuccess.add(task.id);
+      shouldRefreshStudioVideos = true;
+    }
+    if (task.kind === 'crawl') continue;
     if (crawlNowState.recordedSuccess.has(task.id)) continue;
     crawlNowState.recordedSuccess.add(task.id);
     crawlSaveRecordedTaskIds(crawlNowState.recordedSuccess);
     const filename = String(task.outputPath || '').split(/[\\/]/).pop();
     addDownloadHistory(task.title, task.sourceUrl || task.url, 'success', filename, task.platform);
+  }
+  if (shouldRefreshStudioVideos) {
+    refreshStudioVideoAssets().catch((error) => {
+      console.error('Không cập nhật được Video nguồn sau khi tải:', error);
+    });
   }
   crawlRefreshStats();
 }
@@ -6125,7 +6780,7 @@ async function crawlPollStatus() {
     const snapshot = await response.json();
     crawlRenderQueue(snapshot);
     const activeCount = Number(snapshot.summary?.pending || 0) + Number(snapshot.summary?.downloading || 0);
-    if (activeCount > 0) crawlStartPolling();
+    if (activeCount > 0 || snapshot.previewing) crawlStartPolling();
     else crawlStopPolling();
   } catch (_) {}
 }
@@ -6240,6 +6895,7 @@ if ($('crawl-preview-select-all')) $('crawl-preview-select-all').checked = true;
 crawlLoadCapabilities();
 crawlLoadLoginStatus();
 crawlRefreshStats();
+crawlLoadHistory();
 crawlPollStatus();
 
 function switchDownloadMode(mode) {
@@ -6249,6 +6905,7 @@ function switchDownloadMode(mode) {
   const crawlCont = $('download-crawl-container');
   const singleCont = $('download-single-container');
   const bulkCont = $('download-bulk-container');
+  const historyPanel = $('download-history-panel');
 
   if (crawlBtn) crawlBtn.classList.toggle('active', mode === 'crawl');
   if (singleBtn) singleBtn.classList.toggle('active', mode === 'single');
@@ -6256,6 +6913,7 @@ function switchDownloadMode(mode) {
   if (crawlCont) crawlCont.classList.toggle('hidden', mode !== 'crawl');
   if (singleCont) singleCont.classList.toggle('hidden', mode !== 'single');
   if (bulkCont) bulkCont.classList.toggle('hidden', mode !== 'bulk');
+  if (historyPanel) historyPanel.classList.toggle('hidden', mode === 'crawl');
 }
 
 // Khởi chạy nạp danh sách đã lưu
@@ -6289,6 +6947,11 @@ window.crawlClearFinished = crawlClearFinished;
    ========================================================================== */
 
 function getGlobalAiSettings() {
+  let translationStyles = [];
+  try {
+    const savedStyles = JSON.parse(localStorage.getItem('global_translation_styles') || '[]');
+    if (Array.isArray(savedStyles)) translationStyles = savedStyles.map(String);
+  } catch {}
   return {
     aiProvider: localStorage.getItem('global_ai_provider') || 'gemini-web',
     geminiApiKey: localStorage.getItem('global_gemini_key') || '',
@@ -6301,6 +6964,7 @@ function getGlobalAiSettings() {
     opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
     openaiApiKey: localStorage.getItem('global_openai_key') || '',
     openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
+    translationStyles,
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -6309,7 +6973,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&translationStyles=${encodeURIComponent(settings.translationStyles.join(','))}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -6653,6 +7317,9 @@ function openGlobalSettingsModal() {
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
+  document.querySelectorAll('#global-translation-style-options input[type="checkbox"]').forEach((input) => {
+    input.checked = settings.translationStyles.includes(input.value);
+  });
   if (openaiInput) {
     openaiInput.value = settings.openaiApiKey;
     if (settings.openaiApiKey) {
@@ -6779,7 +7446,9 @@ async function openGeminiWebLoginWindow() {
     const data = await res.json();
     if (data.success) {
       if (typeof toast === 'function') {
-        toast('Đã mở cửa sổ đăng nhập Gemini! Vui lòng đăng nhập trên Chrome.', 'success');
+        toast(data.message || (data.loggedIn
+          ? 'Đã xác nhận đăng nhập Gemini.'
+          : 'Đã đóng trình duyệt. Gemini Web vẫn có thể dịch ở chế độ khách.'), data.loggedIn ? 'success' : 'info');
       }
     } else {
       if (typeof toast === 'function') {
@@ -6805,6 +7474,8 @@ function saveGlobalSettings() {
   const ninerouterModelSelect = $('global-ninerouter-model');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
+  const translationStyles = Array.from(document.querySelectorAll('#global-translation-style-options input[type="checkbox"]:checked'))
+    .map(input => input.value);
 
   if (providerSelect) localStorage.setItem('global_ai_provider', providerSelect.value);
   if (geminiInput) localStorage.setItem('global_gemini_key', geminiInput.value);
@@ -6817,6 +7488,7 @@ function saveGlobalSettings() {
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
+  localStorage.setItem('global_translation_styles', JSON.stringify(translationStyles));
   const globalOcrSelect = $('global-ocr-mode-select');
   if (globalOcrSelect) localStorage.setItem('global_ocr_mode', globalOcrSelect.value);
 
@@ -6961,7 +7633,12 @@ function updateOutputLangInfo() {
   const info = document.getElementById('output-lang-info');
   if (!sel || !info) return;
   const val = sel.value;
-  const names = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
+  const names = {
+    vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc', ja: '日本語', ko: '한국어',
+    th: 'ไทย', fr: 'Français', es: 'Español', pt: 'Português', de: 'Deutsch',
+    it: 'Italiano', ru: 'Русский', id: 'Bahasa Indonesia', ms: 'Bahasa Melayu',
+    ar: 'العربية', hi: 'हिन्दी', tr: 'Türkçe'
+  };
   info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
   info.style.color = 'var(--muted)';
 }
@@ -7651,7 +8328,6 @@ function resetStudioConfig() {
   blurBoxes = [];
   activeBlurBoxId = null;
   renderBlurBoxesList();
-
   // Reset voice mode
   const voiceModeBtn = document.querySelector('.voice-tab-btn[data-voice-mode="none"]');
   if (voiceModeBtn) {
@@ -7939,7 +8615,7 @@ function selectSourceVideo(filename) {
     card.classList.toggle('selected', isMatch);
   });
 
-  const videoUrl = `/downloads/${encodeURIComponent(filename)}`;
+  const videoUrl = studioDownloadUrl(filename);
   setPreviewVideo(videoUrl);
   if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
   updateConditionalFields();
@@ -7957,7 +8633,7 @@ function selectReactionVideo(filename) {
     card.classList.toggle('selected', isMatch);
   });
 
-  const videoUrl = `/downloads/${encodeURIComponent(filename)}`;
+  const videoUrl = studioDownloadUrl(filename);
   setPreviewReactionVideo(videoUrl);
   updateConditionalFields();
 }
@@ -8669,6 +9345,7 @@ function serializeStudioForm() {
   obj._subMode = document.querySelector('.sub-tab-btn.active')?.dataset.subMode || 'none';
   obj._voiceMode = document.querySelector('.voice-tab-btn.active')?.dataset.voiceMode || 'none';
   obj._musicMode = document.querySelector('.music-tab-btn.active')?.dataset.musicMode || 'none';
+  obj._logoMode = document.querySelector('.logo-tab-btn.active')?.dataset.logoMode || 'none';
 
   // Lưu danh sách vùng làm mờ
   obj.blurBoxes = blurBoxes;
@@ -8729,6 +9406,11 @@ function deserializeStudioForm(obj) {
     const btn = document.querySelector(`.music-tab-btn[data-music-mode="${obj._musicMode}"]`);
     if (btn) btn.click();
   }
+  if (obj._logoMode || obj.logoMode || obj.logoEnabled === 'true') {
+    const logoMode = obj._logoMode || obj.logoMode || 'saved';
+    const btn = document.querySelector(`.logo-tab-btn[data-logo-mode="${logoMode}"]`);
+    if (btn) btn.click();
+  }
 
   // Tải lại video nguồn đã chọn và nạp preview
   if (obj.mainVideoFile) {
@@ -8754,7 +9436,7 @@ function deserializeStudioForm(obj) {
 
   // Cập nhật lại các trường phụ đề
   updateConditionalFields();
-
+  updateLogoUi();
   // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark
   ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
     const el = $(id);
@@ -8851,6 +9533,8 @@ function resetStudioForm() {
   if (voiceBtn) voiceBtn.click();
   const musicBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
   if (musicBtn) musicBtn.click();
+  const logoBtn = document.querySelector('.logo-tab-btn[data-logo-mode="none"]');
+  if (logoBtn) logoBtn.click();
 
   const previewVideo = $('studio-video-preview');
   if (previewVideo) {
@@ -8861,6 +9545,7 @@ function resetStudioForm() {
   $('preview-placeholder').classList.remove('hidden');
 
   updateConditionalFields();
+  updateLogoUi();
 
   // Xóa vùng làm mờ
   blurBoxes = [];

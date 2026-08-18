@@ -22,7 +22,7 @@ except Exception:
 # KHÔNG mở được trình duyệt → 0 câu dịch → phụ đề trống (hoặc giữ chữ Trung).
 # `mo_dang_nhap.py` ĐÃ có đoạn này từ lâu; file DỊCH thì KHÔNG — nên cửa sổ đăng nhập mở được mà dịch vẫn
 # hỏng. (Memory ghi fix đã áp cho file này, nhưng kiểm tra lại thấy 0 lần xuất hiện → fix bị mất/chưa từng
-# vào. Nay khôi phục.) venv chạy ở userData\viralcrawl-desktop\runtime\venv → ms-playwright nằm CẠNH venv
+# vào. Nay khôi phục.) venv chạy trong userData runtime → ms-playwright nằm CẠNH venv
 # (…\runtime\ms-playwright); suy từ sys.executable nên KHÔNG phụ thuộc env truyền vào.
 if not (os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or "").strip():
     try:

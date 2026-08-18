@@ -4,6 +4,7 @@ const shared = require('../lib/shared-state');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
 const anti = require('../lib/anti-dupe');
+const { buildTimedBlurFilterGraph } = require('../lib/render-blur-helper');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
 const { createRenderOrchestrator } = require('../lib/render-orchestrator');
 const { SegmentService } = require('../lib/segment-service');
@@ -73,6 +74,44 @@ function escapeSubtitleForFilter(filePath) {
   return escaped;
 }
 
+function mergeRenderBlurBoxes(manualBoxes, automaticBoxes, automaticEnabled) {
+  const manual = Array.isArray(manualBoxes) ? manualBoxes : [];
+  const automatic = automaticEnabled && Array.isArray(automaticBoxes) ? automaticBoxes : [];
+  return [...manual, ...automatic];
+}
+
+function readSubtitleTimingCues(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+  try {
+    const Parser = require('srt-parser-2').default;
+    const parser = new Parser();
+    return parser.fromSrt(fs.readFileSync(filePath, 'utf8')).flatMap((cue) => {
+      const startMs = srtTimeToMs(cue.startTime);
+      const endMs = srtTimeToMs(cue.endTime);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+      return [{ startMs, endMs }];
+    });
+  } catch (error) {
+    console.warn('[Studio Blur] Không đọc được timing SRT để đồng bộ vùng che:', error.message);
+    return [];
+  }
+}
+
+function appendFilterComplexArgs(args, filterSegments, workDir, inlineLimit = 24000) {
+  const filterText = filterSegments.join(';');
+  if (filterText.length <= inlineLimit) {
+    args.push('-filter_complex', filterText);
+    return { mode: 'inline', filterText };
+  }
+
+  const scriptPath = path.join(workDir, 'render-filter-complex.txt');
+  fs.writeFileSync(scriptPath, filterText, 'utf8');
+  // Current bundled FFmpeg uses the documented option-file form; the removed
+  // legacy -filter_complex_script switch fails on FFmpeg 8/nightly builds.
+  args.push('-/filter_complex', scriptPath);
+  return { mode: 'script', filterText, scriptPath };
+}
+
 function hexToAssColor(hexStr) {
   if (!hexStr || !hexStr.startsWith('#')) return '&H00FFFFFF';
   const cleanHex = hexStr.replace('#', '');
@@ -81,6 +120,55 @@ function hexToAssColor(hexStr) {
   const gg = cleanHex.substring(2, 4);
   const bb = cleanHex.substring(4, 6);
   return `&H00${bb}${gg}${rr}`;
+}
+
+function buildStudioLogoOverlay(body = {}, options = {}) {
+  if (!(body.logoEnabled === true || body.logoEnabled === 'true') || !body.savedLogoFile) {
+    return { enabled: false, segments: [] };
+  }
+  const inputIndex = Number(options.inputIndex);
+  const videoWidth = Math.max(2, Number(options.videoWidth) || 1080);
+  if (!Number.isInteger(inputIndex) || inputIndex < 1) throw new Error('Logo input index không hợp lệ');
+  const widthPercent = Math.max(3, Math.min(60, Number(body.logoWidthPercent) || 18));
+  const logoWidth = Math.max(2, Math.round(videoWidth * widthPercent / 100));
+  const opacity = Math.max(0.05, Math.min(1, Number(body.logoOpacity) || 0.9));
+  const position = String(body.logoPosition || 'br');
+  const margin = Math.max(8, Math.round(videoWidth * 0.015));
+  let x = `main_w-overlay_w-${margin}`;
+  let y = `main_h-overlay_h-${margin}`;
+  if (position === 'bl') { x = String(margin); y = `main_h-overlay_h-${margin}`; }
+  else if (position === 'tr') { x = `main_w-overlay_w-${margin}`; y = String(margin); }
+  else if (position === 'tl') { x = String(margin); y = String(margin); }
+  else if (position === 'center') { x = '(main_w-overlay_w)/2'; y = '(main_h-overlay_h)/2'; }
+  else if (position === 'custom') {
+    const xPercent = Math.max(0, Math.min(100, Number(body.logoXPercent) || 0));
+    const yPercent = Math.max(0, Math.min(100, Number(body.logoYPercent) || 0));
+    x = `min(max(main_w*${(xPercent / 100).toFixed(6)},0),main_w-overlay_w)`;
+    y = `min(max(main_h*${(yPercent / 100).toFixed(6)},0),main_h-overlay_h)`;
+  }
+  const start = Math.max(0, Number(body.logoStart) || 0);
+  const rawEnd = body.logoEnd;
+  const hasEnd = rawEnd !== '' && rawEnd !== null && rawEnd !== undefined && Number.isFinite(Number(rawEnd));
+  const end = hasEnd ? Math.max(start, Number(rawEnd)) : null;
+  const enable = end === null ? `gte(t,${start.toFixed(3)})` : `between(t,${start.toFixed(3)},${end.toFixed(3)})`;
+  const baseLabel = String(options.baseLabel || '0:v');
+  return {
+    enabled: true,
+    segments: [
+      `[${inputIndex}:v]format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},scale=${logoWidth}:-1[studio_logo]`,
+      `[${baseLabel}][studio_logo]overlay=x='${x}':y='${y}':enable='${enable}':eof_action=pass[vout]`
+    ]
+  };
+}
+
+function renameVideoOutput(filters, outputLabel) {
+  for (let index = filters.length - 1; index >= 0; index -= 1) {
+    if (/\[vout\]$/.test(filters[index])) {
+      filters[index] = filters[index].replace(/\[vout\]$/, `[${outputLabel}]`);
+      return true;
+    }
+  }
+  return false;
 }
 
 function getVideoDurationInSeconds(videoPath) {
@@ -309,6 +397,8 @@ function mapAutomaticSubtitleProgress(event = {}) {
     }
     case 'ocr_retry_cpu':
       return { percent: 24, step: 'OCR đang thử lại bằng CPU...' };
+    case 'ocr_region_scan':
+      return { percent: 28, step: 'Đang tự dò vùng phụ đề khác...' };
     case 'ocr_validating':
       return { percent: 32, step: 'Đang kiểm tra phụ đề OCR...' };
     case 'whisper_fallback':
@@ -364,6 +454,8 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
+      ocrRegionStrategy: body.ocrRegionStrategy === 'manual' ? 'manual' : 'auto',
+      ocrPipeline: ['auto', 'viral', 'vse'].includes(body.ocrPipeline) ? body.ocrPipeline : 'auto',
       forceWhisper,
       ocrOnly,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)
@@ -791,6 +883,14 @@ async function executeRenderTask(task) {
       reactionVideoPath = shared.resolveAssetPath('video', body.savedReactionFile);
     }
 
+    let logoPath = null;
+    const logoRequested = body.logoEnabled === true || body.logoEnabled === 'true';
+    if (logoRequested && !body.savedLogoFile) throw new Error('Hãy chọn logo trước khi render');
+    if (logoRequested) {
+      logoPath = shared.resolveAssetPath('logo', body.savedLogoFile);
+      if (!logoPath) throw new Error('Logo đã chọn không còn tồn tại');
+    }
+
     let subtitlePath = null;
     let subtitleMode = body.subtitleMode || 'none';
     const voiceMode = body.voiceMode || 'none';
@@ -805,6 +905,7 @@ async function executeRenderTask(task) {
 
     const subtitleStage = await renderOrchestrator.runStage(task, 'subtitle', async () => {
       let resolvedSubtitlePath = null;
+      let ocrReport = null;
       if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
         shared.updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
         resolvedSubtitlePath = shared.moveUploadedFile(files.subtitleUpload[0], shared.SUBTITLES_DIR, files.subtitleUpload[0].originalname);
@@ -822,10 +923,12 @@ async function executeRenderTask(task) {
           forceWhisper: task.forceWhisper === true,
           ffmpegPath: shared.FFMPEG_PATH
         });
+        ocrReport = readJsonFile(path.join(workDir, 'ocr-report.json'));
       }
-      return { subtitlePath: resolvedSubtitlePath };
+      return { subtitlePath: resolvedSubtitlePath, ocrReport };
     });
     subtitlePath = subtitleStage.subtitlePath;
+    const ocrReport = subtitleStage.ocrReport || null;
     const sourceSubtitlePath = subtitlePath;
 
     let originalIsChinese = false;
@@ -851,7 +954,12 @@ async function executeRenderTask(task) {
     const translationStage = await renderOrchestrator.runStage(task, 'translation', async () => {
       let finalSubtitlePath = subtitlePath;
       if (subtitlePath && body.translateVi === 'true') {
-        const langNames = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
+        const langNames = {
+          vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc', ja: 'Japanese', ko: 'Korean',
+          th: 'Thai', fr: 'French', es: 'Spanish', pt: 'Portuguese', de: 'German',
+          it: 'Italian', ru: 'Russian', id: 'Indonesian', ms: 'Malay', ar: 'Arabic',
+          hi: 'Hindi', tr: 'Turkish'
+        };
         shared.updateStudioProgress(35, `Đang dịch phụ đề sang ${langNames[targetLang] || 'Tiếng Việt'} bằng AI...`);
         const translatedPath = path.join(workDir, 'translated.srt');
         const translationResult = await translateSubtitles(subtitlePath, translatedPath, {
@@ -866,7 +974,11 @@ async function executeRenderTask(task) {
           opencodeModel: body.opencodeModel,
           openaiApiKey: body.openaiApiKey,
           openaiModel: body.openaiModel,
-          targetLang
+          targetLang,
+          srcLang: originalIsChinese
+            ? 'zho_Hans'
+            : (body.whisperLanguage || body.ocrLanguage || 'auto'),
+          translationStyles: body.translationStyles
         }, Number(body.subtitleMaxLines || 0), studioMaxChars, () => shared.state.activeRenderId !== renderId);
         task.translationReport = translationResult?.report || null;
         finalSubtitlePath = translatedPath;
@@ -946,6 +1058,9 @@ async function executeRenderTask(task) {
       const voiceCapabilities = voiceEngine.getCapabilities();
       const supportsVoiceCloning = voiceCapabilities.cloneVoice === true;
       const edgeVoice = voiceEngine.id === 'edge-tts' ? String(body.edgeVoice || '') : '';
+      const edgeRate = voiceEngine.id === 'edge-tts' ? String(body.edgeRate || '+0%') : '+0%';
+      const edgePitch = voiceEngine.id === 'edge-tts' ? String(body.edgePitch || '+0Hz') : '+0Hz';
+      const voiceLogTag = voiceEngine.id === 'edge-tts' ? 'EdgeTTS' : 'OmniVoice';
       const requestedLanguage = edgeVoice
         ? edgeVoice.split('-').slice(0, 2).join('-').toLowerCase()
         : (['vi', 'en', 'zh'].includes(body.omiLanguage) ? body.omiLanguage : 'vi');
@@ -976,8 +1091,8 @@ async function executeRenderTask(task) {
           const result = await voiceEngine[method]({
             ...options,
             voice: edgeVoice || options.voice,
-            rate: body.edgeRate || options.rate,
-            pitch: body.edgePitch || options.pitch,
+            rate: voiceEngine.id === 'edge-tts' ? edgeRate : options.rate,
+            pitch: voiceEngine.id === 'edge-tts' ? edgePitch : options.pitch,
             language: requestedLanguage,
             device: requestedVoiceDevice,
             steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
@@ -1095,7 +1210,7 @@ async function executeRenderTask(task) {
       }
 
       if (subtitlePath && fs.existsSync(subtitlePath)) {
-        console.log('Bắt đầu đồng bộ giọng đọc OmniVoice theo từng câu phụ đề...');
+        console.log(`Bắt đầu đồng bộ giọng đọc ${voiceLogTag} theo từng câu phụ đề...`);
         const Parser = require('srt-parser-2').default;
         const parser = new Parser();
         const srtContent = fs.readFileSync(subtitlePath, 'utf8');
@@ -1162,8 +1277,8 @@ async function executeRenderTask(task) {
           refText: supportsVoiceCloning ? refText : '',
           engineId: voiceEngine.id,
           voice: edgeVoice,
-          rate: body.edgeRate || '+0%',
-          pitch: body.edgePitch || '+0Hz',
+          rate: edgeRate,
+          pitch: edgePitch,
           model: voiceEngine.id === DEFAULT_VOICE_ENGINE_ID
             ? getFileIdentity(shared.OMNIVOICE_MODEL_PATH)
             : voiceEngine.getCapabilities(),
@@ -1228,8 +1343,8 @@ async function executeRenderTask(task) {
             referenceText: segmentReferenceText,
             engineId: voiceEngine.id,
             voice: edgeVoice,
-            rate: body.edgeRate || '+0%',
-            pitch: body.edgePitch || '+0Hz',
+            rate: edgeRate,
+            pitch: edgePitch,
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
             language: requestedLanguage,
             seed: resolveOmnivoiceSeed(body.omiSeed),
@@ -1279,12 +1394,15 @@ async function executeRenderTask(task) {
           }
 
           const usedDevice = requestedVoiceDevice;
+          const voiceLogDetails = voiceEngine.id === 'edge-tts'
+            ? `Voice: ${edgeVoice}, Rate: ${edgeRate}, Pitch: ${edgePitch}`
+            : `Device: ${usedDevice}`;
 
           console.log(
-            `[OmniVoice-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
+            `[${voiceLogTag}-Sub] ${hasRawChunk ? 'Dùng lại audio' : 'Đang đọc'} nhóm câu`
             + ` ${idx + 1}/${groups.length}: "${lineText}"`
             + ` (Thời lượng sub: ${durationSec.toFixed(2)}s,`
-            + ` Bắt đầu: ${(startMs / 1000).toFixed(2)}s, Device: ${usedDevice})`
+            + ` Bắt đầu: ${(startMs / 1000).toFixed(2)}s, ${voiceLogDetails})`
           );
           try {
             let rawDurationMs;
@@ -1304,8 +1422,8 @@ async function executeRenderTask(task) {
                     referenceText: segmentReferenceText,
                     engineId: voiceEngine.id,
                     voice: edgeVoice,
-                    rate: body.edgeRate || '+0%',
-                    pitch: body.edgePitch || '+0Hz',
+                    rate: edgeRate,
+                    pitch: edgePitch,
                     steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '16',
                     language: requestedLanguage,
                     seed: resolveOmnivoiceSeed(body.omiSeed),
@@ -1368,7 +1486,7 @@ async function executeRenderTask(task) {
                   });
                 }
               } catch (speedUpErr) {
-                console.error(`[OmniVoice-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
+                console.error(`[${voiceLogTag}-Sub] Lỗi khi xử lý tăng tốc nhóm câu ${idx + 1}:`, speedUpErr.message);
                 throw speedUpErr;
               }
 
@@ -1422,7 +1540,7 @@ async function executeRenderTask(task) {
 
         try {
           shared.updateStudioProgress(78, 'Đang gộp các đoạn giọng nói...');
-          console.log('[OmniVoice] Đang gộp các chunk giọng nói thành một file duy nhất...');
+          console.log(`[${voiceLogTag}] Đang gộp các chunk giọng nói thành một file duy nhất...`);
           let maxEndMs = 0;
           const chunkDataList = [];
           let combinedSampleRate = null;
@@ -1509,12 +1627,12 @@ async function executeRenderTask(task) {
             fs.writeFileSync(voicePath, Buffer.concat([wavHeader, combinedBuffer]));
             tempFiles.push(voicePath);
 
-            console.log(`[OmniVoice] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs / 1000).toFixed(2)}s, Sample Rate: ${combinedSampleRate}Hz)`);
+            console.log(`[${voiceLogTag}] Đã gộp thành công ${voiceChunks.length} chunk thành file đơn: ${voicePath} (Thời lượng: ${(maxEndMs / 1000).toFixed(2)}s, Sample Rate: ${combinedSampleRate}Hz)`);
             voiceChunks.length = 0;
           }
         } catch (mergeErr) {
-          console.error('[OmniVoice] Lỗi khi gộp các file chunk âm thanh:', mergeErr.message);
-          console.warn('[OmniVoice] Dùng các chunk riêng lẻ (adelay) với cảnh báo: chất lượng ghép nối có thể không mượt.');
+          console.error(`[${voiceLogTag}] Lỗi khi gộp các file chunk âm thanh:`, mergeErr.message);
+          console.warn(`[${voiceLogTag}] Dùng các chunk riêng lẻ (adelay) với cảnh báo: chất lượng ghép nối có thể không mượt.`);
           // Không throw — để render tiếp với individual chunks (voiceChunks chưa bị clear)
         }
       } else {
@@ -1627,6 +1745,12 @@ async function executeRenderTask(task) {
       }
     }
 
+    let logoInputIndex = -1;
+    if (logoPath) {
+      args.push('-loop', '1', '-framerate', '25', '-i', logoPath);
+      logoInputIndex = args.filter(value => value === '-i').length - 1;
+    }
+
     let renderSubtitlePath = null;
     let videoFilter = null;
     let hasVideoFilter = false;
@@ -1729,17 +1853,27 @@ async function executeRenderTask(task) {
       baseVideoLabel = 'v_flipped';
     }
 
-    if (body.blurOriginalSub === 'true') {
+    let requestedBlurBoxes = [];
+    if (body.blurBoxes) {
+      try {
+        requestedBlurBoxes = JSON.parse(body.blurBoxes);
+      } catch (e) {
+        console.error('Lỗi parse blurBoxes JSON:', e.message);
+      }
+    }
+    if (!Array.isArray(requestedBlurBoxes)) requestedBlurBoxes = [];
+    const automaticOcrBlurBoxes = [];
+    const useAutomaticOcrBlur = false;
+    const shouldBlurOriginalSub = body.blurOriginalSub === 'true' || useAutomaticOcrBlur;
+
+    if (shouldBlurOriginalSub) {
       hasVideoFilter = true;
       baseVideoLabel = (hasReaction || hasSubtitles) ? 'v_base' : 'vout';
-      let blurBoxes = [];
-      if (body.blurBoxes) {
-        try {
-          blurBoxes = JSON.parse(body.blurBoxes);
-        } catch (e) {
-          console.error('Lỗi parse blurBoxes JSON:', e.message);
-        }
-      }
+      const blurBoxes = mergeRenderBlurBoxes(
+        requestedBlurBoxes,
+        automaticOcrBlurBoxes,
+        useAutomaticOcrBlur
+      );
 
       if (!Array.isArray(blurBoxes) || blurBoxes.length === 0) {
         const blurXPercentVal = Math.min(100, Math.max(0, Number(body.blurX !== undefined ? body.blurX : 10))) / 100;
@@ -1770,51 +1904,20 @@ async function executeRenderTask(task) {
 
         blurFilterString = `[0:v]split[orig][copy];[copy]crop=${evenCropW}:${evenCropH}:${evenCropX}:${evenCropY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius},format=yuv420p[blurred];[orig][blurred]overlay=${evenCropX}:${evenCropY}[${baseVideoLabel}]`;
       } else {
-        let currentInputLabel = '0:v';
-        const filters = [];
-
-        blurBoxes.forEach((box, index) => {
-          const isLast = index === blurBoxes.length - 1;
-          const outputLabel = isLast ? baseVideoLabel : `v_blur_${index}`;
-          const xPercent = Math.min(100, Math.max(0, Number(box.x !== undefined ? box.x : 10))) / 100;
-          const widthPercent = Math.min(100, Math.max(1, Number(box.width !== undefined ? box.width : 80))) / 100;
-          const yPercent = Math.min(100, Math.max(0, Number(box.y !== undefined ? box.y : 75))) / 100;
-          const heightPercent = Math.min(100, Math.max(1, Number(box.height !== undefined ? box.height : 15))) / 100;
-          const radius = Math.min(50, Math.max(1, Number(box.radius || 20)));
-
-          let clampedX = xPercent;
-          if (clampedX + widthPercent > 1) clampedX = 1 - widthPercent;
-          let clampedY = yPercent;
-          if (clampedY + heightPercent > 1) clampedY = 1 - heightPercent;
-
-          const rawCropW = videoWidth * widthPercent;
-          const rawCropH = videoHeight * heightPercent;
-          const rawCropX = videoWidth * clampedX;
-          const rawCropY = videoHeight * clampedY;
-
-          const evenCropW = Math.max(2, Math.floor(rawCropW / 2) * 2);
-          const evenCropH = Math.max(2, Math.floor(rawCropH / 2) * 2);
-          const evenCropX = Math.max(0, Math.floor(rawCropX / 2) * 2);
-          const evenCropY = Math.max(0, Math.floor(rawCropY / 2) * 2);
-
-          const maxLumaR = Math.max(1, Math.floor(Math.min(evenCropW, evenCropH) / 2) - 1);
-          const maxChromaR = Math.max(1, Math.floor(Math.min(evenCropW / 2, evenCropH / 2) / 2) - 1);
-          const safeLumaRadius = Math.min(radius, maxLumaR);
-          const safeChromaRadius = Math.min(radius, maxChromaR);
-
-          const start = Number(box.start !== undefined ? box.start : 0);
-          const end = Number(box.end !== undefined ? box.end : 99999);
-
-          const origLabel = `orig_${index}`;
-          const copyLabel = `copy_${index}`;
-          const blurredLabel = `blurred_${index}`;
-
-          filters.push(`[${currentInputLabel}]split[${origLabel}][${copyLabel}]`);
-          filters.push(`[${copyLabel}]crop=${evenCropW}:${evenCropH}:${evenCropX}:${evenCropY},boxblur=lr=${safeLumaRadius}:cr=${safeChromaRadius},format=yuv420p[${blurredLabel}]`);
-          filters.push(`[${origLabel}][${blurredLabel}]overlay=${evenCropX}:${evenCropY}:enable='between(t,${start},${end})'[${outputLabel}]`);
-          currentInputLabel = outputLabel;
+        const timedBlur = buildTimedBlurFilterGraph({
+          inputLabel: '0:v',
+          outputLabel: baseVideoLabel,
+          videoWidth,
+          videoHeight,
+          manualBoxes: requestedBlurBoxes,
+          automaticBoxes: useAutomaticOcrBlur ? automaticOcrBlurBoxes : [],
+          displayCues: useAutomaticOcrBlur ? readSubtitleTimingCues(sourceSubtitlePath) : [],
+          maskStyle: 'blur',
+          maskColor: '#000000',
+          mirrored: flipEnabled
         });
-        blurFilterString = filters.join(';');
+        blurFilterString = timedBlur.filter;
+        console.log('[Studio Mask] OCR timing:', JSON.stringify(timedBlur.stats));
       }
     }
 
@@ -1854,7 +1957,7 @@ async function executeRenderTask(task) {
       }
       filterChain += `[${baseVideoLabel}]subtitles='${escapeSubtitleForFilter(renderSubtitlePath)}'[vout]`;
       videoFilter = filterChain;
-    } else if (body.blurOriginalSub === 'true') {
+    } else if (shouldBlurOriginalSub) {
       videoFilter = blurFilterString;
     }
 
@@ -1874,6 +1977,20 @@ async function executeRenderTask(task) {
       }
     } else if (videoFilter) {
       filterComplex.push(videoFilter);
+    }
+
+    if (logoPath) {
+      const logoBaseLabel = hasVideoFilter ? 'v_logo_base' : '0:v';
+      if (hasVideoFilter && !renameVideoOutput(filterComplex, logoBaseLabel)) {
+        throw new Error('Không thể nối logo vào filter video');
+      }
+      const logoOverlay = buildStudioLogoOverlay(body, {
+        inputIndex: logoInputIndex,
+        videoWidth,
+        baseLabel: logoBaseLabel
+      });
+      filterComplex.push(...logoOverlay.segments);
+      hasVideoFilter = true;
     }
 
     let hasAudioFilter = false;
@@ -1944,7 +2061,7 @@ async function executeRenderTask(task) {
     }
 
     if (filterComplex.length > 0) {
-      args.push('-filter_complex', filterComplex.join(';'));
+      appendFilterComplexArgs(args, filterComplex, workDir);
     }
 
     if (hasVideoFilter) {
@@ -2248,6 +2365,7 @@ function createRenderQueueHandlers(dependencies = {}) {
         'openaiApiKey',
         'openaiModel',
         'translateTargetLang',
+        'translationStyles',
         'whisperModel',
         'whisperOnnxVariant'
       ];
@@ -2357,6 +2475,11 @@ module.exports = {
   createRenderQueueHandlers,
   createRenderQueueTask,
   createRenderSourceResolver,
+  appendFilterComplexArgs,
+  buildStudioLogoOverlay,
+  mergeRenderBlurBoxes,
+  readSubtitleTimingCues,
+  renameVideoOutput,
   createVoiceChunkCheckpoint,
   findNextPendingRenderTask,
   mapAutomaticSubtitleProgress,
@@ -2475,7 +2598,8 @@ module.exports = {
       return res.status(400).json({ error: 'Thiếu file video' });
     }
 
-    const mainPath = path.join(shared.DOWNLOADS_DIR, mainVideoFile);
+    const mainPath = shared.resolveAssetPath('video', mainVideoFile);
+    if (!mainPath) return res.status(404).json({ error: 'Video nguồn không còn tồn tại' });
     const outPath = path.join(shared.DOWNLOADS_DIR, `reaction_${Date.now()}.mp4`);
     let overlayPos = 'main_w-overlay_w-20:main_h-overlay_h-20';
     if (position === 'bottom-left') overlayPos = '20:main_h-overlay_h-20';
@@ -2504,10 +2628,11 @@ module.exports = {
     const voiceEngines = await voiceEngineRegistry.describeAll();
     const defaultVoiceEngine = voiceEngines.find((engine) => engine.id === DEFAULT_VOICE_ENGINE_ID);
     res.json({
-      videos: shared.listFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
+      videos: shared.listVideoFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       renders: shared.listFiles(shared.RENDERS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       voices: shared.listFiles(shared.VOICES_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       music: shared.listFiles(shared.MUSIC_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
+      logos: shared.listFiles(shared.LOGOS_DIR, ['.png', '.jpg', '.jpeg', '.webp']),
       subtitles: shared.listFiles(shared.SUBTITLES_DIR, ['.srt', '.vtt', '.ass']),
       omiConfigured: defaultVoiceEngine?.status?.ready === true,
       defaultVoiceEngineId: DEFAULT_VOICE_ENGINE_ID,

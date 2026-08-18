@@ -3,6 +3,10 @@ const views = {
     title: 'Tải video',
     desc: 'Dán link video đơn lẻ hoặc link kênh để tải về thư mục downloads.'
   },
+  'crawl-history': {
+    title: 'Lịch sử cào',
+    desc: 'Lọc, chọn và tải lại video đã tìm thấy từ tất cả nền tảng.'
+  },
   studio: {
     title: 'Studio render',
     desc: 'Dịch tiếng Việt, chèn sub, thêm giọng nói hoặc nhạc nền rồi render ra MP4.'
@@ -33,7 +37,7 @@ let currentPlaylistVideos = [];
 let currentSavedChannelPage = 1;
 const savedChannelsPerPage = 5;
 let currentPlaylistSessionId = null;
-let assets = { videos: [], voices: [], music: [], subtitles: [], renders: [], omiConfigured: false };
+let assets = { videos: [], voices: [], music: [], logos: [], subtitles: [], renders: [], omiConfigured: false };
 let isBulkDownloadCancelled = false;
 let activeBulkDownloadController = null;
 
@@ -43,6 +47,7 @@ let konvaSubtitle = null;
 let konvaReaction = null;
 let konvaBlur = null;
 let konvaWatermark = null;
+let konvaLogo = null;
 let konvaTransformer = null;
 let vGuideline = null;
 let hGuideline = null;

@@ -60,3 +60,10 @@ test('Edge TTS is independent from OmniVoice model, reference audio, and GPU con
   assert.match(libraryModule, /refAudio\.required = !isEdge/);
   assert.match(voiceController, /supportsVoiceCloning && \(!refAudio \|\| !refText\)/);
 });
+
+test('studio render logs the actual voice engine and Edge synthesis settings', () => {
+  assert.match(studioController, /voiceEngine\.id === 'edge-tts' \? 'EdgeTTS' : 'OmniVoice'/);
+  assert.match(studioController, /\[\$\{voiceLogTag\}-Sub\]/);
+  assert.match(studioController, /Voice: \$\{edgeVoice\}, Rate: \$\{edgeRate\}, Pitch: \$\{edgePitch\}/);
+  assert.doesNotMatch(studioController, /\[OmniVoice-Sub\]/);
+});
