@@ -408,10 +408,31 @@ function mapAutomaticSubtitleProgress(event = {}) {
   }
 }
 
-function createAutomaticSubtitleProgressHandler(updateStudioProgress = shared.updateStudioProgress) {
+function createAutomaticSubtitleProgressHandler(updateStudioProgress = shared.updateStudioProgress, logger = console) {
   let latestPercent = 12;
+  let lastProviderLine = '';
   return function onAutomaticSubtitleProgress(event) {
     try {
+      if (event.phase === 'ocr_processing' && event.detail?.kind === 'log') {
+        const message = String(event.detail.message || '');
+        if (/RapidOCR/i.test(message) && /(CUDAExecutionProvider|CPUExecutionProvider|GPU|CPU)/i.test(message)) {
+          const line = `[RapidOCR] ${message}`;
+          if (line !== lastProviderLine) {
+            logger.log(line);
+            lastProviderLine = line;
+          }
+        }
+      }
+      if (event.phase === 'ocr_processing' && event.detail?.kind === 'provider') {
+        const requested = event.detail.requestedDevice || 'cpu';
+        const provider = event.detail.provider || 'unknown';
+        const model = event.detail.model || 'v6-small';
+        const line = `[RapidOCR] model=${model} requestedDevice=${requested} actualProvider=${provider}`;
+        if (line !== lastProviderLine) {
+          logger.log(line);
+          lastProviderLine = line;
+        }
+      }
       const progress = mapAutomaticSubtitleProgress(event);
       if (!progress) return;
       latestPercent = Math.min(34, Math.max(latestPercent, progress.percent));
@@ -458,7 +479,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       ocrPipeline: ['auto', 'viral', 'vse'].includes(body.ocrPipeline) ? body.ocrPipeline : 'auto',
       forceWhisper,
       ocrOnly,
-      onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress)
+      onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress, logger)
     });
     logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
     return result.path;

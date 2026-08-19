@@ -73,6 +73,11 @@ test('render never auto-masks OCR boxes and keeps manual masks as blur', () => {
   assert.match(source, /maskStyle: 'blur'/);
 });
 
+test('manual render blur regions are not passed to OCR as excluded regions', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'controllers', 'studioController.js'), 'utf8');
+  assert.doesNotMatch(source, /ocrExcludedRegions:\s*parseOcrExcludedRegions\(body\.blurBoxes\)/);
+});
+
 test('OCR blur reads source SRT timing for cue end alignment', async () => {
   await withTempDir('studio-blur-timing-', async (directory) => {
     const srtPath = path.join(directory, 'source.srt');
@@ -227,7 +232,8 @@ test('generate resolver wires coordinator options and returns result.path downst
     whisperTimestampLevel: 'segment',
     ocrLanguage: 'zh',
     ocrMode: 'accurate',
-    ocrRegion: '0.6,0.95,0.1,0.9'
+    ocrRegion: '0.6,0.95,0.1,0.9',
+    blurBoxes: JSON.stringify([{ x: 5, y: 8, width: 20, height: 10, start: 2, end: 7 }])
   };
 
   const subtitlePath = await resolveSubtitle({
@@ -240,6 +246,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   });
 
   assert.equal(subtitlePath, 'work/ocr-clean.srt');
+  assert.equal(Object.hasOwn(receivedOptions, 'ocrExcludedRegions'), false);
   assert.deepEqual(
     { ...receivedOptions, onProgress: typeof receivedOptions.onProgress },
     {
@@ -433,6 +440,23 @@ test('coordinator progress stays below translation and callback failures are obs
     throw new Error('UI disconnected');
   });
   assert.doesNotThrow(() => throwingProgress({ phase: 'ocr_starting' }));
+});
+
+test('coordinator writes the real RapidOCR provider to the render log', () => {
+  const lines = [];
+  const onProgress = createAutomaticSubtitleProgressHandler(() => {}, {
+    log: (line) => lines.push(line)
+  });
+  onProgress({
+    phase: 'ocr_processing',
+    detail: {
+      kind: 'provider', model: 'v6-small', requestedDevice: 'gpu',
+      provider: 'CUDAExecutionProvider'
+    }
+  });
+  assert.deepEqual(lines, [
+    '[RapidOCR] model=v6-small requestedDevice=gpu actualProvider=CUDAExecutionProvider'
+  ]);
 });
 
 test('OCR technical errors enter the exact waiting state instead of generic error', () => {

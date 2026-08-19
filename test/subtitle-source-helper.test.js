@@ -438,13 +438,21 @@ test('automatic region scan recovers subtitles outside the selected lower region
 
 test('RapidOCR pipeline is used directly for Chinese OCR and keeps its exact cleaned SRT', async () => {
   await withTempDirectory(async (directory) => {
-    const options = createOptions(directory, { ocrLanguage: 'ch', ocrPipeline: 'viral' });
+    const excludedRegions = [{ x0: 0, y0: 0, x1: 0.2, y1: 0.1, t0: 0, t1: 0 }];
+    const options = createOptions(directory, {
+      ocrLanguage: 'ch',
+      ocrPipeline: 'viral',
+      ocrExcludedRegions: excludedRegions
+    });
     let vseCalled = false;
     const dependencies = createDependencies({
       getOcrComponentStatus: () => ({ status: 'ready', supportedLanguages: ['ch'] }),
+      detectOcrDevice: () => { throw new Error('RapidOCR must not use VSE auto-device detection'); },
       runVse: async () => { vseCalled = true; },
-      runViralOcr: async ({ outputPath, reportPath, model }) => {
+      runViralOcr: async ({ outputPath, reportPath, model, device, excludedRegions: receivedRegions }) => {
         assert.equal(model, 'v6-small');
+        assert.equal(device, 'cpu');
+        assert.deepEqual(receivedRegions, excludedRegions);
         await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n2\n00:00:01,000 --> 00:00:02,000\n第二句\n\n3\n00:00:02,000 --> 00:00:03,000\n第三句\n', 'utf8');
         await fs.writeFile(reportPath, JSON.stringify({ cueCount: 3, blurBoxes: [{ start: 0, end: 3 }] }), 'utf8');
         return { kind: 'success' };

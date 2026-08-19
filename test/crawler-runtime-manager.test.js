@@ -51,7 +51,7 @@ test('runtime readiness requires the OCR dependency marker', () => {
       playwrightBrowsersDir: path.dirname(browser)
     });
     assert.equal(manager.ready(), false);
-    fs.writeFileSync(path.join(runtimeRoot, 'ocr-runtime-v2.json'), '{}');
+    fs.writeFileSync(path.join(runtimeRoot, 'ocr-runtime-v3.json'), '{}');
     assert.equal(manager.ready(), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

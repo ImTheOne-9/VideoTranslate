@@ -45,7 +45,11 @@ const requiredFiles = [
   'tools/crawler/app/viral_ocr/viral_ocr_cli.py',
   'tools/crawler/app/viral_ocr/ocr_text.py',
   'tools/crawler/app/viral_ocr/dai_sub_rapid.py',
-  'tools/crawler/app/viral_ocr/clean_segments.py',
+  'tools/crawler/app/viral_ocr/chat_luong.py',
+  'tools/crawler/app/viral_ocr/thong_tin_may.py',
+  'tools/crawler/app/viral_ocr/chan_doan_loi.py',
+  'tools/crawler/app/viral_ocr/phu_de.py',
+  'tools/crawler/app/viral_ocr/cai_gpu.py',
   'tools/crawler/app/MediaCrawler/main.py'
 ];
 

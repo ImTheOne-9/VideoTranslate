@@ -52,12 +52,24 @@ test('packaging keeps the complete RapidOCR source and runtime dependencies', ()
     assert.match(requirements, new RegExp(dependency.replace(/[.-]/g, '\\$&')));
   }
   const gpuInstaller = fs.readFileSync(path.join(root, 'tools', 'crawler', 'install-ocr-gpu.py'), 'utf8');
-  assert.match(gpuInstaller, /GPU_VERSION = ["']1\.22\.0["']/);
+  const runtimeSetup = fs.readFileSync(path.join(root, 'tools', 'crawler', 'setup-runtime.ps1'), 'utf8');
+  assert.match(gpuInstaller, /ORT_VERSION = ["']1\.22\.0["']/);
   assert.match(gpuInstaller, /onnxruntime-gpu==/);
   assert.match(gpuInstaller, /CUDAExecutionProvider/);
+  assert.match(gpuInstaller, /restore_cpu/);
+  assert.doesNotMatch(runtimeSetup, /install-ocr-gpu\.py/);
   const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
   assert.ok(crawler.filter.includes('install-ocr-gpu.py'));
-  for (const filename of ['viral_ocr_cli.py', 'ocr_text.py', 'dai_sub_rapid.py', 'clean_segments.py']) {
+  for (const filename of [
+    'viral_ocr_cli.py',
+    'ocr_text.py',
+    'dai_sub_rapid.py',
+    'chat_luong.py',
+    'thong_tin_may.py',
+    'chan_doan_loi.py',
+    'phu_de.py',
+    'cai_gpu.py'
+  ]) {
     assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'viral_ocr', filename)), true);
   }
 });

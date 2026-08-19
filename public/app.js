@@ -1305,6 +1305,64 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 initOcrRegionOverlay();
 
 let rapidOcrRuntimeInstallPromise = null;
+let rapidOcrGpuInstallPromise = null;
+
+function updateRapidOcrGpuUi(status = {}) {
+  const row = $('rapidocr-gpu-row');
+  const label = $('rapidocr-gpu-status');
+  const button = $('rapidocr-gpu-install-btn');
+  if (!row || !label || !button) return;
+  row.classList.toggle('hidden', status.runtimeReady === false);
+  if (status.runtimeReady === false) return;
+  if (status.installing || status.status === 'installing') {
+    const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
+    label.textContent = status.message || `Đang cài tăng tốc GPU${percent}…`;
+    button.textContent = `Đang cài${percent}`;
+    button.disabled = true;
+    return;
+  }
+  if (status.gpuReady) {
+    label.textContent = status.message || (status.enabled
+      ? `RapidOCR đang dùng GPU · ${status.provider || 'CUDAExecutionProvider'}`
+      : 'GPU đã sẵn sàng · RapidOCR mặc định chạy CPU.');
+    button.textContent = status.enabled ? 'Đang dùng GPU' : 'GPU sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'unsupported') {
+    label.textContent = status.message || 'GPU không hỗ trợ · RapidOCR chạy CPU.';
+    button.textContent = status.reason === 'driver_too_old' ? 'Cập nhật driver' : 'Không hỗ trợ';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'error') {
+    label.textContent = status.error || status.message || 'Kiểm tra GPU thất bại; RapidOCR vẫn chạy CPU.';
+    button.textContent = 'Thử sửa GPU';
+    button.disabled = false;
+    return;
+  }
+  label.textContent = status.message || 'RapidOCR đang chạy CPU.';
+  button.textContent = 'Cài/sửa GPU';
+  button.disabled = false;
+}
+
+async function readRapidOcrGpuStatus() {
+  const response = await fetch('/api/rapidocr-gpu/status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được RapidOCR GPU.');
+  return status;
+}
+
+async function refreshRapidOcrGpuStatusForUi() {
+  try {
+    const status = await readRapidOcrGpuStatus();
+    updateRapidOcrGpuUi(status);
+    return status;
+  } catch (error) {
+    updateRapidOcrGpuUi({ status: 'error', runtimeReady: true, error: error.message });
+    return null;
+  }
+}
 
 function updateRapidOcrRuntimeUi({ visible, status } = {}) {
   const row = $('rapidocr-runtime-row');
@@ -1350,6 +1408,8 @@ async function refreshRapidOcrRuntimeStatusForUi() {
   try {
     const status = await readRapidOcrRuntimeStatus();
     updateRapidOcrRuntimeUi({ visible: true, status });
+    if (status.ready) await refreshRapidOcrGpuStatusForUi();
+    else updateRapidOcrGpuUi({ runtimeReady: false });
     return status;
   } catch (error) {
     updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
@@ -1377,6 +1437,7 @@ async function installRapidOcrRuntime() {
       if ($('render-status') && status.message) $('render-status').textContent = status.message;
       if (status.ready) {
         toast('RapidOCR đã sẵn sàng.', 'success');
+        await refreshRapidOcrGpuStatusForUi();
         return true;
       }
       if (status.status === 'error') throw new Error(status.error || status.message || 'Cài RapidOCR thất bại.');
@@ -1395,6 +1456,47 @@ $('rapidocr-runtime-install-btn')?.addEventListener('click', async () => {
     await installRapidOcrRuntime();
   } catch (error) {
     updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    toast(error.message, 'error');
+  }
+});
+
+async function installRapidOcrGpu() {
+  if (rapidOcrGpuInstallPromise) return rapidOcrGpuInstallPromise;
+  rapidOcrGpuInstallPromise = (async () => {
+    const response = await fetch('/api/rapidocr-gpu/install', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không thể cài tăng tốc RapidOCR GPU.');
+    updateRapidOcrGpuUi(result);
+    toast('Đang kiểm tra và cài tăng tốc GPU. Không render trong lúc này.', 'info');
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const status = await readRapidOcrGpuStatus();
+      updateRapidOcrGpuUi(status);
+      if (status.status === 'error') throw new Error(status.error || status.message || 'Cài GPU thất bại.');
+      if (!status.installing && status.status !== 'installing') {
+        if (status.gpuReady) {
+          toast(status.enabled
+            ? 'RapidOCR đang dùng GPU thật bằng CUDAExecutionProvider.'
+            : 'Đã cài GPU thành công. RapidOCR vẫn dùng CPU mặc định để đạt tốc độ tốt hơn.', 'success');
+        }
+        else toast(status.message || 'GPU không hoạt động; RapidOCR tiếp tục chạy CPU.', 'warning');
+        return status.gpuReady === true;
+      }
+    }
+    throw new Error('Cài RapidOCR GPU quá thời gian chờ.');
+  })();
+  try {
+    return await rapidOcrGpuInstallPromise;
+  } finally {
+    rapidOcrGpuInstallPromise = null;
+  }
+}
+
+$('rapidocr-gpu-install-btn')?.addEventListener('click', async () => {
+  try {
+    await installRapidOcrGpu();
+  } catch (error) {
+    updateRapidOcrGpuUi({ status: 'error', runtimeReady: true, error: error.message });
     toast(error.message, 'error');
   }
 });

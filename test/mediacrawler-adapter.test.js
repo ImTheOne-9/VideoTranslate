@@ -15,12 +15,15 @@ const {
   bilibiliFormatSelector
 } = require('../lib/mediacrawler-adapter');
 
-test('Bilibili crawl quality defaults to 1080p and builds a DASH merge selector', () => {
+test('Bilibili crawl quality defaults to 1080p and prefers H.264 before other DASH codecs', () => {
   assert.equal(normalizeBilibiliQuality(), '1080');
   assert.equal(normalizeBilibiliQuality('720p'), '720');
   assert.equal(normalizeBilibiliQuality('invalid'), '1080');
-  assert.match(bilibiliFormatSelector(), /bestvideo\[height<=1080\]/);
-  assert.match(bilibiliFormatSelector(), /\+bestaudio/);
+  const selector = bilibiliFormatSelector();
+  assert.match(selector, /^bestvideo\[height<=1080\]\[ext=mp4\]\[vcodec~/);
+  assert.match(selector, /\^\(avc1\|h264\)/);
+  assert.match(selector, /\/bestvideo\[height<=1080\]\[ext=mp4\]\+bestaudio/);
+  assert.match(selector, /\+bestaudio/);
   assert.doesNotMatch(bilibiliFormatSelector('best'), /height<=/);
 });
 
