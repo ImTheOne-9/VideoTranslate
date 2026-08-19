@@ -12,7 +12,8 @@ const {
   resolveBilibiliShortUrls,
   appendBrowserHistory,
   normalizeBilibiliQuality,
-  bilibiliFormatSelector
+  bilibiliFormatSelector,
+  bilibiliNativeQn
 } = require('../lib/mediacrawler-adapter');
 
 test('Bilibili crawl quality defaults to 1080p and prefers H.264 before other DASH codecs', () => {
@@ -25,6 +26,9 @@ test('Bilibili crawl quality defaults to 1080p and prefers H.264 before other DA
   assert.match(selector, /\/bestvideo\[height<=1080\]\[ext=mp4\]\+bestaudio/);
   assert.match(selector, /\+bestaudio/);
   assert.doesNotMatch(bilibiliFormatSelector('best'), /height<=/);
+  assert.equal(bilibiliNativeQn('2160'), 120);
+  assert.equal(bilibiliNativeQn('1080'), 80);
+  assert.equal(bilibiliNativeQn('720'), 64);
 });
 
 test('Bilibili crawl keeps MediaCrawler metadata but downloads DASH with yt-dlp into the source folder', async () => {
@@ -62,9 +66,59 @@ test('Bilibili crawl keeps MediaCrawler metadata but downloads DASH with yt-dlp 
     assert.equal(pythonCalls[0].options.env.MC_GET_MEDIAS, '0');
     assert.match(ytCall.args[ytCall.args.indexOf('-f') + 1], /height<=1080/);
     assert.ok(ytCall.args.includes('--merge-output-format'));
+    assert.equal(ytCall.args[ytCall.args.indexOf('--http-chunk-size') + 1], '8M');
+    assert.equal(ytCall.args[ytCall.args.indexOf('--retries') + 1], '6');
+    assert.ok(ytCall.args.includes('http:exp=5:30'));
     assert.match(result.outputDir, /bili[\\/]videos[\\/]tu-khoa[\\/]mèo$/);
     assert.equal(result.completedVideos, 1);
     assert.match(fs.readFileSync(path.join(directory, 'bili', '_da_tai_ids.txt'), 'utf8'), /123456789/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Bilibili falls back to native resumable CDN downloader after yt-dlp 503', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-native-fallback-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({
+      userRoot: path.join(directory, 'user'),
+      dataDir: directory,
+      ytDlpPath: path.join(directory, 'yt-dlp.exe'),
+      ffmpegPath: path.join(directory, 'ffmpeg.exe')
+    });
+    const pythonCalls = [];
+    adapter._run = async (script, args, options) => {
+      pythonCalls.push({ script, args, options });
+      if (options.env.MC_GET_MEDIAS === '0') {
+        const jsonl = path.join(directory, 'bili', 'jsonl');
+        fs.mkdirSync(jsonl, { recursive: true });
+        fs.writeFileSync(path.join(jsonl, 'creator_contents_demo.jsonl'), `${JSON.stringify({
+          video_id: '113445705945780', video_url: 'https://www.bilibili.com/video/BV1demo',
+          title: 'Demo', nickname: 'UP Demo', user_id: '99887766'
+        })}\n`, 'utf8');
+      } else {
+        const nativeOutput = path.join(directory, 'bili', 'videos', 'kenh', 'UP Demo_99887766');
+        fs.mkdirSync(nativeOutput, { recursive: true });
+        fs.writeFileSync(path.join(nativeOutput, 'Demo_945780.mp4'), 'video');
+      }
+      return { stdout: '' };
+    };
+    adapter._runExecutable = async (executable, args) => {
+      if (args[0] === '-c') return { stdout: '{"ok":false}\n', stderr: '', code: 0 };
+      throw new Error('HTTP Error 503: Service Unavailable');
+    };
+
+    const result = await adapter.crawl({
+      platform: 'bilibili', mode: 'creator', input: 'https://space.bilibili.com/99887766', count: 1,
+      sourceMode: 'creator', sourceInput: 'https://space.bilibili.com/99887766', quality: '720', outputDir: directory
+    });
+    assert.equal(result.completedVideos, 1);
+    assert.equal(result.failedVideos, 0);
+    assert.equal(pythonCalls.length, 2);
+    assert.equal(pythonCalls[1].script, '-c');
+    assert.equal(pythonCalls[1].options.env.MC_GET_MEDIAS, '1');
+    assert.equal(pythonCalls[1].options.env.MC_BILI_QN, '64');
+    assert.ok(pythonCalls[1].args.includes('--specified_id'));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
