@@ -7,7 +7,11 @@ const path = require('path');
 const os = require('os');
 const { VoiceEngineError } = require('../lib/voice-engines/voice-engine');
 const { VoiceEngineRegistry } = require('../lib/voice-engines/voice-engine-registry');
-const { EdgeTTSEngine, DEFAULT_VOICES } = require('../lib/voice-engines/edge-tts-engine');
+const {
+  EdgeTTSEngine,
+  DEFAULT_VOICES,
+  mapEdgeBoundaryRanges
+} = require('../lib/voice-engines/edge-tts-engine');
 const { voiceEngineRegistry } = require('../lib/voice-engines/index');
 
 test('EdgeTTSEngine implements VoiceEngine contract and reports capabilities', async () => {
@@ -44,6 +48,35 @@ test('EdgeTTSEngine maps languages and genders to default voices correctly', () 
   assert.equal(engine.resolveVoice({ language: 'vi', gender: 'male' }), DEFAULT_VOICES['vi-male']);
   assert.equal(engine.resolveVoice({ language: 'en' }), DEFAULT_VOICES['en']);
   assert.equal(engine.resolveVoice({ voice: 'vi-VN-NamMinhNeural' }), 'vi-VN-NamMinhNeural');
+  assert.equal(
+    engine.resolveVoice({ language: 'ja', voice: 'vi-VN-HoaiMyNeural' }),
+    DEFAULT_VOICES.ja
+  );
+});
+
+test('Edge word boundaries map a combined request back to every original cue', () => {
+  const boundaries = [
+    { Type: 'WordBoundary', Data: { Offset: 0, Duration: 3000000, text: { Text: 'Xin' } } },
+    { Type: 'WordBoundary', Data: { Offset: 3200000, Duration: 3000000, text: { Text: 'chào' } } },
+    { Type: 'WordBoundary', Data: { Offset: 7000000, Duration: 3000000, text: { Text: 'Việt' } } },
+    { Type: 'WordBoundary', Data: { Offset: 10200000, Duration: 3000000, text: { Text: 'Nam' } } }
+  ];
+  assert.deepEqual(mapEdgeBoundaryRanges(['Xin chào', 'Việt Nam'], boundaries), [
+    { startMs: 0, endMs: 700 },
+    { startMs: 700, endMs: 1320 }
+  ]);
+});
+
+test('Edge grouped batch falls back to individual cues when boundary splitting fails', async () => {
+  const engine = new EdgeTTSEngine({ groupSize: 4, groupConcurrency: 1 });
+  engine.synthesizeGroupedItems = async () => { throw new Error('bad metadata'); };
+  engine.synthesize = async ({ text }) => ({ text });
+  const results = await engine.synthesizeBatch({ items: [
+    { key: 'a', text: 'Một', voice: 'vi-VN-HoaiMyNeural' },
+    { key: 'b', text: 'Hai', voice: 'vi-VN-HoaiMyNeural' }
+  ] });
+  assert.deepEqual(results.map((item) => item.ok), [true, true]);
+  assert.ok(results.every((item) => item.groupedFallback === true));
 });
 
 test('EdgeTTSEngine synthesizes audio using stream and converts to destination path', async () => {

@@ -52,6 +52,7 @@ test('runtime readiness requires the OCR dependency marker', () => {
     });
     assert.equal(manager.ready(), false);
     fs.writeFileSync(path.join(runtimeRoot, 'ocr-runtime-v3.json'), '{}');
+    fs.writeFileSync(path.join(runtimeRoot, 'voice-runtime-v2.json'), '{}');
     assert.equal(manager.ready(), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

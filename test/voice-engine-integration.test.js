@@ -17,10 +17,18 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 
 test('studio render resolves the configured voice engine instead of invoking OmniVoice CLI directly', () => {
   assert.match(studioController, /voiceEngineRegistry\.resolve\(voiceEngineId, DEFAULT_VOICE_ENGINE_ID\)/);
-  assert.match(studioController, /const runVoiceEngine = async \(options\)/);
-  assert.match(studioController, /voiceEngine\[method\]\(/);
+  assert.match(studioController, /const runVoiceEngine = async \(options, selectedEngine = voiceEngine\)/);
+  assert.match(studioController, /selectedEngine\[method\]\(/);
   assert.doesNotMatch(studioController, /shared\.runOmnivoiceCLI/);
   assert.match(studioController, /voiceExecution/);
+});
+
+test('studio render enables adaptive cue narration and automatic Edge rescue by default', () => {
+  assert.match(studioController, /body\.narrationPipeline !== 'legacy'/);
+  assert.match(studioController, /srtArray\.map\(\(item\) => \[item\]\)/);
+  assert.match(studioController, /synthesizeWithFallback/);
+  assert.match(studioController, /evaluateCoverage\(groups\.length, voiceChunks\.length\)/);
+  assert.match(html, /name="narrationPipeline" value="adaptive"/);
 });
 
 test('voice engine fallback requires explicit user opt-in', () => {
@@ -54,7 +62,8 @@ test('packaging includes persistent OmniVoice server variants', () => {
 test('Edge TTS is independent from OmniVoice model, reference audio, and GPU controls', () => {
   assert.match(studioController, /supportsVoiceCloning && refAudioPath/);
   assert.match(studioController, /voiceEngine\.id === 'edge-tts'[\s\S]*\? 'cpu'/);
-  assert.match(app, /selectedEngine !== 'edge-tts' && !assets\.omiConfigured/);
+  assert.match(studioController, /voiceEngine\.id === 'piper'[\s\S]*\? piperDevice/);
+  assert.match(app, /selectedDescriptor\?\.status\?\.ready !== true/);
   assert.match(app, /voice-device-group/);
   assert.match(libraryModule, /const isEdge = engineId === 'edge-tts'/);
   assert.match(libraryModule, /refAudio\.required = !isEdge/);
@@ -62,8 +71,8 @@ test('Edge TTS is independent from OmniVoice model, reference audio, and GPU con
 });
 
 test('studio render logs the actual voice engine and Edge synthesis settings', () => {
-  assert.match(studioController, /voiceEngine\.id === 'edge-tts' \? 'EdgeTTS' : 'OmniVoice'/);
+  assert.match(studioController, /voiceEngine\.id === 'piper' \? 'Piper' : 'OmniVoice'/);
   assert.match(studioController, /\[\$\{voiceLogTag\}-Sub\]/);
-  assert.match(studioController, /Voice: \$\{edgeVoice\}, Rate: \$\{edgeRate\}, Pitch: \$\{edgePitch\}/);
+  assert.match(studioController, /Voice: \$\{voiceForGroup\(idx\)\}, Rate: \$\{edgeRate\}, Pitch: \$\{edgePitch\}/);
   assert.doesNotMatch(studioController, /\[OmniVoice-Sub\]/);
 });

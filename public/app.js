@@ -261,6 +261,76 @@ function renderAssetList(id, items) {
   }
 }
 
+function populateOutputLanguageOptions(languages = []) {
+  const select = $('global-output-lang');
+  if (!select || !Array.isArray(languages) || languages.length === 0) return;
+  const previous = select.value || 'vi';
+  select.innerHTML = '';
+  for (const language of languages) {
+    const option = document.createElement('option');
+    option.value = language.code;
+    option.textContent = language.label || language.promptName || language.code.toUpperCase();
+    select.appendChild(option);
+  }
+  select.value = languages.some((language) => language.code === previous) ? previous : 'vi';
+  updateOutputLangInfo();
+}
+
+function refreshTtsVoiceCatalogs(voiceEngines = []) {
+  const targetLang = ($('global-output-lang')?.value || 'vi').toLowerCase().split('-')[0];
+  const fillEngineVoiceSelect = (selectId, engineId) => {
+    const select = $(selectId);
+    const descriptor = voiceEngines.find((engine) => engine.id === engineId);
+    const voices = (descriptor?.capabilities?.voices || []).filter((voice) => voice.lang === targetLang);
+    if (!select) return;
+    if (voices.length === 0) {
+      select.innerHTML = '';
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = `${descriptor?.name || engineId} chưa hỗ trợ — sẽ dùng Edge TTS`;
+      select.appendChild(option);
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = '';
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = voice.name || voice.id;
+      select.appendChild(option);
+    }
+    select.value = voices.some((voice) => voice.id === previous) ? previous : voices[0].id;
+  };
+  fillEngineVoiceSelect('edge-voice-select', 'edge-tts');
+  fillEngineVoiceSelect('piper-voice-select', 'piper');
+
+  const fillGenderSelect = (name, engineId, gender) => {
+    const select = document.querySelector(`select[name="${name}"]`);
+    const descriptor = voiceEngines.find((engine) => engine.id === engineId);
+    const voices = (descriptor?.capabilities?.voices || []).filter(
+      (voice) => voice.lang === targetLang && voice.gender === gender
+    );
+    if (!select) return;
+    if (voices.length === 0) {
+      select.innerHTML = '<option value="">Sẽ dùng Edge TTS</option>';
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = '';
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = `${gender === 'male' ? 'Nam' : 'Nữ'}: ${voice.name || voice.id}`;
+      select.appendChild(option);
+    }
+    select.value = voices.some((voice) => voice.id === previous) ? previous : voices[0].id;
+  };
+  fillGenderSelect('piperMaleVoice', 'piper', 'male');
+  fillGenderSelect('piperFemaleVoice', 'piper', 'female');
+  fillGenderSelect('edgeMaleVoice', 'edge-tts', 'male');
+  fillGenderSelect('edgeFemaleVoice', 'edge-tts', 'female');
+}
+
 function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-omnivoice') {
   const select = $('voice-engine-select');
   const capabilityText = $('voice-engine-capabilities');
@@ -272,7 +342,7 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const option = document.createElement('option');
     option.value = engine.id;
     option.textContent = engine.id === 'current-omnivoice'
-      ? 'OmniVoice hiện tại'
+      ? 'OmniVoice Clone'
       : engine.name;
     option.disabled = engine.status?.ready !== true;
     if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
@@ -288,6 +358,13 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     ? previousValue
     : fallbackEngineId;
   select.value = preferred;
+  refreshTtsVoiceCatalogs(voiceEngines);
+
+  const targetLanguageSelect = $('global-output-lang');
+  if (targetLanguageSelect && targetLanguageSelect.dataset.voiceCatalogBound !== 'true') {
+    targetLanguageSelect.dataset.voiceCatalogBound = 'true';
+    targetLanguageSelect.addEventListener('change', () => refreshTtsVoiceCatalogs(assets.voiceEngines || voiceEngines));
+  }
 
   const updateDescription = () => {
     const engine = voiceEngines.find((item) => item.id === select.value);
@@ -310,19 +387,37 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
       capabilities.cloneVoice ? 'Clone giọng' : null,
       languages || null,
       devices || null,
-      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null
+      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null,
+      engine.id === 'piper' && Array.isArray(engine.status?.providers)
+        ? `Provider: ${engine.status.providers.includes('CUDAExecutionProvider') ? 'CUDA' : 'CPU'}`
+        : null
     ].filter(Boolean);
     capabilityText.textContent = engine.status?.ready
       ? `${features.join(' • ')}${engine.status?.requiresInternet ? ' • Cần Internet' : ''}`
       : (engine.status?.error || 'Engine chưa sẵn sàng.');
 
+    const runtimeInstallButton = $('voice-runtime-install-btn');
+    const piperDescriptor = voiceEngines.find((item) => item.id === 'piper');
+    if (runtimeInstallButton) {
+      runtimeInstallButton.classList.toggle('hidden', piperDescriptor?.status?.ready === true);
+    }
+
     const edgeVoiceGroup = $('edge-voice-group');
     const isEdge = select.value === 'edge-tts';
+    const isPiper = select.value === 'piper';
     if (edgeVoiceGroup) {
       edgeVoiceGroup.style.display = isEdge ? 'block' : 'none';
     }
-    $('voice-device-group')?.classList.toggle('hidden', isEdge);
-    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge);
+    const piperVoiceGroup = $('piper-voice-group');
+    if (piperVoiceGroup) piperVoiceGroup.style.display = isPiper ? 'block' : 'none';
+    const dualVoiceGroup = $('dual-voice-group');
+    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper ? 'block' : 'none';
+    const piperDualVoices = $('piper-dual-voices');
+    if (piperDualVoices) piperDualVoices.style.display = isPiper ? 'grid' : 'none';
+    const edgeDualVoices = $('edge-dual-voices');
+    if (edgeDualVoices) edgeDualVoices.style.display = isEdge ? 'grid' : 'none';
+    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper);
     if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
     if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
@@ -353,6 +448,7 @@ async function loadAssets() {
   }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
+  populateOutputLanguageOptions(assets.outputLanguages || []);
   applyStudioVideoAssets(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   renderQuickVoices();
@@ -1346,6 +1442,26 @@ function updateRapidOcrGpuUi(status = {}) {
   button.disabled = false;
 }
 
+$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+  const button = $('voice-runtime-install-btn');
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Đang cài runtime…';
+    }
+    await installRapidOcrRuntime('Piper');
+    await loadAssets();
+    toast('Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Cài Piper offline';
+    }
+  }
+});
+
 async function readRapidOcrGpuStatus() {
   const response = await fetch('/api/rapidocr-gpu/status');
   const status = await response.json();
@@ -1417,7 +1533,7 @@ async function refreshRapidOcrRuntimeStatusForUi() {
   }
 }
 
-async function installRapidOcrRuntime() {
+async function installRapidOcrRuntime(purpose = 'RapidOCR') {
   if (rapidOcrRuntimeInstallPromise) return rapidOcrRuntimeInstallPromise;
   rapidOcrRuntimeInstallPromise = (async () => {
     let status = await readRapidOcrRuntimeStatus();
@@ -1428,7 +1544,7 @@ async function installRapidOcrRuntime() {
     const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
     const installResult = await installResponse.json();
     if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
-    toast('Đang cài/cập nhật runtime RapidOCR. Chỉ cần thực hiện một lần.', 'info');
+    toast(`Đang cài/cập nhật runtime ${purpose}. Chỉ cần thực hiện một lần.`, 'info');
 
     for (let attempt = 0; attempt < 1200; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -1436,7 +1552,7 @@ async function installRapidOcrRuntime() {
       updateRapidOcrRuntimeUi({ visible: true, status });
       if ($('render-status') && status.message) $('render-status').textContent = status.message;
       if (status.ready) {
-        toast('RapidOCR đã sẵn sàng.', 'success');
+        toast(`${purpose} đã sẵn sàng.`, 'success');
         await refreshRapidOcrGpuStatusForUi();
         return true;
       }
@@ -1597,7 +1713,7 @@ async function renderStudio(event) {
   }
 
   if (voiceMode === 'omi'
-    && data.get('voiceEngine') !== 'edge-tts'
+    && data.get('voiceEngine') === 'current-omnivoice'
     && omiDevice === 'cuda:0'
     && !dependencyStatus.cuda) {
     showDependencyModal('cuda', () => {
@@ -3178,8 +3294,10 @@ function updateConditionalFields() {
 
   const voiceMode = $('voice-mode').value;
   const selectedVoiceEngine = $('voice-engine-select')?.value || 'current-omnivoice';
+  const selectedVoiceDescriptor = (assets.voiceEngines || [])
+    .find((engine) => engine.id === selectedVoiceEngine);
   const needsSavedVoice = voiceMode === 'saved'
-    || (voiceMode === 'omi' && selectedVoiceEngine !== 'edge-tts');
+    || (voiceMode === 'omi' && selectedVoiceDescriptor?.capabilities?.cloneVoice === true);
   $('voice-saved-wrapper').classList.toggle('hidden', !needsSavedVoice);
   $('voice-upload-wrapper').classList.toggle('hidden', voiceMode !== 'upload');
   $('omi-cloner-container').classList.toggle('hidden', voiceMode !== 'omi');
@@ -3572,7 +3690,7 @@ function renderCurrentConfigSummary() {
     }
     if (themeSelect) subtitleParts.push(`Kiểu: ${getSelectedText(themeSelect)}`);
     if (boldSelect && boldSelect.value === 'yes') subtitleParts.push(`In đậm`);
-    if (maxLinesSelect) subtitleParts.push(`Dòng tối đa: ${maxLinesSelect.value}`);
+    if (maxLinesSelect) subtitleParts.push(`Dòng: ${getSelectedText(maxLinesSelect)}`);
     if (marginInput) subtitleParts.push(`Lề dọc: ${marginInput.value}px`);
     if (marginHInput) subtitleParts.push(`Lề ngang: ${marginHInput.value}px`);
 
@@ -3597,7 +3715,7 @@ function renderCurrentConfigSummary() {
     voiceModeVal = voiceModeInput.value;
     if (voiceModeVal === 'saved') voiceModeText = 'Giọng thuyết minh đã lưu';
     else if (voiceModeVal === 'upload') voiceModeText = 'Tải lên file mới';
-    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh tự động (Omni Cloner)';
+    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh AI tự động';
 
     let voiceDetail = '';
     if (voiceModeVal !== 'none') {
@@ -3640,7 +3758,7 @@ function renderCurrentConfigSummary() {
     summary.push(`<div>🔊 <b>Âm lượng:</b> ${vols.join(' | ')}</div>`);
   }
 
-  // 5. Cấu hình AI Cloner (nếu có thuyết minh cloner)
+  // 5. Cấu hình pipeline thuyết minh AI
   if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') {
     const outputLang = document.getElementById('global-output-lang');
     const omiDevice = document.querySelector('select[name="omiDevice"]');
@@ -3661,7 +3779,7 @@ function renderCurrentConfigSummary() {
       clonerParts.push(`Seed: ${omiSeed.value}`);
     }
     clonerParts.push(`Fallback CPU: ${allowCpuFallback?.checked ? 'Cho phép' : 'Không'}`);
-    summary.push(`<div>🤖 <b>OmniVoice Cloner:</b> ${clonerParts.join(' | ')}</div>`);
+    summary.push(`<div>🤖 <b>Thuyết minh AI:</b> ${clonerParts.join(' | ')}</div>`);
   }
 
   list.innerHTML = summary.map(item => `<div style="line-height: 1.6; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 4px; margin-bottom: 4px;">${item}</div>`).join('');
@@ -3701,6 +3819,8 @@ function submitSaveTemplate(event) {
     savedVoiceFile: $('saved-voice-select').value,
     voiceEngine: $('voice-engine-select')?.value || 'current-omnivoice',
     edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
+    piperVoice: $('piper-voice-select')?.value || 'ngochuyen',
+    piperDevice: $('piper-device-select')?.value || 'auto',
     edgeRate: $('edge-rate-select')?.value || '+0%',
     edgePitch: $('edge-pitch-select')?.value || '+0Hz',
     omiLanguage: document.getElementById('global-output-lang')?.value || 'vi',
@@ -3916,7 +4036,9 @@ function loadStudioTemplate(templateName) {
 
   document.querySelector('select[name="subtitleTheme"]').value = template.subtitleTheme;
   document.querySelector('select[name="subtitleBold"]').value = template.subtitleBold;
-  document.querySelector('select[name="subtitleMaxLines"]').value = template.subtitleMaxLines;
+  // Bố cục dòng hiện tự động theo tỷ lệ video; template cũ có giá trị 1/2/3
+  // cũng được nâng về chế độ tự động để không tách cue/timestamp.
+  document.querySelector('select[name="subtitleMaxLines"]').value = '0';
   document.querySelector('input[name="subtitleMargin"]').value = template.subtitleMargin;
   const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
   if (marginHInput) {
@@ -3945,6 +4067,8 @@ function loadStudioTemplate(templateName) {
     voiceEngineSelect.dispatchEvent(new Event('change'));
   }
   if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
+  if ($('piper-voice-select') && template.piperVoice) $('piper-voice-select').value = template.piperVoice;
+  if ($('piper-device-select') && template.piperDevice) $('piper-device-select').value = template.piperDevice;
   if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
   if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
 
@@ -3962,6 +4086,7 @@ function loadStudioTemplate(templateName) {
   if (globalLangSel) {
     const langMap = { 'Vietnamese': 'vi', 'English': 'en', 'Chinese': 'zh' };
     globalLangSel.value = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
+    globalLangSel.dispatchEvent(new Event('change'));
   }
   document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
 
@@ -4907,7 +5032,8 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const mode = btn.dataset.voiceMode;
     let selectedEngine = $('voice-engine-select')?.value || assets.defaultVoiceEngineId;
-    if (mode === 'omi' && selectedEngine !== 'edge-tts' && !assets.omiConfigured && e && e.isTrusted) {
+    const selectedDescriptor = (assets.voiceEngines || []).find((engine) => engine.id === selectedEngine);
+    if (mode === 'omi' && selectedDescriptor?.status?.ready !== true && e && e.isTrusted) {
       const edgeReady = (assets.voiceEngines || []).some(
         (engine) => engine.id === 'edge-tts' && engine.status?.ready
       );
@@ -4916,7 +5042,7 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
         $('voice-engine-select').dispatchEvent(new Event('change'));
         selectedEngine = 'edge-tts';
       } else {
-        toast('⚠️ Chưa có voice engine sẵn sàng. Vui lòng kiểm tra OmniVoice hoặc Edge TTS.', 'warn');
+        toast('⚠️ Chưa có engine thuyết minh sẵn sàng. Hãy cài runtime hoặc kiểm tra kết nối.', 'warn');
         openModelDownloadModal();
         return;
       }
@@ -7734,14 +7860,8 @@ function updateOutputLangInfo() {
   const sel = document.getElementById('global-output-lang');
   const info = document.getElementById('output-lang-info');
   if (!sel || !info) return;
-  const val = sel.value;
-  const names = {
-    vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc', ja: '日本語', ko: '한국어',
-    th: 'ไทย', fr: 'Français', es: 'Español', pt: 'Português', de: 'Deutsch',
-    it: 'Italiano', ru: 'Русский', id: 'Bahasa Indonesia', ms: 'Bahasa Melayu',
-    ar: 'العربية', hi: 'हिन्दी', tr: 'Türkçe'
-  };
-  info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
+  const selectedLabel = sel.options[sel.selectedIndex]?.textContent || sel.value.toUpperCase();
+  info.textContent = `Dịch + Giọng đọc: ${selectedLabel}`;
   info.style.color = 'var(--muted)';
 }
 
@@ -8389,7 +8509,7 @@ function resetStudioConfig() {
   if (boldSelect) boldSelect.value = 'true';
 
   const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
-  if (maxLinesSelect) maxLinesSelect.value = '1';
+  if (maxLinesSelect) maxLinesSelect.value = '0';
 
   const marginInput = document.querySelector('input[name="subtitleMargin"]');
   if (marginInput) marginInput.value = '28';
@@ -8450,9 +8570,9 @@ function resetStudioConfig() {
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
-    stepsSlider.value = '40';
+    stepsSlider.value = '8';
     const stepsBadge = $('omi-steps-badge');
-    if (stepsBadge) stepsBadge.textContent = '40';
+    if (stepsBadge) stepsBadge.textContent = '8';
   }
 
   const omiSeedPreset = $('omi-seed-preset');

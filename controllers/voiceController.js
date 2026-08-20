@@ -143,7 +143,7 @@ module.exports = {
             ? String(req.body.edgeVoice).split('-').slice(0, 2).join('-').toLowerCase()
             : 'vi',
           device: selectedDevice,
-          steps: process.env.OMNIVOICE_STEPS || '16',
+          steps: process.env.OMNIVOICE_STEPS || '8',
           seed: resolveOmnivoiceSeed(req.body.omiSeed),
           referenceAudioPath: refWavPath,
           referenceText: refText,

@@ -42,6 +42,8 @@ const requiredFiles = [
   'tools/crawler/app/xhs_browser.py',
   'tools/crawler/app/cookie_decrypt.py',
   'tools/crawler/app/index_metadata.py',
+  'tools/crawler/app/piper_tts_bridge.py',
+  'tools/crawler/app/audio_stretch_bridge.py',
   'tools/crawler/app/viral_ocr/viral_ocr_cli.py',
   'tools/crawler/app/viral_ocr/ocr_text.py',
   'tools/crawler/app/viral_ocr/dai_sub_rapid.py',

@@ -273,7 +273,7 @@ async function regenerateSegment(req, res) {
         voice: edgeVoice,
         rate: task.body.edgeRate || '+0%',
         pitch: task.body.edgePitch || '+0Hz',
-        steps: task.body.omiSteps || '16',
+        steps: task.body.omiSteps || '8',
         language,
         seed: resolveOmnivoiceSeed(task.body.omiSeed),
         positionTemperature: 1
@@ -291,7 +291,7 @@ async function regenerateSegment(req, res) {
           rate: task.body.edgeRate,
           pitch: task.body.edgePitch,
           device: engine.id === 'edge-tts' ? 'cpu' : (task.body.omiDevice || 'cpu'),
-          steps: task.body.omiSteps || '16',
+          steps: task.body.omiSteps || '8',
           seed: resolveOmnivoiceSeed(task.body.omiSeed),
           positionTemperature: 1,
           referenceAudioPath: reference.audioPath,

@@ -365,6 +365,11 @@ test('parseResponseLo safely ignores one unnumbered preamble line without shifti
   assert.deepEqual(parsed, { 1: 'Xin chào', 2: 'Cảm ơn' });
 });
 
+test('parseResponseLo never position-maps a partially numbered response', () => {
+  const parsed = parseResponseLo('1. Câu một\nCâu hai không có số\n3. Câu ba', 3);
+  assert.deepEqual(parsed, { 1: 'Câu một', 3: 'Câu ba' });
+});
+
 test('Gemini Web guard detects a suspicious merged translation and remaining Han text', () => {
   assert.equal(nghiGopCau({
     1: 'Một câu bình thường',
@@ -436,6 +441,24 @@ test('Gemini Web keeps one conversation across successful batches', async () => 
   });
   assert.equal(result.failedItems.length, 0);
   assert.deepEqual(conversationModes, [false, true]);
+});
+
+test('Gemini Web publishes each accepted batch immediately for early TTS', async () => {
+  const items = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: '第一句' },
+    { id: '2', startTime: '00:00:01,200', endTime: '00:00:02,000', text: '第二句' }
+  ];
+  const published = [];
+  await translateSrtItemsByGeminiWeb(items, {
+    targetLang: 'vi', srcLang: 'zho_Hans', batchDelayMs: 0,
+    splitRounds: 0, requestRetryDelayMs: 0, tmContent: '', logFn() {},
+    requestFn: async () => '1. Câu một\n2. Câu hai',
+    onBatchTranslated: async batch => published.push(batch)
+  });
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0].map(item => item.text), ['Câu một', 'Câu hai']);
+  assert.equal(published[0][0].nextId, '2');
+  assert.equal(published[0][0].nextStartTime, '00:00:01,200');
 });
 
 test('Gemini Web splits a failed batch and preserves translations already accepted', async () => {

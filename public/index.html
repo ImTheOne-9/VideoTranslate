@@ -1840,19 +1840,17 @@
                       <div class="form-group" style="margin-top: 10px;">
                         <label>Cấu trúc dòng phụ đề</label>
                           <select name="subtitleMaxLines" class="premium-select">
-                            <option value="0">Tự động chia dòng (1-2 dòng)</option>
-                            <option value="1" selected>Tối đa 1 dòng (Ngắn gọn)</option>
-                          <option value="2">Tối đa 2 dòng (Thông thường)</option>
-                          <option value="3">Tối đa 3 dòng (Chi tiết)</option>
+                            <option value="0" selected>Tự động theo video (ngang 2 dòng · dọc 3 dòng)</option>
                         </select>
+                        <small class="form-hint">Chỉ thay đổi cách hiển thị khi render; không tách cue hoặc chia lại timestamp SRT.</small>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Panel 4: Voice / Omi Cloner -->
+                  <!-- Panel 4: Adaptive dubbing. Legacy narration UI remains in code but is not exposed. -->
                   <div id="panel-voice" class="panel hidden">
                     <div class="panel-head">
-                      <h3>Thuyết minh</h3>
+                      <h3>Thuyết minh AI</h3>
                     </div>
                     <div class="form-group">
                       <label>Chế độ giọng nói</label>
@@ -1864,9 +1862,10 @@
                         <button type="button" class="voice-tab-btn" data-voice-mode="upload"
                           title="Tải lên file thu âm mới" style="display: none;">Tải lên</button>
                         <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi"
-                          title="Omi Cloner (Nhái giọng AI)">Thuyết minh tự động</button>
+                          title="Tạo thuyết minh theo từng cue và tự căn timeline">Thuyết minh tự động</button>
                       </div>
                       <input type="hidden" id="voice-mode" name="voiceMode" value="none">
+                      <input type="hidden" id="narration-pipeline" name="narrationPipeline" value="adaptive">
                     </div>
 
                     <div id="output-language-wrapper" class="form-group" style="margin-top: 4px;">
@@ -1930,13 +1929,16 @@
                         <div class="form-group">
                           <label>Engine giọng nói</label>
                           <select id="voice-engine-select" name="voiceEngine" class="premium-select">
-                            <option value="current-omnivoice">OmniVoice hiện tại</option>
+                            <option value="piper">Piper (Offline)</option>
+                            <option value="current-omnivoice">OmniVoice Clone</option>
                             <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
                           </select>
                           <div id="voice-engine-capabilities"
                             style="font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45;">
                             Đang kiểm tra khả năng engine...
                           </div>
+                          <button type="button" id="voice-runtime-install-btn" class="secondary-btn hidden"
+                            style="margin-top: 8px; width: 100%;">Cài Piper offline</button>
                         </div>
                         <div class="form-group" id="edge-voice-group" style="display: none;">
                           <label>Chọn giọng đọc Edge-TTS</label>
@@ -1974,6 +1976,49 @@
                             </div>
                           </div>
                         </div>
+                        <div class="form-group" id="piper-voice-group" style="display: none;">
+                          <label>Chọn giọng Piper</label>
+                          <select id="piper-voice-select" name="piperVoice" class="premium-select">
+                            <option value="ngochuyen" selected>Ngọc Huyền</option>
+                            <option value="manhdung">Mạnh Dũng</option>
+                            <option value="maiphuong">Mai Phương</option>
+                            <option value="minhkhang">Minh Khang</option>
+                          </select>
+                          <label for="piper-device-select" style="margin-top: 8px;">Tăng tốc Piper</label>
+                          <select id="piper-device-select" name="piperDevice" class="premium-select">
+                            <option value="auto" selected>Tự động (ưu tiên CUDA nếu có)</option>
+                            <option value="cpu">Chỉ CPU</option>
+                            <option value="cuda">Ưu tiên GPU CUDA</option>
+                          </select>
+                          <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
+                            Model giọng được tải một lần vào runtime riêng của ứng dụng.
+                          </p>
+                        </div>
+                        <div class="form-group" id="dual-voice-group" style="display: none;">
+                          <label class="premium-switch">
+                            <input type="checkbox" id="dual-voice-enabled" name="dualVoiceEnabled" value="true">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Tự phân giọng nam/nữ theo âm thanh gốc</span>
+                          </label>
+                          <div id="piper-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="piperMaleVoice" class="premium-select">
+                              <option value="manhdung">Nam: Mạnh Dũng</option>
+                              <option value="minhkhang">Nam: Minh Khang</option>
+                            </select>
+                            <select name="piperFemaleVoice" class="premium-select">
+                              <option value="ngochuyen">Nữ: Ngọc Huyền</option>
+                              <option value="maiphuong">Nữ: Mai Phương</option>
+                            </select>
+                          </div>
+                          <div id="edge-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="edgeMaleVoice" class="premium-select">
+                              <option value="vi-VN-NamMinhNeural">Nam: Nam Minh</option>
+                            </select>
+                            <select name="edgeFemaleVoice" class="premium-select">
+                              <option value="vi-VN-HoaiMyNeural">Nữ: Hoài My</option>
+                            </select>
+                          </div>
+                        </div>
                         <div class="form-group" id="voice-device-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
@@ -1989,14 +2034,19 @@
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
                       </label>
                       <label class="premium-switch" style="margin-top: 8px;">
+                        <input type="checkbox" id="sync-subtitle-to-voice" name="syncSubtitleToVoice" value="true">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label">Đồng bộ phụ đề theo lúc giọng bắt đầu (thử nghiệm)</span>
+                      </label>
+                      <label class="premium-switch" style="margin-top: 8px; display: none;" aria-hidden="true">
                         <input type="checkbox" id="segment-review-enabled" name="segmentReviewEnabled" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Duyệt từng câu trước khi tạo giọng</span>
                       </label>
 
                       <div style="display: none;">
-                        <span id="omi-steps-badge">40</span>
-                        <input type="range" name="omiSteps" id="omi-steps-slider" value="40" min="10" max="50" step="1">
+                        <span id="omi-steps-badge">8</span>
+                        <input type="range" name="omiSteps" id="omi-steps-slider" value="8" min="8" max="32" step="8">
                         <select id="omi-seed-preset">
                           <option value="42" selected>Cố định (42)</option>
                         </select>
@@ -3068,11 +3118,9 @@
                 </select>
               </div>
               <div class="dl-config-group">
-                <label>Số dòng phụ đề tối đa</label>
+                <label>Cấu trúc dòng phụ đề</label>
                 <select id="dl-subtitle-max-lines" class="premium-select" onchange="updateLiveSubPreview()">
-                  <option value="0">Tự động ngắt dòng (Mặc định)</option>
-                  <option value="1">Tối đa 1 dòng (Ngắn gọn)</option>
-                  <option value="2">Tối đa 2 dòng (Thông thường)</option>
+                  <option value="0" selected>Tự động theo khung video</option>
                 </select>
               </div>
             </div>
