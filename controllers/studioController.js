@@ -956,6 +956,11 @@ async function executeRenderTask(task) {
     // được giữ dưới cờ legacy để có thể khôi phục mà không làm mất dữ liệu job cũ.
     const adaptiveNarrationEnabled = body.narrationPipeline !== 'legacy';
     const omiScriptText = (body.omiScript || '').trim();
+    // Duyệt lời thoại phải chặn TTS cho cả pipeline cue mới. Nếu không, công tắc
+    // chỉ có tác dụng ở đường legacy và job sẽ đi thẳng vào tạo giọng.
+    const segmentReviewEnabled = body.segmentReviewEnabled === true
+      || body.segmentReviewEnabled === 'true'
+      || body.segmentReviewEnabled === 'on';
 
     let isVoiceOnlySub = false;
     if (voiceMode === 'omi' && !omiScriptText && subtitleMode === 'none') {
@@ -1020,7 +1025,8 @@ async function executeRenderTask(task) {
 
     let earlyTtsPipeline = null;
     const earlyPiperVoice = resolvePiperVoice(targetLang, body.piperVoice);
-    const earlyTtsRequested = adaptiveNarrationEnabled
+    const earlyTtsRequested = !segmentReviewEnabled
+      && adaptiveNarrationEnabled
       && voiceMode === 'omi'
       && (body.voiceEngine || DEFAULT_VOICE_ENGINE_ID) === 'piper'
       && body.aiProvider === 'gemini-web'
@@ -1105,10 +1111,11 @@ async function executeRenderTask(task) {
     task.translationReport = translationStage.translationReport || null;
 
     let segmentManifest = null;
-    const segmentReviewEnabled = body.segmentReviewEnabled === true
-      || body.segmentReviewEnabled === 'true'
-      || body.segmentReviewEnabled === 'on';
-    if (!adaptiveNarrationEnabled && voiceMode === 'omi' && subtitlePath && fs.existsSync(subtitlePath)) {
+    const shouldPrepareSegmentManifest = voiceMode === 'omi'
+      && subtitlePath
+      && fs.existsSync(subtitlePath)
+      && (!adaptiveNarrationEnabled || segmentReviewEnabled);
+    if (shouldPrepareSegmentManifest) {
       segmentManifest = segmentService.createOrLoad({
         taskId: task.id,
         workDir,
@@ -1116,6 +1123,9 @@ async function executeRenderTask(task) {
         finalSubtitlePath: subtitlePath,
         durationMs: totalDuration * 1000,
         reviewRequired: segmentReviewEnabled,
+        // Pipeline mới cần duyệt đúng một cue SRT một lần. Không dùng nhóm câu ở
+        // đây vì sẽ làm đổi số cue và trái với chế độ "không gộp câu" hiện tại.
+        cuePerSegment: adaptiveNarrationEnabled,
         defaultVoiceFile: body.savedVoiceFile || '',
         defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID,
         asrMetadataPath: fs.existsSync(`${sourceSubtitlePath}.asr.json`)

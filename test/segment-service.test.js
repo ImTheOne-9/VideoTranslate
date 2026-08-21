@@ -48,6 +48,7 @@ function createFixture(options = {}) {
     finalSubtitlePath: finalPath,
     durationMs: 10000,
     reviewRequired: true,
+    cuePerSegment: options.cuePerSegment === true,
     defaultVoiceFile: 'voice.wav',
     defaultEngineId: 'current-omnivoice',
     asrMetadataPath: options.asrMetadata ? asrMetadataPath : null
@@ -72,6 +73,24 @@ test('groups adjacent SRT cues into natural OmniVoice speech segments', (t) => {
   assert.equal(fixture.manifest.segments[1].startMs, 4000);
   assert.equal(fixture.manifest.segments[1].endMs, 5000);
   assert.equal(fs.existsSync(fixture.manifest.reviewedSrtPath), true);
+});
+
+test('review mode can preserve exactly one SRT cue per editable segment', (t) => {
+  const fixture = createFixture({ cuePerSegment: true });
+  t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
+
+  assert.equal(fixture.manifest.segmentMode, 'per-cue');
+  assert.equal(fixture.manifest.segments.length, 3);
+  assert.deepEqual(
+    fixture.manifest.segments.map((segment) => [segment.text, segment.startMs, segment.endMs]),
+    [
+      ['Xin chào', 0, 1000],
+      ['thế giới.', 1000, 2000],
+      ['Tạm biệt', 4000, 5000]
+    ]
+  );
+  const reviewedSrt = fs.readFileSync(fixture.manifest.reviewedSrtPath, 'utf8').replace(/\r\n/g, '\n');
+  assert.match(reviewedSrt, /Xin chào\n\n2\n00:00:01,000 --> 00:00:02,000\nthế giới\./);
 });
 
 test('reuses an unchanged version 1 grouped manifest', (t) => {

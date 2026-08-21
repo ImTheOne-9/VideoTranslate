@@ -78,6 +78,12 @@ test('manual render blur regions are not passed to OCR as excluded regions', () 
   assert.doesNotMatch(source, /ocrExcludedRegions:\s*parseOcrExcludedRegions\(body\.blurBoxes\)/);
 });
 
+test('each manual blur region keeps its blur-strength slider visible', () => {
+  const canvas = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'canvas-module.js'), 'utf8');
+  assert.match(canvas, /Độ mờ \(Blur\)<\/label>/);
+  assert.doesNotMatch(canvas, /ocr-mask-style'\)\?\.value === 'blur'/);
+});
+
 test('OCR blur reads source SRT timing for cue end alignment', async () => {
   await withTempDir('studio-blur-timing-', async (directory) => {
     const srtPath = path.join(directory, 'source.srt');

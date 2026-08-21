@@ -1586,10 +1586,10 @@ function renderBlurBoxesList() {
           </div>
         </div>
         
-        <!-- Blur Radius Slider -->
-        <div class="form-group" style="margin: 8px 0 0 0; display: ${$('ocr-mask-style')?.value === 'blur' ? 'flex' : 'none'}; flex-direction: column; gap: 4px;">
+        <!-- Mỗi vùng che luôn dùng blur khi render, nên luôn cho phép chỉnh bán kính blur. -->
+        <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
+            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Blur)</label>
             <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
           </div>
           <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">

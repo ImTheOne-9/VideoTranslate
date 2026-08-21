@@ -32,6 +32,14 @@ test('render pauses for segment review and uses reviewed SRT after approval', ()
   assert.match(studio, /voiceCheckpoint\.markChunk\(checkpointKey/);
 });
 
+test('adaptive cue narration pauses for review without pre-generating speech', () => {
+  const studio = read('controllers/studioController.js');
+
+  assert.match(studio, /const earlyTtsRequested = !segmentReviewEnabled/);
+  assert.match(studio, /\(!adaptiveNarrationEnabled \|\| segmentReviewEnabled\)/);
+  assert.match(studio, /cuePerSegment: adaptiveNarrationEnabled/);
+});
+
 test('segment review UI is isolated in its own script and wired into queue states', () => {
   const html = read('public/index.html');
   const app = read('public/app.js');
