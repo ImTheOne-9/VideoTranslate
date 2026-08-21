@@ -276,7 +276,8 @@ async function regenerateSegment(req, res) {
         steps: task.body.omiSteps || '8',
         language,
         seed: resolveOmnivoiceSeed(task.body.omiSeed),
-        positionTemperature: 1
+        positionTemperature: 1,
+        textNormalization: engine.id === 'piper' ? 'vietnormalizer-0.2.3' : ''
       }),
       isReusable: (signature) => (
         segment.rawAudioSignature === signature && isUsableFile(rawPath, 44)

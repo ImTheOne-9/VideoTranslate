@@ -36,6 +36,51 @@ PIPER_LANGUAGE_VOICES = {
     "kk": "kk_KZ-issai-high",
 }
 
+try:
+    import tts_chuan_hoa
+
+    _fallback_normalize = tts_chuan_hoa.chuan_hoa
+except Exception:
+    def _fallback_normalize(value):
+        return value
+
+try:
+    from vietnormalizer import VietnameseNormalizer
+
+    _vietnamese_normalizer = VietnameseNormalizer()
+except Exception:
+    _vietnamese_normalizer = None
+
+
+def _han_character_ratio(value):
+    visible = [char for char in str(value or "").strip() if not char.isspace()]
+    if not visible:
+        return 0.0
+    han = sum(1 for char in visible if "\u4e00" <= char <= "\u9fff" or "\u3400" <= char <= "\u4dbf")
+    return han / len(visible)
+
+
+def normalize_piper_text(value, language="vi", han_threshold=0.35):
+    """Mirror ViralCrawl's Piper-only Vietnamese normalization policy."""
+    text = str(value or "").strip()
+    language_root = str(language or "vi").strip().lower().replace("_", "-").split("-", 1)[0]
+    if not text or language_root != "vi":
+        return text
+    try:
+        threshold = max(0.0, float(han_threshold))
+    except (TypeError, ValueError):
+        threshold = 0.35
+    if threshold > 0 and _han_character_ratio(text) >= threshold:
+        return ""
+    if _vietnamese_normalizer is not None:
+        try:
+            normalized = _vietnamese_normalizer.normalize(text)
+            if str(normalized or "").strip():
+                return str(normalized).strip()
+        except Exception:
+            pass
+    return str(_fallback_normalize(text) or text).strip()
+
 
 def _runtime_root():
     configured = os.environ.get("VIDEO_STUDIO_CRAWLER_RUNTIME", "").strip()
@@ -159,7 +204,11 @@ class PiperRuntime:
         return self._voices[cache_key], ("cuda" if use_cuda else "cpu"), providers
 
     def synthesize(self, request):
-        text = str(request.get("text") or "").strip()
+        text = normalize_piper_text(
+            request.get("text"),
+            request.get("language") or "vi",
+            request.get("hanThreshold", 0.35),
+        )
         output_path = os.path.abspath(str(request.get("outputPath") or ""))
         voice_name = str(request.get("voice") or DEFAULT_VOICE).strip()
         if not text or not output_path:
@@ -185,6 +234,7 @@ class PiperRuntime:
         return {
             "outputPath": output_path,
             "voice": voice_name,
+            "normalizedText": text,
             "usedDevice": used_device,
             "providers": providers,
         }

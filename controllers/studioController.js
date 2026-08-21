@@ -37,7 +37,7 @@ const {
 const { analyzeWavFile, readPcm16WavFile } = require('../lib/audio-quality');
 const { classifyCueSpeakers } = require('../lib/voice-speaker-classifier');
 const { EarlyTtsPipeline } = require('../lib/early-tts-pipeline');
-const { normalizeTtsText } = require('../lib/tts-text-normalizer');
+const { normalizePiperTtsText, normalizeTtsText } = require('../lib/tts-text-normalizer');
 const { resolvePiperVoice } = require('../lib/voice-engines/piper-engine');
 const { OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_BY_CODE } = require('../lib/voice-language-catalog');
 const { restoreVoiceCache, saveVoiceCache } = require('../lib/voice-content-cache');
@@ -1573,7 +1573,9 @@ async function executeRenderTask(task) {
             .normalize('NFC')
             .replace(/[\u200B-\u200D\uFEFF]/g, '')
             .trim();
-          const normalizedText = normalizeTtsText(text, { language: requestedLanguage });
+          const normalizedText = voiceEngine.id === 'piper'
+            ? normalizePiperTtsText(text, { language: requestedLanguage })
+            : normalizeTtsText(text, { language: requestedLanguage });
           if (!adaptiveNarrationEnabled || voiceEngine.id !== 'piper' || !normalizedText) return normalizedText;
           const currentItem = group[group.length - 1];
           const nextItem = groups[groupIndex + 1]?.[0];
@@ -1604,7 +1606,8 @@ async function executeRenderTask(task) {
               steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
               language: requestedLanguage,
               seed: resolveOmnivoiceSeed(body.omiSeed),
-              positionTemperature: 1
+              positionTemperature: 1,
+              textNormalization: voiceEngine.id === 'piper' ? 'vietnormalizer-0.2.3' : ''
             });
             if (voiceCheckpoint.hasChunk(checkpointKey, signature)) continue;
             const earlyRawPath = voiceCheckpoint.getRawChunkPath(checkpointKey);
@@ -1745,7 +1748,8 @@ async function executeRenderTask(task) {
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
             language: requestedLanguage,
             seed: resolveOmnivoiceSeed(body.omiSeed),
-            positionTemperature: 1
+            positionTemperature: 1,
+            textNormalization: voiceEngine.id === 'piper' ? 'vietnormalizer-0.2.3' : ''
           });
           const legacyChunkSignature = supportsVoiceCloning && segment
             ? createLegacyVoiceAudioSignature({
@@ -1836,7 +1840,8 @@ async function executeRenderTask(task) {
                     steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
                     language: requestedLanguage,
                     seed: resolveOmnivoiceSeed(body.omiSeed),
-                    positionTemperature: 1
+                    positionTemperature: 1,
+                    textNormalization: voiceEngine.id === 'piper' ? 'vietnormalizer-0.2.3' : ''
                   }),
                   isReusable: (signature) => (
                     signature === initialChunkSignature

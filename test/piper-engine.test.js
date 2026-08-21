@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 const { DEFAULT_VOICE_ENGINE_ID, voiceEngineRegistry } = require('../lib/voice-engines');
 const { PiperEngine, resolvePiperVoice } = require('../lib/voice-engines/piper-engine');
@@ -56,6 +58,29 @@ test('Piper rejects an unsupported target before loading the runtime so Edge can
     () => engine.synthesize({ text: 'こんにちは', outputPath: 'D:\\work\\ja.wav', language: 'ja' }),
     (error) => error.code === 'VOICE_ENGINE_UNSUPPORTED_LANGUAGE'
   );
+});
+
+test('Piper sends the target language to its persistent normalization bridge', async () => {
+  const engine = new PiperEngine();
+  const writes = [];
+  engine.ensureSession = async () => {};
+  engine.session = {
+    stdin: {
+      write(line) {
+        writes.push(JSON.parse(line));
+        const request = writes.at(-1);
+        const pending = engine.pending.get(request.id);
+        engine.pending.delete(request.id);
+        clearTimeout(pending.timer);
+        pending.resolve({ outputPath: request.outputPath, usedDevice: 'cpu', voice: request.voice });
+      }
+    }
+  };
+  await engine.synthesize({
+    text: 'iPhone 15', outputPath: path.join(os.tmpdir(), 'piper-normalize-vi.wav'),
+    language: 'vi', voice: 'ngochuyen', device: 'cpu'
+  });
+  assert.equal(writes[0].language, 'vi');
 });
 
 test('Piper large batches warm once and distribute remaining cues across a worker pool', async () => {

@@ -27,3 +27,19 @@ test('early TTS starts without blocking translation and restores matching cue', 
   assert.equal(pipeline.restore({ id: '1' }, 'Giảm năm mươi phần trăm', destination), true);
   assert.equal(fs.existsSync(destination), true);
 });
+
+test('early Piper TTS drops untranslated Han text before synthesis', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'early-piper-han-'));
+  let calls = 0;
+  const pipeline = new EarlyTtsPipeline({
+    engine: {
+      id: 'piper',
+      async synthesize() { calls += 1; }
+    },
+    workDir: root,
+    language: 'vi'
+  });
+  pipeline.enqueue([{ id: '1', text: '平常你几点睡几点起', startMs: 0, endMs: 1000 }]);
+  assert.equal(await pipeline.drain(), 0);
+  assert.equal(calls, 0);
+});

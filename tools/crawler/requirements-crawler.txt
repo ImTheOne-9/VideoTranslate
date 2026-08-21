@@ -32,6 +32,8 @@ pyhumps==3.8.0
 cryptography==45.0.7
 piper-tts==1.3.0
 audiostretchy>=1.3,<2
+# Piper tiếng Việt: số/ngày/tiền + phiên âm từ Latin theo cùng bộ với ViralCrawl.
+vietnormalizer==0.2.3
 alembic==1.16.5
 asyncmy==0.2.10
 sqlalchemy==2.0.43
