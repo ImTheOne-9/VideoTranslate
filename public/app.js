@@ -370,31 +370,41 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const engine = voiceEngines.find((item) => item.id === select.value);
     if (!engine || !capabilityText) return;
     const capabilities = engine.capabilities || {};
-    const languageLabels = {
-      vi: 'Việt', en: 'Anh', zh: 'Trung', ja: 'Nhật', ko: 'Hàn',
-      fr: 'Pháp', de: 'Đức', es: 'Tây Ban Nha', ru: 'Nga'
-    };
-    const languages = (capabilities.languages || [])
-      .map((language) => languageLabels[language] || language)
-      .join(', ');
-    const devices = (capabilities.devices || []).map((device) => {
-      if (device === 'cpu') return 'CPU';
-      if (device.startsWith('vulkan')) return 'Vulkan';
-      if (device.startsWith('cuda')) return 'CUDA';
-      return device;
-    }).join(', ');
-    const features = [
-      capabilities.cloneVoice ? 'Clone giọng' : null,
-      languages || null,
-      devices || null,
-      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null,
-      engine.id === 'piper' && Array.isArray(engine.status?.providers)
-        ? `Provider: ${engine.status.providers.includes('CUDAExecutionProvider') ? 'CUDA' : 'CPU'}`
-        : null
-    ].filter(Boolean);
-    capabilityText.textContent = engine.status?.ready
-      ? `${features.join(' • ')}${engine.status?.requiresInternet ? ' • Cần Internet' : ''}`
-      : (engine.status?.error || 'Engine chưa sẵn sàng.');
+
+    if (engine.status?.ready !== true) {
+      capabilityText.innerHTML = `
+        <div class="engine-badge-list">
+          <span class="engine-badge badge-error">❌ ${escapeHtml(engine.status?.error || 'Engine chưa sẵn sàng')}</span>
+        </div>`;
+    } else {
+      const badges = [];
+      if (engine.id === 'current-omnivoice') {
+        badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng AI</span>');
+        badges.push('<span class="engine-badge badge-blue">🌍 70+ ngôn ngữ</span>');
+        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • Vulkan • CPU</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz GGUF</span>');
+      } else if (engine.id === 'piper') {
+        badges.push('<span class="engine-badge badge-green">⚡ Offline 100% (Siêu nhanh)</span>');
+        badges.push('<span class="engine-badge badge-blue">🇻🇳 16 giọng Việt + Quốc tế</span>');
+        const provider = engine.status?.providers?.includes('CUDAExecutionProvider') ? 'CUDA GPU' : 'CPU';
+        badges.push(`<span class="engine-badge badge-purple">💻 Provider: ${provider}</span>`);
+        badges.push('<span class="engine-badge badge-slate">🎧 22.05 kHz</span>');
+      } else if (engine.id === 'edge-tts') {
+        badges.push('<span class="engine-badge badge-blue">☁️ Microsoft Cloud</span>');
+        badges.push('<span class="engine-badge badge-cyan">🌍 70+ ngôn ngữ Neural</span>');
+        badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz HQ</span>');
+      } else {
+        if (capabilities.cloneVoice) badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng</span>');
+        const langCount = capabilities.languages?.length || 0;
+        if (langCount > 10) badges.push(`<span class="engine-badge badge-blue">🌍 ${langCount} ngôn ngữ</span>`);
+        else if (langCount > 0) badges.push('<span class="engine-badge badge-blue">🌍 Đa ngôn ngữ</span>');
+        if (engine.status?.requiresInternet) badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
+        else badges.push('<span class="engine-badge badge-green">⚡ Offline</span>');
+        if (capabilities.sampleRate) badges.push(`<span class="engine-badge badge-slate">🎧 ${Math.round(capabilities.sampleRate / 1000)} kHz</span>`);
+      }
+      capabilityText.innerHTML = `<div class="engine-badge-list">${badges.join('')}</div>`;
+    }
 
     const runtimeInstallButton = $('voice-runtime-install-btn');
     const piperDescriptor = voiceEngines.find((item) => item.id === 'piper');
@@ -1208,7 +1218,7 @@ function updateOcrPipelineUi() {
   const hint = $('ocr-pipeline-hint');
   if (hint) {
     hint.textContent = usesRapid
-      ? 'RapidOCR tự quét và theo dõi chữ trên toàn khung hình; không dùng vùng OCR thủ công.'
+      ? 'RapidOCR tự quét & tracking chữ toàn khung hình.'
       : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
   }
   updateOcrRegionOverlay();
@@ -1412,32 +1422,32 @@ function updateRapidOcrGpuUi(status = {}) {
   if (status.runtimeReady === false) return;
   if (status.installing || status.status === 'installing') {
     const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
-    label.textContent = status.message || `Đang cài tăng tốc GPU${percent}…`;
+    label.textContent = status.message || `Đang cài GPU${percent}…`;
     button.textContent = `Đang cài${percent}`;
     button.disabled = true;
     return;
   }
   if (status.gpuReady) {
-    label.textContent = status.message || (status.enabled
-      ? `RapidOCR đang dùng GPU · ${status.provider || 'CUDAExecutionProvider'}`
-      : 'GPU đã sẵn sàng · RapidOCR mặc định chạy CPU.');
+    label.textContent = status.enabled
+      ? `GPU CUDA đang bật`
+      : 'GPU sẵn sàng (Mặc định chạy CPU)';
     button.textContent = status.enabled ? 'Đang dùng GPU' : 'GPU sẵn sàng';
     button.disabled = true;
     return;
   }
   if (status.status === 'unsupported') {
-    label.textContent = status.message || 'GPU không hỗ trợ · RapidOCR chạy CPU.';
-    button.textContent = status.reason === 'driver_too_old' ? 'Cập nhật driver' : 'Không hỗ trợ';
+    label.textContent = 'GPU không hỗ trợ (Chạy CPU)';
+    button.textContent = status.reason === 'driver_too_old' ? 'Driver cũ' : 'Không hỗ trợ';
     button.disabled = true;
     return;
   }
   if (status.status === 'error') {
-    label.textContent = status.error || status.message || 'Kiểm tra GPU thất bại; RapidOCR vẫn chạy CPU.';
+    label.textContent = 'Lỗi GPU (Đang chạy CPU)';
     button.textContent = 'Thử sửa GPU';
     button.disabled = false;
     return;
   }
-  label.textContent = status.message || 'RapidOCR đang chạy CPU.';
+  label.textContent = 'Đang chạy CPU';
   button.textContent = 'Cài/sửa GPU';
   button.disabled = false;
 }
@@ -1489,7 +1499,7 @@ function updateRapidOcrRuntimeUi({ visible, status } = {}) {
   if (row.classList.contains('hidden') || !status) return;
 
   if (status.ready) {
-    label.textContent = 'RapidOCR đã sẵn sàng.';
+    label.textContent = 'RapidOCR đã sẵn sàng';
     button.textContent = 'Đã sẵn sàng';
     button.disabled = true;
     return;
@@ -1502,12 +1512,12 @@ function updateRapidOcrRuntimeUi({ visible, status } = {}) {
     return;
   }
   if (status.status === 'error') {
-    label.textContent = status.error || status.message || 'Cài RapidOCR chưa thành công.';
+    label.textContent = status.error || status.message || 'Cài RapidOCR thất bại.';
     button.textContent = 'Thử lại';
     button.disabled = false;
     return;
   }
-  label.textContent = 'RapidOCR chưa được cài trên máy này.';
+  label.textContent = 'Chưa cài RapidOCR';
   button.textContent = 'Tải RapidOCR';
   button.disabled = false;
 }

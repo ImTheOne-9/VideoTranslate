@@ -1347,15 +1347,21 @@
                           <option value="viral">RapidOCR — quét toàn khung hình</option>
                           <option value="vse">VSE — dùng vùng OCR đã chọn</option>
                         </select>
-                        <span id="ocr-pipeline-hint" class="form-hint">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
-                        <div id="rapidocr-runtime-row" class="hidden" style="display:flex;flex-direction:column;gap:9px;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:rgba(8,12,16,.35);">
-                          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                            <span id="rapidocr-runtime-status" class="form-hint" style="margin:0;">Đang kiểm tra RapidOCR...</span>
-                            <button type="button" id="rapidocr-runtime-install-btn" class="ocr-icon-btn" style="width:auto;padding:7px 10px;white-space:nowrap;">Tải RapidOCR</button>
+                        <span id="ocr-pipeline-hint" class="form-hint" style="font-size: 11px; margin-top: 3px; color: #94a3b8;">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
+                        <div id="rapidocr-runtime-row" class="hidden rapidocr-mini-card">
+                          <div class="rapidocr-mini-row">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-status-dot"></span>
+                              <span id="rapidocr-runtime-status" class="rapidocr-status-text">Đang kiểm tra RapidOCR...</span>
+                            </div>
+                            <button type="button" id="rapidocr-runtime-install-btn" class="mini-pill-btn">Tải RapidOCR</button>
                           </div>
-                          <div id="rapidocr-gpu-row" class="hidden" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:9px;border-top:1px solid var(--border);">
-                            <span id="rapidocr-gpu-status" class="form-hint" style="margin:0;">Đang kiểm tra tăng tốc GPU...</span>
-                            <button type="button" id="rapidocr-gpu-install-btn" class="ocr-icon-btn" style="width:auto;padding:7px 10px;white-space:nowrap;">Cài/sửa GPU</button>
+                          <div id="rapidocr-gpu-row" class="hidden rapidocr-mini-row rapidocr-gpu-divider">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-gpu-dot"></span>
+                              <span id="rapidocr-gpu-status" class="rapidocr-status-text">Đang kiểm tra GPU...</span>
+                            </div>
+                            <button type="button" id="rapidocr-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
                           </div>
                         </div>
                       </div>
@@ -4141,6 +4147,11 @@
             <button type="button" id="segment-editor-redo" class="icon-btn" title="Làm lại (Ctrl+Y)"
               aria-label="Làm lại">↷</button>
           </div>
+          <div class="segment-editor-top-pagination">
+            <button type="button" id="segment-editor-top-prev" class="ghost-btn segment-page-btn" title="Trang trước (Phím tắt: [ hoặc Alt+Left)">‹ Trước</button>
+            <span id="segment-editor-top-page-info" class="segment-page-badge">Trang 1/1</span>
+            <button type="button" id="segment-editor-top-next" class="ghost-btn segment-page-btn" title="Trang sau (Phím tắt: ] hoặc Alt+Right)">Sau ›</button>
+          </div>
         </div>
         <details class="segment-editor-replace-panel">
           <summary>Tìm và thay thế</summary>
@@ -4191,10 +4202,13 @@
       </div>
 
       <footer class="segment-editor-footer">
-        <span id="segment-editor-page-info"></span>
+        <div class="segment-editor-footer-left">
+          <span id="segment-editor-page-info" class="segment-editor-page-info"></span>
+        </div>
         <div class="segment-editor-pagination">
-          <button type="button" id="segment-editor-prev" class="icon-btn" title="Trang trước" aria-label="Trang trước">‹</button>
-          <button type="button" id="segment-editor-next" class="icon-btn" title="Trang sau" aria-label="Trang sau">›</button>
+          <button type="button" id="segment-editor-prev" class="ghost-btn segment-page-btn" title="Trang trước (Phím tắt: [ hoặc Alt+Left)">‹ Trang trước</button>
+          <div id="segment-editor-page-pills" class="segment-editor-page-pills"></div>
+          <button type="button" id="segment-editor-next" class="ghost-btn segment-page-btn" title="Trang sau (Phím tắt: ] hoặc Alt+Right)">Trang sau ›</button>
         </div>
       </footer>
       <audio id="segment-editor-audio" preload="none"></audio>

@@ -327,6 +327,35 @@
       .map((segment, index) => renderRow(segment, start + index))
       .join('');
 
+    function renderPagePills(currentPage, totalPages) {
+      if (totalPages <= 1) return '';
+      const pills = [];
+      const addPill = (page) => {
+        pills.push(`
+          <button type="button" class="segment-page-pill ${page === currentPage ? 'is-active' : ''}"
+            data-page="${page}" title="Đến trang ${page}">
+            ${page}
+          </button>
+        `);
+      };
+      const addEllipsis = () => {
+        pills.push('<span class="segment-page-ellipsis" aria-hidden="true">…</span>');
+      };
+
+      if (totalPages <= 7) {
+        for (let p = 1; p <= totalPages; p++) addPill(p);
+      } else {
+        addPill(1);
+        if (currentPage > 3) addEllipsis();
+        const start = Math.max(2, currentPage - 1);
+        const end = Math.min(totalPages - 1, currentPage + 1);
+        for (let p = start; p <= end; p++) addPill(p);
+        if (currentPage < totalPages - 2) addEllipsis();
+        addPill(totalPages);
+      }
+      return pills.join('');
+    }
+
     const manifestSegments = state.manifest?.segments || [];
     const approved = manifestSegments.filter((segment) => {
       const patch = state.patches.get(segment.id);
@@ -342,8 +371,18 @@
     }
     const pageInfo = el('segment-editor-page-info');
     if (pageInfo) pageInfo.textContent = `Trang ${state.page}/${totalPages} • ${items.length} segment`;
-    if (el('segment-editor-prev')) el('segment-editor-prev').disabled = state.page <= 1;
-    if (el('segment-editor-next')) el('segment-editor-next').disabled = state.page >= totalPages;
+    const topPageInfo = el('segment-editor-top-page-info');
+    if (topPageInfo) topPageInfo.textContent = `Trang ${state.page}/${totalPages}`;
+
+    const isPrevDisabled = state.page <= 1;
+    const isNextDisabled = state.page >= totalPages;
+    if (el('segment-editor-prev')) el('segment-editor-prev').disabled = isPrevDisabled;
+    if (el('segment-editor-next')) el('segment-editor-next').disabled = isNextDisabled;
+    if (el('segment-editor-top-prev')) el('segment-editor-top-prev').disabled = isPrevDisabled;
+    if (el('segment-editor-top-next')) el('segment-editor-top-next').disabled = isNextDisabled;
+
+    const pagePills = el('segment-editor-page-pills');
+    if (pagePills) pagePills.innerHTML = renderPagePills(state.page, totalPages);
     const generationInProgress = state.batchGenerating
       || state.regenerating.size > 0
       || state.asrRetrying.size > 0;
@@ -713,8 +752,27 @@
     el('segment-editor-replace')?.addEventListener('click', () => replaceAll().catch((error) => showError(error.message)));
     el('segment-editor-undo')?.addEventListener('click', undo);
     el('segment-editor-redo')?.addEventListener('click', redo);
-    el('segment-editor-prev')?.addEventListener('click', () => { state.page -= 1; render(); });
-    el('segment-editor-next')?.addEventListener('click', () => { state.page += 1; render(); });
+    el('segment-editor-prev')?.addEventListener('click', () => { if (state.page > 1) { state.page -= 1; render(); } });
+    el('segment-editor-next')?.addEventListener('click', () => {
+      const items = filteredSegments();
+      const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+      if (state.page < totalPages) { state.page += 1; render(); }
+    });
+    el('segment-editor-top-prev')?.addEventListener('click', () => { if (state.page > 1) { state.page -= 1; render(); } });
+    el('segment-editor-top-next')?.addEventListener('click', () => {
+      const items = filteredSegments();
+      const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+      if (state.page < totalPages) { state.page += 1; render(); }
+    });
+    el('segment-editor-page-pills')?.addEventListener('click', (event) => {
+      const pill = event.target.closest('.segment-page-pill');
+      if (!pill) return;
+      const targetPage = Number(pill.dataset.page);
+      if (Number.isFinite(targetPage) && targetPage !== state.page) {
+        state.page = targetPage;
+        render();
+      }
+    });
     el('segment-editor-search')?.addEventListener('input', (event) => {
       state.search = event.target.value;
       state.page = 1;
@@ -773,6 +831,19 @@
         redo();
       } else if (event.key === 'Escape') {
         close();
+      } else {
+        const isEditing = ['input', 'textarea', 'select'].includes(document.activeElement?.tagName?.toLowerCase());
+        if (!isEditing) {
+          if (event.key === '[' || (event.altKey && event.key === 'ArrowLeft')) {
+            event.preventDefault();
+            if (state.page > 1) { state.page -= 1; render(); }
+          } else if (event.key === ']' || (event.altKey && event.key === 'ArrowRight')) {
+            event.preventDefault();
+            const items = filteredSegments();
+            const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+            if (state.page < totalPages) { state.page += 1; render(); }
+          }
+        }
       }
     });
   }
