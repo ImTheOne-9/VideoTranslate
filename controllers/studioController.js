@@ -4,6 +4,7 @@ const shared = require('../lib/shared-state');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
 const { fitSubtitleCue, resolveDisplayMaxLines } = require('../lib/subtitle-display-layout');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
+const { normalizeSubtitleTimelineFile } = require('../lib/subtitle-timeline-normalizer');
 const anti = require('../lib/anti-dupe');
 const { buildTimedBlurFilterGraph } = require('../lib/render-blur-helper');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
@@ -995,6 +996,27 @@ async function executeRenderTask(task) {
     });
     subtitlePath = subtitleStage.subtitlePath;
     const ocrReport = subtitleStage.ocrReport || null;
+    const sourceAsrMetadataPath = subtitlePath && fs.existsSync(`${subtitlePath}.asr.json`)
+      ? `${subtitlePath}.asr.json`
+      : null;
+
+    if (subtitlePath && fs.existsSync(subtitlePath)) {
+      const timelineStage = await renderOrchestrator.runStage(task, 'subtitle_timeline', async () => {
+        shared.updateStudioProgress(30, 'Đang sửa timeline phụ đề và loại chồng thời gian...');
+        const outputPath = path.join(workDir, 'timeline-normalized.srt');
+        const result = normalizeSubtitleTimelineFile(subtitlePath, outputPath);
+        const report = result.report;
+        console.log(
+          `[Subtitle Timeline] ${report.inputCues} cue → ${report.outputCues} cue; `
+          + `cắt đuôi=${report.trimmedCues}, bỏ trùng mốc=${report.droppedSameStartCues}, `
+          + `khôi phục cue ngắn=${report.restoredShortCues}, còn ngắn=${report.remainingShortCues}, `
+          + `khe=${report.minimumGapMs}ms.`
+        );
+        return { subtitlePath: result.path, report };
+      });
+      subtitlePath = timelineStage.subtitlePath;
+      task.subtitleTimelineReport = timelineStage.report || null;
+    }
     const sourceSubtitlePath = subtitlePath;
 
     let originalIsChinese = false;
@@ -1128,9 +1150,7 @@ async function executeRenderTask(task) {
         cuePerSegment: adaptiveNarrationEnabled,
         defaultVoiceFile: body.savedVoiceFile || '',
         defaultEngineId: body.voiceEngine || DEFAULT_VOICE_ENGINE_ID,
-        asrMetadataPath: fs.existsSync(`${sourceSubtitlePath}.asr.json`)
-          ? `${sourceSubtitlePath}.asr.json`
-          : null
+        asrMetadataPath: sourceAsrMetadataPath
       });
       task.segmentReview = segmentService.summarize(segmentManifest);
       renderJobStore.saveTask(task);
