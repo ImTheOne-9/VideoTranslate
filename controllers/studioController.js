@@ -62,6 +62,11 @@ const {
 } = require('../lib/checkpoint-utils');
 const { createMdxSeparatorManager } = require('../lib/mdx-separator-manager');
 const mdxCudaComponentManager = require('../lib/mdx-cuda-component-manager');
+const {
+  buildX264EncoderArgs,
+  replaceVideoEncoderArgs,
+  resolveStudioVideoEncoder
+} = require('../lib/studio-video-encoder');
 
 const renderJobStore = new RenderJobStore(shared.RENDER_JOBS_DIR);
 const renderOrchestrator = createRenderOrchestrator({
@@ -2636,10 +2641,18 @@ async function executeRenderTask(task) {
       args.push('-map', '0:a?', '-c:a', 'aac');
     }
 
-    const encoderArgs = hasCUDA
-      ? ['-c:v', 'h264_nvenc', '-preset', 'p7', '-rc', 'vbr', '-cq', '23']
-      : ['-c:v', 'libx264', '-preset', 'veryfast'];
-    args.push(...encoderArgs, '-movflags', '+faststart', '-shortest', '-y', outPath);
+    const videoEncoder = await resolveStudioVideoEncoder({
+      hasCUDA,
+      ffmpegPath: shared.FFMPEG_PATH,
+      runExecFile: shared.runExecFile
+    });
+    if (videoEncoder.warning) console.warn(`[FFmpeg] ${videoEncoder.warning}`);
+    if (videoEncoder.kind === 'nvenc') {
+      console.log(
+        `[FFmpeg] NVENC CQ 23 · b:v=0 · tối ưu chất lượng=${videoEncoder.advanced ? 'đầy đủ' : 'tương thích driver'}`
+      );
+    }
+    args.push(...videoEncoder.args, '-movflags', '+faststart', '-shortest', '-y', outPath);
     shared.updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
     console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
     try {
@@ -2648,32 +2661,8 @@ async function executeRenderTask(task) {
       const stderrMsg = (ffErr.stderr || ffErr.message || '').toLowerCase();
       if (hasCUDA && stderrMsg.includes('nvenc')) {
         console.log('[FFmpeg] NVENC không khả dụng, fallback sang libx264...');
-        const fallbackArgs = args.map(a => a);
-        // Thay h264_nvenc → libx264
-        const nvencIdx = fallbackArgs.indexOf('h264_nvenc');
-        if (nvencIdx !== -1) {
-          fallbackArgs[nvencIdx] = 'libx264';
-          // Xóa các tùy chọn NVENC cụ thể (-rc vbr -cq N) nếu tìm thấy
-          const nvencEncoderArgs = ['-rc', 'vbr', '-cq', '23', '-cq', '23']; // mẫu cần xóa
-          for (let ii = nvencIdx + 1; ii < fallbackArgs.length - 1; ii++) {
-            if (fallbackArgs[ii] === '-rc' && fallbackArgs[ii + 1] === 'vbr') {
-              fallbackArgs.splice(ii, 2);
-              break;
-            }
-          }
-          for (let ii = nvencIdx + 1; ii < fallbackArgs.length - 1; ii++) {
-            if (fallbackArgs[ii] === '-cq') {
-              fallbackArgs.splice(ii, 2);
-              break;
-            }
-          }
-          // Thay preset p7 → veryfast
-          const p7Idx = fallbackArgs.indexOf('p7');
-          if (p7Idx !== -1) fallbackArgs[p7Idx] = 'veryfast';
-          await runFFmpegWithProgress(fallbackArgs, totalDuration);
-        } else {
-          throw ffErr;
-        }
+        const fallbackArgs = replaceVideoEncoderArgs(args, buildX264EncoderArgs());
+        await runFFmpegWithProgress(fallbackArgs, totalDuration);
       } else {
         throw ffErr;
       }
