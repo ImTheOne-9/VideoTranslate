@@ -4121,6 +4121,12 @@
           <div id="segment-editor-summary" class="segment-editor-summary">Đang tải segment...</div>
         </div>
         <div class="segment-editor-header-actions">
+          <button type="button" id="segment-editor-export-srt" class="ghost-btn" title="Xuất file phụ đề SRT hoặc sao chép" onclick="window.openExportSrtModal && window.openExportSrtModal()">
+            📥 Xuất SRT
+          </button>
+          <button type="button" id="segment-editor-import-srt" class="ghost-btn" title="Nhập phụ đề từ file hoặc dán trực tiếp" onclick="window.openImportSrtModal && window.openImportSrtModal()">
+            📤 Nhập SRT
+          </button>
           <button type="button" id="segment-editor-save" class="ghost-btn" title="Lưu các câu đã thay đổi (Ctrl+S)">
             Lưu thay đổi
           </button>
@@ -4219,6 +4225,101 @@
       </footer>
       <audio id="segment-editor-audio" preload="none"></audio>
     </section>
+  </div>
+
+  <!-- Modal Xuất SRT -->
+  <div id="segment-editor-export-modal" class="fb-modal-overlay hidden" style="z-index: 10050 !important;">
+    <div class="fb-modal-content" style="width: 680px; max-width: 95%;">
+      <div class="fb-modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--accent);">
+          📥 Xuất file phụ đề SRT
+        </h3>
+        <button type="button" class="fb-modal-close" id="segment-editor-export-close" onclick="window.closeExportSrtModal && window.closeExportSrtModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label for="segment-export-type" style="font-weight: 600; font-size: 13px; margin: 0;">Loại phụ đề:</label>
+            <select id="segment-export-type" class="premium-select" style="width: 220px;">
+              <option value="translated" selected>🇻🇳 Bản dịch (Tiếng Việt)</option>
+              <option value="source">🌐 Lời thoại gốc</option>
+              <option value="bilingual">📑 Song ngữ (Dịch + Gốc)</option>
+            </select>
+          </div>
+          <span id="segment-export-count" style="font-size: 12px; color: var(--muted); font-weight: 500;">0 câu thoại</span>
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 12px; margin-bottom: 4px; display: flex; justify-content: space-between;">
+            <span>Nội dung SRT (bạn có thể xem hoặc bôi đen copy trực tiếp):</span>
+          </label>
+          <textarea id="segment-export-textarea" class="premium-input" readonly
+            style="width: 100%; height: 260px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; background: var(--bg-card); color: var(--text-primary);"></textarea>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color);">
+        <button type="button" id="segment-export-copy-btn" class="ghost-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          📋 Sao chép nội dung
+        </button>
+        <button type="button" id="segment-export-download-btn" class="premium-render-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          💾 Tải xuống file .srt
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Nhập SRT -->
+  <div id="segment-editor-import-modal" class="fb-modal-overlay hidden" style="z-index: 10050 !important;">
+    <div class="fb-modal-content" style="width: 720px; max-width: 95%;">
+      <div class="fb-modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--accent);">
+          📤 Nhập file phụ đề SRT
+        </h3>
+        <button type="button" class="fb-modal-close" id="segment-editor-import-close" onclick="window.closeImportSrtModal && window.closeImportSrtModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+        <!-- Option 1: File upload -->
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-weight: 600; font-size: 13px;">Cách 1: Tải file từ máy tính (.srt / .txt / .vtt)</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="file" id="segment-import-file" accept=".srt,.txt,.vtt" class="premium-input" style="flex: 1; padding: 6px 10px;">
+            <button type="button" id="segment-import-read-file-btn" class="ghost-btn">Đọc file</button>
+          </div>
+        </div>
+
+        <div style="text-align: center; color: var(--muted); font-size: 12px; font-weight: 600; position: relative;">
+          <span>— HOẶC —</span>
+        </div>
+
+        <!-- Option 2: Paste content -->
+        <div class="form-group" style="margin: 0;">
+          <label style="font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Cách 2: Dán nội dung SRT trực tiếp vào ô bên dưới</span>
+            <span id="segment-import-parsed-count" style="font-size: 12px; color: var(--accent); font-weight: 600;"></span>
+          </label>
+          <textarea id="segment-import-textarea" class="premium-input" placeholder="1&#10;00:00:01,000 --> 00:00:03,500&#10;Dán nội dung SRT của bạn vào đây..."
+            style="width: 100%; height: 180px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; background: var(--bg-card);"></textarea>
+        </div>
+
+        <!-- Import mode selection -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+          <span style="font-weight: 600; font-size: 12px; color: var(--text-primary);">Chế độ áp dụng:</span>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="radio" name="segment-import-mode" value="text-only" checked>
+            <span><strong>Chỉ cập nhật nội dung dịch</strong> (Khớp theo thứ tự câu, giữ nguyên mốc thời gian cũ)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="radio" name="segment-import-mode" value="full-timeline">
+            <span><strong>Cập nhật cả nội dung dịch và mốc thời gian</strong> (start / end từ file SRT)</span>
+          </label>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color);">
+        <button type="button" id="segment-import-cancel-btn" class="ghost-btn" onclick="window.closeImportSrtModal && window.closeImportSrtModal()">Hủy</button>
+        <button type="button" id="segment-import-apply-btn" class="premium-render-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          ✅ Áp dụng vào danh sách
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Modal Hàng đợi Render -->

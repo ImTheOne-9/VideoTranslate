@@ -464,7 +464,7 @@
   async function save() {
     if (!state.patches.size) return state.manifest;
     showError('');
-    const patches = [...state.patches.values()];
+    const patches = [...state.patches.entries()].map(([id, patch]) => ({ id, ...patch }));
     try {
       const data = await api(`/api/render-tasks/${encodeURIComponent(state.taskId)}/segments`, {
         method: 'PUT',
@@ -736,6 +736,268 @@
     }
   }
 
+  /* ==========================================================================
+     EXPORT SRT & IMPORT SRT MODULE
+     ========================================================================== */
+
+  function parseTimeFlexible(value) {
+    const str = String(value || '').trim();
+    if (!str) return Number.NaN;
+
+    // 1. hh:mm:ss[,.]ms (e.g. 00:01:23,456 or 0:01:23.456)
+    let match = /^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})$/.exec(str);
+    if (match) {
+      return (((Number(match[1]) * 60 + Number(match[2])) * 60 + Number(match[3])) * 1000)
+        + Number(match[4].padEnd(3, '0'));
+    }
+
+    // 2. mm:ss[,.:]ms (e.g. 00:08:533 or 08:533 or 01:23,456)
+    match = /^(\d{1,2}):(\d{1,2})[,.:](\d{1,3})$/.exec(str);
+    if (match) {
+      return ((Number(match[1]) * 60 + Number(match[2])) * 1000)
+        + Number(match[3].padEnd(3, '0'));
+    }
+
+    // 3. hh:mm:ss (no ms)
+    match = /^(\d{1,2}):(\d{2}):(\d{2})$/.exec(str);
+    if (match) {
+      return (((Number(match[1]) * 60 + Number(match[2])) * 60 + Number(match[3])) * 1000);
+    }
+
+    // 4. mm:ss (no ms)
+    match = /^(\d{1,2}):(\d{2})$/.exec(str);
+    if (match) {
+      return (Number(match[1]) * 60 + Number(match[2])) * 1000;
+    }
+
+    // 5. Raw number in seconds
+    const num = Number(str.replace(',', '.'));
+    if (Number.isFinite(num) && num >= 0) {
+      return Math.round(num * 1000);
+    }
+
+    return Number.NaN;
+  }
+
+  function parseSrtText(rawText) {
+    const normalized = String(rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (!normalized) return [];
+
+    const blocks = normalized.split(/\n\s*\n+/);
+    const cues = [];
+
+    for (const block of blocks) {
+      const lines = block.trim().split('\n');
+      if (!lines.length) continue;
+
+      let timeLineIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('-->')) {
+          timeLineIdx = i;
+          break;
+        }
+      }
+
+      if (timeLineIdx === -1) continue;
+
+      const timeLine = lines[timeLineIdx];
+      const parts = timeLine.split('-->');
+      if (parts.length < 2) continue;
+
+      const startMs = parseTimeFlexible(parts[0]);
+      const endMs = parseTimeFlexible(parts[1]);
+
+      const textLines = lines.slice(timeLineIdx + 1);
+      const text = textLines.join('\n').trim();
+
+      cues.push({
+        startMs: Number.isFinite(startMs) ? startMs : 0,
+        endMs: Number.isFinite(endMs) ? endMs : 0,
+        text
+      });
+    }
+
+    return cues;
+  }
+
+  function generateSrtFromSegments(type = 'translated') {
+    const segments = state.manifest?.segments || [];
+    let out = '';
+    segments.forEach((seg, idx) => {
+      const patch = state.patches.get(seg.id) || {};
+      const effective = { ...seg, ...patch };
+      const startTime = formatTime(effective.startMs);
+      const endTime = formatTime(effective.endMs);
+      const translated = String(effective.text !== undefined ? effective.text : (effective.translatedText || '')).trim();
+      const source = String(effective.sourceText || '').trim();
+      let text = translated;
+      if (type === 'source') {
+        text = source || translated;
+      } else if (type === 'bilingual') {
+        text = translated && source ? `${translated}\n${source}` : (translated || source);
+      }
+      out += `${idx + 1}\n${startTime} --> ${endTime}\n${text}\n\n`;
+    });
+    return out.trim();
+  }
+
+  function openExportModal() {
+    const segments = state.manifest?.segments || [];
+    if (!segments.length) {
+      notify('Chưa có câu thoại nào để xuất.', 'info');
+      return;
+    }
+    const type = el('segment-export-type')?.value || 'translated';
+    const srtText = generateSrtFromSegments(type);
+    const textarea = el('segment-export-textarea');
+    if (textarea) textarea.value = srtText;
+    const countEl = el('segment-export-count');
+    if (countEl) countEl.textContent = `${segments.length} câu thoại`;
+    el('segment-editor-export-modal')?.classList.remove('hidden');
+  }
+
+  function closeExportModal() {
+    el('segment-editor-export-modal')?.classList.add('hidden');
+  }
+
+  function copyExportSrt() {
+    const textarea = el('segment-export-textarea');
+    if (!textarea || !textarea.value) {
+      notify('Không có nội dung SRT để sao chép.', 'info');
+      return;
+    }
+    textarea.select();
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(textarea.value).then(() => {
+        notify('📋 Đã sao chép nội dung SRT vào bộ nhớ tạm!', 'success');
+      }).catch(() => {
+        document.execCommand('copy');
+        notify('📋 Đã sao chép nội dung SRT vào bộ nhớ tạm!', 'success');
+      });
+    } else {
+      document.execCommand('copy');
+      notify('📋 Đã sao chép nội dung SRT vào bộ nhớ tạm!', 'success');
+    }
+  }
+
+  function downloadExportSrt() {
+    const textarea = el('segment-export-textarea');
+    if (!textarea || !textarea.value) {
+      notify('Không có nội dung SRT để tải xuống.', 'info');
+      return;
+    }
+    const type = el('segment-export-type')?.value || 'translated';
+    const blob = new Blob([textarea.value], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `subtitles_${type}_${state.taskId || 'export'}.srt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    notify('💾 Đã tải xuống file SRT thành công!', 'success');
+  }
+
+  function openImportModal() {
+    const fileInput = el('segment-import-file');
+    if (fileInput) fileInput.value = '';
+    const textarea = el('segment-import-textarea');
+    if (textarea) textarea.value = '';
+    const countEl = el('segment-import-parsed-count');
+    if (countEl) countEl.textContent = '';
+    el('segment-editor-import-modal')?.classList.remove('hidden');
+  }
+
+  function closeImportModal() {
+    el('segment-editor-import-modal')?.classList.add('hidden');
+  }
+
+  function updateImportPreview() {
+    const rawText = el('segment-import-textarea')?.value || '';
+    const cues = parseSrtText(rawText);
+    const countEl = el('segment-import-parsed-count');
+    if (countEl) {
+      if (cues.length > 0) {
+        countEl.textContent = `✨ Đã nhận diện ${cues.length} câu thoại`;
+      } else if (rawText.trim().length > 0) {
+        countEl.textContent = '⚠️ Chưa nhận diện được định dạng SRT';
+      } else {
+        countEl.textContent = '';
+      }
+    }
+  }
+
+  function handleImportFile() {
+    const fileInput = el('segment-import-file');
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      notify('Vui lòng chọn file SRT/TXT từ máy tính.', 'info');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result;
+      const textarea = el('segment-import-textarea');
+      if (textarea) {
+        textarea.value = content || '';
+        updateImportPreview();
+      }
+      notify(`Đã đọc file "${file.name}" thành công!`, 'info');
+    };
+    reader.onerror = () => {
+      notify('Lỗi khi đọc file.', 'error');
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  function applyImportSrt() {
+    const rawText = el('segment-import-textarea')?.value || '';
+    const cues = parseSrtText(rawText);
+    if (!cues.length) {
+      notify('Không tìm thấy câu phụ đề hợp lệ nào trong nội dung đã nhập.', 'error');
+      return;
+    }
+
+    const segments = state.manifest?.segments || [];
+    if (!segments.length) {
+      notify('Không có danh sách câu thoại trong dự án để cập nhật.', 'error');
+      return;
+    }
+
+    const mode = document.querySelector('input[name="segment-import-mode"]:checked')?.value || 'text-only';
+    pushUndo();
+
+    let updatedCount = 0;
+    segments.forEach((seg, idx) => {
+      const cue = cues[idx];
+      if (!cue) return;
+
+      const currentPatch = state.patches.get(seg.id) || {};
+      const newPatch = { ...currentPatch, id: seg.id };
+
+      if (cue.text !== undefined) {
+        newPatch.text = cue.text;
+      }
+
+      if (mode === 'full-timeline') {
+        if (Number.isFinite(cue.startMs) && cue.startMs >= 0) {
+          newPatch.startMs = cue.startMs;
+        }
+        if (Number.isFinite(cue.endMs) && cue.endMs > 0) {
+          newPatch.endMs = cue.endMs;
+        }
+      }
+
+      state.patches.set(seg.id, newPatch);
+      updatedCount++;
+    });
+
+    render();
+    closeImportModal();
+    notify(`✅ Đã cập nhật thành công ${updatedCount} câu thoại từ SRT!`, 'success');
+  }
+
   function bind() {
     el('segment-editor-close')?.addEventListener('click', close);
     el('segment-editor-video-close')?.addEventListener('click', closeVideoPreview);
@@ -746,6 +1008,26 @@
         state.previewEndSeconds = null;
       }
     });
+
+    el('segment-editor-export-srt')?.addEventListener('click', openExportModal);
+    el('segment-editor-export-close')?.addEventListener('click', closeExportModal);
+    el('segment-export-type')?.addEventListener('change', () => {
+      const type = el('segment-export-type')?.value || 'translated';
+      const srtText = generateSrtFromSegments(type);
+      const textarea = el('segment-export-textarea');
+      if (textarea) textarea.value = srtText;
+    });
+    el('segment-export-copy-btn')?.addEventListener('click', copyExportSrt);
+    el('segment-export-download-btn')?.addEventListener('click', downloadExportSrt);
+
+    el('segment-editor-import-srt')?.addEventListener('click', openImportModal);
+    el('segment-editor-import-close')?.addEventListener('click', closeImportModal);
+    el('segment-import-cancel-btn')?.addEventListener('click', closeImportModal);
+    el('segment-import-file')?.addEventListener('change', handleImportFile);
+    el('segment-import-read-file-btn')?.addEventListener('click', handleImportFile);
+    el('segment-import-textarea')?.addEventListener('input', updateImportPreview);
+    el('segment-import-apply-btn')?.addEventListener('click', applyImportSrt);
+
     el('segment-editor-save')?.addEventListener('click', () => save().catch(() => {}));
     el('segment-editor-generate-missing')?.addEventListener('click', regenerateMissing);
     el('segment-editor-approve')?.addEventListener('click', approveAndContinue);
@@ -848,7 +1130,16 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', bind);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+
   window.openSegmentEditor = open;
   window.closeSegmentEditor = close;
+  window.openExportSrtModal = openExportModal;
+  window.closeExportSrtModal = closeExportModal;
+  window.openImportSrtModal = openImportModal;
+  window.closeImportSrtModal = closeImportModal;
 })();
