@@ -8377,6 +8377,72 @@ function playVoicePreview(event, filename) {
   togglePlayAudio(btn, voiceUrl);
 }
 
+async function previewEngineVoice(engineId) {
+  let voice = '';
+  let btnId = '';
+  if (engineId === 'piper') {
+    voice = $('piper-voice-select')?.value || 'ngochuyen';
+    btnId = 'preview-piper-voice-btn';
+  } else if (engineId === 'edge-tts') {
+    voice = $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural';
+    btnId = 'preview-edge-voice-btn';
+  }
+  const btn = $(btnId);
+  if (!btn) return;
+
+  const currentUrl = btn.getAttribute('data-preview-url');
+  if (currentAudio && currentAudioUrl === currentUrl && !currentAudio.paused) {
+    currentAudio.pause();
+    updatePlayButtonsState(currentUrl, false);
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Đang tạo...';
+
+  try {
+    const res = await fetch('/api/preview-engine-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: engineId, voice })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Không thể tạo giọng mẫu.');
+
+    btn.setAttribute('data-preview-url', data.audioUrl);
+    togglePlayAudio(btn, data.audioUrl);
+    btn.innerHTML = '⏸ Dừng';
+    btn.classList.add('playing');
+  } catch (error) {
+    console.error('Lỗi khi nghe thử giọng:', error);
+    toast(error.message || 'Lỗi nghe thử giọng.', 'error');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.previewEngineVoice = previewEngineVoice;
+
+$('piper-voice-select')?.addEventListener('change', () => {
+  const btn = $('preview-piper-voice-btn');
+  if (btn) {
+    btn.removeAttribute('data-preview-url');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  }
+});
+$('edge-voice-select')?.addEventListener('change', () => {
+  const btn = $('preview-edge-voice-btn');
+  if (btn) {
+    btn.removeAttribute('data-preview-url');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  }
+});
+
 function openAllVoicesModal() {
   const modal = $('all-voices-modal');
   if (modal) {

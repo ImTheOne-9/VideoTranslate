@@ -350,6 +350,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/renders', express.static(shared.RENDERS_DIR));
 app.use('/downloads', express.static(shared.DOWNLOADS_DIR));
 app.use('/voices', express.static(shared.VOICES_DIR));
+app.use('/voice-previews', express.static(shared.VOICE_PREVIEWS_DIR));
 app.use('/music', express.static(shared.MUSIC_DIR));
 app.use('/logos', express.static(shared.LOGOS_DIR));
 
@@ -658,6 +659,7 @@ app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 
 // 4. Voice and asset routes
 app.get('/api/voice-engines', voiceController.getVoiceEngines);
+app.post('/api/preview-engine-voice', voiceController.previewEngineVoice);
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);

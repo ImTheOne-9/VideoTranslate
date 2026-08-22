@@ -1947,7 +1947,10 @@
                             style="margin-top: 8px; width: 100%;">Cài Piper offline</button>
                         </div>
                         <div class="form-group" id="edge-voice-group" style="display: none;">
-                          <label>Chọn giọng đọc Edge-TTS</label>
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng đọc Edge-TTS</label>
+                            <button type="button" id="preview-edge-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('edge-tts')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">🔊 Nghe thử</button>
+                          </div>
                           <select id="edge-voice-select" name="edgeVoice" class="premium-select">
                             <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ - Tiếng Việt)</option>
                             <option value="vi-VN-NamMinhNeural">Nam Minh (Nam - Tiếng Việt)</option>
@@ -1983,7 +1986,10 @@
                           </div>
                         </div>
                         <div class="form-group" id="piper-voice-group" style="display: none;">
-                          <label>Chọn giọng Piper</label>
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng Piper</label>
+                            <button type="button" id="preview-piper-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('piper')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">🔊 Nghe thử</button>
+                          </div>
                           <select id="piper-voice-select" name="piperVoice" class="premium-select">
                             <option value="ngochuyen" selected>Ngọc Huyền</option>
                             <option value="manhdung">Mạnh Dũng</option>
