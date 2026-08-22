@@ -15,6 +15,7 @@ const platformBrowserExtractor = require('./lib/platform-browser-extractor');
 const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
 const { ProjectYtDlpAdapter } = require('./lib/project-ytdlp-adapter');
 const { CrawlerRuntimeManager } = require('./lib/crawler-runtime-manager');
+const { OcrGpuManager } = require('./lib/ocr-gpu-manager');
 const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
 
@@ -41,6 +42,10 @@ function createCookieSyncResolver(platform) {
 const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const crawlerRuntimeManager = new CrawlerRuntimeManager();
+const ocrGpuManager = new OcrGpuManager({
+  runtimeReady: () => crawlerRuntimeManager.ready(),
+  isBusy: () => shared.state.isStudioRendering === true
+});
 
 function createMediaCrawlerPreviewResolver(platform) {
   return async ({ input, count, mode, onLog, onItem }) => {
@@ -124,6 +129,7 @@ const RATE_LIMIT_EXEMPT_PATHS = new Set([
   '/api/ocr-component/download-status',
   '/api/mdx-cuda-component/download-status',
   '/api/download-crawl/status',
+  '/api/rapidocr-gpu/status',
   '/api/proxy-image',
   '/api/update-status'
 ]);
@@ -344,6 +350,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/renders', express.static(shared.RENDERS_DIR));
 app.use('/downloads', express.static(shared.DOWNLOADS_DIR));
 app.use('/voices', express.static(shared.VOICES_DIR));
+app.use('/voice-previews', express.static(shared.VOICE_PREVIEWS_DIR));
 app.use('/music', express.static(shared.MUSIC_DIR));
 app.use('/logos', express.static(shared.LOGOS_DIR));
 
@@ -392,6 +399,23 @@ app.post('/api/download-crawl/runtime-install', (req, res) => {
     res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
   } catch (error) {
     res.status(500).json({ error: error.message || 'Không thể cài runtime crawler.' });
+  }
+});
+app.get('/api/rapidocr-gpu/status', async (req, res) => {
+  try {
+    res.json(await ocrGpuManager.refresh());
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không kiểm tra được RapidOCR GPU.' });
+  }
+});
+app.post('/api/rapidocr-gpu/install', (req, res) => {
+  try {
+    const result = ocrGpuManager.install((message, level) => {
+      downloadCrawlManager._log(`[RapidOCR GPU] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(error.code === 'OCR_GPU_BUSY' ? 409 : 400).json({ error: error.message });
   }
 });
 app.post('/api/download-crawl/preview', async (req, res) => {
@@ -635,6 +659,7 @@ app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 
 // 4. Voice and asset routes
 app.get('/api/voice-engines', voiceController.getVoiceEngines);
+app.post('/api/preview-engine-voice', voiceController.previewEngineVoice);
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);

@@ -1347,10 +1347,22 @@
                           <option value="viral">RapidOCR — quét toàn khung hình</option>
                           <option value="vse">VSE — dùng vùng OCR đã chọn</option>
                         </select>
-                        <span id="ocr-pipeline-hint" class="form-hint">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
-                        <div id="rapidocr-runtime-row" class="hidden" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(8,12,16,.35);">
-                          <span id="rapidocr-runtime-status" class="form-hint" style="margin:0;">Đang kiểm tra RapidOCR...</span>
-                          <button type="button" id="rapidocr-runtime-install-btn" class="ocr-icon-btn" style="width:auto;padding:7px 10px;white-space:nowrap;">Tải RapidOCR</button>
+                        <span id="ocr-pipeline-hint" class="form-hint" style="font-size: 11px; margin-top: 3px; color: #94a3b8;">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
+                        <div id="rapidocr-runtime-row" class="hidden rapidocr-mini-card">
+                          <div class="rapidocr-mini-row">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-status-dot"></span>
+                              <span id="rapidocr-runtime-status" class="rapidocr-status-text">Đang kiểm tra RapidOCR...</span>
+                            </div>
+                            <button type="button" id="rapidocr-runtime-install-btn" class="mini-pill-btn">Tải RapidOCR</button>
+                          </div>
+                          <div id="rapidocr-gpu-row" class="hidden rapidocr-mini-row rapidocr-gpu-divider">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-gpu-dot"></span>
+                              <span id="rapidocr-gpu-status" class="rapidocr-status-text">Đang kiểm tra GPU...</span>
+                            </div>
+                            <button type="button" id="rapidocr-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
+                          </div>
                         </div>
                       </div>
                       <div class="form-group whisper-engine-settings">
@@ -1834,19 +1846,17 @@
                       <div class="form-group" style="margin-top: 10px;">
                         <label>Cấu trúc dòng phụ đề</label>
                           <select name="subtitleMaxLines" class="premium-select">
-                            <option value="0">Tự động chia dòng (1-2 dòng)</option>
-                            <option value="1" selected>Tối đa 1 dòng (Ngắn gọn)</option>
-                          <option value="2">Tối đa 2 dòng (Thông thường)</option>
-                          <option value="3">Tối đa 3 dòng (Chi tiết)</option>
+                            <option value="0" selected>Tự động theo video (ngang 2 dòng · dọc 3 dòng)</option>
                         </select>
+                        <small class="form-hint">Chỉ thay đổi cách hiển thị khi render; không tách cue hoặc chia lại timestamp SRT.</small>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Panel 4: Voice / Omi Cloner -->
+                  <!-- Panel 4: Adaptive dubbing. Legacy narration UI remains in code but is not exposed. -->
                   <div id="panel-voice" class="panel hidden">
                     <div class="panel-head">
-                      <h3>Thuyết minh</h3>
+                      <h3>Thuyết minh AI</h3>
                     </div>
                     <div class="form-group">
                       <label>Chế độ giọng nói</label>
@@ -1858,9 +1868,10 @@
                         <button type="button" class="voice-tab-btn" data-voice-mode="upload"
                           title="Tải lên file thu âm mới" style="display: none;">Tải lên</button>
                         <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi"
-                          title="Omi Cloner (Nhái giọng AI)">Thuyết minh tự động</button>
+                          title="Tạo thuyết minh theo từng cue và tự căn timeline">Thuyết minh tự động</button>
                       </div>
                       <input type="hidden" id="voice-mode" name="voiceMode" value="none">
+                      <input type="hidden" id="narration-pipeline" name="narrationPipeline" value="adaptive">
                     </div>
 
                     <div id="output-language-wrapper" class="form-group" style="margin-top: 4px;">
@@ -1924,16 +1935,22 @@
                         <div class="form-group">
                           <label>Engine giọng nói</label>
                           <select id="voice-engine-select" name="voiceEngine" class="premium-select">
-                            <option value="current-omnivoice">OmniVoice hiện tại</option>
+                            <option value="piper">Piper (Offline)</option>
+                            <option value="current-omnivoice">OmniVoice Clone</option>
                             <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
                           </select>
                           <div id="voice-engine-capabilities"
                             style="font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45;">
                             Đang kiểm tra khả năng engine...
                           </div>
+                          <button type="button" id="voice-runtime-install-btn" class="secondary-btn hidden"
+                            style="margin-top: 8px; width: 100%;">Cài Piper offline</button>
                         </div>
                         <div class="form-group" id="edge-voice-group" style="display: none;">
-                          <label>Chọn giọng đọc Edge-TTS</label>
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng đọc Edge-TTS</label>
+                            <button type="button" id="preview-edge-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('edge-tts')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">🔊 Nghe thử</button>
+                          </div>
                           <select id="edge-voice-select" name="edgeVoice" class="premium-select">
                             <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ - Tiếng Việt)</option>
                             <option value="vi-VN-NamMinhNeural">Nam Minh (Nam - Tiếng Việt)</option>
@@ -1968,6 +1985,52 @@
                             </div>
                           </div>
                         </div>
+                        <div class="form-group" id="piper-voice-group" style="display: none;">
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng Piper</label>
+                            <button type="button" id="preview-piper-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('piper')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">🔊 Nghe thử</button>
+                          </div>
+                          <select id="piper-voice-select" name="piperVoice" class="premium-select">
+                            <option value="ngochuyen" selected>Ngọc Huyền</option>
+                            <option value="manhdung">Mạnh Dũng</option>
+                            <option value="maiphuong">Mai Phương</option>
+                            <option value="minhkhang">Minh Khang</option>
+                          </select>
+                          <label for="piper-device-select" style="margin-top: 8px;">Tăng tốc Piper</label>
+                          <select id="piper-device-select" name="piperDevice" class="premium-select">
+                            <option value="auto" selected>Tự động (ưu tiên CUDA nếu có)</option>
+                            <option value="cpu">Chỉ CPU</option>
+                            <option value="cuda">Ưu tiên GPU CUDA</option>
+                          </select>
+                          <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
+                            Model giọng được tải một lần vào runtime riêng của ứng dụng.
+                          </p>
+                        </div>
+                        <div class="form-group" id="dual-voice-group" style="display: none;">
+                          <label class="premium-switch">
+                            <input type="checkbox" id="dual-voice-enabled" name="dualVoiceEnabled" value="true">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Tự phân giọng nam/nữ theo âm thanh gốc</span>
+                          </label>
+                          <div id="piper-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="piperMaleVoice" class="premium-select">
+                              <option value="manhdung">Nam: Mạnh Dũng</option>
+                              <option value="minhkhang">Nam: Minh Khang</option>
+                            </select>
+                            <select name="piperFemaleVoice" class="premium-select">
+                              <option value="ngochuyen">Nữ: Ngọc Huyền</option>
+                              <option value="maiphuong">Nữ: Mai Phương</option>
+                            </select>
+                          </div>
+                          <div id="edge-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="edgeMaleVoice" class="premium-select">
+                              <option value="vi-VN-NamMinhNeural">Nam: Nam Minh</option>
+                            </select>
+                            <select name="edgeFemaleVoice" class="premium-select">
+                              <option value="vi-VN-HoaiMyNeural">Nữ: Hoài My</option>
+                            </select>
+                          </div>
+                        </div>
                         <div class="form-group" id="voice-device-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
@@ -1983,14 +2046,19 @@
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
                       </label>
                       <label class="premium-switch" style="margin-top: 8px;">
+                        <input type="checkbox" id="sync-subtitle-to-voice" name="syncSubtitleToVoice" value="true">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label">Đồng bộ phụ đề theo lúc giọng bắt đầu (thử nghiệm)</span>
+                      </label>
+                      <label class="premium-switch" id="segment-review-group" style="margin-top: 8px;">
                         <input type="checkbox" id="segment-review-enabled" name="segmentReviewEnabled" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Duyệt từng câu trước khi tạo giọng</span>
                       </label>
 
                       <div style="display: none;">
-                        <span id="omi-steps-badge">40</span>
-                        <input type="range" name="omiSteps" id="omi-steps-slider" value="40" min="10" max="50" step="1">
+                        <span id="omi-steps-badge">8</span>
+                        <input type="range" name="omiSteps" id="omi-steps-slider" value="8" min="8" max="32" step="8">
                         <select id="omi-seed-preset">
                           <option value="42" selected>Cố định (42)</option>
                         </select>
@@ -3062,11 +3130,9 @@
                 </select>
               </div>
               <div class="dl-config-group">
-                <label>Số dòng phụ đề tối đa</label>
+                <label>Cấu trúc dòng phụ đề</label>
                 <select id="dl-subtitle-max-lines" class="premium-select" onchange="updateLiveSubPreview()">
-                  <option value="0">Tự động ngắt dòng (Mặc định)</option>
-                  <option value="1">Tối đa 1 dòng (Ngắn gọn)</option>
-                  <option value="2">Tối đa 2 dòng (Thông thường)</option>
+                  <option value="0" selected>Tự động theo khung video</option>
                 </select>
               </div>
             </div>
@@ -4055,6 +4121,12 @@
           <div id="segment-editor-summary" class="segment-editor-summary">Đang tải segment...</div>
         </div>
         <div class="segment-editor-header-actions">
+          <button type="button" id="segment-editor-export-srt" class="ghost-btn" title="Xuất file phụ đề SRT hoặc sao chép" onclick="window.openExportSrtModal && window.openExportSrtModal()">
+            📥 Xuất SRT
+          </button>
+          <button type="button" id="segment-editor-import-srt" class="ghost-btn" title="Nhập phụ đề từ file hoặc dán trực tiếp" onclick="window.openImportSrtModal && window.openImportSrtModal()">
+            📤 Nhập SRT
+          </button>
           <button type="button" id="segment-editor-save" class="ghost-btn" title="Lưu các câu đã thay đổi (Ctrl+S)">
             Lưu thay đổi
           </button>
@@ -4086,6 +4158,11 @@
               aria-label="Hoàn tác">↶</button>
             <button type="button" id="segment-editor-redo" class="icon-btn" title="Làm lại (Ctrl+Y)"
               aria-label="Làm lại">↷</button>
+          </div>
+          <div class="segment-editor-top-pagination">
+            <button type="button" id="segment-editor-top-prev" class="ghost-btn segment-page-btn" title="Trang trước (Phím tắt: [ hoặc Alt+Left)">‹ Trước</button>
+            <span id="segment-editor-top-page-info" class="segment-page-badge">Trang 1/1</span>
+            <button type="button" id="segment-editor-top-next" class="ghost-btn segment-page-btn" title="Trang sau (Phím tắt: ] hoặc Alt+Right)">Sau ›</button>
           </div>
         </div>
         <details class="segment-editor-replace-panel">
@@ -4137,14 +4214,112 @@
       </div>
 
       <footer class="segment-editor-footer">
-        <span id="segment-editor-page-info"></span>
+        <div class="segment-editor-footer-left">
+          <span id="segment-editor-page-info" class="segment-editor-page-info"></span>
+        </div>
         <div class="segment-editor-pagination">
-          <button type="button" id="segment-editor-prev" class="icon-btn" title="Trang trước" aria-label="Trang trước">‹</button>
-          <button type="button" id="segment-editor-next" class="icon-btn" title="Trang sau" aria-label="Trang sau">›</button>
+          <button type="button" id="segment-editor-prev" class="ghost-btn segment-page-btn" title="Trang trước (Phím tắt: [ hoặc Alt+Left)">‹ Trang trước</button>
+          <div id="segment-editor-page-pills" class="segment-editor-page-pills"></div>
+          <button type="button" id="segment-editor-next" class="ghost-btn segment-page-btn" title="Trang sau (Phím tắt: ] hoặc Alt+Right)">Trang sau ›</button>
         </div>
       </footer>
       <audio id="segment-editor-audio" preload="none"></audio>
     </section>
+  </div>
+
+  <!-- Modal Xuất SRT -->
+  <div id="segment-editor-export-modal" class="fb-modal-overlay hidden" style="z-index: 10050 !important;">
+    <div class="fb-modal-content" style="width: 680px; max-width: 95%;">
+      <div class="fb-modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--accent);">
+          📥 Xuất file phụ đề SRT
+        </h3>
+        <button type="button" class="fb-modal-close" id="segment-editor-export-close" onclick="window.closeExportSrtModal && window.closeExportSrtModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label for="segment-export-type" style="font-weight: 600; font-size: 13px; margin: 0;">Loại phụ đề:</label>
+            <select id="segment-export-type" class="premium-select" style="width: 220px;">
+              <option value="translated" selected>🇻🇳 Bản dịch (Tiếng Việt)</option>
+              <option value="source">🌐 Lời thoại gốc</option>
+              <option value="bilingual">📑 Song ngữ (Dịch + Gốc)</option>
+            </select>
+          </div>
+          <span id="segment-export-count" style="font-size: 12px; color: var(--muted); font-weight: 500;">0 câu thoại</span>
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 12px; margin-bottom: 4px; display: flex; justify-content: space-between;">
+            <span>Nội dung SRT (bạn có thể xem hoặc bôi đen copy trực tiếp):</span>
+          </label>
+          <textarea id="segment-export-textarea" class="premium-input" readonly
+            style="width: 100%; height: 260px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; background: var(--bg-card); color: var(--text-primary);"></textarea>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color);">
+        <button type="button" id="segment-export-copy-btn" class="ghost-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          📋 Sao chép nội dung
+        </button>
+        <button type="button" id="segment-export-download-btn" class="premium-render-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          💾 Tải xuống file .srt
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Nhập SRT -->
+  <div id="segment-editor-import-modal" class="fb-modal-overlay hidden" style="z-index: 10050 !important;">
+    <div class="fb-modal-content" style="width: 720px; max-width: 95%;">
+      <div class="fb-modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--accent);">
+          📤 Nhập file phụ đề SRT
+        </h3>
+        <button type="button" class="fb-modal-close" id="segment-editor-import-close" onclick="window.closeImportSrtModal && window.closeImportSrtModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+        <!-- Option 1: File upload -->
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-weight: 600; font-size: 13px;">Cách 1: Tải file từ máy tính (.srt / .txt / .vtt)</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="file" id="segment-import-file" accept=".srt,.txt,.vtt" class="premium-input" style="flex: 1; padding: 6px 10px;">
+            <button type="button" id="segment-import-read-file-btn" class="ghost-btn">Đọc file</button>
+          </div>
+        </div>
+
+        <div style="text-align: center; color: var(--muted); font-size: 12px; font-weight: 600; position: relative;">
+          <span>— HOẶC —</span>
+        </div>
+
+        <!-- Option 2: Paste content -->
+        <div class="form-group" style="margin: 0;">
+          <label style="font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Cách 2: Dán nội dung SRT trực tiếp vào ô bên dưới</span>
+            <span id="segment-import-parsed-count" style="font-size: 12px; color: var(--accent); font-weight: 600;"></span>
+          </label>
+          <textarea id="segment-import-textarea" class="premium-input" placeholder="1&#10;00:00:01,000 --> 00:00:03,500&#10;Dán nội dung SRT của bạn vào đây..."
+            style="width: 100%; height: 180px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; background: var(--bg-card);"></textarea>
+        </div>
+
+        <!-- Import mode selection -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+          <span style="font-weight: 600; font-size: 12px; color: var(--text-primary);">Chế độ áp dụng:</span>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="radio" name="segment-import-mode" value="text-only" checked>
+            <span><strong>Chỉ cập nhật nội dung dịch</strong> (Khớp theo thứ tự câu, giữ nguyên mốc thời gian cũ)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="radio" name="segment-import-mode" value="full-timeline">
+            <span><strong>Cập nhật cả nội dung dịch và mốc thời gian</strong> (start / end từ file SRT)</span>
+          </label>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color);">
+        <button type="button" id="segment-import-cancel-btn" class="ghost-btn" onclick="window.closeImportSrtModal && window.closeImportSrtModal()">Hủy</button>
+        <button type="button" id="segment-import-apply-btn" class="premium-render-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          ✅ Áp dụng vào danh sách
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Modal Hàng đợi Render -->

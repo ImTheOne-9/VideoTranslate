@@ -34,6 +34,11 @@ function getVideoContentRect(video) {
   };
 }
 
+function resolveCanvasSubtitleScale(videoWidth, videoHeight) {
+  const shortSide = Math.max(1, Math.min(Number(videoWidth) || 1920, Number(videoHeight) || 1080));
+  return 1.35 * shortSide / 1080;
+}
+
 function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const video = $('studio-video-preview');
   
@@ -878,7 +883,9 @@ function updateSubtitleOverlayFromInputs() {
     boxWidth = W_act - 2 * marginHInput;
   }
   boxWidth = Math.max(50, boxWidth);
-  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
+  const scaleFactor = resolveCanvasSubtitleScale(W_act, H_act);
+  const fontSize_canvas = fontSizeInput * scaleFactor;
+  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSize_canvas * 0.5)));
 
   let wrappedText = rawText;
   if (maxLines === 1) {
@@ -897,9 +904,6 @@ function updateSubtitleOverlayFromInputs() {
       wrappedText = wrapTextToThreeLines(clean, maxChars);
     }
   }
-
-  const scaleFactor = 1.35;
-  const fontSize_canvas = fontSizeInput * scaleFactor;
 
   subTextNode.text(wrappedText);
   subTextNode.fontSize(fontSize_canvas);
@@ -1586,10 +1590,10 @@ function renderBlurBoxesList() {
           </div>
         </div>
         
-        <!-- Blur Radius Slider -->
-        <div class="form-group" style="margin: 8px 0 0 0; display: ${$('ocr-mask-style')?.value === 'blur' ? 'flex' : 'none'}; flex-direction: column; gap: 4px;">
+        <!-- Mỗi vùng che luôn dùng blur khi render, nên luôn cho phép chỉnh bán kính blur. -->
+        <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
+            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Blur)</label>
             <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
           </div>
           <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">

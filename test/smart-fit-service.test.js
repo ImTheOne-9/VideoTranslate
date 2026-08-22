@@ -11,7 +11,11 @@ const {
 } = require('../lib/smart-fit-service');
 const {
   buildAtempoFilters,
+  buildSilenceCompactionFilter,
+  compactPcmSilence,
   createFittedVoiceChunk,
+  isNarrationAudioUsable,
+  normalizeVoiceTrackFast,
   readWavDurationMs
 } = require('../lib/voice-audio-fit');
 
@@ -34,6 +38,15 @@ function writeSilentWav(filePath, durationMs = 1000) {
   buffer.writeUInt16LE(bitsPerSample, 34);
   buffer.write('data', 36);
   buffer.writeUInt32LE(dataSize, 40);
+  fs.writeFileSync(filePath, buffer);
+}
+
+function writeToneWav(filePath, durationMs = 1000) {
+  writeSilentWav(filePath, durationMs);
+  const buffer = fs.readFileSync(filePath);
+  for (let offset = 44, frame = 0; offset + 1 < buffer.length; offset += 2, frame++) {
+    buffer.writeInt16LE(Math.round(Math.sin(frame * 0.08) * 10000), offset);
+  }
   fs.writeFileSync(filePath, buffer);
 }
 
@@ -158,6 +171,68 @@ test('builds valid chained atempo filters', () => {
   );
 });
 
+test('silence compaction restarts detection to shorten long pauses inside a sentence', () => {
+  const filter = buildSilenceCompactionFilter();
+  assert.match(filter, /stop_periods=-1/);
+  assert.match(filter, /stop_silence=0\.18/);
+});
+
+test('relative-peak compaction removes long internal silence without cutting quiet speech', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'relative-silence-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const input = path.join(directory, 'input.wav');
+  const output = path.join(directory, 'output.wav');
+  writeSilentWav(input, 1200);
+  const buffer = fs.readFileSync(input);
+  const sampleRate = 16000;
+  for (const [startMs, endMs] of [[100, 300], [900, 1100]]) {
+    for (let frame = Math.round(startMs * sampleRate / 1000); frame < Math.round(endMs * sampleRate / 1000); frame++) {
+      buffer.writeInt16LE(Math.round(Math.sin(frame * 0.08) * 900), 44 + frame * 2);
+    }
+  }
+  fs.writeFileSync(input, buffer);
+  assert.equal(compactPcmSilence(input, output), true);
+  // 400 ms speech + 180 ms internal breath + 60 ms padding on both ends.
+  assert.ok(readWavDurationMs(output) <= 700);
+  assert.equal(isNarrationAudioUsable(output, { minimumRmsDbfs: -50, minimumPeakDbfs: -40 }), true);
+});
+
+test('narration guard rejects a real WAV container that contains only silence', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-silent-guard-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const silent = path.join(directory, 'silent.wav');
+  const tone = path.join(directory, 'tone.wav');
+  writeSilentWav(silent, 500);
+  writeToneWav(tone, 500);
+  assert.equal(isNarrationAudioUsable(silent), false);
+  assert.equal(isNarrationAudioUsable(tone), true);
+});
+
+test('Smart Fit prefers AudioStretchy output and omits atempo when it succeeds', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-stretchy-fit-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const rawPath = path.join(directory, 'raw.wav');
+  const fittedPath = path.join(directory, 'fitted.wav');
+  writeToneWav(rawPath, 1000);
+  let finalFilter = '';
+  await createFittedVoiceChunk({
+    rawPath,
+    outputPath: fittedPath,
+    fitPlan: { status: 'compressed', speed: 1.5, fittedDurationMs: 667, trimmedMs: 0 },
+    ffmpegPath: 'ffmpeg',
+    audioStretchy: async ({ outputPath }) => {
+      fs.copyFileSync(rawPath, outputPath);
+      return true;
+    },
+    runExecFile: async (_command, args) => {
+      finalFilter = args[args.indexOf('-filter:a') + 1];
+      fs.copyFileSync(args[args.indexOf('-i') + 1], args.at(-1));
+    }
+  });
+  assert.doesNotMatch(finalFilter, /atempo=/);
+  assert.equal(isNarrationAudioUsable(fittedPath), true);
+});
+
 test('normalizes fitted copies without modifying the raw WAV', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'smart-fit-audio-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -223,4 +298,27 @@ test('cue-only fitting uses atempo without trimming speech', async (t) => {
   assert.match(filter, /atempo=/);
   assert.doesNotMatch(filter, /atrim=duration=/);
   assert.deepEqual(fs.readFileSync(rawPath), before);
+});
+
+test('final voice track uses ebur128 gain and limiter instead of a second dynamic loudnorm pass', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-loudness-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const voicePath = path.join(directory, 'voice.wav');
+  writeToneWav(voicePath, 500);
+  const commands = [];
+  const result = await normalizeVoiceTrackFast({
+    inputPath: voicePath,
+    ffmpegPath: 'ffmpeg',
+    targetLufs: -16,
+    runExecFile: async (_command, args) => {
+      commands.push(args);
+      if (args.includes('ebur128=peak=true')) return { stderr: 'Summary:\n  I: -26.0 LUFS' };
+      fs.copyFileSync(voicePath, args.at(-1));
+      return { stderr: '' };
+    },
+    logger: { log() {} }
+  });
+  assert.equal(result.method, 'ebur128');
+  assert.match(commands[1][commands[1].indexOf('-af') + 1], /volume=10\.00dB,alimiter=/);
+  assert.doesNotMatch(commands[1][commands[1].indexOf('-af') + 1], /loudnorm=/);
 });

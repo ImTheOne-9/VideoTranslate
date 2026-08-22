@@ -261,6 +261,76 @@ function renderAssetList(id, items) {
   }
 }
 
+function populateOutputLanguageOptions(languages = []) {
+  const select = $('global-output-lang');
+  if (!select || !Array.isArray(languages) || languages.length === 0) return;
+  const previous = select.value || 'vi';
+  select.innerHTML = '';
+  for (const language of languages) {
+    const option = document.createElement('option');
+    option.value = language.code;
+    option.textContent = language.label || language.promptName || language.code.toUpperCase();
+    select.appendChild(option);
+  }
+  select.value = languages.some((language) => language.code === previous) ? previous : 'vi';
+  updateOutputLangInfo();
+}
+
+function refreshTtsVoiceCatalogs(voiceEngines = []) {
+  const targetLang = ($('global-output-lang')?.value || 'vi').toLowerCase().split('-')[0];
+  const fillEngineVoiceSelect = (selectId, engineId) => {
+    const select = $(selectId);
+    const descriptor = voiceEngines.find((engine) => engine.id === engineId);
+    const voices = (descriptor?.capabilities?.voices || []).filter((voice) => voice.lang === targetLang);
+    if (!select) return;
+    if (voices.length === 0) {
+      select.innerHTML = '';
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = `${descriptor?.name || engineId} chưa hỗ trợ — sẽ dùng Edge TTS`;
+      select.appendChild(option);
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = '';
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = voice.name || voice.id;
+      select.appendChild(option);
+    }
+    select.value = voices.some((voice) => voice.id === previous) ? previous : voices[0].id;
+  };
+  fillEngineVoiceSelect('edge-voice-select', 'edge-tts');
+  fillEngineVoiceSelect('piper-voice-select', 'piper');
+
+  const fillGenderSelect = (name, engineId, gender) => {
+    const select = document.querySelector(`select[name="${name}"]`);
+    const descriptor = voiceEngines.find((engine) => engine.id === engineId);
+    const voices = (descriptor?.capabilities?.voices || []).filter(
+      (voice) => voice.lang === targetLang && voice.gender === gender
+    );
+    if (!select) return;
+    if (voices.length === 0) {
+      select.innerHTML = '<option value="">Sẽ dùng Edge TTS</option>';
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = '';
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = `${gender === 'male' ? 'Nam' : 'Nữ'}: ${voice.name || voice.id}`;
+      select.appendChild(option);
+    }
+    select.value = voices.some((voice) => voice.id === previous) ? previous : voices[0].id;
+  };
+  fillGenderSelect('piperMaleVoice', 'piper', 'male');
+  fillGenderSelect('piperFemaleVoice', 'piper', 'female');
+  fillGenderSelect('edgeMaleVoice', 'edge-tts', 'male');
+  fillGenderSelect('edgeFemaleVoice', 'edge-tts', 'female');
+}
+
 function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-omnivoice') {
   const select = $('voice-engine-select');
   const capabilityText = $('voice-engine-capabilities');
@@ -272,7 +342,7 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const option = document.createElement('option');
     option.value = engine.id;
     option.textContent = engine.id === 'current-omnivoice'
-      ? 'OmniVoice hiện tại'
+      ? 'OmniVoice Clone'
       : engine.name;
     option.disabled = engine.status?.ready !== true;
     if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
@@ -288,41 +358,76 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     ? previousValue
     : fallbackEngineId;
   select.value = preferred;
+  refreshTtsVoiceCatalogs(voiceEngines);
+
+  const targetLanguageSelect = $('global-output-lang');
+  if (targetLanguageSelect && targetLanguageSelect.dataset.voiceCatalogBound !== 'true') {
+    targetLanguageSelect.dataset.voiceCatalogBound = 'true';
+    targetLanguageSelect.addEventListener('change', () => refreshTtsVoiceCatalogs(assets.voiceEngines || voiceEngines));
+  }
 
   const updateDescription = () => {
     const engine = voiceEngines.find((item) => item.id === select.value);
     if (!engine || !capabilityText) return;
     const capabilities = engine.capabilities || {};
-    const languageLabels = {
-      vi: 'Việt', en: 'Anh', zh: 'Trung', ja: 'Nhật', ko: 'Hàn',
-      fr: 'Pháp', de: 'Đức', es: 'Tây Ban Nha', ru: 'Nga'
-    };
-    const languages = (capabilities.languages || [])
-      .map((language) => languageLabels[language] || language)
-      .join(', ');
-    const devices = (capabilities.devices || []).map((device) => {
-      if (device === 'cpu') return 'CPU';
-      if (device.startsWith('vulkan')) return 'Vulkan';
-      if (device.startsWith('cuda')) return 'CUDA';
-      return device;
-    }).join(', ');
-    const features = [
-      capabilities.cloneVoice ? 'Clone giọng' : null,
-      languages || null,
-      devices || null,
-      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null
-    ].filter(Boolean);
-    capabilityText.textContent = engine.status?.ready
-      ? `${features.join(' • ')}${engine.status?.requiresInternet ? ' • Cần Internet' : ''}`
-      : (engine.status?.error || 'Engine chưa sẵn sàng.');
+
+    if (engine.status?.ready !== true) {
+      capabilityText.innerHTML = `
+        <div class="engine-badge-list">
+          <span class="engine-badge badge-error">❌ ${escapeHtml(engine.status?.error || 'Engine chưa sẵn sàng')}</span>
+        </div>`;
+    } else {
+      const badges = [];
+      if (engine.id === 'current-omnivoice') {
+        badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng AI</span>');
+        badges.push('<span class="engine-badge badge-blue">🌍 70+ ngôn ngữ</span>');
+        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • Vulkan • CPU</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz GGUF</span>');
+      } else if (engine.id === 'piper') {
+        badges.push('<span class="engine-badge badge-green">⚡ Offline 100% (Siêu nhanh)</span>');
+        badges.push('<span class="engine-badge badge-blue">🇻🇳 16 giọng Việt + Quốc tế</span>');
+        const provider = engine.status?.providers?.includes('CUDAExecutionProvider') ? 'CUDA GPU' : 'CPU';
+        badges.push(`<span class="engine-badge badge-purple">💻 Provider: ${provider}</span>`);
+        badges.push('<span class="engine-badge badge-slate">🎧 22.05 kHz</span>');
+      } else if (engine.id === 'edge-tts') {
+        badges.push('<span class="engine-badge badge-blue">☁️ Microsoft Cloud</span>');
+        badges.push('<span class="engine-badge badge-cyan">🌍 70+ ngôn ngữ Neural</span>');
+        badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz HQ</span>');
+      } else {
+        if (capabilities.cloneVoice) badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng</span>');
+        const langCount = capabilities.languages?.length || 0;
+        if (langCount > 10) badges.push(`<span class="engine-badge badge-blue">🌍 ${langCount} ngôn ngữ</span>`);
+        else if (langCount > 0) badges.push('<span class="engine-badge badge-blue">🌍 Đa ngôn ngữ</span>');
+        if (engine.status?.requiresInternet) badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
+        else badges.push('<span class="engine-badge badge-green">⚡ Offline</span>');
+        if (capabilities.sampleRate) badges.push(`<span class="engine-badge badge-slate">🎧 ${Math.round(capabilities.sampleRate / 1000)} kHz</span>`);
+      }
+      capabilityText.innerHTML = `<div class="engine-badge-list">${badges.join('')}</div>`;
+    }
+
+    const runtimeInstallButton = $('voice-runtime-install-btn');
+    const piperDescriptor = voiceEngines.find((item) => item.id === 'piper');
+    if (runtimeInstallButton) {
+      runtimeInstallButton.classList.toggle('hidden', piperDescriptor?.status?.ready === true);
+    }
 
     const edgeVoiceGroup = $('edge-voice-group');
     const isEdge = select.value === 'edge-tts';
+    const isPiper = select.value === 'piper';
     if (edgeVoiceGroup) {
       edgeVoiceGroup.style.display = isEdge ? 'block' : 'none';
     }
-    $('voice-device-group')?.classList.toggle('hidden', isEdge);
-    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge);
+    const piperVoiceGroup = $('piper-voice-group');
+    if (piperVoiceGroup) piperVoiceGroup.style.display = isPiper ? 'block' : 'none';
+    const dualVoiceGroup = $('dual-voice-group');
+    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper ? 'block' : 'none';
+    const piperDualVoices = $('piper-dual-voices');
+    if (piperDualVoices) piperDualVoices.style.display = isPiper ? 'grid' : 'none';
+    const edgeDualVoices = $('edge-dual-voices');
+    if (edgeDualVoices) edgeDualVoices.style.display = isEdge ? 'grid' : 'none';
+    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper);
     if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
     if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
@@ -353,6 +458,7 @@ async function loadAssets() {
   }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
+  populateOutputLanguageOptions(assets.outputLanguages || []);
   applyStudioVideoAssets(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   renderQuickVoices();
@@ -1112,7 +1218,7 @@ function updateOcrPipelineUi() {
   const hint = $('ocr-pipeline-hint');
   if (hint) {
     hint.textContent = usesRapid
-      ? 'RapidOCR tự quét và theo dõi chữ trên toàn khung hình; không dùng vùng OCR thủ công.'
+      ? 'RapidOCR tự quét & tracking chữ toàn khung hình.'
       : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
   }
   updateOcrRegionOverlay();
@@ -1305,6 +1411,84 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 initOcrRegionOverlay();
 
 let rapidOcrRuntimeInstallPromise = null;
+let rapidOcrGpuInstallPromise = null;
+
+function updateRapidOcrGpuUi(status = {}) {
+  const row = $('rapidocr-gpu-row');
+  const label = $('rapidocr-gpu-status');
+  const button = $('rapidocr-gpu-install-btn');
+  if (!row || !label || !button) return;
+  row.classList.toggle('hidden', status.runtimeReady === false);
+  if (status.runtimeReady === false) return;
+  if (status.installing || status.status === 'installing') {
+    const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
+    label.textContent = status.message || `Đang cài GPU${percent}…`;
+    button.textContent = `Đang cài${percent}`;
+    button.disabled = true;
+    return;
+  }
+  if (status.gpuReady) {
+    label.textContent = status.enabled
+      ? `GPU CUDA đang bật`
+      : 'GPU sẵn sàng (Mặc định chạy CPU)';
+    button.textContent = status.enabled ? 'Đang dùng GPU' : 'GPU sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'unsupported') {
+    label.textContent = 'GPU không hỗ trợ (Chạy CPU)';
+    button.textContent = status.reason === 'driver_too_old' ? 'Driver cũ' : 'Không hỗ trợ';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'error') {
+    label.textContent = 'Lỗi GPU (Đang chạy CPU)';
+    button.textContent = 'Thử sửa GPU';
+    button.disabled = false;
+    return;
+  }
+  label.textContent = 'Đang chạy CPU';
+  button.textContent = 'Cài/sửa GPU';
+  button.disabled = false;
+}
+
+$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+  const button = $('voice-runtime-install-btn');
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Đang cài runtime…';
+    }
+    await installRapidOcrRuntime('Piper');
+    await loadAssets();
+    toast('Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Cài Piper offline';
+    }
+  }
+});
+
+async function readRapidOcrGpuStatus() {
+  const response = await fetch('/api/rapidocr-gpu/status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được RapidOCR GPU.');
+  return status;
+}
+
+async function refreshRapidOcrGpuStatusForUi() {
+  try {
+    const status = await readRapidOcrGpuStatus();
+    updateRapidOcrGpuUi(status);
+    return status;
+  } catch (error) {
+    updateRapidOcrGpuUi({ status: 'error', runtimeReady: true, error: error.message });
+    return null;
+  }
+}
 
 function updateRapidOcrRuntimeUi({ visible, status } = {}) {
   const row = $('rapidocr-runtime-row');
@@ -1315,7 +1499,7 @@ function updateRapidOcrRuntimeUi({ visible, status } = {}) {
   if (row.classList.contains('hidden') || !status) return;
 
   if (status.ready) {
-    label.textContent = 'RapidOCR đã sẵn sàng.';
+    label.textContent = 'RapidOCR đã sẵn sàng';
     button.textContent = 'Đã sẵn sàng';
     button.disabled = true;
     return;
@@ -1328,12 +1512,12 @@ function updateRapidOcrRuntimeUi({ visible, status } = {}) {
     return;
   }
   if (status.status === 'error') {
-    label.textContent = status.error || status.message || 'Cài RapidOCR chưa thành công.';
+    label.textContent = status.error || status.message || 'Cài RapidOCR thất bại.';
     button.textContent = 'Thử lại';
     button.disabled = false;
     return;
   }
-  label.textContent = 'RapidOCR chưa được cài trên máy này.';
+  label.textContent = 'Chưa cài RapidOCR';
   button.textContent = 'Tải RapidOCR';
   button.disabled = false;
 }
@@ -1350,6 +1534,8 @@ async function refreshRapidOcrRuntimeStatusForUi() {
   try {
     const status = await readRapidOcrRuntimeStatus();
     updateRapidOcrRuntimeUi({ visible: true, status });
+    if (status.ready) await refreshRapidOcrGpuStatusForUi();
+    else updateRapidOcrGpuUi({ runtimeReady: false });
     return status;
   } catch (error) {
     updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
@@ -1357,7 +1543,7 @@ async function refreshRapidOcrRuntimeStatusForUi() {
   }
 }
 
-async function installRapidOcrRuntime() {
+async function installRapidOcrRuntime(purpose = 'RapidOCR') {
   if (rapidOcrRuntimeInstallPromise) return rapidOcrRuntimeInstallPromise;
   rapidOcrRuntimeInstallPromise = (async () => {
     let status = await readRapidOcrRuntimeStatus();
@@ -1368,7 +1554,7 @@ async function installRapidOcrRuntime() {
     const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
     const installResult = await installResponse.json();
     if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
-    toast('Đang cài/cập nhật runtime RapidOCR. Chỉ cần thực hiện một lần.', 'info');
+    toast(`Đang cài/cập nhật runtime ${purpose}. Chỉ cần thực hiện một lần.`, 'info');
 
     for (let attempt = 0; attempt < 1200; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -1376,7 +1562,8 @@ async function installRapidOcrRuntime() {
       updateRapidOcrRuntimeUi({ visible: true, status });
       if ($('render-status') && status.message) $('render-status').textContent = status.message;
       if (status.ready) {
-        toast('RapidOCR đã sẵn sàng.', 'success');
+        toast(`${purpose} đã sẵn sàng.`, 'success');
+        await refreshRapidOcrGpuStatusForUi();
         return true;
       }
       if (status.status === 'error') throw new Error(status.error || status.message || 'Cài RapidOCR thất bại.');
@@ -1395,6 +1582,47 @@ $('rapidocr-runtime-install-btn')?.addEventListener('click', async () => {
     await installRapidOcrRuntime();
   } catch (error) {
     updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    toast(error.message, 'error');
+  }
+});
+
+async function installRapidOcrGpu() {
+  if (rapidOcrGpuInstallPromise) return rapidOcrGpuInstallPromise;
+  rapidOcrGpuInstallPromise = (async () => {
+    const response = await fetch('/api/rapidocr-gpu/install', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không thể cài tăng tốc RapidOCR GPU.');
+    updateRapidOcrGpuUi(result);
+    toast('Đang kiểm tra và cài tăng tốc GPU. Không render trong lúc này.', 'info');
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const status = await readRapidOcrGpuStatus();
+      updateRapidOcrGpuUi(status);
+      if (status.status === 'error') throw new Error(status.error || status.message || 'Cài GPU thất bại.');
+      if (!status.installing && status.status !== 'installing') {
+        if (status.gpuReady) {
+          toast(status.enabled
+            ? 'RapidOCR đang dùng GPU thật bằng CUDAExecutionProvider.'
+            : 'Đã cài GPU thành công. RapidOCR vẫn dùng CPU mặc định để đạt tốc độ tốt hơn.', 'success');
+        }
+        else toast(status.message || 'GPU không hoạt động; RapidOCR tiếp tục chạy CPU.', 'warning');
+        return status.gpuReady === true;
+      }
+    }
+    throw new Error('Cài RapidOCR GPU quá thời gian chờ.');
+  })();
+  try {
+    return await rapidOcrGpuInstallPromise;
+  } finally {
+    rapidOcrGpuInstallPromise = null;
+  }
+}
+
+$('rapidocr-gpu-install-btn')?.addEventListener('click', async () => {
+  try {
+    await installRapidOcrGpu();
+  } catch (error) {
+    updateRapidOcrGpuUi({ status: 'error', runtimeReady: true, error: error.message });
     toast(error.message, 'error');
   }
 });
@@ -1495,7 +1723,7 @@ async function renderStudio(event) {
   }
 
   if (voiceMode === 'omi'
-    && data.get('voiceEngine') !== 'edge-tts'
+    && data.get('voiceEngine') === 'current-omnivoice'
     && omiDevice === 'cuda:0'
     && !dependencyStatus.cuda) {
     showDependencyModal('cuda', () => {
@@ -3076,8 +3304,10 @@ function updateConditionalFields() {
 
   const voiceMode = $('voice-mode').value;
   const selectedVoiceEngine = $('voice-engine-select')?.value || 'current-omnivoice';
+  const selectedVoiceDescriptor = (assets.voiceEngines || [])
+    .find((engine) => engine.id === selectedVoiceEngine);
   const needsSavedVoice = voiceMode === 'saved'
-    || (voiceMode === 'omi' && selectedVoiceEngine !== 'edge-tts');
+    || (voiceMode === 'omi' && selectedVoiceDescriptor?.capabilities?.cloneVoice === true);
   $('voice-saved-wrapper').classList.toggle('hidden', !needsSavedVoice);
   $('voice-upload-wrapper').classList.toggle('hidden', voiceMode !== 'upload');
   $('omi-cloner-container').classList.toggle('hidden', voiceMode !== 'omi');
@@ -3470,7 +3700,7 @@ function renderCurrentConfigSummary() {
     }
     if (themeSelect) subtitleParts.push(`Kiểu: ${getSelectedText(themeSelect)}`);
     if (boldSelect && boldSelect.value === 'yes') subtitleParts.push(`In đậm`);
-    if (maxLinesSelect) subtitleParts.push(`Dòng tối đa: ${maxLinesSelect.value}`);
+    if (maxLinesSelect) subtitleParts.push(`Dòng: ${getSelectedText(maxLinesSelect)}`);
     if (marginInput) subtitleParts.push(`Lề dọc: ${marginInput.value}px`);
     if (marginHInput) subtitleParts.push(`Lề ngang: ${marginHInput.value}px`);
 
@@ -3495,7 +3725,7 @@ function renderCurrentConfigSummary() {
     voiceModeVal = voiceModeInput.value;
     if (voiceModeVal === 'saved') voiceModeText = 'Giọng thuyết minh đã lưu';
     else if (voiceModeVal === 'upload') voiceModeText = 'Tải lên file mới';
-    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh tự động (Omni Cloner)';
+    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh AI tự động';
 
     let voiceDetail = '';
     if (voiceModeVal !== 'none') {
@@ -3538,7 +3768,7 @@ function renderCurrentConfigSummary() {
     summary.push(`<div>🔊 <b>Âm lượng:</b> ${vols.join(' | ')}</div>`);
   }
 
-  // 5. Cấu hình AI Cloner (nếu có thuyết minh cloner)
+  // 5. Cấu hình pipeline thuyết minh AI
   if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') {
     const outputLang = document.getElementById('global-output-lang');
     const omiDevice = document.querySelector('select[name="omiDevice"]');
@@ -3559,7 +3789,7 @@ function renderCurrentConfigSummary() {
       clonerParts.push(`Seed: ${omiSeed.value}`);
     }
     clonerParts.push(`Fallback CPU: ${allowCpuFallback?.checked ? 'Cho phép' : 'Không'}`);
-    summary.push(`<div>🤖 <b>OmniVoice Cloner:</b> ${clonerParts.join(' | ')}</div>`);
+    summary.push(`<div>🤖 <b>Thuyết minh AI:</b> ${clonerParts.join(' | ')}</div>`);
   }
 
   list.innerHTML = summary.map(item => `<div style="line-height: 1.6; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 4px; margin-bottom: 4px;">${item}</div>`).join('');
@@ -3599,6 +3829,8 @@ function submitSaveTemplate(event) {
     savedVoiceFile: $('saved-voice-select').value,
     voiceEngine: $('voice-engine-select')?.value || 'current-omnivoice',
     edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
+    piperVoice: $('piper-voice-select')?.value || 'ngochuyen',
+    piperDevice: $('piper-device-select')?.value || 'auto',
     edgeRate: $('edge-rate-select')?.value || '+0%',
     edgePitch: $('edge-pitch-select')?.value || '+0Hz',
     omiLanguage: document.getElementById('global-output-lang')?.value || 'vi',
@@ -3814,7 +4046,9 @@ function loadStudioTemplate(templateName) {
 
   document.querySelector('select[name="subtitleTheme"]').value = template.subtitleTheme;
   document.querySelector('select[name="subtitleBold"]').value = template.subtitleBold;
-  document.querySelector('select[name="subtitleMaxLines"]').value = template.subtitleMaxLines;
+  // Bố cục dòng hiện tự động theo tỷ lệ video; template cũ có giá trị 1/2/3
+  // cũng được nâng về chế độ tự động để không tách cue/timestamp.
+  document.querySelector('select[name="subtitleMaxLines"]').value = '0';
   document.querySelector('input[name="subtitleMargin"]').value = template.subtitleMargin;
   const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
   if (marginHInput) {
@@ -3843,6 +4077,8 @@ function loadStudioTemplate(templateName) {
     voiceEngineSelect.dispatchEvent(new Event('change'));
   }
   if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
+  if ($('piper-voice-select') && template.piperVoice) $('piper-voice-select').value = template.piperVoice;
+  if ($('piper-device-select') && template.piperDevice) $('piper-device-select').value = template.piperDevice;
   if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
   if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
 
@@ -3860,6 +4096,7 @@ function loadStudioTemplate(templateName) {
   if (globalLangSel) {
     const langMap = { 'Vietnamese': 'vi', 'English': 'en', 'Chinese': 'zh' };
     globalLangSel.value = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
+    globalLangSel.dispatchEvent(new Event('change'));
   }
   document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
 
@@ -4805,7 +5042,8 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const mode = btn.dataset.voiceMode;
     let selectedEngine = $('voice-engine-select')?.value || assets.defaultVoiceEngineId;
-    if (mode === 'omi' && selectedEngine !== 'edge-tts' && !assets.omiConfigured && e && e.isTrusted) {
+    const selectedDescriptor = (assets.voiceEngines || []).find((engine) => engine.id === selectedEngine);
+    if (mode === 'omi' && selectedDescriptor?.status?.ready !== true && e && e.isTrusted) {
       const edgeReady = (assets.voiceEngines || []).some(
         (engine) => engine.id === 'edge-tts' && engine.status?.ready
       );
@@ -4814,7 +5052,7 @@ document.querySelectorAll('.voice-tab-btn').forEach(btn => {
         $('voice-engine-select').dispatchEvent(new Event('change'));
         selectedEngine = 'edge-tts';
       } else {
-        toast('⚠️ Chưa có voice engine sẵn sàng. Vui lòng kiểm tra OmniVoice hoặc Edge TTS.', 'warn');
+        toast('⚠️ Chưa có engine thuyết minh sẵn sàng. Hãy cài runtime hoặc kiểm tra kết nối.', 'warn');
         openModelDownloadModal();
         return;
       }
@@ -7632,14 +7870,8 @@ function updateOutputLangInfo() {
   const sel = document.getElementById('global-output-lang');
   const info = document.getElementById('output-lang-info');
   if (!sel || !info) return;
-  const val = sel.value;
-  const names = {
-    vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc', ja: '日本語', ko: '한국어',
-    th: 'ไทย', fr: 'Français', es: 'Español', pt: 'Português', de: 'Deutsch',
-    it: 'Italiano', ru: 'Русский', id: 'Bahasa Indonesia', ms: 'Bahasa Melayu',
-    ar: 'العربية', hi: 'हिन्दी', tr: 'Türkçe'
-  };
-  info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
+  const selectedLabel = sel.options[sel.selectedIndex]?.textContent || sel.value.toUpperCase();
+  info.textContent = `Dịch + Giọng đọc: ${selectedLabel}`;
   info.style.color = 'var(--muted)';
 }
 
@@ -8145,6 +8377,72 @@ function playVoicePreview(event, filename) {
   togglePlayAudio(btn, voiceUrl);
 }
 
+async function previewEngineVoice(engineId) {
+  let voice = '';
+  let btnId = '';
+  if (engineId === 'piper') {
+    voice = $('piper-voice-select')?.value || 'ngochuyen';
+    btnId = 'preview-piper-voice-btn';
+  } else if (engineId === 'edge-tts') {
+    voice = $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural';
+    btnId = 'preview-edge-voice-btn';
+  }
+  const btn = $(btnId);
+  if (!btn) return;
+
+  const currentUrl = btn.getAttribute('data-preview-url');
+  if (currentAudio && currentAudioUrl === currentUrl && !currentAudio.paused) {
+    currentAudio.pause();
+    updatePlayButtonsState(currentUrl, false);
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Đang tạo...';
+
+  try {
+    const res = await fetch('/api/preview-engine-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: engineId, voice })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Không thể tạo giọng mẫu.');
+
+    btn.setAttribute('data-preview-url', data.audioUrl);
+    togglePlayAudio(btn, data.audioUrl);
+    btn.innerHTML = '⏸ Dừng';
+    btn.classList.add('playing');
+  } catch (error) {
+    console.error('Lỗi khi nghe thử giọng:', error);
+    toast(error.message || 'Lỗi nghe thử giọng.', 'error');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.previewEngineVoice = previewEngineVoice;
+
+$('piper-voice-select')?.addEventListener('change', () => {
+  const btn = $('preview-piper-voice-btn');
+  if (btn) {
+    btn.removeAttribute('data-preview-url');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  }
+});
+$('edge-voice-select')?.addEventListener('change', () => {
+  const btn = $('preview-edge-voice-btn');
+  if (btn) {
+    btn.removeAttribute('data-preview-url');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  }
+});
+
 function openAllVoicesModal() {
   const modal = $('all-voices-modal');
   if (modal) {
@@ -8287,7 +8585,7 @@ function resetStudioConfig() {
   if (boldSelect) boldSelect.value = 'true';
 
   const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
-  if (maxLinesSelect) maxLinesSelect.value = '1';
+  if (maxLinesSelect) maxLinesSelect.value = '0';
 
   const marginInput = document.querySelector('input[name="subtitleMargin"]');
   if (marginInput) marginInput.value = '28';
@@ -8348,9 +8646,9 @@ function resetStudioConfig() {
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
-    stepsSlider.value = '40';
+    stepsSlider.value = '8';
     const stepsBadge = $('omi-steps-badge');
-    if (stepsBadge) stepsBadge.textContent = '40';
+    if (stepsBadge) stepsBadge.textContent = '8';
   }
 
   const omiSeedPreset = $('omi-seed-preset');

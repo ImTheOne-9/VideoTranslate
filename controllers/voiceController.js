@@ -54,6 +54,75 @@ module.exports = {
     }
   },
 
+  previewEngineVoice: async (req, res) => {
+    try {
+      const { engine: engineId = 'piper', voice = '', text = '' } = req.body || {};
+      const engine = voiceEngineRegistry.resolve(engineId, 'piper');
+
+      const safeVoice = shared.safeFileName(voice || 'default') || 'default';
+      const ext = engine.id === 'edge-tts' ? 'mp3' : 'wav';
+      const previewFileName = `${engine.id}_${safeVoice}.${ext}`;
+
+      const previewDir = shared.VOICE_PREVIEWS_DIR;
+      fs.mkdirSync(previewDir, { recursive: true });
+      const previewPath = path.join(previewDir, previewFileName);
+
+      if (fs.existsSync(previewPath)) {
+        try {
+          const stats = fs.statSync(previewPath);
+          if (stats.size > 1024) {
+            return res.json({
+              success: true,
+              audioUrl: `/voice-previews/${encodeURIComponent(previewFileName)}`,
+              cached: true
+            });
+          }
+        } catch (_) {}
+      }
+
+      let lang = 'vi';
+      if (engine.id === 'edge-tts' && String(voice).includes('-')) {
+        lang = String(voice).split('-')[0].toLowerCase();
+      } else if (engine.id === 'piper') {
+        const piperLangVoices = {
+          en: 'en_US-ryan-high', de: 'de_DE-thorsten-high', es: 'es_AR-daniela-high',
+          pl: 'pl_PL-bass-high', uk: 'uk_UA-tetiana-high', kk: 'kk_KZ-issai-high'
+        };
+        const matched = Object.entries(piperLangVoices).find(([l, v]) => v === voice);
+        if (matched) lang = matched[0];
+      }
+
+      let sampleText = String(text || '').trim();
+      if (!sampleText) {
+        if (lang === 'vi') sampleText = 'Xin chào, đây là giọng đọc mẫu của tôi.';
+        else if (lang === 'zh') sampleText = '你好，这是我的声音示例。';
+        else if (lang === 'ja') sampleText = 'こんにちは、これは私の音声サンプルです。';
+        else if (lang === 'ko') sampleText = '안녕하세요, 제 목소리 샘플입니다.';
+        else if (lang === 'fr') sampleText = 'Bonjour, ceci est un exemple de ma voix.';
+        else if (lang === 'de') sampleText = 'Hallo, das ist ein Beispiel für meine Stimme.';
+        else if (lang === 'es') sampleText = 'Hola, esta es una muestra de mi voz.';
+        else sampleText = 'Hello, this is a sample of my voice.';
+      }
+
+      await engine.loadModel();
+      await engine.synthesize({
+        text: sampleText,
+        voice,
+        language: lang,
+        outputPath: previewPath
+      });
+
+      return res.json({
+        success: true,
+        audioUrl: `/voice-previews/${encodeURIComponent(previewFileName)}`,
+        cached: false
+      });
+    } catch (error) {
+      console.error('[previewEngineVoice] Lỗi:', error);
+      res.status(500).json({ error: error.message || 'Không thể tạo giọng mẫu nghe thử.' });
+    }
+  },
+
   generateClonerVoice: async (req, res) => {
     const { voiceName, refText, script, device } = req.body;
     const refAudio = req.file;
@@ -143,7 +212,7 @@ module.exports = {
             ? String(req.body.edgeVoice).split('-').slice(0, 2).join('-').toLowerCase()
             : 'vi',
           device: selectedDevice,
-          steps: process.env.OMNIVOICE_STEPS || '16',
+          steps: process.env.OMNIVOICE_STEPS || '8',
           seed: resolveOmnivoiceSeed(req.body.omiSeed),
           referenceAudioPath: refWavPath,
           referenceText: refText,

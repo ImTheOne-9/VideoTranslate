@@ -6,17 +6,23 @@ const path = require('path');
 const {
   docTm,
   tyLeHan,
+  nhipTuDich,
   tranTuDich,
   slotGiay,
   buildPrompt,
   parseResponseLo,
   nghiGopCau,
+  splitGeminiBatches,
+  maxConsecutiveMissing,
+  assessGeminiBatch,
+  resolveGeminiDeadline,
   isGeminiTranslationValid,
   sendPromptToGemini,
   getGeminiProfileDir,
   getGeminiTranslationProfileDir,
   inspectGeminiPageState,
   captureGeminiFailure,
+  extractGeminiResponseText,
   resolveGeminiEditorWaitSeconds,
   translateSrtItemsByGeminiWeb
 } = require('../lib/gemini-web-service');
@@ -96,6 +102,10 @@ test('buildPrompt applies multilingual rules and supplied rules', () => {
   assert.match(prompt, /STYLE RULE/);
   assert.match(prompt, /NAME GLOSSARY/);
   assert.match(prompt, /NATIVE Korean SPEAKER/);
+  assert.match(prompt, /SOURCE HAS OCR ERRORS/);
+  assert.match(prompt, /MATCH THE GENRE/);
+  assert.match(prompt, /CRITICAL STRUCTURAL RULE/);
+  assert.match(prompt, /\[2\.0s ≤4 words\]/);
   assert.match(prompt, /Korean bloats from honorific endings/);
   assert.match(prompt, /해요체\/반말/);
   assert.match(prompt, /RETURN ONLY THE TRANSLATION in Korean/);
@@ -190,7 +200,7 @@ test('Gemini Web waits 180 seconds for the first guest editor and 40 seconds aft
   assert.equal(resolveGeminiEditorWaitSeconds(true, 75), 75);
 });
 
-test('Gemini translation profile is temporary and separate from login profile', (t) => {
+test('Gemini translation reuses the persistent login profile', (t) => {
   const loginDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-login-'));
   const previousLogin = process.env.GEMINI_PROFILE_DIR;
   const previousTranslation = process.env.GEMINI_TRANSLATION_PROFILE_DIR;
@@ -202,11 +212,42 @@ test('Gemini translation profile is temporary and separate from login profile', 
     fs.rmSync(loginDir, { recursive: true, force: true });
   });
   process.env.GEMINI_PROFILE_DIR = loginDir;
-  delete process.env.GEMINI_TRANSLATION_PROFILE_DIR;
+  process.env.GEMINI_TRANSLATION_PROFILE_DIR = path.join(os.tmpdir(), 'obsolete-translation-profile');
   const translationDir = getGeminiTranslationProfileDir();
   assert.equal(getGeminiProfileDir(), loginDir);
-  assert.notEqual(translationDir, loginDir);
-  assert.match(path.basename(translationDir), new RegExp(`^vs_gemini_profile_${process.pid}$`));
+  assert.equal(translationDir, loginDir);
+});
+
+test('multilingual timing uses measured word rates instead of a shared character budget', () => {
+  assert.equal(nhipTuDich('es'), 1.94);
+  assert.equal(nhipTuDich('pt'), 1.96);
+  assert.equal(nhipTuDich('ko'), 2.0);
+  assert.equal(tranTuDich(3, '这是很长的原文', null, null, 'ko'), 6);
+});
+
+test('Gemini batches honor both cue count and formatted character limits', () => {
+  const items = Array.from({ length: 6 }, (_, index) => ({ id: String(index + 1), text: '1234567890' }));
+  assert.deepEqual(splitGeminiBatches(items, 4, 90).map(batch => batch.length), [2, 2, 2]);
+});
+
+test('Gemini batch guard rejects a long consecutive missing cluster at 90 percent coverage', () => {
+  const batch = Array.from({ length: 100 }, (_, index) => ({ text: `源${index + 1}` }));
+  const parsed = {};
+  for (let index = 1; index <= 91; index += 1) parsed[index] = `Câu ${index}`;
+  assert.equal(maxConsecutiveMissing(parsed, 100), 9);
+  const assessment = assessGeminiBatch(batch, parsed, {
+    targetLang: 'vi', mode: 'translate', missingClusterMax: 8
+  });
+  assert.equal(assessment.valid, false);
+  assert.match(assessment.reason, /thiếu 9 câu liên tiếp/);
+});
+
+test('Gemini deadline follows the same bounded per-cue budget', () => {
+  const now = Date.now();
+  const shortDeadline = resolveGeminiDeadline(100, { deadlineAt: now + 1234 });
+  assert.equal(shortDeadline, now + 1234);
+  const bounded = resolveGeminiDeadline(5000);
+  assert.ok(bounded > now + 1790 * 1000 && bounded <= Date.now() + 1800 * 1000);
 });
 
 test('Gemini page inspection distinguishes signed-out guest editor from authenticated state', async () => {
@@ -226,6 +267,45 @@ test('Gemini page inspection distinguishes signed-out guest editor from authenti
   const state = await inspectGeminiPageState(page);
   assert.equal(state.signInVisible, true);
   assert.equal(state.editorVisible, true);
+});
+
+test('Gemini response reader rebuilds CSS-only ordered-list markers', async () => {
+  const makeItem = text => ({ async innerText() { return text; } });
+  const makeList = (start, items) => ({
+    async getAttribute(name) { return name === 'start' ? start : null; },
+    async $$(selector) {
+      assert.equal(selector, ':scope > li');
+      return items.map(makeItem);
+    }
+  });
+  const element = {
+    async innerText() { return 'Câu một\nCâu hai\nCâu ba'; },
+    async $$(selector) {
+      assert.equal(selector, 'ol');
+      return [makeList('1', ['Câu một', 'Câu hai']), makeList('3', ['Câu ba'])];
+    }
+  };
+
+  assert.deepEqual(await extractGeminiResponseText(element), {
+    text: '1. Câu một\n2. Câu hai\n3. Câu ba',
+    orderedListItemCount: 3
+  });
+});
+
+test('Gemini response reader keeps innerText when rebuilding would lose lines', async () => {
+  const element = {
+    async innerText() { return 'Dòng mở đầu\nCâu một\nCâu hai'; },
+    async $$() {
+      return [{
+        async getAttribute() { return null; },
+        async $$() { return [{ async innerText() { return 'Câu một'; } }]; }
+      }];
+    }
+  };
+  assert.deepEqual(await extractGeminiResponseText(element), {
+    text: 'Dòng mở đầu\nCâu một\nCâu hai',
+    orderedListItemCount: 0
+  });
 });
 
 test('Gemini editor failure writes local diagnostic state, prompt and screenshot', async (t) => {
@@ -248,14 +328,19 @@ test('Gemini editor failure writes local diagnostic state, prompt and screenshot
     },
     async screenshot({ path: outputPath }) { fs.writeFileSync(outputPath, 'png'); }
   };
-  const captured = await captureGeminiFailure(page, 'khong-thay-o-nhap', 'PROMPT TEST', () => {});
+  const captured = await captureGeminiFailure(
+    page, 'khong-thay-o-nhap', 'PROMPT TEST', () => {}, 'RAW RESPONSE TEST'
+  );
   assert.equal(captured.state.editorVisible, false);
   const names = fs.readdirSync(failureDir);
   assert.ok(names.some(name => name.endsWith('_state.json')));
   assert.ok(names.some(name => name.endsWith('_prompt.txt')));
+  assert.ok(names.some(name => name.endsWith('_response.txt')));
   assert.ok(names.some(name => name.endsWith('.png')));
   const promptName = names.find(name => name.endsWith('_prompt.txt'));
   assert.equal(fs.readFileSync(path.join(failureDir, promptName), 'utf8'), 'PROMPT TEST');
+  const responseName = names.find(name => name.endsWith('_response.txt'));
+  assert.equal(fs.readFileSync(path.join(failureDir, responseName), 'utf8'), 'RAW RESPONSE TEST');
 });
 
 test('Gemini transport failure aborts translation instead of blanking every cue', async () => {
@@ -278,6 +363,11 @@ test('Gemini transport failure aborts translation instead of blanking every cue'
 test('parseResponseLo safely ignores one unnumbered preamble line without shifting cues', () => {
   const parsed = parseResponseLo('Bản dịch như sau\nXin chào\nCảm ơn', 2);
   assert.deepEqual(parsed, { 1: 'Xin chào', 2: 'Cảm ơn' });
+});
+
+test('parseResponseLo never position-maps a partially numbered response', () => {
+  const parsed = parseResponseLo('1. Câu một\nCâu hai không có số\n3. Câu ba', 3);
+  assert.deepEqual(parsed, { 1: 'Câu một', 3: 'Câu ba' });
 });
 
 test('Gemini Web guard detects a suspicious merged translation and remaining Han text', () => {
@@ -330,6 +420,83 @@ test('Gemini Web pipeline retries only missing cues and writes progressive SRT',
   const output = fs.readFileSync(outputPath, 'utf8');
   assert.match(output, /Câu thứ nhất/);
   assert.match(output, /Câu thứ ba/);
+});
+
+test('Gemini Web keeps one conversation across successful batches', async () => {
+  const items = Array.from({ length: 25 }, (_, index) => ({
+    id: String(index + 1),
+    startTime: `00:00:${String(index).padStart(2, '0')},000`,
+    endTime: `00:00:${String(index + 1).padStart(2, '0')},000`,
+    text: `原文${index + 1}`
+  }));
+  const conversationModes = [];
+  const result = await translateSrtItemsByGeminiWeb(items, {
+    targetLang: 'vi', srcLang: 'zho_Hans', batchSize: 20, batchMaxChars: 100000,
+    batchDelayMs: 0, splitRounds: 0, requestRetryDelayMs: 0, tmContent: '', logFn() {},
+    requestFn: async (prompt, requestOptions) => {
+      conversationModes.push(requestOptions.continueChat);
+      const count = (prompt.match(/^\d+\. @/gm) || []).length;
+      return Array.from({ length: count }, (_, index) => `${index + 1}. Bản dịch ${index + 1}`).join('\n');
+    }
+  });
+  assert.equal(result.failedItems.length, 0);
+  assert.deepEqual(conversationModes, [false, true]);
+});
+
+test('Gemini Web publishes each accepted batch immediately for early TTS', async () => {
+  const items = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: '第一句' },
+    { id: '2', startTime: '00:00:01,200', endTime: '00:00:02,000', text: '第二句' }
+  ];
+  const published = [];
+  await translateSrtItemsByGeminiWeb(items, {
+    targetLang: 'vi', srcLang: 'zho_Hans', batchDelayMs: 0,
+    splitRounds: 0, requestRetryDelayMs: 0, tmContent: '', logFn() {},
+    requestFn: async () => '1. Câu một\n2. Câu hai',
+    onBatchTranslated: async batch => published.push(batch)
+  });
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0].map(item => item.text), ['Câu một', 'Câu hai']);
+  assert.equal(published[0][0].nextId, '2');
+  assert.equal(published[0][0].nextStartTime, '00:00:01,200');
+});
+
+test('Gemini Web splits a failed batch and preserves translations already accepted', async () => {
+  const items = Array.from({ length: 24 }, (_, index) => ({
+    id: String(index + 1), startTime: '00:00:00,000', endTime: '00:00:01,000', text: `原文${index + 1}`
+  }));
+  const requestedCounts = [];
+  let call = 0;
+  const result = await translateSrtItemsByGeminiWeb(items, {
+    targetLang: 'vi', srcLang: 'zho_Hans', batchSize: 24, batchMaxChars: 100000,
+    batchDelayMs: 0, splitRounds: 2, splitFloor: 2, requestRetryDelayMs: 0,
+    tmContent: '', logFn() {},
+    requestFn: async (prompt) => {
+      call += 1;
+      const count = (prompt.match(/^\d+\. @/gm) || []).length;
+      requestedCounts.push(count);
+      if (call <= 2) return '1. Bản dịch được giữ';
+      return Array.from({ length: count }, (_, index) => `${index + 1}. Câu cứu ${index + 1}`).join('\n');
+    }
+  });
+  assert.equal(result.failedItems.length, 0);
+  assert.deepEqual(requestedCounts, [24, 24, 11, 12]);
+  assert.equal(items[0].text, 'Bản dịch được giữ');
+});
+
+test('Gemini Web stops before new work when the total deadline has expired', async () => {
+  const items = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: '第一句' }
+  ];
+  let calls = 0;
+  const result = await translateSrtItemsByGeminiWeb(items, {
+    targetLang: 'vi', srcLang: 'zho_Hans', deadlineAt: Date.now() - 1,
+    splitRounds: 0, batchDelayMs: 0, tmContent: '', logFn() {},
+    requestFn: async () => { calls += 1; return '1. Không được gọi'; }
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.failedItems.length, 1);
+  assert.equal(items[0].text, '');
 });
 
 test('Gemini Web spellcheck accepts unchanged correct lines', async () => {

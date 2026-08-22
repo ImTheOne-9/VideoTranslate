@@ -199,6 +199,9 @@ test('studio markup exposes language, advanced region, and first-use download co
     'rapidocr-runtime-row',
     'rapidocr-runtime-status',
     'rapidocr-runtime-install-btn',
+    'rapidocr-gpu-row',
+    'rapidocr-gpu-status',
+    'rapidocr-gpu-install-btn',
     'ocr-component-modal',
     'ocr-download-btn',
     'ocr-download-cancel-btn'
@@ -239,6 +242,9 @@ test('studio client wires OCR preflight and Whisper fallback endpoint', () => {
   assert.match(source, /function installRapidOcrRuntime/);
   assert.match(source, /rapidocr-runtime-install-btn/);
   assert.match(source, /\/api\/download-crawl\/runtime-install/);
+  assert.match(source, /function installRapidOcrGpu/);
+  assert.match(source, /\/api\/rapidocr-gpu\/status/);
+  assert.match(source, /\/api\/rapidocr-gpu\/install/);
   assert.match(source, /ocr-region-settings/);
   assert.doesNotMatch(source, /data\.set\('ocrMaskStyle'/);
 

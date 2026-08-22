@@ -32,6 +32,14 @@ test('render pauses for segment review and uses reviewed SRT after approval', ()
   assert.match(studio, /voiceCheckpoint\.markChunk\(checkpointKey/);
 });
 
+test('adaptive cue narration pauses for review without pre-generating speech', () => {
+  const studio = read('controllers/studioController.js');
+
+  assert.match(studio, /const earlyTtsRequested = !segmentReviewEnabled/);
+  assert.match(studio, /\(!adaptiveNarrationEnabled \|\| segmentReviewEnabled\)/);
+  assert.match(studio, /cuePerSegment: adaptiveNarrationEnabled/);
+});
+
 test('segment review UI is isolated in its own script and wired into queue states', () => {
   const html = read('public/index.html');
   const app = read('public/app.js');
@@ -138,3 +146,29 @@ test('ASR review exposes quality filters and owner-scoped segment retry controls
   assert.match(controller, /path\.join\(task\.workDir, 'audio\.wav'\)/);
   assert.doesNotMatch(controller, /req\.body\.(?:audioPath|workDir)/);
 });
+
+test('segment editor supports SRT export (with copy/download) and import (file upload and text paste)', () => {
+  const html = read('public/index.html');
+  const editor = read('public/js/segment-editor.js');
+
+  assert.match(html, /id="segment-editor-export-srt"/);
+  assert.match(html, /id="segment-editor-import-srt"/);
+  assert.match(html, /id="segment-editor-export-modal"/);
+  assert.match(html, /id="segment-export-textarea"/);
+  assert.match(html, /id="segment-export-copy-btn"/);
+  assert.match(html, /id="segment-export-download-btn"/);
+  assert.match(html, /id="segment-editor-import-modal"/);
+  assert.match(html, /id="segment-import-file"/);
+  assert.match(html, /id="segment-import-textarea"/);
+  assert.match(html, /id="segment-import-apply-btn"/);
+
+  assert.match(editor, /function parseSrtText/);
+  assert.match(editor, /function generateSrtFromSegments/);
+  assert.match(editor, /function openExportModal/);
+  assert.match(editor, /function copyExportSrt/);
+  assert.match(editor, /function downloadExportSrt/);
+  assert.match(editor, /function openImportModal/);
+  assert.match(editor, /function handleImportFile/);
+  assert.match(editor, /function applyImportSrt/);
+});
+

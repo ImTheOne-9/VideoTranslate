@@ -73,6 +73,17 @@ test('render never auto-masks OCR boxes and keeps manual masks as blur', () => {
   assert.match(source, /maskStyle: 'blur'/);
 });
 
+test('manual render blur regions are not passed to OCR as excluded regions', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'controllers', 'studioController.js'), 'utf8');
+  assert.doesNotMatch(source, /ocrExcludedRegions:\s*parseOcrExcludedRegions\(body\.blurBoxes\)/);
+});
+
+test('each manual blur region keeps its blur-strength slider visible', () => {
+  const canvas = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'canvas-module.js'), 'utf8');
+  assert.match(canvas, /Độ mờ \(Blur\)<\/label>/);
+  assert.doesNotMatch(canvas, /ocr-mask-style'\)\?\.value === 'blur'/);
+});
+
 test('OCR blur reads source SRT timing for cue end alignment', async () => {
   await withTempDir('studio-blur-timing-', async (directory) => {
     const srtPath = path.join(directory, 'source.srt');
@@ -227,7 +238,8 @@ test('generate resolver wires coordinator options and returns result.path downst
     whisperTimestampLevel: 'segment',
     ocrLanguage: 'zh',
     ocrMode: 'accurate',
-    ocrRegion: '0.6,0.95,0.1,0.9'
+    ocrRegion: '0.6,0.95,0.1,0.9',
+    blurBoxes: JSON.stringify([{ x: 5, y: 8, width: 20, height: 10, start: 2, end: 7 }])
   };
 
   const subtitlePath = await resolveSubtitle({
@@ -240,6 +252,7 @@ test('generate resolver wires coordinator options and returns result.path downst
   });
 
   assert.equal(subtitlePath, 'work/ocr-clean.srt');
+  assert.equal(Object.hasOwn(receivedOptions, 'ocrExcludedRegions'), false);
   assert.deepEqual(
     { ...receivedOptions, onProgress: typeof receivedOptions.onProgress },
     {
@@ -433,6 +446,23 @@ test('coordinator progress stays below translation and callback failures are obs
     throw new Error('UI disconnected');
   });
   assert.doesNotThrow(() => throwingProgress({ phase: 'ocr_starting' }));
+});
+
+test('coordinator writes the real RapidOCR provider to the render log', () => {
+  const lines = [];
+  const onProgress = createAutomaticSubtitleProgressHandler(() => {}, {
+    log: (line) => lines.push(line)
+  });
+  onProgress({
+    phase: 'ocr_processing',
+    detail: {
+      kind: 'provider', model: 'v6-small', requestedDevice: 'gpu',
+      provider: 'CUDAExecutionProvider'
+    }
+  });
+  assert.deepEqual(lines, [
+    '[RapidOCR] model=v6-small requestedDevice=gpu actualProvider=CUDAExecutionProvider'
+  ]);
 });
 
 test('OCR technical errors enter the exact waiting state instead of generic error', () => {
@@ -835,6 +865,28 @@ test('large render function persists source before work and delegates only gener
   assert.ok(sourceResolution >= 0 && sourceResolution < videoInspection);
   assert.match(generateSource, /resolvedSubtitlePath\s*=\s*await resolveRenderAutomaticSubtitle\(\{/);
   assert.doesNotMatch(generateSource, /extractAudioAndTranscribe/);
+  assert.match(executeSource, /deepCleanup:\s*subtitleMode === 'generate'/);
+  assert.match(executeSource, /videoDurationMs:\s*totalDuration \* 1000/);
+  assert.match(executeSource, /output\.report\?\.algorithmVersion === SUBTITLE_POSTPROCESS_VERSION/);
+  assert.match(executeSource, /output\.report\?\.algorithmSignature === timelineSignature/);
+  assert.match(executeSource, /error\.code = 'SUBTITLE_COVERAGE_INCOMPLETE'/);
+});
+
+test('suspicious OCR coverage waits for an explicit Whisper fallback', () => {
+  const error = Object.assign(new Error('OCR chỉ phủ 42% video'), {
+    code: 'SUBTITLE_COVERAGE_INCOMPLETE'
+  });
+  const task = { id: 'task-coverage', status: 'rendering', percent: 31, step: 'Timeline', error: null };
+  const state = createQueueState([task]);
+  state.currentActiveTask = task;
+  state.isStudioRendering = true;
+  state.activeRenderId = task.id;
+
+  assert.equal(applyRenderTaskFailure(task, error, state), 'waiting_input');
+  assert.equal(task.status, 'waiting_input');
+  assert.equal(task.step, 'Phụ đề OCR có dấu hiệu bị cụt');
+  assert.equal(task.actionRequired, 'ocr_fallback');
+  assert.equal(task.error, error.message);
 });
 
 test('server registers the exact resume route while preserving existing queue routes', () => {
