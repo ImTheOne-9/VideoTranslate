@@ -34,6 +34,11 @@ function getVideoContentRect(video) {
   };
 }
 
+function resolveCanvasSubtitleScale(videoWidth, videoHeight) {
+  const shortSide = Math.max(1, Math.min(Number(videoWidth) || 1920, Number(videoHeight) || 1080));
+  return 1.35 * shortSide / 1080;
+}
+
 function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const video = $('studio-video-preview');
   
@@ -878,7 +883,9 @@ function updateSubtitleOverlayFromInputs() {
     boxWidth = W_act - 2 * marginHInput;
   }
   boxWidth = Math.max(50, boxWidth);
-  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
+  const scaleFactor = resolveCanvasSubtitleScale(W_act, H_act);
+  const fontSize_canvas = fontSizeInput * scaleFactor;
+  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSize_canvas * 0.5)));
 
   let wrappedText = rawText;
   if (maxLines === 1) {
@@ -897,9 +904,6 @@ function updateSubtitleOverlayFromInputs() {
       wrappedText = wrapTextToThreeLines(clean, maxChars);
     }
   }
-
-  const scaleFactor = 1.35;
-  const fontSize_canvas = fontSizeInput * scaleFactor;
 
   subTextNode.text(wrappedText);
   subTextNode.fontSize(fontSize_canvas);

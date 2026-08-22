@@ -2,7 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const shared = require('../lib/shared-state');
 const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
-const { fitSubtitleCue, resolveDisplayMaxLines } = require('../lib/subtitle-display-layout');
+const {
+  fitSubtitleCue,
+  resolveDisplayMaxLines,
+  resolveScaledSubtitleFontSize,
+  resolveSubtitleScale,
+  splitAbnormalCueForDisplay
+} = require('../lib/subtitle-display-layout');
+const { createSubtitleFontMeasurer } = require('../lib/subtitle-font-measurer');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
 const { normalizeSubtitleTimelineFile } = require('../lib/subtitle-timeline-normalizer');
 const anti = require('../lib/anti-dupe');
@@ -293,36 +300,19 @@ function createWavHeader(dataLength, sampleRate = 24000, numChannels = 1, bitsPe
   return header;
 }
 
-function convertSrtToAss(srtPath, assPath, options) {
+async function convertSrtToAss(srtPath, assPath, options) {
   const Parser = require('srt-parser-2').default;
   const parser = new Parser();
   const srtContent = fs.readFileSync(srtPath, 'utf8');
   const srtArray = parser.fromSrt(srtContent);
 
-  function convertSrtTime(srtTime) {
-    if (!srtTime) return "0:00:00.00";
-    const parts = srtTime.split(':');
-    let hours = 0;
-    let minutes = "00";
-    let seconds = "00";
-    let ms = "000";
-
-    if (parts.length === 2) {
-      minutes = parts[0];
-      const secParts = parts[1].split(',');
-      seconds = secParts[0];
-      ms = secParts[1] || '000';
-    } else if (parts.length >= 3) {
-      hours = parseInt(parts[0], 10);
-      minutes = parts[1];
-      const secParts = parts[2].split(',');
-      seconds = secParts[0];
-      ms = secParts[1] || '000';
-    } else {
-      return "0:00:00.00";
-    }
-    const cs = ms.substring(0, 2).padEnd(2, '0');
-    return `${hours}:${minutes}:${seconds}.${cs}`;
+  function convertMsToAssTime(inputMs) {
+    const totalCentiseconds = Math.max(0, Math.round((Number(inputMs) || 0) / 10));
+    const hours = Math.floor(totalCentiseconds / 360000);
+    const minutes = Math.floor((totalCentiseconds % 360000) / 6000);
+    const seconds = Math.floor((totalCentiseconds % 6000) / 100);
+    const centiseconds = totalCentiseconds % 100;
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
   }
 
   const {
@@ -344,6 +334,17 @@ function convertSrtToAss(srtPath, assPath, options) {
     theme
   } = options;
 
+  const sourceCues = srtArray.map(item => ({
+    startMs: srtTimeToMs(item.startTime),
+    endMs: srtTimeToMs(item.endTime),
+    text: item.text
+  }));
+  const displayCues = sourceCues.flatMap(cue => splitAbnormalCueForDisplay(cue));
+  const fontMeasurer = options.fontMeasurer || await createSubtitleFontMeasurer(
+    displayCues.map(cue => cue.text),
+    { fontName, bold: isBold }
+  );
+
   const assLines = [];
   assLines.push('[Script Info]');
   assLines.push('ScriptType: v4.00+');
@@ -359,13 +360,14 @@ function convertSrtToAss(srtPath, assPath, options) {
   assLines.push('[Events]');
   assLines.push('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text');
 
-  for (const item of srtArray) {
-    const start = convertSrtTime(item.startTime);
-    const end = convertSrtTime(item.endTime);
+  for (const item of displayCues) {
+    const start = convertMsToAssTime(item.startMs);
+    const end = convertMsToAssTime(item.endMs);
     const fitted = fitSubtitleCue(item.text, {
       fontSize,
       maxLines: Number(options.maxLines) || resolveDisplayMaxLines(videoWidth, videoHeight),
-      boxWidth: Math.max(1, videoWidth - marginL - marginR)
+      boxWidth: Math.max(1, videoWidth - marginL - marginR),
+      measureText: fontMeasurer.measureText
     });
     let text = fitted.text;
     if (fitted.fontSize < fontSize) {
@@ -378,6 +380,13 @@ function convertSrtToAss(srtPath, assPath, options) {
   }
 
   fs.writeFileSync(assPath, assLines.join('\n'), 'utf8');
+  return {
+    provider: fontMeasurer.provider,
+    measuredTokens: Number(fontMeasurer.measuredTokens) || 0,
+    inputCues: sourceCues.length,
+    outputCues: displayCues.length,
+    splitCues: displayCues.filter(cue => cue.splitFromAbnormalCue).length
+  };
 }
 
 function createRenderSourceResolver(dependencies = {}) {
@@ -1033,8 +1042,7 @@ async function executeRenderTask(task) {
       }
     }
 
-    const scaleFactor = 1.35;
-    const studioFontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
+    const studioFontSize = resolveScaledSubtitleFontSize(body.subtitleSize || 18, videoWidth, videoHeight);
     const studioMarginH = Number(body.subtitleMarginH || 20);
     const studioMarginL = (body.subtitleMarginL !== undefined && body.subtitleMarginL !== '') ? Number(body.subtitleMarginL) : studioMarginH;
     const studioMarginR = (body.subtitleMarginR !== undefined && body.subtitleMarginR !== '') ? Number(body.subtitleMarginR) : studioMarginH;
@@ -2321,8 +2329,8 @@ async function executeRenderTask(task) {
     let hasVideoFilter = false;
 
     if (subtitlePath && body.burnSub === 'true' && !isVoiceOnlySub) {
-      const scaleFactor = 1.35;
-      const fontSize = Math.round(Number(body.subtitleSize || 18) * scaleFactor);
+      const scaleFactor = resolveSubtitleScale(videoWidth, videoHeight);
+      const fontSize = resolveScaledSubtitleFontSize(body.subtitleSize || 18, videoWidth, videoHeight);
       const marginV = Number(body.subtitleMargin || 28);
       const marginH = Number(body.subtitleMarginH || 20);
       // Đọc marginL và marginR riêng biệt, fallback về marginH đối xứng
@@ -2397,11 +2405,17 @@ async function executeRenderTask(task) {
 
       const assPath = path.join(workDir, `render_subtitles_${timestamp}.ass`);
       try {
-        convertSrtToAss(subtitlePath, assPath, {
+        const subtitleAssReport = await convertSrtToAss(subtitlePath, assPath, {
           videoWidth, videoHeight, fontName, fontSize,
           assColor: finalAssColor, isBold, borderStyle, outline, shadow,
           outlineColor, backColor, alignment, marginV, marginL, marginR, theme, maxLines: subtitleDisplayMaxLines
         });
+        task.subtitleAssReport = subtitleAssReport;
+        console.log(
+          `[Subtitle Burn] Đo font=${subtitleAssReport.provider}, token=${subtitleAssReport.measuredTokens}; `
+          + `cue ASS=${subtitleAssReport.outputCues}/${subtitleAssReport.inputCues}, `
+          + `cue con sau khi xử lý bất thường=${subtitleAssReport.splitCues}.`
+        );
         renderSubtitlePath = assPath;
       } catch (err) {
         console.error('Lỗi chuyển đổi SRT sang ASS:', err.message);
@@ -3303,5 +3317,6 @@ module.exports = {
     res.json({ success: true, message: 'Đã hủy render thành công.' });
   },
 
-  processNextRenderTask // Expose helper if other controllers need it
+  processNextRenderTask, // Expose helper if other controllers need it
+  convertSrtToAss
 };
