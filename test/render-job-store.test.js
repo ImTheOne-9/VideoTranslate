@@ -62,6 +62,13 @@ test('render manifest persists resumable state without API keys', () => {
       durationMs: 1234,
       model: 'UVR_MDXNET_KARA_2'
     };
+    task.subtitleTimelineReport = {
+      algorithmVersion: 'viral-cue-v2',
+      inputCues: 12,
+      outputCues: 10,
+      coverageRatio: 0.92
+    };
+    task.subtitleSource = { source: 'ocr', reason: 'viral_ocr_accepted' };
 
     store.saveTask(task);
 
@@ -77,6 +84,8 @@ test('render manifest persists resumable state without API keys', () => {
     assert.equal(restored.stages.subtitle.status, 'success');
     assert.deepEqual(restored.voiceExecution, task.voiceExecution);
     assert.deepEqual(restored.backgroundSeparation, task.backgroundSeparation);
+    assert.deepEqual(restored.subtitleTimelineReport, task.subtitleTimelineReport);
+    assert.deepEqual(restored.subtitleSource, task.subtitleSource);
   });
 });
 

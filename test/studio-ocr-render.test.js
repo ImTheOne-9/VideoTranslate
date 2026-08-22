@@ -865,6 +865,28 @@ test('large render function persists source before work and delegates only gener
   assert.ok(sourceResolution >= 0 && sourceResolution < videoInspection);
   assert.match(generateSource, /resolvedSubtitlePath\s*=\s*await resolveRenderAutomaticSubtitle\(\{/);
   assert.doesNotMatch(generateSource, /extractAudioAndTranscribe/);
+  assert.match(executeSource, /deepCleanup:\s*subtitleMode === 'generate'/);
+  assert.match(executeSource, /videoDurationMs:\s*totalDuration \* 1000/);
+  assert.match(executeSource, /output\.report\?\.algorithmVersion === SUBTITLE_POSTPROCESS_VERSION/);
+  assert.match(executeSource, /output\.report\?\.algorithmSignature === timelineSignature/);
+  assert.match(executeSource, /error\.code = 'SUBTITLE_COVERAGE_INCOMPLETE'/);
+});
+
+test('suspicious OCR coverage waits for an explicit Whisper fallback', () => {
+  const error = Object.assign(new Error('OCR chỉ phủ 42% video'), {
+    code: 'SUBTITLE_COVERAGE_INCOMPLETE'
+  });
+  const task = { id: 'task-coverage', status: 'rendering', percent: 31, step: 'Timeline', error: null };
+  const state = createQueueState([task]);
+  state.currentActiveTask = task;
+  state.isStudioRendering = true;
+  state.activeRenderId = task.id;
+
+  assert.equal(applyRenderTaskFailure(task, error, state), 'waiting_input');
+  assert.equal(task.status, 'waiting_input');
+  assert.equal(task.step, 'Phụ đề OCR có dấu hiệu bị cụt');
+  assert.equal(task.actionRequired, 'ocr_fallback');
+  assert.equal(task.error, error.message);
 });
 
 test('server registers the exact resume route while preserving existing queue routes', () => {

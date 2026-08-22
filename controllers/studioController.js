@@ -11,7 +11,11 @@ const {
 } = require('../lib/subtitle-display-layout');
 const { createSubtitleFontMeasurer } = require('../lib/subtitle-font-measurer');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
-const { normalizeSubtitleTimelineFile } = require('../lib/subtitle-timeline-normalizer');
+const {
+  createSubtitlePostprocessSignature,
+  normalizeSubtitleTimelineFile,
+  SUBTITLE_POSTPROCESS_VERSION
+} = require('../lib/subtitle-timeline-normalizer');
 const anti = require('../lib/anti-dupe');
 const { buildTimedBlurFilterGraph } = require('../lib/render-blur-helper');
 const { RenderJobStore, normalizeUiSnapshot } = require('../lib/render-job-store');
@@ -524,6 +528,17 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress, logger)
     });
     logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
+    try {
+      const metadataPath = path.join(options.workDir, 'subtitle-source.json');
+      const temporaryPath = `${metadataPath}.tmp-${process.pid}`;
+      fs.writeFileSync(temporaryPath, JSON.stringify({
+        source: result.source || 'unknown',
+        reason: result.reason || null,
+        language: result.language || body.ocrLanguage || null,
+        cueCount: Number(result.cueCount) || 0
+      }, null, 2), 'utf8');
+      fs.renameSync(temporaryPath, metadataPath);
+    } catch {}
     return result.path;
   };
 }
@@ -571,9 +586,11 @@ function applyRenderTaskFailure(task, error, state = shared.state) {
     return 'cancelled';
   }
 
-  if (error?.code === 'OCR_TECHNICAL_ERROR') {
+  if (error?.code === 'OCR_TECHNICAL_ERROR' || error?.code === 'SUBTITLE_COVERAGE_INCOMPLETE') {
     task.status = 'waiting_input';
-    task.step = 'OCR gặp lỗi kỹ thuật';
+    task.step = error.code === 'SUBTITLE_COVERAGE_INCOMPLETE'
+      ? 'Phụ đề OCR có dấu hiệu bị cụt'
+      : 'OCR gặp lỗi kỹ thuật';
     task.error = error.message;
     task.actionRequired = 'ocr_fallback';
     task.percent = Math.max(task.percent || 0, 12);
@@ -772,6 +789,8 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
     sourceVideoPath: null,
     forceWhisper: false,
     translationReport: null,
+    subtitleTimelineReport: null,
+    subtitleSource: null,
     backgroundSeparation: null,
     segmentReview: null,
     createdAt,
@@ -987,6 +1006,7 @@ async function executeRenderTask(task) {
     const subtitleStage = await renderOrchestrator.runStage(task, 'subtitle', async () => {
       let resolvedSubtitlePath = null;
       let ocrReport = null;
+      let subtitleSource = null;
       if (subtitleMode === 'upload' && files.subtitleUpload?.[0]) {
         shared.updateStudioProgress(10, 'Đang chuẩn bị file phụ đề tải lên...');
         resolvedSubtitlePath = shared.moveUploadedFile(files.subtitleUpload[0], shared.SUBTITLES_DIR, files.subtitleUpload[0].originalname);
@@ -1005,28 +1025,81 @@ async function executeRenderTask(task) {
           ffmpegPath: shared.FFMPEG_PATH
         });
         ocrReport = readJsonFile(path.join(workDir, 'ocr-report.json'));
+        subtitleSource = readJsonFile(path.join(workDir, 'subtitle-source.json'));
       }
-      return { subtitlePath: resolvedSubtitlePath, ocrReport };
+      return { subtitlePath: resolvedSubtitlePath, ocrReport, subtitleSource };
     });
     subtitlePath = subtitleStage.subtitlePath;
     const ocrReport = subtitleStage.ocrReport || null;
+    const subtitleSource = subtitleStage.subtitleSource || (subtitleMode === 'generate'
+      ? (
+        path.basename(String(subtitleStage.subtitlePath || '')).toLowerCase() === 'audio.srt'
+          ? { source: 'whisper', reason: 'legacy_checkpoint_inferred' }
+          : (subtitleStage.subtitlePath ? { source: 'ocr', reason: 'legacy_checkpoint_inferred' } : null)
+      )
+      : (subtitleStage.subtitlePath ? { source: subtitleMode, reason: 'user_selected_subtitle' } : null));
+    task.subtitleSource = subtitleSource;
     const sourceAsrMetadataPath = subtitlePath && fs.existsSync(`${subtitlePath}.asr.json`)
       ? `${subtitlePath}.asr.json`
       : null;
 
     if (subtitlePath && fs.existsSync(subtitlePath)) {
+      const timelineOptions = {
+        deepCleanup: subtitleMode === 'generate',
+        videoDurationMs: totalDuration * 1000
+      };
+      const timelineSignature = createSubtitlePostprocessSignature(timelineOptions);
       const timelineStage = await renderOrchestrator.runStage(task, 'subtitle_timeline', async () => {
         shared.updateStudioProgress(30, 'Đang sửa timeline phụ đề và loại chồng thời gian...');
         const outputPath = path.join(workDir, 'timeline-normalized.srt');
-        const result = normalizeSubtitleTimelineFile(subtitlePath, outputPath);
+        const result = normalizeSubtitleTimelineFile(subtitlePath, outputPath, timelineOptions);
         const report = result.report;
         console.log(
           `[Subtitle Timeline] ${report.inputCues} cue → ${report.outputCues} cue; `
           + `cắt đuôi=${report.trimmedCues}, bỏ trùng mốc=${report.droppedSameStartCues}, `
           + `khôi phục cue ngắn=${report.restoredShortCues}, còn ngắn=${report.remainingShortCues}, `
-          + `khe=${report.minimumGapMs}ms.`
+          + `gộp=${report.mergedOverlappingCues + report.mergedRepeatedCues}, `
+          + `bỏ lặp/mảnh=${report.removedSplitOrRepeatedCues + report.removedFragmentCues}, `
+          + `khử vấp=${report.destutteredCues}, khe=${report.minimumGapMs}ms.`
         );
+        if (report.possibleTruncation) {
+          console.warn(
+            `[Subtitle Timeline] Cảnh báo SRT mới phủ tới ${Math.round(report.coverageRatio * 100)}% video; `
+            + 'có thể OCR/Whisper đã bị ngắt giữa chừng.'
+          );
+        }
+        const sampleGroups = [
+          ['gộp', report.mergedSamples],
+          ['lặp/tách', report.removedSplitOrRepeatedSamples],
+          ['mảnh', report.removedFragmentSamples],
+          ['vấp', report.destutterSamples]
+        ].filter(([, samples]) => Array.isArray(samples) && samples.length);
+        if (sampleGroups.length) {
+          console.log(`[Subtitle Timeline] Mẫu thay đổi: ${sampleGroups.map(([name, samples]) => `${name}=${JSON.stringify(samples)}`).join(' | ')}`);
+        }
+        const automaticEngine = ['auto', undefined, null, ''].includes(body.subtitleEngine);
+        if (subtitleMode === 'generate'
+          && automaticEngine
+          && subtitleSource?.source === 'ocr'
+          && task.forceWhisper !== true
+          && report.outputCues >= 3
+          && report.coverageRequiresAction) {
+          task.subtitleTimelineReport = report;
+          const error = new Error(
+            `OCR chỉ tạo phụ đề tới ${Math.round(report.coverageRatio * 100)}% video. `
+            + 'Hãy chuyển sang Whisper để kiểm tra phần nội dung còn thiếu, hoặc chọn chế độ chỉ OCR nếu video thực sự chỉ có phụ đề ở đoạn đầu.'
+          );
+          error.code = 'SUBTITLE_COVERAGE_INCOMPLETE';
+          throw error;
+        }
         return { subtitlePath: result.path, report };
+      }, {
+        validate: (output) => Boolean(
+          output?.subtitlePath
+          && fs.existsSync(output.subtitlePath)
+          && output.report?.algorithmVersion === SUBTITLE_POSTPROCESS_VERSION
+          && output.report?.algorithmSignature === timelineSignature
+        )
       });
       subtitlePath = timelineStage.subtitlePath;
       task.subtitleTimelineReport = timelineStage.report || null;
@@ -2841,6 +2914,8 @@ function createRenderQueueHandlers(dependencies = {}) {
             : 'Video Tải Lên'),
           result: task.result,
           translationReport: task.translationReport || null,
+          subtitleTimelineReport: task.subtitleTimelineReport || null,
+          subtitleSource: task.subtitleSource || null,
           voiceExecution: task.voiceExecution || null,
           backgroundSeparation: task.backgroundSeparation || null,
           segmentReview: task.segmentReview || null,
@@ -2887,6 +2962,7 @@ function createRenderQueueHandlers(dependencies = {}) {
       task.actionRequired = null;
       task.step = 'Đang chuyển sang Whisper...';
       if (task.stages?.subtitle) delete task.stages.subtitle;
+      if (task.stages?.subtitle_timeline) delete task.stages.subtitle_timeline;
       if (task.stages?.translation) delete task.stages.translation;
       persistTask(task);
 

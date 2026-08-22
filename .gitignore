@@ -24,6 +24,7 @@ tools/crawler/app/*
 !tools/crawler/app/viral_ocr/
 tools/crawler/app/viral_ocr/*
 !tools/crawler/app/viral_ocr/*.py
+!tools/crawler/app/viral_ocr/zhcdict.json
 !tools/crawler/app/MediaCrawler/
 tools/crawler/app/MediaCrawler/*
 !tools/crawler/app/MediaCrawler/pyproject.toml

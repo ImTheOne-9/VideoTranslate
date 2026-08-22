@@ -8,8 +8,12 @@ const path = require('path');
 const SrtParser = require('srt-parser-2').default;
 
 const {
+  SUBTITLE_POSTPROCESS_VERSION,
+  createSubtitlePostprocessSignature,
+  normalizeComparableText,
   normalizeSubtitleTimeline,
-  normalizeSubtitleTimelineFile
+  normalizeSubtitleTimelineFile,
+  sequenceMatcherRatio
 } = require('../lib/subtitle-timeline-normalizer');
 
 test('trims overlapping OCR cues and keeps the ViralCrawl 80ms subtitle gap', () => {
@@ -77,4 +81,121 @@ test('normalizes an SRT file atomically and renumbers retained cues', () => {
   assert.equal(result.report.outputCues, 2);
   assert.deepEqual(cues.map((cue) => cue.id), ['1', '2']);
   assert.deepEqual(cues.map((cue) => cue.text), ['A', 'C']);
+});
+
+test('deep cleanup merges overlapping two-line OCR cues before enforcing timeline gaps', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 1000, endMs: 2200, text: '这是第一行' },
+    { startMs: 1500, endMs: 2600, text: '这是第二行' },
+    { startMs: 3000, endMs: 3600, text: '下一句' }
+  ], { deepCleanup: true });
+
+  assert.deepEqual(cues.map((cue) => cue.text), ['这是第一行 这是第二行', '下一句']);
+  assert.equal(report.mergedOverlappingCues, 1);
+  assert.equal(report.outputCues, 2);
+});
+
+test('deep cleanup keeps a complete cue and removes its adjacent reveal fragments', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 1000, endMs: 1600, text: '我们现在回家' },
+    { startMs: 1650, endMs: 1900, text: '我们现在' },
+    { startMs: 1950, endMs: 2200, text: '回家' },
+    { startMs: 3000, endMs: 3600, text: '下一句对白' }
+  ], { deepCleanup: true });
+
+  assert.deepEqual(cues.map((cue) => cue.text), ['我们现在回家', '下一句对白']);
+  assert.equal(report.removedSplitOrRepeatedCues, 2);
+  assert.equal(cues[0].endMs, 2200);
+});
+
+test('deep cleanup removes a nearby contained fragment but preserves common short dialogue', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 0, endMs: 500, text: '好的' },
+    { startMs: 700, endMs: 1200, text: '一直没有找到合适的' },
+    { startMs: 1250, endMs: 1500, text: '没有找到' }
+  ], { deepCleanup: true });
+
+  assert.deepEqual(cues.map((cue) => cue.text), ['好的', '一直没有找到合适的']);
+  assert.equal(report.removedFragmentCues, 1);
+});
+
+test('deep cleanup removes consecutive Whisper stutter without removing two-character repetition', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 0, endMs: 1000, text: '林总好林总好' },
+    { startMs: 1200, endMs: 2000, text: '看看再看看' },
+    { startMs: 2200, endMs: 3000, text: 'we need to go we need to go now' }
+  ], { deepCleanup: true });
+
+  assert.deepEqual(cues.map((cue) => cue.text), ['林总好', '看看再看看', 'we need to go now']);
+  assert.equal(report.destutteredCues, 2);
+});
+
+test('reports suspiciously truncated generated subtitles without rejecting the usable cues', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 1000, endMs: 10000, text: 'chỉ có phần đầu video' }
+  ], { deepCleanup: true, videoDurationMs: 120000 });
+
+  assert.equal(cues.length, 1);
+  assert.equal(report.coverageRatio, 10 / 120);
+  assert.equal(report.possibleTruncation, true);
+});
+
+test('default cleanup stays conservative for uploaded or manually edited subtitles', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 0, endMs: 1000, text: 'we need to go we need to go' }
+  ]);
+
+  assert.equal(cues[0].text, 'we need to go we need to go');
+  assert.equal(report.deepCleanup, false);
+});
+
+test('comparison normalization matches ViralCrawl by converting Traditional Chinese to Simplified', () => {
+  assert.equal(normalizeComparableText('傑克薩利講！'), normalizeComparableText('杰克萨利讲'));
+});
+
+test('SequenceMatcher-compatible ratio keeps short number changes out of fuzzy deletion', () => {
+  assert.ok(sequenceMatcherRatio('他今年二十岁', '他今年三十岁') > 0.8);
+  const { cues } = normalizeSubtitleTimeline([
+    { startMs: 0, endMs: 500, text: '他今年二十岁' },
+    { startMs: 700, endMs: 1200, text: '他今年三十岁' }
+  ], { deepCleanup: true });
+  assert.equal(cues.length, 2);
+});
+
+test('deep cleanup recognizes prefix FULL suffix reveal and assigns the whole span to FULL', () => {
+  const { cues, report } = normalizeSubtitleTimeline([
+    { startMs: 1000, endMs: 1400, text: '我们现在马上' },
+    { startMs: 1450, endMs: 2100, text: '我们现在马上一起回家' },
+    { startMs: 2150, endMs: 2500, text: '马上一起回家' },
+    { startMs: 3000, endMs: 3500, text: '完全不同的下一句' }
+  ], { deepCleanup: true });
+
+  assert.deepEqual(cues.map((cue) => cue.text), ['我们现在马上一起回家', '完全不同的下一句']);
+  assert.deepEqual([cues[0].startMs, cues[0].endMs], [1000, 2500]);
+  assert.equal(report.removedSplitOrRepeatedCues, 2);
+  assert.equal(report.removedSplitOrRepeatedSamples.length, 2);
+});
+
+test('deep cleanup removes an exact short hallucination repeated across the distant window', () => {
+  const texts = ['不知道了', '甲乙丙丁', '戊己庚辛', '天地玄黄', '不知道了', '宇宙洪荒', '日月盈昃', '不知道了'];
+  const { cues, report } = normalizeSubtitleTimeline(texts.map((text, index) => ({
+    startMs: index * 300,
+    endMs: (index * 300) + 200,
+    text
+  })), { deepCleanup: true });
+
+  assert.equal(cues.filter((cue) => cue.text === '不知道了').length, 1);
+  assert.equal(report.removedSplitOrRepeatedCues, 2);
+});
+
+test('coverage accounting exposes version, detailed stages and action threshold', () => {
+  const { report } = normalizeSubtitleTimeline([
+    { startMs: 1000, endMs: 50000, text: 'phần đầu' }
+  ], { deepCleanup: true, videoDurationMs: 120000 });
+
+  assert.equal(report.algorithmVersion, SUBTITLE_POSTPROCESS_VERSION);
+  assert.equal(report.algorithmSignature, createSubtitlePostprocessSignature({ deepCleanup: true }));
+  assert.equal(report.invalidCues, 0);
+  assert.equal(report.possibleTruncation, true);
+  assert.equal(report.coverageRequiresAction, true);
 });

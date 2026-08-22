@@ -21,6 +21,7 @@ function preparePaths(root) {
     'viral_ocr_cli.py',
     'dai_sub_rapid.py',
     'ocr_text.py',
+    'zhcdict.json',
     'chat_luong.py',
     'thong_tin_may.py',
     'chan_doan_loi.py',
