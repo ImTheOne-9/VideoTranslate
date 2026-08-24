@@ -60,6 +60,26 @@ function createProjectYtDlpPreviewResolver(platform) {
   });
 }
 
+async function previewDouyinDetail({ input, onLog }) {
+  const sourceUrl = String(input || '').split(/[\n,]+/).map((value) => value.trim()).find(Boolean) || '';
+  const info = await douyinExtractor.getDouyinVideoInfo(sourceUrl, onLog || (() => {}));
+  const best = (info.formats || [])
+    .filter((format) => format.format === 'mp4' && format.src)
+    .sort((a, b) => Number(b.height || 0) - Number(a.height || 0))[0];
+  if (!best) throw new Error('Không tìm thấy luồng MP4 Douyin.');
+  return [{
+    id: sourceUrl.match(/\/video\/(\d+)/i)?.[1] || '',
+    title: info.title || 'Douyin Video',
+    uploader: info.author || '',
+    thumbnail: info.thumbnail || '',
+    duration: Number(info.duration) || 0,
+    sourceUrl,
+    url: best.src,
+    resolvedDownload: true,
+    engine: 'Douyin BrowserWindow'
+  }];
+}
+
 const downloadCrawlManager = new DownloadCrawlManager({
   shared,
   previewResolvers: {
@@ -84,6 +104,9 @@ const downloadCrawlManager = new DownloadCrawlManager({
     'weibo:search': createMediaCrawlerPreviewResolver('weibo'),
     'weibo:creator': createMediaCrawlerPreviewResolver('weibo'),
     'weibo:detail': createMediaCrawlerPreviewResolver('weibo')
+  },
+  anonymousPreviewResolvers: {
+    'douyin:detail': previewDouyinDetail
   },
   downloadResolvers: {
     douyin: async (task) => {

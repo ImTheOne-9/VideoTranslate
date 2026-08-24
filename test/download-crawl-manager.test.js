@@ -3,11 +3,13 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { EventEmitter } = require('events');
 
 const {
   DownloadCrawlManager,
   splitInputs,
   safeCount,
+  resolvePlatformOutputDir,
   parsePercent,
   parseDownloadTelemetry
 } = require('../lib/download-crawl-manager');
@@ -29,6 +31,17 @@ function makeShared(overrides = {}) {
     killProcessTree: () => {},
     ...overrides
   };
+}
+
+function makeDownloadProcess({ code = 0, stderr = '' } = {}) {
+  const proc = new EventEmitter();
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  setImmediate(() => {
+    if (stderr) proc.stderr.emit('data', Buffer.from(stderr));
+    proc.emit('close', code, null);
+  });
+  return proc;
 }
 
 test('crawl input helpers normalize limits and progress', () => {
@@ -125,15 +138,97 @@ test('specialized preview streams normalized items before returning the final re
   }
 });
 
-test('preview capability is separate from crawl capability', async () => {
+test('public XHS detail preview uses the anonymous single-download metadata path', async () => {
   const directory = makeTempDir();
   try {
-    const manager = new DownloadCrawlManager({ shared: makeShared({ DOWNLOADS_DIR: directory }), downloadsDir: directory });
+    const sourceUrl = 'https://www.xiaohongshu.com/explore/public-note?xsec_token=token';
+    let receivedArgs = null;
+    let specializedCalls = 0;
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({
+        DOWNLOADS_DIR: directory,
+        runYtDlp: async (args) => {
+          receivedArgs = args;
+          return JSON.stringify({ id: 'public-note', title: 'Public XHS', webpage_url: sourceUrl });
+        }
+      }),
+      downloadsDir: directory,
+      previewResolvers: {
+        'xiaohongshu:detail': async () => { specializedCalls += 1; return []; }
+      }
+    });
     assert.equal(manager.capabilities().xiaohongshu.detail, true);
-    await assert.rejects(
-      manager.preview({ platform: 'xiaohongshu', mode: 'detail', input: 'https://www.xiaohongshu.com/explore/abc', count: 1 }),
-      /chưa hỗ trợ xem trước ổn định/
-    );
+    assert.ok(manager.capabilities().xiaohongshu.previewModes.includes('detail'));
+
+    const result = await manager.preview({ platform: 'xiaohongshu', mode: 'detail', input: sourceUrl, count: 1 });
+
+    assert.equal(specializedCalls, 0);
+    assert.ok(receivedArgs.includes(sourceUrl));
+    assert.equal(result.items[0].id, 'public-note');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('anonymous platform output keeps the same platform and source folders as crawler downloads', () => {
+  const root = path.resolve('C:\\downloads');
+  assert.equal(
+    resolvePlatformOutputDir(root, 'douyin', { sourceMode: 'detail' }),
+    path.join(root, 'douyin', 'videos', 'link')
+  );
+  assert.equal(
+    resolvePlatformOutputDir(root, 'bilibili', { sourceMode: 'search', sourceInput: 'mèo/vui' }),
+    path.join(root, 'bili', 'videos', 'tu-khoa', 'mèovui')
+  );
+  assert.equal(
+    resolvePlatformOutputDir(root, 'rednote', { sourceMode: 'creator', sourceName: 'Kênh: Demo' }),
+    path.join(root, 'rednote', 'videos', 'kenh', 'Kênh Demo')
+  );
+  assert.equal(
+    resolvePlatformOutputDir(root, 'xiaohongshu', { sourceMode: 'detail' }),
+    path.join(root, 'xhs', 'videos', 'link')
+  );
+});
+
+test('public Douyin detail preview prefers its anonymous BrowserWindow resolver over yt-dlp', async () => {
+  const directory = makeTempDir();
+  try {
+    const sourceUrl = 'https://www.douyin.com/video/7674985967115078927';
+    const cdnUrl = 'https://example.zjcdn.com/video.mp4';
+    let ytDlpCalls = 0;
+    let specializedCalls = 0;
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({
+        DOWNLOADS_DIR: directory,
+        runYtDlp: async () => { ytDlpCalls += 1; throw new Error('Fresh cookies are needed'); }
+      }),
+      downloadsDir: directory,
+      previewResolvers: {
+        'douyin:detail': async () => { throw new Error('MediaCrawler must not run'); }
+      },
+      anonymousPreviewResolvers: {
+        'douyin:detail': async ({ input }) => {
+          specializedCalls += 1;
+          assert.equal(input, sourceUrl);
+          return [{
+            id: '7674985967115078927',
+            title: 'Public Douyin',
+            sourceUrl,
+            url: cdnUrl,
+            resolvedDownload: true
+          }];
+        }
+      }
+    });
+
+    const result = await manager.preview({ platform: 'douyin', mode: 'detail', input: sourceUrl, count: 1 });
+
+    assert.equal(specializedCalls, 1);
+    assert.equal(ytDlpCalls, 0);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].sourceUrl, sourceUrl);
+    assert.equal(result.items[0].url, cdnUrl);
+    assert.equal(result.items[0].resolvedDownload, true);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -260,6 +355,165 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
     assert.equal(task.completedVideos, 7);
     assert.equal(task.failedVideos, 2);
     assert.match(task.step, /Hoàn tất 7, lỗi 2/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Bilibili detail uses anonymous single-download path before login or MediaCrawler', async () => {
+  const directory = makeTempDir();
+  try {
+    const sourceUrl = 'https://www.bilibili.com/video/BV1PUBLIC';
+    let loginChecks = 0;
+    let crawlCalls = 0;
+    let downloadArgs = null;
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({
+        DOWNLOADS_DIR: directory,
+        runYtDlp: async () => JSON.stringify({
+          id: 'BV1PUBLIC', title: 'Public Bilibili', webpage_url: sourceUrl
+        }),
+        getCustomExtractorArgs: (url) => url.includes('bilibili.com')
+          ? ['--add-header', 'Referer:https://www.bilibili.com']
+          : [],
+        spawn: (_command, args) => {
+          downloadArgs = args;
+          return makeDownloadProcess();
+        }
+      }),
+      downloadsDir: directory,
+      loginChecker: async () => { loginChecks += 1; return 'out'; },
+      crawlResolvers: {
+        bilibili: async () => { crawlCalls += 1; throw new Error('MediaCrawler must not run'); }
+      }
+    });
+    manager._processQueue = () => {};
+    const { taskId } = manager.enqueueJob({
+      platform: 'bilibili', mode: 'detail', input: sourceUrl, count: 1, quality: '720'
+    });
+    const task = manager.tasks.find((item) => item.id === taskId);
+
+    await manager._runCrawlTask(task);
+
+    assert.equal(loginChecks, 0);
+    assert.equal(crawlCalls, 0);
+    assert.equal(task.status, 'success');
+    assert.equal(task.completedVideos, 1);
+    assert.equal(task.config.quality, '720');
+    assert.ok(downloadArgs.includes(sourceUrl));
+    assert.ok(downloadArgs.includes('Referer:https://www.bilibili.com'));
+    const selector = downloadArgs[downloadArgs.indexOf('-f') + 1];
+    assert.match(selector, /^bestvideo\[height<=720\]\[ext=mp4\]\[vcodec~/);
+    assert.match(selector, /\^\(avc1\|h264\)/);
+    assert.ok(downloadArgs.includes('--http-chunk-size'));
+    const outputTemplate = downloadArgs[downloadArgs.indexOf('-o') + 1];
+    assert.equal(path.dirname(outputTemplate), path.join(directory, 'bili', 'videos', 'link'));
+    assert.equal(task.outputPath, path.join(directory, 'bili', 'videos', 'link'));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Douyin detail keeps the public CDN extractor without requiring login', async () => {
+  const directory = makeTempDir();
+  try {
+    const sourceUrl = 'https://www.douyin.com/video/123456789';
+    const cdnUrl = 'https://example.zjcdn.com/public-video.mp4';
+    let loginChecks = 0;
+    let resolverCalls = 0;
+    let downloadedUrl = '';
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({
+        DOWNLOADS_DIR: directory,
+        runYtDlp: async () => { throw new Error('yt-dlp must not inspect public Douyin detail'); },
+        spawn: (_command, args) => {
+          downloadedUrl = args.at(-1);
+          return makeDownloadProcess();
+        }
+      }),
+      downloadsDir: directory,
+      loginChecker: async () => { loginChecks += 1; return 'out'; },
+      anonymousPreviewResolvers: {
+        'douyin:detail': async () => [{
+          id: '123456789', title: 'Public Douyin', sourceUrl, url: cdnUrl, resolvedDownload: true
+        }]
+      },
+      downloadResolvers: {
+        douyin: async () => { resolverCalls += 1; return { url: cdnUrl }; }
+      },
+      crawlResolvers: {
+        douyin: async () => { throw new Error('MediaCrawler must not run'); }
+      }
+    });
+    manager._processQueue = () => {};
+    const { taskId } = manager.enqueueJob({ platform: 'douyin', mode: 'detail', input: sourceUrl, count: 1 });
+    const task = manager.tasks.find((item) => item.id === taskId);
+
+    await manager._runCrawlTask(task);
+
+    assert.equal(loginChecks, 0);
+    assert.equal(resolverCalls, 0);
+    assert.equal(downloadedUrl, cdnUrl);
+    assert.equal(task.status, 'success');
+    assert.equal(task.outputPath, path.join(directory, 'douyin', 'videos', 'link'));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('anonymous RedNote detail asks for login only after the real download reports login required', async () => {
+  const directory = makeTempDir();
+  try {
+    const sourceUrl = 'https://www.rednote.com/explore/public-note?xsec_token=token';
+    let loginChecks = 0;
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({
+        DOWNLOADS_DIR: directory,
+        runYtDlp: async () => JSON.stringify({ id: 'public-note', title: 'Public RedNote', webpage_url: sourceUrl }),
+        spawn: () => makeDownloadProcess({ code: 1, stderr: 'ERROR: Sign in required to view this note' })
+      }),
+      downloadsDir: directory,
+      loginChecker: async () => { loginChecks += 1; return 'out'; },
+      crawlResolvers: {
+        rednote: async () => { throw new Error('MediaCrawler must not run'); }
+      }
+    });
+    manager._processQueue = () => {};
+    const { taskId } = manager.enqueueJob({ platform: 'rednote', mode: 'detail', input: sourceUrl, count: 1 });
+    const task = manager.tasks.find((item) => item.id === taskId);
+
+    await manager._runCrawlTask(task);
+
+    assert.equal(loginChecks, 0);
+    assert.equal(task.status, 'error');
+    assert.equal(task.reason, 'login_expired');
+    assert.match(task.error, /Sign in required/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Douyin search still requires login before MediaCrawler runs', async () => {
+  const directory = makeTempDir();
+  try {
+    let crawlCalls = 0;
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({ DOWNLOADS_DIR: directory }),
+      downloadsDir: directory,
+      loginChecker: async () => 'out',
+      crawlResolvers: {
+        douyin: async () => { crawlCalls += 1; return {}; }
+      }
+    });
+    manager._processQueue = () => {};
+    const { taskId } = manager.enqueueJob({ platform: 'douyin', mode: 'search', input: 'mèo', count: 1 });
+    const task = manager.tasks.find((item) => item.id === taskId);
+
+    await manager._runCrawlTask(task);
+
+    assert.equal(crawlCalls, 0);
+    assert.equal(task.status, 'error');
+    assert.equal(task.reason, 'login_expired');
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

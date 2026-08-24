@@ -46,10 +46,11 @@ test('server exposes MediaCrawler engine status and integration', () => {
   assert.match(server, /\['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'\]/);
   assert.match(server, /\/api\/download-crawl\/engine-status/);
   assert.match(server, /'douyin:detail': createMediaCrawlerPreviewResolver\('douyin'\)/);
+  assert.match(server, /anonymousPreviewResolvers:\s*{[\s\S]*'douyin:detail': previewDouyinDetail/);
+  assert.match(server, /engine: 'Douyin BrowserWindow'/);
   assert.match(server, /'bilibili:detail': createMediaCrawlerPreviewResolver\('bilibili'\)/);
   assert.match(server, /'instagram:creator': createProjectYtDlpPreviewResolver\('instagram'\)/);
   assert.match(server, /'instagram:detail': createProjectYtDlpPreviewResolver\('instagram'\)/);
-  assert.doesNotMatch(server, /'douyin:detail': async/);
   assert.match(server, /crawlResolvers/);
 });
 
