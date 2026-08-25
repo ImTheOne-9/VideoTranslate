@@ -451,7 +451,7 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
-  // Mở modal thiết lập nếu thiếu Whisper ONNX hoặc MDX ONNX Separator (chỉ 1 lần)
+  // Mở modal thiết lập nếu thiếu Faster-Whisper hoặc MDX ONNX Separator (chỉ 1 lần)
   if (!window._setupModalShown && (!dependencyStatus.whisper || !dependencyStatus.separator)) {
     window._setupModalShown = true;
     setTimeout(() => openSetupModal(), 500);
@@ -1149,15 +1149,10 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
 const OCR_PIPELINES = new Set(['auto', 'viral', 'vse']);
-const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
 const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
 const WHISPER_DEVICES = new Set(['auto', 'cpu', 'cuda', 'dml']);
-const WHISPER_BACKENDS = new Set(['faster-whisper', 'whisper-onnx']);
+const WHISPER_BACKENDS = new Set(['faster-whisper']);
 
-function getWhisperOnnxVariantLabel(variant) {
-  if (variant === 'medium-q8') return 'Medium Q8';
-  return `Small ${String(variant || 'q8').toUpperCase()}`;
-}
 const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
 
 function updateOcrModeButtons() {
@@ -1228,19 +1223,6 @@ function updateOcrPipelineUi() {
   updateRapidOcrRuntimeUi({ visible: showRapidRuntime });
   if (showRapidRuntime) void refreshRapidOcrRuntimeStatusForUi();
   return pipeline;
-}
-
-function updateWhisperOnnxVariantButtons() {
-  const input = $('whisper-onnx-variant-value');
-  if (!input) return 'medium-q8';
-  const variant = WHISPER_ONNX_VARIANTS.has(input.value) ? input.value : 'medium-q8';
-  input.value = variant;
-  document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
-    const active = button.dataset.whisperOnnxVariant === variant;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
-  return variant;
 }
 
 function getOcrRegionValues() {
@@ -1393,14 +1375,6 @@ document.querySelectorAll('.ocr-mode-btn').forEach(button => {
     if (!input || !OCR_MODES.has(button.dataset.ocrMode)) return;
     input.value = button.dataset.ocrMode;
     updateOcrModeButtons();
-  });
-});
-document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
-  button.addEventListener('click', () => {
-    const input = $('whisper-onnx-variant-value');
-    if (!input || !WHISPER_ONNX_VARIANTS.has(button.dataset.whisperOnnxVariant)) return;
-    input.value = button.dataset.whisperOnnxVariant;
-    updateWhisperOnnxVariantButtons();
   });
 });
 $('ocr-region-reset-btn')?.addEventListener('click', () => {
@@ -1715,11 +1689,8 @@ async function renderStudio(event) {
   const voiceMode = data.get('voiceMode');
   const omiDevice = data.get('omiDevice');
   const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
-  const globalWhisperVal = $('whisper-model-select')?.value;
-  const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(globalWhisperVal) ? globalWhisperVal : 'medium-q8';
-  const whisperBackend = WHISPER_BACKENDS.has(data.get('whisperBackend'))
-    ? data.get('whisperBackend')
-    : 'faster-whisper';
+  const whisperOnnxVariant = 'medium-q8'; // lớp cứu cuối nội bộ, không còn cho người dùng chọn
+  const whisperBackend = 'faster-whisper';
   const whisperTimestampLevel = WHISPER_TIMESTAMP_LEVELS.has(data.get('whisperTimestampLevel'))
     ? data.get('whisperTimestampLevel')
     : 'segment';
@@ -1765,12 +1736,12 @@ async function renderStudio(event) {
     }
     if (subtitleEngine !== 'ocr') {
       try {
-        const checkRes = await fetch(`/api/whisper-model/status?variant=${whisperOnnxVariant}`);
+        const checkRes = await fetch('/api/whisper-model/status');
         const checkStatus = await checkRes.json();
         if (!checkRes.ok) throw new Error(checkStatus.error || 'Không thể kiểm tra model Whisper');
         if (!checkStatus.exists) {
-          toast(`Thiếu model Whisper ${getWhisperOnnxVariantLabel(whisperOnnxVariant)}. Hãy tải model trước khi render.`, 'warn');
-          if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal(whisperOnnxVariant);
+          toast('Thiếu model Faster-Whisper Large V3 Turbo. Hãy tải model trước khi render.', 'warn');
+          if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal();
           return;
         }
       } catch (error) {
@@ -3350,8 +3321,6 @@ function updateConditionalFields() {
   $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
   updateOcrModeButtons();
   updateSubtitleEngineUi();
-  updateWhisperOnnxVariantButtons();
-
   const whisperModelWrapper = $('whisper-model-wrapper');
   if (whisperModelWrapper) {
     const isGenerate = (subMode === 'generate');
@@ -7273,7 +7242,7 @@ function getGlobalAiSettings() {
     openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
     translationStyles,
     whisperModel: 'medium',
-    whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
+    whisperOnnxVariant: 'medium-q8', // chỉ dùng cho lớp ONNX dự phòng nội bộ
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
   };
 }
@@ -7662,7 +7631,7 @@ function openGlobalSettingsModal() {
     loadNineRouterModels(settings.ninerouterApiKey, settings.ninerouterBaseUrl);
   }
   if (whisperModelSelect) {
-    whisperModelSelect.value = settings.whisperOnnxVariant;
+    whisperModelSelect.value = 'large-v3-turbo';
     checkWhisperModelStatus();
   }
   const globalOcrSelect = $('global-ocr-mode-select');
@@ -7794,7 +7763,7 @@ function saveGlobalSettings() {
   if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
-  if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
+  localStorage.removeItem('global_whisper_onnx_variant');
   localStorage.setItem('global_translation_styles', JSON.stringify(translationStyles));
   const globalOcrSelect = $('global-ocr-mode-select');
   if (globalOcrSelect) localStorage.setItem('global_ocr_mode', globalOcrSelect.value);
@@ -8049,9 +8018,9 @@ async function checkSystemConnections() {
       whisperDot.className = 'dot warn';
       whisperDot.style.background = 'var(--warn)';
       whisperDot.style.boxShadow = '0 0 8px var(--warn)';
-      whisperDesc.textContent = 'Thiếu model Whisper ONNX Medium Q8 (~944MB)';
+      whisperDesc.textContent = 'Thiếu Faster-Whisper Large V3 Turbo (~1,51 GB)';
       if (whisperAction) {
-        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal('medium-q8');">Tải</button>`;
+        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">Tải</button>`;
       }
     }
 
@@ -8135,7 +8104,7 @@ async function checkSystemConnections() {
 
     // Tính toán danh sách các tài nguyên còn thiếu
     let missingList = [];
-    if (!data.whisper) missingList.push({ type: 'whisper', label: 'Whisper ONNX Medium Q8' });
+    if (!data.whisper) missingList.push({ type: 'whisper', label: 'Faster-Whisper Large V3 Turbo' });
     if (!data.separator) missingList.push({ type: 'separator', label: 'MDX ONNX Audio Separator' });
     if (!data.omnivoice) missingList.push({ type: 'omnivoice', label: 'Mẫu giọng thuyết minh OmniVoice' });
     if (!data.ocr) missingList.push({ type: 'ocr', label: 'Bộ công cụ OCR phụ đề' });
@@ -8225,9 +8194,9 @@ async function downloadAllMissingDependencies() {
         await fetch('/api/download-whisper-model', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variant: 'medium-q8' })
+          body: JSON.stringify({ model: 'large-v3-turbo' })
         });
-        await pollProgress('/api/whisper-model/status?variant=medium-q8', updateProgress, (d) => d.exists || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
+        await pollProgress('/api/whisper-model/status', updateProgress, (d) => d.exists || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
       } else if (item.type === 'separator') {
         await fetch('/api/download-dependency', {
           method: 'POST',
@@ -9167,11 +9136,11 @@ function showDependencyModal(type, callback) {
     desc.textContent = 'Hệ thống cần tải thêm các thư viện CUDA (cublas, cudart...) để kích hoạt tăng tốc GPU, giúp render/thuyết minh nhanh gấp 5-10 lần. Dung lượng tải khoảng ~480MB.';
     sizeText.textContent = 'Dung lượng: ~480 MB';
   } else if (type === 'whisper') {
-    title.textContent = '📥 Tải xuống công cụ Whisper';
+    title.textContent = '📥 Tải Faster-Whisper';
     icon.textContent = '🎙️';
-    name.textContent = 'Công cụ nhận diện giọng nói Whisper';
-    desc.textContent = 'Hệ thống cần tải công cụ Whisper ONNX Runtime (whisper_onnx.exe) để thực hiện nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng tải khoảng ~90MB.';
-    sizeText.textContent = 'Dung lượng: ~90 MB';
+    name.textContent = 'Faster-Whisper Large V3 Turbo';
+    desc.textContent = 'Model nhận diện giọng nói chính của phần mềm, chạy CUDA khi có GPU NVIDIA và tự tiếp tục bằng CPU int8 khi cần.';
+    sizeText.textContent = 'Dung lượng: ~1,51 GB';
   } else if (type === 'separator') {
     title.textContent = '📥 Tải xuống MDX ONNX';
     icon.textContent = '🎵';
@@ -9358,7 +9327,7 @@ async function startSetupDownload(type) {
 
   try {
     const downloadUrl = type === 'whisper' ? '/api/download-whisper-model' : '/api/download-dependency';
-    const requestBody = type === 'whisper' ? { variant: 'q8' } : { type };
+    const requestBody = type === 'whisper' ? { model: 'large-v3-turbo' } : { type };
     const res = await fetch(downloadUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -9400,7 +9369,7 @@ function pollSetupDownload(type) {
     const interval = setInterval(async () => {
       try {
         const progressUrl = type === 'whisper'
-          ? '/api/whisper-model/status?variant=q8'
+          ? '/api/whisper-model/status'
           : '/api/download-dependency-progress';
         const pRes = await fetch(progressUrl);
         if (!pRes.ok) return;

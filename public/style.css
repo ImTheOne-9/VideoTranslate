@@ -3255,8 +3255,7 @@ select option {
 }
 
 .ocr-mode-btn,
-.subtitle-engine-btn,
-.whisper-onnx-variant-btn {
+.subtitle-engine-btn {
   min-width: 0;
   height: 32px;
   padding: 0 6px;
@@ -3270,15 +3269,13 @@ select option {
 }
 
 .ocr-mode-btn:hover,
-.subtitle-engine-btn:hover,
-.whisper-onnx-variant-btn:hover {
+.subtitle-engine-btn:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.05);
 }
 
 .ocr-mode-btn.active,
-.subtitle-engine-btn.active,
-.whisper-onnx-variant-btn.active {
+.subtitle-engine-btn.active {
   color: #fff;
   background: var(--accent);
 }

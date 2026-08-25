@@ -9,7 +9,7 @@ const {
 
 test('default ASR registry includes Faster Whisper and ONNX fallback', () => {
   const ids = createDefaultAsrEngineRegistry().list().map((engine) => engine.id);
-  assert.deepEqual(ids, ['whisper-onnx', 'faster-whisper']);
+  assert.deepEqual(ids, ['faster-whisper', 'whisper-onnx']);
 });
 
 test('ASR registry resolves adapters and rejects unknown engines', () => {

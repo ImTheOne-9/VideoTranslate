@@ -1138,36 +1138,24 @@ function startStatusPolling() {
 // Whisper Model Management & Downloading
 let whisperDownloadInterval = null;
 let isDownloadingWhisper = false;
-let activeWhisperOnnxVariant = 'medium-q8';
+const FASTER_WHISPER_MODEL_ID = 'large-v3-turbo';
+const FASTER_WHISPER_MODEL_LABEL = 'FASTER-WHISPER LARGE V3 TURBO';
 
-function normalizeWhisperOnnxVariant(value) {
-  const variant = String(value || '').trim().toLowerCase();
-  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'medium-q8';
-}
-
-function getWhisperOnnxVariantLabel(value) {
-  const variant = normalizeWhisperOnnxVariant(value);
-  return variant === 'medium-q8' ? 'MEDIUM Q8' : `SMALL ${variant.toUpperCase()}`;
-}
-
-function openWhisperDownloadModal(requestedVariant) {
+function openWhisperDownloadModal() {
   const modal = $('whisper-download-modal');
   if (modal) modal.classList.remove('hidden');
-  
-  const modelSelect = $('whisper-model-select');
-  activeWhisperOnnxVariant = normalizeWhisperOnnxVariant(requestedVariant || modelSelect?.value);
-  
+
   const modelNameEl = $('whisper-download-model-name');
   if (modelNameEl) {
-    modelNameEl.textContent = getWhisperOnnxVariantLabel(activeWhisperOnnxVariant);
+    modelNameEl.textContent = FASTER_WHISPER_MODEL_LABEL;
   }
-  
-  fetch(`/api/whisper-model/status?variant=${activeWhisperOnnxVariant}`)
+
+  fetch('/api/whisper-model/status')
     .then(res => res.json())
     .then(status => {
-      updateWhisperDownloadUI(status, activeWhisperOnnxVariant);
+      updateWhisperDownloadUI(status);
       if (status.downloading) {
-        startWhisperStatusPolling(activeWhisperOnnxVariant);
+        startWhisperStatusPolling();
       }
     })
     .catch(err => console.error(err));
@@ -1182,7 +1170,7 @@ function closeWhisperDownloadModal() {
   if (modal) modal.classList.add('hidden');
 }
 
-function updateWhisperDownloadUI(status, variant) {
+function updateWhisperDownloadUI(status) {
   const statusLabel = $('whisper-download-status-label');
   const percentLabel = $('whisper-download-percent-label');
   const progressBar = $('whisper-download-progress-bar');
@@ -1192,12 +1180,7 @@ function updateWhisperDownloadUI(status, variant) {
   const cancelBtn = $('whisper-download-cancel-btn');
   const closeBtn = $('whisper-download-close');
 
-  const whisperSizes = {
-    q8: '252 MB',
-    fp32: '971 MB',
-    'medium-q8': '944 MB'
-  };
-  const targetSize = whisperSizes[variant] || '...';
+  const targetSize = '1.51 GB';
   if (sizeLabel) sizeLabel.textContent = `Kích thước: ~${targetSize}`;
 
   if (status.downloading) {
@@ -1285,18 +1268,16 @@ function updateWhisperDownloadUI(status, variant) {
 }
 
 function startWhisperDownload() {
-  const variant = activeWhisperOnnxVariant;
-  
   fetch('/api/download-whisper-model', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ variant })
+    body: JSON.stringify({ model: FASTER_WHISPER_MODEL_ID })
   })
     .then(res => res.json())
     .then(data => {
       if (data.success) {
         toast('🚀 Bắt đầu tải bộ nhận diện giọng nói AI...', 'info');
-        startWhisperStatusPolling(variant);
+        startWhisperStatusPolling();
       }
     })
     .catch(err => {
@@ -1304,18 +1285,18 @@ function startWhisperDownload() {
     });
 }
 
-function startWhisperStatusPolling(variant) {
+function startWhisperStatusPolling() {
   if (whisperDownloadInterval) clearInterval(whisperDownloadInterval);
   
   whisperDownloadInterval = setInterval(() => {
-    fetch(`/api/whisper-model/status?variant=${variant}`)
+    fetch('/api/whisper-model/status')
       .then(res => res.json())
       .then(status => {
-        updateWhisperDownloadUI(status, variant);
+        updateWhisperDownloadUI(status);
         if (!status.downloading) {
           clearInterval(whisperDownloadInterval);
           if (status.exists) {
-            toast(`🎉 Tải xuống model AI ${getWhisperOnnxVariantLabel(variant)} thành công!`, 'success');
+            toast(`🎉 Tải ${FASTER_WHISPER_MODEL_LABEL} thành công!`, 'success');
             checkWhisperModelStatus();
           } else if (status.error) {
             toast('❌ Lỗi khi tải model AI: ' + status.error, 'error');
@@ -1332,12 +1313,11 @@ function startWhisperStatusPolling(variant) {
 async function checkWhisperModelStatus() {
   const modelSelect = $('whisper-model-select');
   if (!modelSelect) return;
-  const variant = normalizeWhisperOnnxVariant(modelSelect.value);
   const statusLabel = $('whisper-model-status');
   const downloadBtn = $('whisper-model-download-btn');
 
   try {
-    const res = await fetch(`/api/whisper-model/status?variant=${variant}`);
+    const res = await fetch('/api/whisper-model/status');
     if (!res.ok) throw new Error('Không thể kiểm tra trạng thái model');
     const status = await res.json();
     
@@ -1360,7 +1340,7 @@ async function checkWhisperModelStatus() {
           downloadBtn.textContent = '⏳ Đang tải...';
           downloadBtn.disabled = true;
         }
-        startWhisperStatusPolling(variant);
+        startWhisperStatusPolling();
       } else {
         if (statusLabel) {
           statusLabel.textContent = status.state === 'corrupt' ? 'Model bị lỗi — cần sửa' : 'Chưa tải';

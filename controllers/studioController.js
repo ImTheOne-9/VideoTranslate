@@ -518,7 +518,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       ...(body.whisperLanguage ? { whisperLanguage: body.whisperLanguage } : {}),
       whisperTimestampLevel: body.whisperTimestampLevel === 'word' ? 'word' : 'segment',
       whisperDevice: ['auto', 'cpu', 'cuda', 'dml'].includes(body.whisperDevice) ? body.whisperDevice : 'auto',
-      whisperBackend: body.whisperBackend === 'whisper-onnx' ? 'whisper-onnx' : 'faster-whisper',
+      whisperBackend: 'faster-whisper',
       ocrLanguage: body.ocrLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,

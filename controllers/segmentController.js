@@ -432,8 +432,9 @@ async function retryAsrSegment(req, res) {
 
     owner = `asr-retry:${task.id}:${segment.id}`;
     activeAsrRetries.set(task.id, owner);
-    const engine = asrEngineRegistry.resolve(manifest.asr.engineId, DEFAULT_ASR_ENGINE_ID);
-    const variant = manifest.asr.engineId === DEFAULT_ASR_ENGINE_ID
+    const engineId = manifest.asr.engineId || DEFAULT_ASR_ENGINE_ID;
+    const engine = asrEngineRegistry.resolve(engineId, DEFAULT_ASR_ENGINE_ID);
+    const variant = engineId === 'whisper-onnx'
       ? (manifest.asr.variant || task.body?.whisperOnnxVariant || 'q8')
       : 'q8';
     const result = await engine.transcribeSegment({

@@ -459,10 +459,24 @@ def ensure_runtime_health(model_root: str) -> None:
         raise RuntimeError(f"ONNX Runtime dùng cho Silero VAD bị lỗi: {error}") from error
 
 
+def resolve_local_model(model_root: str, model_name: str) -> str:
+    root = Path(model_root).resolve()
+    required = ("config.json", "model.bin", "preprocessor_config.json", "tokenizer.json", "vocabulary.json")
+    candidates = [root / model_name]
+    cache_snapshots = root / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo" / "snapshots"
+    if cache_snapshots.is_dir():
+        candidates.extend(path for path in cache_snapshots.iterdir() if path.is_dir())
+    for candidate in candidates:
+        if all((candidate / name).is_file() for name in required):
+            return str(candidate)
+    return model_name
+
+
 def load_model(WhisperModel, args: argparse.Namespace, device: str, compute_type: str):
     emit("loading_model", model=args.model, device=device, computeType=compute_type)
     started = time.perf_counter()
-    model = WhisperModel(args.model, device=device, compute_type=compute_type,
+    model_source = resolve_local_model(args.model_root, args.model)
+    model = WhisperModel(model_source, device=device, compute_type=compute_type,
                          download_root=str(Path(args.model_root).resolve()), local_files_only=args.local_files_only)
     emit("model_loaded", seconds=round(time.perf_counter() - started, 3), device=device)
     return model
