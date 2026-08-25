@@ -35,6 +35,7 @@ const requiredFiles = [
   'tools/crawler/requirements-crawler.txt',
   'tools/crawler/install-ocr-gpu.py',
   'tools/crawler/setup-runtime.ps1',
+  'tools/crawler/setup-piper-runtime.ps1',
   'tools/crawler/app/tai_ytdlp.py',
   'tools/crawler/app/tim_anh.py',
   'tools/crawler/app/mo_dang_nhap.py',
@@ -70,7 +71,7 @@ const crawlerResource = (packageJson.build?.extraResources || [])
   .find((entry) => entry.from === 'tools/crawler/');
 check(Boolean(crawlerResource), 'Thiếu extraResources cho tools/crawler/.');
 const crawlerFilters = crawlerResource?.filter || [];
-for (const filename of ['requirements-crawler.txt', 'install-ocr-gpu.py', 'setup-runtime.ps1']) {
+for (const filename of ['requirements-crawler.txt', 'install-ocr-gpu.py', 'setup-runtime.ps1', 'setup-piper-runtime.ps1']) {
   check(crawlerFilters.includes(filename), `extraResources chưa chứa tools/crawler/${filename}`);
 }
 for (const pattern of [

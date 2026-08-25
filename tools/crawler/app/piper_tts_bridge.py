@@ -276,13 +276,18 @@ def main():
         try:
             import piper  # noqa: F401
             import audiostretchy  # noqa: F401
+            import vietnormalizer  # noqa: F401
             providers = []
             try:
                 import onnxruntime as ort
+                ort.SessionOptions()
                 providers = list(ort.get_available_providers())
             except Exception:
-                pass
-            emit({"ok": True, "providers": providers})
+                raise
+            emit({"ok": True, "providers": providers, "dependencies": {
+                "piper": True, "audiostretchy": True, "vietnormalizer": True,
+                "onnxruntime": True,
+            }})
             return 0
         except Exception as error:
             emit({"ok": False, "error": str(error)})

@@ -471,6 +471,7 @@ async function loadAssets() {
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
   renderVoiceEngineOptions(assets.voiceEngines || [], assets.defaultVoiceEngineId);
+  await refreshPiperRuntimeStatusForUi();
   const omiStatusEl = $('omi-status');
   if (omiStatusEl) {
     if (assets.omiConfigured) {
@@ -1412,6 +1413,7 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 initOcrRegionOverlay();
 
 let rapidOcrRuntimeInstallPromise = null;
+let piperRuntimeInstallPromise = null;
 let rapidOcrGpuInstallPromise = null;
 
 function updateRapidOcrGpuUi(status = {}) {
@@ -1453,23 +1455,85 @@ function updateRapidOcrGpuUi(status = {}) {
   button.disabled = false;
 }
 
-$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+function updatePiperRuntimeUi(status = {}) {
   const button = $('voice-runtime-install-btn');
+  if (!button) return;
+  const ready = status.ready === true;
+  const installing = status.installing === true || status.status === 'installing';
+  button.classList.toggle('hidden', ready);
+  button.disabled = installing;
+  if (installing) button.textContent = `Đang cài Piper… ${Math.max(0, Number(status.percent) || 0)}%`;
+  else if (status.pythonExists || status.markerExists || status.status === 'error') button.textContent = 'Sửa Piper offline';
+  else button.textContent = 'Cài Piper offline';
+  button.title = ready
+    ? 'Piper đã sẵn sàng.'
+    : (status.error || status.message || 'Cài riêng runtime Piper offline.');
+}
+
+async function readPiperRuntimeStatus() {
+  const response = await fetch('/api/piper-runtime/status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được Piper.');
+  return status;
+}
+
+async function refreshPiperRuntimeStatusForUi() {
   try {
-    if (button) {
-      button.disabled = true;
-      button.textContent = 'Đang cài runtime…';
-    }
-    await installRapidOcrRuntime('Piper');
-    await loadAssets();
-    toast('Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+    const status = await readPiperRuntimeStatus();
+    updatePiperRuntimeUi(status);
+    return status;
   } catch (error) {
-    toast(error.message, 'error');
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Cài Piper offline';
+    updatePiperRuntimeUi({ status: 'error', error: error.message });
+    return null;
+  }
+}
+
+async function installPiperRuntime() {
+  if (piperRuntimeInstallPromise) return piperRuntimeInstallPromise;
+  piperRuntimeInstallPromise = (async () => {
+    let status = await readPiperRuntimeStatus();
+    updatePiperRuntimeUi(status);
+    if (status.ready) return status;
+    const force = status.pythonExists === true || status.markerExists === true;
+    const response = await fetch('/api/piper-runtime/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không thể cài hoặc sửa Piper.');
+    updatePiperRuntimeUi(result);
+    toast(force ? 'Đang kiểm tra và sửa Piper offline…' : 'Đang cài Piper offline…', 'info');
+
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      status = await readPiperRuntimeStatus();
+      updatePiperRuntimeUi(status);
+      if ($('render-status') && status.message) $('render-status').textContent = status.message;
+      if (status.ready) return status;
+      if (!status.installing && status.status === 'error') {
+        throw new Error(status.error || status.message || 'Cài Piper thất bại.');
+      }
     }
+    throw new Error('Cài Piper quá thời gian chờ.');
+  })();
+  try {
+    return await piperRuntimeInstallPromise;
+  } finally {
+    piperRuntimeInstallPromise = null;
+  }
+}
+
+$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+  try {
+    const status = await installPiperRuntime();
+    await loadAssets();
+    toast(status.defaultModel?.ready
+      ? 'Piper offline và giọng mặc định đã sẵn sàng.'
+      : 'Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+  } catch (error) {
+    updatePiperRuntimeUi({ status: 'error', error: error.message });
+    toast(error.message, 'error');
   }
 });
 

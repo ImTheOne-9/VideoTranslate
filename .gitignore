@@ -15,6 +15,7 @@ tools/*
 tools/crawler/*
 !tools/crawler/requirements-crawler.txt
 !tools/crawler/setup-runtime.ps1
+!tools/crawler/setup-piper-runtime.ps1
 !tools/crawler/install-ocr-gpu.py
 !tools/crawler/app/
 tools/crawler/app/*

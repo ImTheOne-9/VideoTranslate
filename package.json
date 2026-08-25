@@ -95,6 +95,7 @@
           "README.md",
           "install-ocr-gpu.py",
           "setup-runtime.ps1",
+          "setup-piper-runtime.ps1",
           "runtime/**/*"
         ]
       },

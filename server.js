@@ -15,6 +15,7 @@ const platformBrowserExtractor = require('./lib/platform-browser-extractor');
 const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
 const { ProjectYtDlpAdapter } = require('./lib/project-ytdlp-adapter');
 const { CrawlerRuntimeManager } = require('./lib/crawler-runtime-manager');
+const { PiperRuntimeManager } = require('./lib/piper-runtime-manager');
 const { OcrGpuManager } = require('./lib/ocr-gpu-manager');
 const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
@@ -42,6 +43,7 @@ function createCookieSyncResolver(platform) {
 const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const crawlerRuntimeManager = new CrawlerRuntimeManager();
+const piperRuntimeManager = new PiperRuntimeManager();
 const ocrGpuManager = new OcrGpuManager({
   runtimeReady: () => crawlerRuntimeManager.ready(),
   isBusy: () => shared.state.isStudioRendering === true
@@ -422,6 +424,23 @@ app.post('/api/download-crawl/runtime-install', (req, res) => {
     res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
   } catch (error) {
     res.status(500).json({ error: error.message || 'Không thể cài runtime crawler.' });
+  }
+});
+app.get('/api/piper-runtime/status', (req, res) => {
+  try {
+    res.json(piperRuntimeManager.status());
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không kiểm tra được Piper.' });
+  }
+});
+app.post('/api/piper-runtime/install', (req, res) => {
+  try {
+    const result = piperRuntimeManager.install({ force: req.body?.force === true }, (message, level) => {
+      downloadCrawlManager._log(`[Piper Runtime] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không thể cài hoặc sửa Piper.' });
   }
 });
 app.get('/api/rapidocr-gpu/status', async (req, res) => {

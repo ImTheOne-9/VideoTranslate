@@ -73,3 +73,10 @@ test('packaging keeps the complete RapidOCR source and runtime dependencies', ()
     assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'viral_ocr', filename)), true);
   }
 });
+
+test('packaging includes the dedicated Piper installer and bridge', () => {
+  const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
+  assert.ok(crawler.filter.includes('setup-piper-runtime.ps1'));
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'setup-piper-runtime.ps1')), true);
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'piper_tts_bridge.py')), true);
+});
