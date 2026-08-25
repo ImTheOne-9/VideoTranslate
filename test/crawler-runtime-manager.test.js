@@ -34,7 +34,7 @@ test('runtime manager launches project setup with bundled uv and AppData runtime
   }
 });
 
-test('runtime readiness requires the OCR dependency marker', () => {
+test('runtime readiness requires OCR, voice, and ASR dependency markers', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-runtime-ready-'));
   try {
     const runtimeRoot = path.join(root, 'user', 'runtime');
@@ -53,6 +53,8 @@ test('runtime readiness requires the OCR dependency marker', () => {
     assert.equal(manager.ready(), false);
     fs.writeFileSync(path.join(runtimeRoot, 'ocr-runtime-v3.json'), '{}');
     fs.writeFileSync(path.join(runtimeRoot, 'voice-runtime-v3.json'), '{}');
+    assert.equal(manager.ready(), false);
+    fs.writeFileSync(path.join(runtimeRoot, 'asr-runtime-v1.json'), '{}');
     assert.equal(manager.ready(), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

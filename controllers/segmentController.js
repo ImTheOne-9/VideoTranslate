@@ -396,9 +396,9 @@ async function retryAsrSegment(req, res) {
       );
     }
     const manifest = segmentService.load(task.workDir);
-    if (!manifest?.asr || manifest.asr.engineId !== DEFAULT_ASR_ENGINE_ID) {
+    if (!manifest?.asr || !asrEngineRegistry.list().some((engine) => engine.id === manifest.asr.engineId)) {
       throw new SegmentServiceError(
-        'Task này không có dữ liệu nguồn từ Whisper ONNX',
+        'Task này không có dữ liệu nguồn từ Whisper được hỗ trợ',
         'ASR_METADATA_MISSING',
         409
       );
@@ -433,7 +433,9 @@ async function retryAsrSegment(req, res) {
     owner = `asr-retry:${task.id}:${segment.id}`;
     activeAsrRetries.set(task.id, owner);
     const engine = asrEngineRegistry.resolve(manifest.asr.engineId, DEFAULT_ASR_ENGINE_ID);
-    const variant = manifest.asr.variant || task.body?.whisperOnnxVariant || 'q8';
+    const variant = manifest.asr.engineId === DEFAULT_ASR_ENGINE_ID
+      ? (manifest.asr.variant || task.body?.whisperOnnxVariant || 'q8')
+      : 'q8';
     const result = await engine.transcribeSegment({
       audioPath,
       modelPath: resolveWhisperModelPath(variant),

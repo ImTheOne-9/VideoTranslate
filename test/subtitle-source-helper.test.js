@@ -98,7 +98,11 @@ test('force Whisper skips every OCR dependency and preserves exact Whisper argum
       options.whisperModel,
       options.durationMs,
       options.ocrLanguage,
-      options.whisperOnnxVariant
+      options.whisperOnnxVariant,
+      undefined,
+      'segment',
+      'auto',
+      'faster-whisper'
     ]]);
     assert.deepEqual(result, {
       path: path.join(options.workDir, 'whisper.srt'),
@@ -389,7 +393,11 @@ test('VSE no-subtitles result falls back to Whisper', async () => {
       options.whisperModel,
       options.durationMs,
       options.ocrLanguage,
-      options.whisperOnnxVariant
+      options.whisperOnnxVariant,
+      undefined,
+      'segment',
+      'auto',
+      'faster-whisper'
     ]]);
     assert.deepEqual(result, {
       path: path.join(options.workDir, 'fallback.srt'),

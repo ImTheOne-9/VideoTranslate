@@ -1386,10 +1386,18 @@
                         <span class="form-hint">Chế độ theo từ lưu timing từng từ trong file metadata nhưng vẫn tạo SRT dễ đọc.</span>
                       </div>
                       <div class="form-group whisper-engine-settings" style="display: none !important;">
+                        <label for="whisper-backend-select">Bộ máy Whisper</label>
+                        <select id="whisper-backend-select" name="whisperBackend" class="premium-select">
+                          <option value="faster-whisper" selected>Faster Whisper Large V3 Turbo — khuyên dùng</option>
+                          <option value="whisper-onnx">Whisper ONNX cũ — dự phòng</option>
+                        </select>
+                      </div>
+                      <div class="form-group whisper-engine-settings" style="display: none !important;">
                         <label for="whisper-device-select">Thiết bị Whisper</label>
                         <select id="whisper-device-select" name="whisperDevice" class="premium-select">
-                          <option value="cpu" selected>CPU — ổn định</option>
-                          <option value="auto">Tự động — ưu tiên DirectML</option>
+                          <option value="auto" selected>Tự động — ưu tiên CUDA</option>
+                          <option value="cuda">CUDA GPU</option>
+                          <option value="cpu">CPU — Large V3 Turbo int8</option>
                           <option value="dml" id="whisper-device-dml-option">DirectML GPU</option>
                         </select>
                         <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>

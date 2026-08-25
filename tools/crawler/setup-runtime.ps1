@@ -57,7 +57,7 @@ if ($Uv) {
 }
 $env:PLAYWRIGHT_BROWSERS_PATH = $playwrightRoot
 & $venvPython -m playwright install chromium
-& $venvPython -c "import numpy as np, yt_dlp, playwright, httpx, pydantic, cv2, onnxruntime as ort, rapidocr, rapidocr_onnxruntime, zhconv, piper, audiostretchy, vietnormalizer; ort.SessionOptions(); e=rapidocr.RapidOCR(); e(np.zeros((64,320,3),dtype=np.uint8)); print('VIDEO_STUDIO_CRAWLER_OCR_AND_VOICE_RUNTIME_OK')"
+& $venvPython -c "import numpy as np, yt_dlp, playwright, httpx, pydantic, cv2, onnxruntime as ort, rapidocr, rapidocr_onnxruntime, zhconv, piper, audiostretchy, vietnormalizer, faster_whisper, ctranslate2; ort.SessionOptions(); e=rapidocr.RapidOCR(); e(np.zeros((64,320,3),dtype=np.uint8)); print('VIDEO_STUDIO_CRAWLER_OCR_VOICE_AND_ASR_RUNTIME_OK')"
 & $venvPython -c "import onnxruntime, rapidocr; print('VIDEO_STUDIO_OCR_PROVIDERS=' + ','.join(onnxruntime.get_available_providers()))"
 
 $runtimeMarker = Join-Path $RuntimeRoot "ocr-runtime-v3.json"
@@ -79,5 +79,16 @@ $voiceMarkerData = @{
   piperTextNormalization = "vietnormalizer-0.2.3"
 } | ConvertTo-Json
 Set-Content -LiteralPath $voiceRuntimeMarker -Value $voiceMarkerData -Encoding UTF8
+
+$asrRuntimeMarker = Join-Path $RuntimeRoot "asr-runtime-v1.json"
+$asrMarkerData = @{
+  version = 1
+  installedAt = (Get-Date).ToUniversalTime().ToString("o")
+  engine = "faster-whisper"
+  model = "large-v3-turbo"
+  modelOnDemand = $true
+  fallback = "whisper-onnx-cpu"
+} | ConvertTo-Json
+Set-Content -LiteralPath $asrRuntimeMarker -Value $asrMarkerData -Encoding UTF8
 
 Write-Host "Runtime crawler đã sẵn sàng tại $RuntimeRoot"
