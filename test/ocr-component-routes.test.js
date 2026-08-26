@@ -289,6 +289,10 @@ test('server retains executable dependency and Whisper route registrations', () 
   assert.equal(executableRoutes.includes(
     "app.post('/api/download-whisper-model', systemController.downloadWhisperModel);"
   ), true);
+  assert.equal(executableRoutes.some((line) => line.startsWith("app.get('/api/system-runtime/status'")), true);
+  assert.equal(executableRoutes.some((line) => line.startsWith("app.post('/api/system-runtime/install'")), true);
+  assert.equal(executableRoutes.some((line) => line.startsWith("app.get('/api/whisper-gpu/status'")), true);
+  assert.equal(executableRoutes.some((line) => line.startsWith("app.post('/api/whisper-gpu/install'")), true);
 });
 
 test('OCR download progress is exempt from the global API rate limiter', () => {

@@ -47,7 +47,7 @@ asyncpg>=0.31.0
 yt-dlp>=2026.7.4
 curl_cffi==0.15.0
 
-# ASR nhanh: CTranslate2 dùng CUDA trên NVIDIA; máy không có CUDA sẽ để
-# whisper-helper tự động quay về Whisper ONNX CPU.
+# ASR nhanh: CTranslate2 dùng CUDA trên NVIDIA; máy không có CUDA sẽ chạy
+# cùng model Large V3 Turbo bằng CPU int8.
 faster-whisper==1.2.1
 ctranslate2==4.8.0

@@ -14,9 +14,10 @@ const douyinExtractor = require('./lib/douyin-extractor');
 const platformBrowserExtractor = require('./lib/platform-browser-extractor');
 const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
 const { ProjectYtDlpAdapter } = require('./lib/project-ytdlp-adapter');
-const { CrawlerRuntimeManager } = require('./lib/crawler-runtime-manager');
+const { systemRuntimeManager: crawlerRuntimeManager } = require('./lib/system-runtime-manager');
 const { PiperRuntimeManager } = require('./lib/piper-runtime-manager');
 const { OcrGpuManager } = require('./lib/ocr-gpu-manager');
+const { WhisperGpuManager } = require('./lib/whisper-gpu-manager');
 const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
 
@@ -42,10 +43,15 @@ function createCookieSyncResolver(platform) {
 
 const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
-const crawlerRuntimeManager = new CrawlerRuntimeManager();
 const piperRuntimeManager = new PiperRuntimeManager();
 const ocrGpuManager = new OcrGpuManager({
-  runtimeReady: () => crawlerRuntimeManager.ready(),
+  runtimeReady: () => crawlerRuntimeManager.ready('ocr'),
+  isBusy: () => shared.state.isStudioRendering === true
+});
+const whisperGpuManager = new WhisperGpuManager({
+  modelsDir: shared.MODELS_DIR,
+  runtimeReady: () => crawlerRuntimeManager.ready('asr'),
+  modelReady: () => require('./lib/model-downloader').getFasterWhisperReadiness(shared.MODELS_DIR).exists,
   isBusy: () => shared.state.isStudioRendering === true
 });
 
@@ -155,6 +161,7 @@ const RATE_LIMIT_EXEMPT_PATHS = new Set([
   '/api/mdx-cuda-component/download-status',
   '/api/download-crawl/status',
   '/api/rapidocr-gpu/status',
+  '/api/whisper-gpu/status',
   '/api/proxy-image',
   '/api/update-status'
 ]);
@@ -415,15 +422,29 @@ app.get('/api/download-crawl/capabilities', (req, res) => {
   res.json({ platforms: downloadCrawlManager.capabilities(), engine: mediaCrawler.status(), engines: [mediaCrawler.status(), projectYtDlp.status()] });
 });
 app.get('/api/download-crawl/engine-status', (req, res) => res.json({ mediaCrawler: mediaCrawler.status(), projectYtDlp: projectYtDlp.status() }));
-app.get('/api/download-crawl/runtime-status', (req, res) => res.json(crawlerRuntimeManager.status()));
+app.get('/api/system-runtime/status', (req, res) => {
+  res.json(crawlerRuntimeManager.status(String(req.query.capability || 'crawler')));
+});
+app.post('/api/system-runtime/install', (req, res) => {
+  try {
+    const capability = String(req.body?.capability || 'crawler');
+    const result = crawlerRuntimeManager.install(capability, (message, level) => {
+      downloadCrawlManager._log(`[System Runtime] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không thể cài bộ công cụ hệ thống.' });
+  }
+});
+app.get('/api/download-crawl/runtime-status', (req, res) => res.json(crawlerRuntimeManager.status('crawler')));
 app.post('/api/download-crawl/runtime-install', (req, res) => {
   try {
-    const result = crawlerRuntimeManager.install((message, level) => {
+    const result = crawlerRuntimeManager.install('crawler', (message, level) => {
       downloadCrawlManager._log(`[Runtime] ${message}`, level);
     });
     res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Không thể cài runtime crawler.' });
+    res.status(500).json({ error: error.message || 'Không thể thiết lập công cụ cào nâng cao.' });
   }
 });
 app.get('/api/piper-runtime/status', (req, res) => {
@@ -458,6 +479,23 @@ app.post('/api/rapidocr-gpu/install', (req, res) => {
     res.status(result.started || result.alreadyRunning ? 202 : 200).json(result);
   } catch (error) {
     res.status(error.code === 'OCR_GPU_BUSY' ? 409 : 400).json({ error: error.message });
+  }
+});
+app.get('/api/whisper-gpu/status', async (req, res) => {
+  try {
+    res.json(await whisperGpuManager.refresh());
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không kiểm tra được Whisper GPU.' });
+  }
+});
+app.post('/api/whisper-gpu/install', (req, res) => {
+  try {
+    const result = whisperGpuManager.install((message, level) => {
+      downloadCrawlManager._log(`[Whisper GPU] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(error.code === 'WHISPER_GPU_BUSY' ? 409 : 400).json({ error: error.message });
   }
 });
 app.post('/api/download-crawl/preview', async (req, res) => {

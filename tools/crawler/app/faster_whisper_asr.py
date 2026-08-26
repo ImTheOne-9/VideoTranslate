@@ -15,7 +15,6 @@ import math
 import os
 import re
 import shutil
-import site
 import subprocess
 import sys
 import tempfile
@@ -75,23 +74,8 @@ def read_json(path: str | Path | None) -> dict:
 
 
 def add_nvidia_dll_directories() -> list[str]:
-    candidates: list[Path] = []
-    for root in [*site.getsitepackages(), site.getusersitepackages()]:
-        base = Path(root) / "nvidia"
-        if base.is_dir():
-            candidates.extend(path for path in base.glob("*/bin") if path.is_dir())
-    added: list[str] = []
-    for candidate in candidates:
-        value = str(candidate.resolve())
-        try:
-            if hasattr(os, "add_dll_directory"):
-                os.add_dll_directory(value)
-            added.append(value)
-        except OSError:
-            continue
-    if added:
-        os.environ["PATH"] = os.pathsep.join([*added, os.environ.get("PATH", "")])
-    return added
+    from whisper_cuda_runtime import configure_cuda_dlls
+    return configure_cuda_dlls().get("directories", [])
 
 
 def normalize_language(value: str | None) -> str | None:
@@ -303,6 +287,11 @@ def requested_device(args: argparse.Namespace, ctranslate2) -> tuple[str, str]:
     if requested == "auto" and float(state.get("disabledUntil", 0) or 0) > time.time():
         emit("gpu_temporarily_disabled", state=state)
         return "cpu", "int8"
+    if requested == "auto" and args.gpu_state:
+        verified = read_json(Path(args.gpu_state).resolve().parent / "whisper-gpu-status.json")
+        if verified and not (verified.get("gpuReady") and verified.get("actualInference")):
+            emit("gpu_not_verified", reason=verified.get("reason"), detail=verified.get("detail"))
+            return "cpu", "int8"
     if ctranslate2.get_cuda_device_count() < 1:
         if requested == "cuda":
             raise RuntimeError("Không tìm thấy CUDA khả dụng cho faster-whisper")

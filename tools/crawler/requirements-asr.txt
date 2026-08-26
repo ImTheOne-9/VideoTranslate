@@ -1,0 +1,7 @@
+# Capability ASR tối thiểu dùng chung với runtime hệ thống.
+numpy>=1.26,<3
+ctranslate2==4.8.0
+av>=11
+huggingface-hub>=0.13
+tokenizers>=0.13,<1
+tqdm

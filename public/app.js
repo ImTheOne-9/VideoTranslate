@@ -1150,7 +1150,7 @@ const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
 const OCR_PIPELINES = new Set(['auto', 'viral', 'vse']);
 const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
-const WHISPER_DEVICES = new Set(['auto', 'cpu', 'cuda', 'dml']);
+const WHISPER_DEVICES = new Set(['auto', 'cpu', 'cuda']);
 const WHISPER_BACKENDS = new Set(['faster-whisper']);
 
 const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
@@ -1362,7 +1362,10 @@ document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
     if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
     input.value = button.dataset.subtitleEngine;
     const engine = updateSubtitleEngineUi();
-    if (engine !== 'whisper' && !usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
+    if (engine === 'whisper') {
+      checkWhisperModelStatus();
+      checkWhisperDeviceStatus();
+    } else if (!usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
       refreshOcrComponentStatusForUi();
     }
   });
@@ -1562,7 +1565,7 @@ function updateRapidOcrRuntimeUi({ visible, status } = {}) {
 }
 
 async function readRapidOcrRuntimeStatus() {
-  const response = await fetch('/api/download-crawl/runtime-status');
+  const response = await fetch('/api/system-runtime/status?capability=ocr');
   const status = await response.json();
   if (!response.ok) throw new Error(status.error || 'Không kiểm tra được runtime RapidOCR.');
   return status;
@@ -1590,7 +1593,11 @@ async function installRapidOcrRuntime(purpose = 'RapidOCR') {
       updateRapidOcrRuntimeUi({ visible: true, status });
       return true;
     }
-    const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const installResponse = await fetch('/api/system-runtime/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ capability: 'ocr' })
+    });
     const installResult = await installResponse.json();
     if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
     toast(`Đang cài/cập nhật runtime ${purpose}. Chỉ cần thực hiện một lần.`, 'info');
@@ -1739,10 +1746,14 @@ async function renderStudio(event) {
         const checkRes = await fetch('/api/whisper-model/status');
         const checkStatus = await checkRes.json();
         if (!checkRes.ok) throw new Error(checkStatus.error || 'Không thể kiểm tra model Whisper');
-        if (!checkStatus.exists) {
-          toast('Thiếu model Faster-Whisper Large V3 Turbo. Hãy tải model trước khi render.', 'warn');
-          if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal();
-          return;
+        if (!checkStatus.ready) {
+          toast('Faster-Whisper chưa đầy đủ. Đang tự cài runtime và model cần thiết…', 'info');
+          if (typeof window.ensureFasterWhisperReady !== 'function') {
+            throw new Error('Thiếu trình quản lý tài nguyên Faster-Whisper.');
+          }
+          await window.ensureFasterWhisperReady({ openModal: true });
+          if (typeof closeWhisperDownloadModal === 'function') closeWhisperDownloadModal();
+          toast('Faster-Whisper đã sẵn sàng, đang tiếp tục render.', 'success');
         }
       } catch (error) {
         toast(error.message, 'error');
@@ -3327,6 +3338,7 @@ function updateConditionalFields() {
     whisperModelWrapper.classList.toggle('hidden', !isGenerate);
     if (isGenerate) {
       checkWhisperModelStatus();
+      checkWhisperDeviceStatus();
     }
   }
 
@@ -6364,7 +6376,7 @@ async function crawlLoadCapabilities() {
     engineBadge.classList.toggle('unavailable', !ready && !projectReady);
     engineBadge.textContent = ready && projectReady
       ? 'MediaCrawler + Video Studio yt-dlp sẵn sàng'
-      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Crawler chưa sẵn sàng · hãy cài runtime';
+      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Chưa có công cụ cào nâng cao · hãy thiết lập hệ thống';
     installButton?.classList.toggle('hidden', ready || projectReady);
   }
   crawlUpdateCapabilities();
@@ -6377,8 +6389,8 @@ async function crawlInstallRuntime() {
   try {
     const response = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu cài bộ cào.');
-    toast(data.alreadyReady ? 'Bộ cào đã sẵn sàng.' : 'Đang cài bộ cào. Có thể theo dõi trong nhật ký.', 'success');
+    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu thiết lập bộ công cụ hệ thống.');
+    toast(data.alreadyReady ? 'Bộ công cụ hệ thống đã sẵn sàng.' : 'Đang thiết lập công cụ cào nâng cao. Có thể theo dõi trong nhật ký.', 'success');
     while (true) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const statusResponse = await fetch('/api/download-crawl/runtime-status');
@@ -6387,11 +6399,11 @@ async function crawlInstallRuntime() {
         ? `Đang cài crawler ${Number(status.percent || 0)}% · ${status.message || 'vui lòng chờ'}`
         : status.message || 'Đang kiểm tra crawler…';
       if (status.ready) {
-        toast('Đã cài xong bộ cào video.', 'success');
+        toast('Đã thiết lập xong công cụ cào video.', 'success');
         await crawlLoadCapabilities();
         break;
       }
-      if (status.status === 'error') throw new Error(status.message || 'Cài bộ cào thất bại.');
+      if (status.status === 'error') throw new Error(status.message || 'Thiết lập công cụ cào thất bại.');
     }
   } catch (error) {
     toast(error.message, 'error');
@@ -8013,12 +8025,17 @@ async function checkSystemConnections() {
       whisperDot.className = 'dot ok';
       whisperDot.style.background = 'var(--success)';
       whisperDot.style.boxShadow = '0 0 8px var(--success)';
-      whisperDesc.textContent = 'Đã sẵn sàng';
+      whisperDesc.textContent = 'Large V3 Turbo + runtime hệ thống đã sẵn sàng';
     } else {
       whisperDot.className = 'dot warn';
       whisperDot.style.background = 'var(--warn)';
       whisperDot.style.boxShadow = '0 0 8px var(--warn)';
-      whisperDesc.textContent = 'Thiếu Faster-Whisper Large V3 Turbo (~1,51 GB)';
+      const runtimeReady = data.whisperRuntime?.ready === true;
+      whisperDesc.textContent = runtimeReady
+        ? 'Thiếu model Faster-Whisper Large V3 Turbo (~1,51 GB)'
+        : data.whisperModel
+          ? 'Thiếu runtime Python/Faster-Whisper'
+          : 'Thiếu runtime và model Faster-Whisper';
       if (whisperAction) {
         whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">Tải</button>`;
       }
@@ -8196,7 +8213,7 @@ async function downloadAllMissingDependencies() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: 'large-v3-turbo' })
         });
-        await pollProgress('/api/whisper-model/status', updateProgress, (d) => d.exists || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
+        await pollProgress('/api/whisper-model/status', updateProgress, (d) => d.ready || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
       } else if (item.type === 'separator') {
         await fetch('/api/download-dependency', {
           method: 'POST',
@@ -9379,7 +9396,7 @@ function pollSetupDownload(type) {
               ...rawProgress,
               status: rawProgress.downloading
                 ? 'downloading'
-                : rawProgress.exists
+                : rawProgress.ready
                   ? 'success'
                   : rawProgress.error
                     ? 'error'

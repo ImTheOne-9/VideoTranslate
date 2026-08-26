@@ -254,7 +254,7 @@
               <div class="panel-head crawl-now-heading">
                 <div>
                   <h3>⚡ Cào ngay — tải video về máy</h3>
-                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Cài bộ cào</button></span>
+                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Thiết lập công cụ hệ thống</button></span>
                 </div>
                 <span class="crawl-now-status-pill" id="crawl-now-ready">Sẵn sàng</span>
               </div>
@@ -1375,7 +1375,7 @@
                           <option value="japan">Nhật</option>
                           <option value="korean">Hàn</option>
                         </select>
-                        <span class="form-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
+                        <span class="form-hint whisper-compact-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
                       </div>
                       <div class="form-group whisper-engine-settings" style="display: none !important;">
                         <label for="whisper-timestamp-level">Độ chi tiết timestamp</label>
@@ -1391,15 +1391,30 @@
                           <option value="faster-whisper" selected>Faster Whisper Large V3 Turbo</option>
                         </select>
                       </div>
-                      <div class="form-group whisper-engine-settings" style="display: none !important;">
+                      <div class="form-group whisper-engine-settings">
                         <label for="whisper-device-select">Thiết bị Whisper</label>
                         <select id="whisper-device-select" name="whisperDevice" class="premium-select">
                           <option value="auto" selected>Tự động — ưu tiên CUDA</option>
                           <option value="cuda">CUDA GPU</option>
                           <option value="cpu">CPU — Large V3 Turbo int8</option>
-                          <option value="dml" id="whisper-device-dml-option">DirectML GPU</option>
                         </select>
-                        <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>
+                        <span id="whisper-device-hint" class="form-hint whisper-compact-hint">Đang kiểm tra CUDA bằng inference thật...</span>
+                        <div id="whisper-runtime-row" class="rapidocr-mini-card">
+                          <div class="rapidocr-mini-row">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-status-dot"></span>
+                              <span id="whisper-runtime-status" class="rapidocr-status-text">Đang kiểm tra Faster Whisper...</span>
+                            </div>
+                            <button type="button" id="whisper-runtime-install-btn" class="mini-pill-btn">Tải Whisper</button>
+                          </div>
+                          <div id="whisper-gpu-row" class="rapidocr-mini-row rapidocr-gpu-divider">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-gpu-dot"></span>
+                              <span id="whisper-gpu-status" class="rapidocr-status-text">Đang kiểm tra Whisper GPU...</span>
+                            </div>
+                            <button type="button" id="whisper-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
+                          </div>
+                        </div>
                       </div>
                       <details class="ocr-region-details ocr-engine-settings ocr-region-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
@@ -3637,8 +3652,7 @@
                 style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;"
                 onclick="openWhisperDownloadModal()">📥 Tải</button>
             </div>
-            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Dùng để tự động nhận diện và trích xuất
-              phụ đề từ âm thanh video.</p>
+            <p id="whisper-runtime-detail" style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Hệ thống tự kiểm tra Python runtime, Faster-Whisper và model trước khi render.</p>
           </div>
 
           <!-- OCR Mode Configuration -->

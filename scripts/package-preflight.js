@@ -33,7 +33,10 @@ const requiredFiles = [
   'tools/omnivoice/omnivoice-server-cuda.exe',
   'tools/omnivoice/omnivoice-server-vulkan.exe',
   'tools/crawler/requirements-crawler.txt',
+  'tools/crawler/requirements-asr.txt',
+  'tools/crawler/requirements-ocr.txt',
   'tools/crawler/install-ocr-gpu.py',
+  'tools/crawler/install-whisper-gpu.py',
   'tools/crawler/setup-runtime.ps1',
   'tools/crawler/setup-piper-runtime.ps1',
   'tools/crawler/app/tai_ytdlp.py',
@@ -46,6 +49,7 @@ const requiredFiles = [
   'tools/crawler/app/piper_tts_bridge.py',
   'tools/crawler/app/audio_stretch_bridge.py',
   'tools/crawler/app/faster_whisper_asr.py',
+  'tools/crawler/app/whisper_cuda_runtime.py',
   'tools/crawler/app/viral_ocr/viral_ocr_cli.py',
   'tools/crawler/app/viral_ocr/ocr_text.py',
   'tools/crawler/app/viral_ocr/dai_sub_rapid.py',
@@ -71,7 +75,7 @@ const crawlerResource = (packageJson.build?.extraResources || [])
   .find((entry) => entry.from === 'tools/crawler/');
 check(Boolean(crawlerResource), 'Thiếu extraResources cho tools/crawler/.');
 const crawlerFilters = crawlerResource?.filter || [];
-for (const filename of ['requirements-crawler.txt', 'install-ocr-gpu.py', 'setup-runtime.ps1', 'setup-piper-runtime.ps1']) {
+for (const filename of ['requirements-crawler.txt', 'requirements-asr.txt', 'requirements-ocr.txt', 'install-ocr-gpu.py', 'install-whisper-gpu.py', 'setup-runtime.ps1', 'setup-piper-runtime.ps1']) {
   check(crawlerFilters.includes(filename), `extraResources chưa chứa tools/crawler/${filename}`);
 }
 for (const pattern of [
