@@ -184,6 +184,7 @@ test('studio markup exposes language, advanced region, and first-use download co
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   for (const id of [
     'ocr-settings-container',
+    'source-language-select',
     'ocr-language-select',
     'ocr-region-top',
     'ocr-region-bottom',
@@ -202,6 +203,8 @@ test('studio markup exposes language, advanced region, and first-use download co
     'rapidocr-gpu-row',
     'rapidocr-gpu-status',
     'rapidocr-gpu-install-btn',
+    'whisper-hybrid-fill',
+    'capcut-asr-enabled',
     'ocr-component-modal',
     'ocr-download-btn',
     'ocr-download-cancel-btn'
@@ -209,6 +212,7 @@ test('studio markup exposes language, advanced region, and first-use download co
     assert.match(html, new RegExp(`id=["']${id}["']`), `missing #${id}`);
   }
   assert.match(html, /name=["']ocrLanguage["']/);
+  assert.match(html, /name=["']sourceLanguage["']/);
   assert.match(html, /name=["']subtitleEngine["']/);
   assert.match(html, /name=["']ocrPipeline["']/);
   assert.match(html, /id=["']whisper-model-select["']/);

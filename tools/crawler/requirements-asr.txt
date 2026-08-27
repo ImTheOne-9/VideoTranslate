@@ -5,3 +5,4 @@ av>=11
 huggingface-hub>=0.13
 tokenizers>=0.13,<1
 tqdm
+requests>=2.31,<3

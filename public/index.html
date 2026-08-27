@@ -1329,17 +1329,28 @@
                       </div>
 
 
-                      <div class="form-group ocr-engine-settings">
-                        <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
-                        <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
-                          <option value="">Chọn ngôn ngữ...</option>
+                      <div class="form-group">
+                        <label for="source-language-select">Ngôn ngữ nguồn</label>
+                        <select id="source-language-select" name="sourceLanguage" class="premium-select">
+                          <option value="auto" selected>Tự động phát hiện — âm thanh + chữ trên hình</option>
                           <option value="ch">Trung</option>
                           <option value="vi">Việt</option>
                           <option value="en">Anh</option>
                           <option value="japan">Nhật</option>
                           <option value="korean">Hàn</option>
+                          <option value="th">Thái</option>
+                          <option value="id">Indonesia</option>
+                          <option value="es">Tây Ban Nha</option>
+                          <option value="fr">Pháp</option>
+                          <option value="de">Đức</option>
+                          <option value="ru">Nga</option>
+                          <option value="pt">Bồ Đào Nha</option>
+                          <option value="it">Ý</option>
                         </select>
+                        <span class="form-hint whisper-compact-hint">Tự động kiểm tra hardsub Trung bằng RapidOCR, ưu tiên CapCut ASR online và lùi Faster Whisper local khi cần.</span>
                       </div>
+                      <input type="hidden" id="ocr-language-select" name="ocrLanguage" value="auto">
+                      <input type="hidden" id="whisper-language-select" name="whisperLanguage" value="auto">
                       <div class="form-group ocr-engine-settings">
                         <label for="ocr-pipeline-value">Bộ OCR</label>
                         <select id="ocr-pipeline-value" name="ocrPipeline" class="premium-select">
@@ -1364,18 +1375,6 @@
                             <button type="button" id="rapidocr-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
                           </div>
                         </div>
-                      </div>
-                      <div class="form-group whisper-engine-settings">
-                        <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
-                        <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
-                          <option value="auto">Tự động phát hiện</option>
-                          <option value="ch">Trung</option>
-                          <option value="vi">Việt</option>
-                          <option value="en">Anh</option>
-                          <option value="japan">Nhật</option>
-                          <option value="korean">Hàn</option>
-                        </select>
-                        <span class="form-hint whisper-compact-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
                       </div>
                       <div class="form-group whisper-engine-settings" style="display: none !important;">
                         <label for="whisper-timestamp-level">Độ chi tiết timestamp</label>
@@ -1414,6 +1413,14 @@
                             </div>
                             <button type="button" id="whisper-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
                           </div>
+                          <label class="rapidocr-mini-row rapidocr-gpu-divider whisper-gap-fill-option">
+                            <span class="rapidocr-status-text">Whisper bù đoạn OCR thiếu (chỉ khi GPU sẵn sàng)</span>
+                            <input type="checkbox" id="whisper-hybrid-fill" name="whisperHybridFill" value="true">
+                          </label>
+                          <label class="rapidocr-mini-row rapidocr-gpu-divider whisper-gap-fill-option">
+                            <span class="rapidocr-status-text">Ưu tiên CapCut ASR online <small>(audio được tải lên CapCut)</small></span>
+                            <input type="checkbox" id="capcut-asr-enabled" name="capcutAsrEnabled" value="true" checked>
+                          </label>
                         </div>
                       </div>
                       <details class="ocr-region-details ocr-engine-settings ocr-region-settings">

@@ -6,6 +6,11 @@ const path = require('node:path');
 
 const {
   OcrComponentRequiredError,
+  cleanRapidOcrCues,
+  findSuspiciousOcrGaps,
+  isChannelOnlyCue,
+  mergeOcrAndWhisperCues,
+  normalizeSourceLanguage,
   resolveAutomaticSubtitle
 } = require('../lib/subtitle-source-helper');
 const { OcrTechnicalError } = require('../lib/vse-helper');
@@ -44,6 +49,8 @@ function createDependencies(overrides = {}) {
     }),
     getOcrExecutablePath: () => 'C:\\Cong cu OCR\\vse-cli.exe',
     detectOcrDevice: () => 'gpu',
+    detectSpokenLanguage: async () => ({ language: 'auto', probability: 0 }),
+    probeChineseHardsub: async () => ({ hasHan: false, conclusive: false }),
     runVse: async () => ({ kind: 'success', result: null }),
     evaluateAndCleanSrt: async (rawPath, cleanPath) => ({
       accepted: true,
@@ -65,6 +72,328 @@ function technicalError(message, retryableOnCpu = false) {
   if (retryableOnCpu) error.retryableOnCpu = true;
   return error;
 }
+
+test('shared source language normalizes UI aliases without rejecting other Whisper languages', () => {
+  assert.equal(normalizeSourceLanguage('zh-CN'), 'ch');
+  assert.equal(normalizeSourceLanguage('ja'), 'japan');
+  assert.equal(normalizeSourceLanguage('fr'), 'fr');
+  assert.equal(normalizeSourceLanguage(''), 'auto');
+  for (const dialect of ['yue', 'wuu', 'nan', 'hak', 'gan']) {
+    assert.equal(normalizeSourceLanguage(dialect), 'ch');
+  }
+});
+
+test('RapidOCR cleanup removes channel-only cues and repeated banner edges conservatively', () => {
+  assert.equal(isChannelOnlyCue('抖音号: abc_123'), true);
+  assert.equal(isChannelOnlyCue('抖音上有人正在讲故事'), false);
+  const cues = Array.from({ length: 10 }, (_, index) => ({
+    startMs: index * 1_000,
+    endMs: index * 1_000 + 900,
+    text: `官方频道：这是第${index + 1}句正文`
+  }));
+  cues.push({ startMs: 11_000, endMs: 12_000, text: '@my_channel' });
+  const result = cleanRapidOcrCues(cues);
+  assert.equal(result.removedChannelCues, 1);
+  assert.equal(result.cleanedRepeatedEdges, 10);
+  assert.equal(result.cues[0].text.includes('官方频道'), false);
+  assert.match(result.cues[0].text, /正文/u);
+});
+
+test('automatic mode prefers CapCut ASR and does not call Whisper when CapCut succeeds', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+    });
+    let whisperCalled = false;
+    const dependencies = createDependencies({
+      runViralOcr: async ({ reportPath }) => {
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 0, blurBoxes: [] }), 'utf8');
+        return { kind: 'no_subtitles' };
+      },
+      runCapCutAsr: async ({ outputPath }) => {
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\nHello from CapCut\n', 'utf8');
+        return {
+          path: outputPath,
+          language: 'en',
+          cues: [{ startMs: 0, endMs: 1_000, text: 'Hello from CapCut' }]
+        };
+      },
+      extractAudioAndTranscribe: async () => {
+        whisperCalled = true;
+        throw new Error('Whisper must not run');
+      }
+    });
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(result.source, 'capcut-asr');
+    assert.equal(result.online, true);
+    assert.equal(result.uploadedAudio, true);
+    assert.equal(whisperCalled, false);
+  });
+});
+
+test('ViralCrawl order uses Tiny detection and Han probe before CapCut, without starting full RapidOCR', async () => {
+  await withTempDirectory(async (directory) => {
+    const order = [];
+    let rapidCalled = false;
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+    });
+    const result = await resolveAutomaticSubtitle(options, createDependencies({
+      detectSpokenLanguage: async () => {
+        order.push('detect');
+        return { language: 'zh', probability: 0.98, model: 'tiny', sampleSeconds: 25 };
+      },
+      probeChineseHardsub: async () => {
+        order.push('probe');
+        return { hasHan: true, conclusive: true, frames: 20, minimumBoxes: 3 };
+      },
+      runCapCutAsr: async ({ outputPath, language }) => {
+        order.push('capcut');
+        assert.equal(language, 'ch');
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n', 'utf8');
+        return { path: outputPath, language: 'ch', cues: [{ startMs: 0, endMs: 1_000, text: '第一句' }] };
+      },
+      runViralOcr: async () => { rapidCalled = true; }
+    }));
+    assert.deepEqual(order, ['detect', 'probe', 'capcut']);
+    assert.equal(rapidCalled, false);
+    assert.equal(result.source, 'capcut-asr');
+    assert.equal(result.reason, 'capcut_hardsub_audio_preferred_before_ocr');
+  });
+});
+
+test('CapCut no-speech on a Han hardsub video continues into full RapidOCR', async () => {
+  await withTempDirectory(async (directory) => {
+    const order = [];
+    let whisperCalled = false;
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+    });
+    const result = await resolveAutomaticSubtitle(options, createDependencies({
+      detectSpokenLanguage: async () => ({ language: 'zh', probability: 0.99 }),
+      probeChineseHardsub: async () => ({ hasHan: true, conclusive: true, frames: 20, minimumBoxes: 3 }),
+      runCapCutAsr: async () => {
+        order.push('capcut');
+        throw Object.assign(new Error('music only'), { code: 'CAPCUT_ASR_NO_SPEECH' });
+      },
+      runViralOcr: async ({ outputPath, reportPath }) => {
+        order.push('rapidocr');
+        await fs.writeFile(outputPath, [
+          '1', '00:00:00,000 --> 00:00:01,000', '第一句', '',
+          '2', '00:00:01,000 --> 00:00:02,000', '第二句', '',
+          '3', '00:00:02,000 --> 00:00:03,000', '第三句', ''
+        ].join('\n'), 'utf8');
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 3, blurBoxes: [] }), 'utf8');
+        return { kind: 'success' };
+      },
+      extractAudioAndTranscribe: async () => { whisperCalled = true; }
+    }));
+    assert.deepEqual(order, ['capcut', 'rapidocr']);
+    assert.equal(result.source, 'ocr');
+    assert.equal(whisperCalled, false);
+  });
+});
+
+test('Chinese-platform language conflict changes away from Chinese only at 90 percent confidence', async () => {
+  for (const [probability, expectedLanguage] of [[0.89, 'ch'], [0.91, 'en']]) {
+    await withTempDirectory(async (directory) => {
+      const options = createOptions(directory, {
+        videoPath: path.join(directory, 'downloads', 'douyin', 'video.mp4'),
+        sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+      });
+      let receivedLanguage;
+      await resolveAutomaticSubtitle(options, createDependencies({
+        detectSpokenLanguage: async () => ({ language: 'en', probability }),
+        probeChineseHardsub: async () => ({ hasHan: false, conclusive: true, frames: 20, minimumBoxes: 3 }),
+        runCapCutAsr: async ({ outputPath, language }) => {
+          receivedLanguage = language;
+          await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\nHello\n', 'utf8');
+          return { path: outputPath, language, cues: [{ startMs: 0, endMs: 1_000, text: 'Hello' }] };
+        }
+      }));
+      assert.equal(receivedLanguage, expectedLanguage);
+    });
+  }
+});
+
+test('Han text detected on screen overrides a non-Chinese spoken-language guess', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+    });
+    let receivedLanguage;
+    await resolveAutomaticSubtitle(options, createDependencies({
+      detectSpokenLanguage: async () => ({ language: 'en', probability: 0.99 }),
+      probeChineseHardsub: async () => ({ hasHan: true, conclusive: true, frames: 20, minimumBoxes: 3 }),
+      runCapCutAsr: async ({ outputPath, language }) => {
+        receivedLanguage = language;
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n', 'utf8');
+        return { path: outputPath, language, cues: [{ startMs: 0, endMs: 1_000, text: '第一句' }] };
+      }
+    }));
+    assert.equal(receivedLanguage, 'ch');
+  });
+});
+
+test('CapCut network failure falls back invisibly to Faster Whisper local', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+    });
+    const output = path.join(options.workDir, 'local-whisper.srt');
+    const phases = [];
+    const dependencies = createDependencies({
+      runViralOcr: async ({ reportPath }) => {
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 0, blurBoxes: [] }), 'utf8');
+        return { kind: 'no_subtitles' };
+      },
+      runCapCutAsr: async () => {
+        throw Object.assign(new Error('offline'), { code: 'CAPCUT_ASR_UNAVAILABLE' });
+      },
+      extractAudioAndTranscribe: async () => output
+    });
+    const result = await resolveAutomaticSubtitle({
+      ...options,
+      onProgress: ({ phase }) => phases.push(phase)
+    }, dependencies);
+    assert.equal(result.source, 'whisper');
+    assert.equal(result.path, output);
+    assert.deepEqual(phases.slice(-3), ['capcut_asr', 'capcut_asr_fallback', 'whisper_fallback']);
+  });
+});
+
+test('CapCut no-speech result skips Whisper when no hardsub exists', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', capcutAsrEnabled: true
+    });
+    let whisperCalled = false;
+    const dependencies = createDependencies({
+      runViralOcr: async ({ reportPath }) => {
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 0, blurBoxes: [] }), 'utf8');
+        return { kind: 'no_subtitles' };
+      },
+      runCapCutAsr: async () => {
+        throw Object.assign(new Error('music only'), { code: 'CAPCUT_ASR_NO_SPEECH' });
+      },
+      extractAudioAndTranscribe: async () => { whisperCalled = true; }
+    });
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(result.noSpeech, true);
+    assert.equal(result.cueCount, 0);
+    assert.equal(await fs.readFile(result.path, 'utf8'), '');
+    assert.equal(whisperCalled, false);
+  });
+});
+
+test('automatic source checks Chinese hardsub with RapidOCR before falling back to Whisper auto detection', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, { sourceLanguage: 'auto', ocrLanguage: 'auto' });
+    let rapidCalls = 0;
+    let vseCalls = 0;
+    const whisperCalls = [];
+    const dependencies = createDependencies({
+      runViralOcr: async ({ reportPath }) => {
+        rapidCalls += 1;
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 0, blurBoxes: [] }), 'utf8');
+        return { kind: 'no_subtitles' };
+      },
+      runVse: async () => { vseCalls += 1; },
+      extractAudioAndTranscribe: async (...args) => {
+        whisperCalls.push(args);
+        return path.join(options.workDir, 'auto-whisper.srt');
+      }
+    });
+
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(rapidCalls, 1);
+    assert.equal(vseCalls, 0);
+    assert.equal(whisperCalls[0][5], 'auto');
+    assert.equal(whisperCalls[0][7], 'auto');
+    assert.equal(result.source, 'whisper');
+    assert.equal(result.reason, 'no_hardsub');
+  });
+});
+
+test('Whisper sidecar becomes the measured source language instead of the auto placeholder', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, { forceWhisper: true, sourceLanguage: 'auto' });
+    const output = path.join(options.workDir, 'detected.srt');
+    const dependencies = createDependencies({
+      extractAudioAndTranscribe: async () => {
+        await fs.mkdir(options.workDir, { recursive: true });
+        await fs.writeFile(output, '1\n00:00:00,000 --> 00:00:01,000\nHello\n', 'utf8');
+        await fs.writeFile(`${output}.asr.json`, JSON.stringify({
+          language: 'en', languageConfidence: 0.96, cues: [{ id: '1' }]
+        }), 'utf8');
+        return output;
+      }
+    });
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(result.language, 'en');
+    assert.equal(result.languageConfidence, 0.96);
+    assert.equal(result.languageEvidence, 'whisper_audio');
+    assert.equal(result.cueCount, 1);
+  });
+});
+
+test('hybrid merger adds Whisper only inside suspicious OCR gaps and keeps OCR authoritative', () => {
+  const ocr = [
+    { startMs: 0, endMs: 4_000, text: '第一句' },
+    { startMs: 5_000, endMs: 9_000, text: '第二句' },
+    { startMs: 10_000, endMs: 14_000, text: '第三句' }
+  ];
+  const gaps = findSuspiciousOcrGaps(ocr, 120_000);
+  assert.deepEqual(gaps.map((gap) => gap.kind), ['tail']);
+  const merged = mergeOcrAndWhisperCues(ocr, [
+    { startMs: 6_000, endMs: 7_000, text: 'overlap must stay out' },
+    { startMs: 40_000, endMs: 42_000, text: '补充句' }
+  ], gaps);
+  assert.equal(merged.added, 1);
+  assert.deepEqual(merged.cues.map((cue) => cue.source), ['ocr', 'ocr', 'ocr', 'whisper']);
+});
+
+test('enabled hybrid mode writes one OCR plus Whisper SRT while preserving the OCR report', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      sourceLanguage: 'auto', ocrLanguage: 'auto', durationMs: 120_000, hybridWhisperFill: true
+    });
+    const dependencies = createDependencies({
+      runViralOcr: async ({ outputPath, reportPath }) => {
+        await fs.writeFile(outputPath, [
+          '1', '00:00:00,000 --> 00:00:04,000', '第一句', '',
+          '2', '00:00:05,000 --> 00:00:09,000', '第二句', '',
+          '3', '00:00:10,000 --> 00:00:14,000', '第三句', ''
+        ].join('\n'), 'utf8');
+        await fs.writeFile(reportPath, JSON.stringify({
+          cueCount: 3, blurBoxes: [{ start: 0, end: 14 }]
+        }), 'utf8');
+        return { kind: 'success' };
+      },
+      extractAudioAndTranscribe: async (videoPath, workDir) => {
+        const output = path.join(workDir, 'whisper-fill.srt');
+        await fs.writeFile(output, [
+          '1', '00:00:06,000 --> 00:00:07,000', '重叠句', '',
+          '2', '00:00:40,000 --> 00:00:42,000', '补充句', ''
+        ].join('\n'), 'utf8');
+        return output;
+      }
+    });
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    const report = JSON.parse(await fs.readFile(path.join(options.workDir, 'ocr-report.json'), 'utf8'));
+    const output = await fs.readFile(result.path, 'utf8');
+    const metadata = JSON.parse(await fs.readFile(`${result.path}.asr.json`, 'utf8'));
+    assert.equal(result.source, 'hybrid');
+    assert.equal(result.reason, 'rapidocr_with_whisper_gap_fill');
+    assert.equal(result.cueCount, 4);
+    assert.equal(report.blurBoxes.length, 1);
+    assert.equal(report.hybrid.addedWhisperCues, 1);
+    assert.equal(metadata.engineId, 'rapidocr+faster-whisper');
+    assert.deepEqual(metadata.cues.map((cue) => cue.source), ['ocr', 'ocr', 'ocr', 'whisper']);
+    assert.match(output, /补充句/u);
+    assert.doesNotMatch(output, /重叠句/u);
+  });
+});
 
 test('force Whisper skips every OCR dependency and preserves exact Whisper argument order', async () => {
   await withTempDirectory(async (directory) => {
@@ -99,7 +428,7 @@ test('force Whisper skips every OCR dependency and preserves exact Whisper argum
       options.durationMs,
       options.ocrLanguage,
       options.whisperOnnxVariant,
-      undefined,
+      options.ocrLanguage,
       'segment',
       'auto',
       'faster-whisper'
@@ -110,7 +439,9 @@ test('force Whisper skips every OCR dependency and preserves exact Whisper argum
       language: 'vi',
       cueCount: 0,
       removedWatermarks: 0,
-      reason: 'forced_whisper'
+      reason: 'forced_whisper',
+      languageConfidence: null,
+      languageEvidence: 'manual_source_language'
     });
   });
 });
@@ -326,7 +657,8 @@ test('accepted OCR quality returns cleaned metadata and never calls Whisper', as
       language: 'vi',
       cueCount: 7,
       removedWatermarks: 2,
-      reason: 'ocr_accepted'
+      reason: 'ocr_accepted',
+      languageEvidence: 'manual_source_language'
     });
     assert.equal(whisperCalled, false);
   });
@@ -394,7 +726,7 @@ test('VSE no-subtitles result falls back to Whisper', async () => {
       options.durationMs,
       options.ocrLanguage,
       options.whisperOnnxVariant,
-      undefined,
+      options.ocrLanguage,
       'segment',
       'auto',
       'faster-whisper'
@@ -405,7 +737,9 @@ test('VSE no-subtitles result falls back to Whisper', async () => {
       language: 'vi',
       cueCount: 0,
       removedWatermarks: 0,
-      reason: 'no_hardsub'
+      reason: 'no_hardsub',
+      languageConfidence: null,
+      languageEvidence: 'manual_source_language'
     });
   });
 });

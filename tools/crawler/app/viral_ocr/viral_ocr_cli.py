@@ -108,8 +108,11 @@ def actual_provider():
 def main():
     parser = argparse.ArgumentParser(description="RapidOCR PP-OCRv6 moving subtitle OCR")
     parser.add_argument("--video", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--report", required=True)
+    parser.add_argument("--output")
+    parser.add_argument("--report")
+    parser.add_argument("--probe-only", action="store_true")
+    parser.add_argument("--probe-frames", type=int, default=20)
+    parser.add_argument("--probe-min-boxes", type=int, default=3)
     parser.add_argument("--model", default="v6-small")
     parser.add_argument("--device", choices=("auto", "cpu", "gpu"), default="cpu")
     parser.add_argument("--exclude-regions", default="")
@@ -140,6 +143,20 @@ def main():
 
     def log(message):
         emit({"stage": "log", "message": str(message)})
+
+    if args.probe_only:
+        probe_result = has_han_on_screen(
+            args.video, log, max(6, args.probe_frames), max(1, args.probe_min_boxes)
+        )
+        emit({
+            "stage": "probe_result", "hasHan": probe_result is True,
+            "conclusive": probe_result is not None,
+            "frames": max(6, args.probe_frames), "minimumBoxes": max(1, args.probe_min_boxes),
+        })
+        return 0 if probe_result is not None else 3
+
+    if not args.output or not args.report:
+        parser.error("--output và --report là bắt buộc khi không dùng --probe-only")
 
     def on_segment(index, start, end, text):
         pct = min(98.0, max(1.0, (float(end) / duration * 100.0))) if duration > 0 else 1.0

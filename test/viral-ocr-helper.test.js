@@ -6,7 +6,7 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 
-const { getViralOcrStatus, runViralOcr } = require('../lib/viral-ocr-helper');
+const { getViralOcrStatus, probeChineseHardsub, runViralOcr } = require('../lib/viral-ocr-helper');
 
 function preparePaths(root) {
   const appRoot = path.join(root, 'app');
@@ -96,6 +96,32 @@ test('Viral OCR runner invokes the copied Python pipeline and forwards progress'
     assert.equal(invocation.options.env.OCR_GOP_DAI, '10');
     assert.equal(invocation.options.env.CHE_SONGNGU, '0');
     assert.equal(progress[0].pct, 55);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('RapidOCR hardsub probe samples 20 frames and returns the Han conclusion', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-ocr-probe-'));
+  try {
+    const pathOptions = preparePaths(root);
+    let invocation;
+    const result = await probeChineseHardsub({
+      videoPath: path.join(root, 'video.mp4'),
+      pathOptions,
+      spawnImpl: (command, args) => {
+        invocation = { command, args };
+        return fakeProcess((child) => {
+          child.stdout.write('{"stage":"probe_result","hasHan":true,"conclusive":true,"frames":20,"minimumBoxes":3}\n');
+          child.stdout.end();
+          child.emit('close', 0);
+        });
+      }
+    });
+    assert.equal(invocation.command, pathOptions.python);
+    assert.ok(invocation.args.includes('--probe-only'));
+    assert.equal(invocation.args[invocation.args.indexOf('--probe-frames') + 1], '20');
+    assert.deepEqual(result, { hasHan: true, conclusive: true, frames: 20, minimumBoxes: 3 });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

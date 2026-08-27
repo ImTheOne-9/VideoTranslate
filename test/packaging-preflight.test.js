@@ -86,6 +86,8 @@ test('lightweight ASR and OCR installs preserve an existing ONNX GPU backend', (
   assert.doesNotMatch(ocr, /^onnxruntime(?:==|\s)/mu);
   assert.match(setup, /--no-deps "faster-whisper==1\.2\.1"/u);
   assert.match(setup, /--no-deps "rapidocr-onnxruntime==1\.4\.4"/u);
+  assert.match(asr, /^requests>=/mu);
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'capcut_asr.py')), true);
 });
 
 test('Whisper GPU installer performs real inference, runtime repair and deterministic DLL setup', () => {

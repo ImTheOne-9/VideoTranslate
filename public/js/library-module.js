@@ -1459,6 +1459,7 @@ function updateWhisperGpuUi(status = {}) {
   const hint = $('whisper-device-hint');
   const label = $('whisper-gpu-status');
   const button = $('whisper-gpu-install-btn');
+  const hybridFill = $('whisper-hybrid-fill');
   const ready = status.gpuReady === true && status.actualInference === true;
   const unsupported = status.supported === false;
   if (cudaOption) cudaOption.disabled = !ready;
@@ -1469,6 +1470,13 @@ function updateWhisperGpuUi(status = {}) {
   if (hint) hint.textContent = ready
     ? `${status.gpuName || 'NVIDIA GPU'} · CUDA int8_float16 đã được xác minh bằng inference thật.`
     : 'Tự động sẽ dùng CPU int8 cho đến khi kiểm thử CUDA thành công.';
+  if (hybridFill) {
+    hybridFill.disabled = !ready;
+    if (!ready) hybridFill.checked = false;
+    hybridFill.title = ready
+      ? 'Chỉ chạy Whisper khi RapidOCR có khoảng trống lớn bất thường.'
+      : 'Cần xác minh Faster Whisper CUDA trước khi bật bù OCR.';
+  }
   if (button) {
     button.disabled = status.installing || status.runtimeReady === false || status.modelReady === false || unsupported;
     button.textContent = status.installing

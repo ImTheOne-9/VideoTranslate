@@ -26,6 +26,7 @@ tools/crawler/app/*
 !tools/crawler/app/tts_chuan_hoa.py
 !tools/crawler/app/audio_stretch_bridge.py
 !tools/crawler/app/faster_whisper_asr.py
+!tools/crawler/app/capcut_asr.py
 !tools/crawler/app/whisper_cuda_runtime.py
 !tools/crawler/app/viral_ocr/
 tools/crawler/app/viral_ocr/*

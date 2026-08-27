@@ -471,6 +471,88 @@ def load_model(WhisperModel, args: argparse.Namespace, device: str, compute_type
     return model
 
 
+def cut_language_sample(args: argparse.Namespace) -> str:
+    if not args.ffmpeg or not Path(args.ffmpeg).is_file():
+        raise RuntimeError("Thiếu FFmpeg để dò ngôn ngữ nói")
+    descriptor, output = tempfile.mkstemp(prefix="vst-langdet-", suffix=".wav")
+    os.close(descriptor)
+    command = [
+        args.ffmpeg, "-y", "-v", "error", "-i", str(Path(args.audio).resolve()),
+        "-t", str(max(5.0, min(60.0, float(args.sample_seconds or 25.0)))),
+        "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output,
+    ]
+    result = subprocess.run(
+        command, capture_output=True, timeout=180,
+        creationflags=(0x08000000 if os.name == "nt" else 0),
+    )
+    if result.returncode != 0 or not Path(output).is_file() or Path(output).stat().st_size < 1024:
+        try:
+            Path(output).unlink()
+        except OSError:
+            pass
+        raise RuntimeError("FFmpeg không cắt được 25 giây audio để dò ngôn ngữ")
+    return output
+
+
+def detect_language(args: argparse.Namespace, WhisperModel, ctranslate2) -> int:
+    sample = cut_language_sample(args)
+    device, compute_type = requested_device(args, ctranslate2)
+    gpu_error = None
+    try:
+        with Heartbeat(args.heartbeat_seconds):
+            lock = GpuFileLock(args.gpu_lock) if device == "cuda" else GpuFileLock(None)
+            try:
+                with lock:
+                    try:
+                        model = load_model(WhisperModel, args, device, compute_type)
+                        generator, info = model.transcribe(
+                            sample, task="transcribe", language=None, vad_filter=False,
+                            condition_on_previous_text=False, beam_size=1,
+                        )
+                        # Faster-Whisper đã tính language_probability trước khi generator được duyệt;
+                        # lấy tối đa một segment để buộc backend hoàn tất inference thật.
+                        next(iter(generator), None)
+                        if device == "cuda":
+                            record_gpu_success(args.gpu_state)
+                    except Exception as error:
+                        if device != "cuda":
+                            raise
+                        gpu_error = str(error)
+                        state = record_gpu_failure(args.gpu_state, error)
+                        emit("gpu_fallback", message=gpu_error, partialCount=0, gpuState=state)
+                        model = None
+                        gc.collect()
+                        device, compute_type = "cpu", "int8"
+                        model = load_model(WhisperModel, args, device, compute_type)
+                        generator, info = model.transcribe(
+                            sample, task="transcribe", language=None, vad_filter=False,
+                            condition_on_previous_text=False, beam_size=1,
+                        )
+                        next(iter(generator), None)
+            finally:
+                model = None
+                gc.collect()
+        language = (getattr(info, "language", "") or "").lower()
+        probability = float(getattr(info, "language_probability", 0.0) or 0.0)
+        if not language:
+            raise RuntimeError("Faster-Whisper Tiny không xác định được ngôn ngữ")
+        result = {
+            "version": 1, "engineId": "faster-whisper-language-detector",
+            "model": args.model, "device": device, "computeType": compute_type,
+            "language": language, "languageProbability": probability,
+            "sampleSeconds": max(5.0, min(60.0, float(args.sample_seconds or 25.0))),
+            "gpuFallbackUsed": bool(gpu_error), "gpuError": gpu_error,
+        }
+        atomic_json(args.output, result)
+        emit("language_detected", language=language, probability=probability, device=device)
+        return 0
+    finally:
+        try:
+            Path(sample).unlink()
+        except OSError:
+            pass
+
+
 def run(args: argparse.Namespace) -> int:
     dll_dirs = add_nvidia_dll_directories()
     ensure_runtime_health(args.model_root)
@@ -484,6 +566,9 @@ def run(args: argparse.Namespace) -> int:
              cudaDeviceCount=ctranslate2.get_cuda_device_count(), nvidiaDllDirectories=dll_dirs,
              gpuState=gpu_state(args.gpu_state))
         return 0
+
+    if args.detect_language:
+        return detect_language(args, WhisperModel, ctranslate2)
 
     language = normalize_language(args.language)
     checkpoint = read_json(args.checkpoint)
@@ -575,6 +660,7 @@ def run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--detect-language", action="store_true")
     parser.add_argument("--audio")
     parser.add_argument("--output")
     parser.add_argument("--checkpoint")
@@ -590,6 +676,7 @@ def main() -> int:
     parser.add_argument("--temperature-zero", action="store_true")
     parser.add_argument("--disable-vad-fallback", action="store_true")
     parser.add_argument("--heartbeat-seconds", type=float, default=45.0)
+    parser.add_argument("--sample-seconds", type=float, default=25.0)
     parser.add_argument("--simulate-gpu-failure-after", type=int, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not args.check and (not args.audio or not args.output):

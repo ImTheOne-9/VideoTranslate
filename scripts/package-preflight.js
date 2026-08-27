@@ -49,6 +49,7 @@ const requiredFiles = [
   'tools/crawler/app/piper_tts_bridge.py',
   'tools/crawler/app/audio_stretch_bridge.py',
   'tools/crawler/app/faster_whisper_asr.py',
+  'tools/crawler/app/capcut_asr.py',
   'tools/crawler/app/whisper_cuda_runtime.py',
   'tools/crawler/app/viral_ocr/viral_ocr_cli.py',
   'tools/crawler/app/viral_ocr/ocr_text.py',

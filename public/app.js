@@ -1039,19 +1039,9 @@ const ocrComponentFlow = window.OcrUi?.createOcrComponentFlow({
 });
 
 function updateOcrLanguages(languages) {
-  const select = $('ocr-language-select');
-  if (!select || !languages?.length) return;
-  const previous = select.value;
+  if (!languages?.length) return;
   const normalized = window.OcrUi.normalizeSupportedLanguages(languages);
   currentOcrSupportedLanguages = normalized.map(language => language.id);
-  select.innerHTML = '<option value="">Chọn ngôn ngữ...</option>';
-  normalized.forEach(language => {
-    const option = document.createElement('option');
-    option.value = language.id;
-    option.textContent = language.label;
-    select.appendChild(option);
-  });
-  if (normalized.some(language => language.id === previous)) select.value = previous;
   updateOcrPipelineUi();
 }
 
@@ -1191,9 +1181,21 @@ function isChineseOcrLanguage() {
   return ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String($('ocr-language-select')?.value || '').toLowerCase());
 }
 
+function isAutomaticSourceLanguage() {
+  return String($('source-language-select')?.value || 'auto').toLowerCase() === 'auto';
+}
+
+function syncSourceLanguage() {
+  const source = String($('source-language-select')?.value || 'auto').toLowerCase();
+  if ($('ocr-language-select')) $('ocr-language-select').value = source;
+  if ($('whisper-language-select')) $('whisper-language-select').value = source;
+  updateOcrPipelineUi();
+  return source;
+}
+
 function usesRapidOcrUi() {
   const pipeline = $('ocr-pipeline-value')?.value;
-  return pipeline === 'viral' || (pipeline === 'auto' && isChineseOcrLanguage());
+  return pipeline === 'viral' || (pipeline === 'auto' && (isChineseOcrLanguage() || isAutomaticSourceLanguage()));
 }
 
 function updateOcrPipelineUi() {
@@ -1201,12 +1203,19 @@ function updateOcrPipelineUi() {
   if (!input) return 'auto';
   let pipeline = OCR_PIPELINES.has(input.value) ? input.value : 'auto';
   const chinese = isChineseOcrLanguage();
-  if (pipeline === 'viral' && !chinese) {
+  const automatic = isAutomaticSourceLanguage();
+  if (pipeline === 'vse' && automatic) {
+    pipeline = 'auto';
+    input.value = pipeline;
+  }
+  if (pipeline === 'viral' && !chinese && !automatic) {
     pipeline = 'auto';
     input.value = pipeline;
   }
   const rapidOption = input.querySelector('option[value="viral"]');
-  if (rapidOption) rapidOption.disabled = !chinese;
+  if (rapidOption) rapidOption.disabled = !chinese && !automatic;
+  const vseOption = input.querySelector('option[value="vse"]');
+  if (vseOption) vseOption.disabled = automatic;
   const usesRapid = usesRapidOcrUi();
   const shouldHideRegion = $('subtitle-engine-value')?.value === 'whisper' || usesRapid;
   document.querySelectorAll('.ocr-region-settings').forEach(element => {
@@ -1215,7 +1224,9 @@ function updateOcrPipelineUi() {
   const hint = $('ocr-pipeline-hint');
   if (hint) {
     hint.textContent = usesRapid
-      ? 'RapidOCR tự quét & tracking chữ toàn khung hình.'
+      ? (automatic
+        ? 'Tự dò: RapidOCR kiểm tra hardsub Trung; không thấy sẽ chuyển Faster Whisper.'
+        : 'RapidOCR tự quét & tracking chữ toàn khung hình.')
       : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
   }
   updateOcrRegionOverlay();
@@ -1372,6 +1383,8 @@ document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
 });
 $('ocr-pipeline-value')?.addEventListener('change', updateOcrPipelineUi);
 $('ocr-language-select')?.addEventListener('change', updateOcrPipelineUi);
+$('source-language-select')?.addEventListener('change', syncSourceLanguage);
+syncSourceLanguage();
 document.querySelectorAll('.ocr-mode-btn').forEach(button => {
   button.addEventListener('click', () => {
     const input = $('ocr-mode-value');
@@ -1686,7 +1699,10 @@ async function renderStudio(event) {
   const btn = $('render-btn');
   const status = $('render-status');
   const data = new FormData(form);
-  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+  for (const name of [
+    'audioNoiseGate', 'audioDucking', 'audioExportTracks',
+    'whisperHybridFill', 'capcutAsrEnabled'
+  ]) {
     const input = form.elements[name];
     data.set(name, input?.checked ? 'true' : 'false');
   }
@@ -1706,7 +1722,11 @@ async function renderStudio(event) {
     : 'auto';
   const globalOcrModeVal = $('global-ocr-mode-select')?.value || localStorage.getItem('global_ocr_mode') || 'auto';
   const ocrMode = OCR_MODES.has(globalOcrModeVal) ? globalOcrModeVal : 'auto';
+  const sourceLanguage = syncSourceLanguage();
   data.set('subtitleEngine', subtitleEngine);
+  data.set('sourceLanguage', sourceLanguage);
+  data.set('ocrLanguage', sourceLanguage);
+  data.set('whisperLanguage', sourceLanguage);
   data.set('whisperOnnxVariant', whisperOnnxVariant);
   data.set('whisperBackend', whisperBackend);
   data.set('whisperTimestampLevel', whisperTimestampLevel);
@@ -1714,20 +1734,17 @@ async function renderStudio(event) {
   data.set('ocrMode', ocrMode);
 
   if (subMode === 'generate') {
-    if (subtitleEngine !== 'whisper' && !data.get('ocrLanguage')) {
-      toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
-      return;
-    }
     if (subtitleEngine !== 'whisper') {
       try {
         data.set('ocrRegion', syncOcrRegion());
         const ocrPipeline = OCR_PIPELINES.has(data.get('ocrPipeline')) ? data.get('ocrPipeline') : 'auto';
         const isChinese = ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String(data.get('ocrLanguage') || '').toLowerCase());
-        if (ocrPipeline === 'viral' && !isChinese) {
+        const isAutomatic = sourceLanguage === 'auto';
+        if (ocrPipeline === 'viral' && !isChinese && !isAutomatic) {
           toast('RapidOCR hiện chỉ hỗ trợ tiếng Trung. Hãy chọn VSE hoặc đổi ngôn ngữ chữ gốc thành Trung.', 'error');
           return;
         }
-        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && isChinese);
+        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && (isChinese || isAutomatic));
         const ready = usesViralOcr
           ? await ensureViralOcrRuntimeReady()
           : await ensureOcrComponentReady();
@@ -9687,7 +9704,10 @@ function serializeStudioForm() {
       obj[key] = value;
     }
   }
-  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+  for (const name of [
+    'audioNoiseGate', 'audioDucking', 'audioExportTracks',
+    'whisperHybridFill', 'capcutAsrEnabled'
+  ]) {
     const input = form.elements[name];
     obj[name] = input?.checked ? 'true' : 'false';
   }
@@ -9788,6 +9808,12 @@ function deserializeStudioForm(obj) {
   }
 
   // Cập nhật lại các trường phụ đề
+  const restoredSourceLanguage = obj.sourceLanguage
+    || (obj.subtitleEngine === 'whisper' ? obj.whisperLanguage : obj.ocrLanguage)
+    || obj.whisperLanguage
+    || 'auto';
+  if ($('source-language-select')) $('source-language-select').value = restoredSourceLanguage;
+  syncSourceLanguage();
   updateConditionalFields();
   updateLogoUi();
   // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark

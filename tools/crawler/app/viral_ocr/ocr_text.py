@@ -664,8 +664,88 @@ def _engine_dinh_vi():
             return _engine()   # tiny lỗi → dùng engine chính (an toàn, không mất tính năng)
 
 
+def _tien_xu_ly(img):
+    """Tiền xử lý ảnh TRƯỚC khi đưa vào OCR: CLAHE · nhị phân thích ứng · phóng to. MẶC ĐỊNH TẮT.
+
+    VÌ SAO CÓ: đối thủ (SonAuto) có sẵn `Cân bằng sáng + Nhị phân thích ứng (CLAHE + Adaptive)`,
+    `Sharpen`, `Upscale ×2` làm tuỳ chọn trong UI; ta KHÔNG có tầng tiền xử lý nào (grep `clahe|
+    adaptiveThreshold`: 0 kết quả). Đây là kiểu hỏng ta chưa từng nhắm tới — không phải chữ NHỎ
+    (đã đo và loại: phóng to là thừa sau khi gộp dải) mà chữ **TƯƠNG PHẢN THẤP**: chữ trắng trên
+    nền sáng, viền nhoè, nền chuyển màu.
+
+    🔴 ĐÃ A/B TRÊN VIDEO THẬT (22/08/2026) — KẾT LUẬN: **ĐỂ TẮT CẢ BA**.
+    Chân lý = `.zh.srt` sẵn có, 50 khung lấy giữa mỗi cue của video Minion (1024×576, 184 cue):
+        GỐC 99,0%  ·  CLAHE 99,2%  ·  NHỊ PHÂN 97,4%  ·  CLAHE+NHỊ PHÂN 95,3%  ·  UPSCALE×2 98,5%
+    Rồi bôi bẩn chính những khung đó đúng 3 kiểu hỏng mà CLAHE nhắm tới (30 khung), chênh so với GỐC:
+        kiểu hỏng          CLAHE   NHỊ PHÂN   C+N     UPSCALE×2
+        không bôi bẩn      +0,0     −0,9    −2,2      −1,7
+        tương phản THẤP    −0,1     −1,8    −0,9      −0,2
+        viền NHÒE         +0,9     −5,3   −15,8      −0,0
+        nền CHUYỂN MÀU    +0,2     +0,4    −8,3      −0,5
+        THẤP + NHÒE       +0,0     −1,8    −2,3      +0,0
+
+    • `OCR_NHIPHAN` — **HẠI THẬT, không phải lo suông.** Âm ở 4/5 điều kiện; trên video sạch nó
+      làm **MẤT HẲN 1 cue** (khung #3 “而这一幕” → đọc ra RỖNG) và nuốt đuôi câu (“…谁倒霉” →
+      “…谁”). Đúng lớp “thà chậm còn hơn mất cue” — cấm bật mặc định.
+    • `OCR_NHIPHAN` đi cùng CLAHE thì **thảm họa**: −15,8 điểm trên ảnh nhòe.
+    • `OCR_UPSCALE` — **KHÔNG LỢI ĐIỂM NÀO** ở mọi điều kiện, lại còn **bịa thêm chữ**: sinh ra
+      “100”, “417”, “y外08 58” đứng trước câu — phóng to làm nhiễu nền vượt ngưỡng thành “chữ”.
+      ⚠ **SỐ CHI PHÍ CŨ Ở ĐÂY (“1,35ms / 0,2%”) LÀ SAI** — nó chỉ đo **riêng lệnh resize**, bỏ qua
+      việc chính lời gọi OCR đắt lên theo diện tích ảnh. Đo lại trọn vẹn 50 khung: **15,3s → 37,5s,
+      CHẬM 2,45×**. Bài học: đo phần mình thêm vào mà không đo phần nó làm đắt lên = số vô nghĩa.
+    • `OCR_CLAHE` — duy nhất **không bao giờ hại** (xấu nhất −0,1; tốt nhất +0,9 trên ảnh nhòe),
+      chỉ tốn +2,6% thời gian. Nhưng +0,2 điểm trên video sạch **nằm trong nhiễu** ⇒ vẫn để TẮT
+      mặc định. Đây là công tắc cứu hộ cho video thật sự nhòe, không phải mặc định.
+    ⚠ MÔ HÌNH BỀN HƠN TƯỞNG: bôi bẩn đến mức bét dải động (hệ số 0,30) + nhòe sigma 1,6 mà bản
+      GỐC vẫn giữ 97,9–98,2%. Muốn bàn tiếp về tiền xử lý thì phải có **video khách đang đọc sai
+      thật**, đừng bôi bẩn thêm — đã thử và không tái hiện được vùng gãy.
+
+    Bật: OCR_CLAHE=1 (nhẹ nhất, giữ thang xám) · OCR_NHIPHAN=1 · OCR_UPSCALE=2 (hệ số).
+    Chỉnh: OCR_CLAHE_CLIP (2.0) · OCR_CLAHE_TILE (8) · OCR_NHIPHAN_BLOCK (31) · OCR_NHIPHAN_C (5).
+    """
+    _cl = os.environ.get("OCR_CLAHE", "0") == "1"
+    _np2 = os.environ.get("OCR_NHIPHAN", "0") == "1"
+    try:
+        _up = float(os.environ.get("OCR_UPSCALE", "") or 0)
+    except ValueError:
+        _up = 0.0
+    if not (_cl or _np2 or _up > 1.0):
+        return img                      # không bật gì → trả NGUYÊN ảnh, zero chi phí
+    try:
+        import cv2
+        import numpy as _npy
+        out = img
+        if _cl or _np2:
+            g = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY) if out.ndim == 3 else out
+            if _cl:
+                try:
+                    _clip = float(os.environ.get("OCR_CLAHE_CLIP", "") or 2.0)
+                    _tile = int(os.environ.get("OCR_CLAHE_TILE", "") or 8)
+                except ValueError:
+                    _clip, _tile = 2.0, 8
+                g = cv2.createCLAHE(clipLimit=_clip, tileGridSize=(_tile, _tile)).apply(g)
+            if _np2:
+                try:
+                    _blk = int(os.environ.get("OCR_NHIPHAN_BLOCK", "") or 31)
+                    _c = int(os.environ.get("OCR_NHIPHAN_C", "") or 5)
+                except ValueError:
+                    _blk, _c = 31, 5
+                if _blk % 2 == 0:
+                    _blk += 1           # OpenCV đòi blockSize LẺ, chẵn là ném lỗi
+                g = cv2.adaptiveThreshold(g, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                          cv2.THRESH_BINARY, max(3, _blk), _c)
+            # trả về 3 kênh: engine nhận BGR ở mọi chỗ gọi khác, đổi shape ở đây là đổi ngầm hợp đồng
+            out = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
+        if _up > 1.0:
+            out = cv2.resize(out, None, fx=_up, fy=_up, interpolation=cv2.INTER_CUBIC)
+        return out
+    except Exception:
+        return img                      # lỗi bất kỳ → ảnh GỐC, không bao giờ làm chết OCR
+
+
 def _doc(img, eng):
     """OCR 1 ảnh BGR (numpy) → text gộp các dòng (gom theo HÀNG ~ y, trong hàng trái→phải)."""
+    img = _tien_xu_ly(img)
     try:
         res, _ = eng(img, use_cls=False)   # sub không xoay → tắt direction classifier cho nhanh
     except TypeError:
@@ -744,6 +824,7 @@ def _iv_merge(a, b):
 def _doc_det_rec(img, eng):
     """det+rec trên dải: engine tự khoanh từng DÒNG chữ rồi đọc → khỏi cần Pha 2 cắt hộp khít sẵn.
     Gộp các dòng theo thứ tự trên→dưới, trái→phải. Trả "" nếu không thấy chữ."""
+    img = _tien_xu_ly(img)
     try:
         res, _ = eng(img, use_cls=False)
     except TypeError:
@@ -1112,6 +1193,167 @@ def _loc_dai_sub_that(cand, log=print):
         return cand                              # lỗi bất kỳ → giữ nguyên, không bao giờ làm hỏng dò dải
 
 
+# Tên NỀN TẢNG hay in trong watermark. Chỉ dùng để nhận ra cue TOÀN LÀ watermark — KHÔNG dùng để
+# cắt chuỗi khỏi câu thoại (việc đó là của `_go_chu_nen_tang`, có ngưỡng tần suất riêng).
+_NEN_TANG_WM = (
+    "bilibili", "哔哩哔哩", "b站", "抖音", "douyin", "快手", "kuaishou", "小红书", "xiaohongshu",
+    "rednote", "微博", "weibo", "tiktok", "西瓜视频", "好看视频", "腾讯视频", "爱奇艺", "优酷",
+    "youtube", "facebook", "instagram", "皮皮虾", "火山",
+)
+# `抖音号：123`, `快手号 abc`, `ID: xyz`, `微信号：…` — khuôn ĐỊNH DANH, không phải lời thoại.
+_ID_NEN_TANG = _re.compile(
+    r"(?:抖音|快手|微博|小红书|微信|视频|作者)?\s*(?:号|ID|Id|id)\s*[:：]?\s*[\w.\-@]{2,}")
+# Tay cầm kênh: `@术先森影剧`, `@user_name`. Tối thiểu 2 ký tự sau @ để khỏi ăn nhầm `@` lẻ do OCR nhiễu.
+_TAY_KENH = _re.compile(r"@\s*[\w\u4e00-\u9fffA-Za-z0-9._\-]{2,}")
+# Ký tự trang trí OCR hay nhả quanh watermark (khung, chấm, gạch, biểu tượng).
+_TRANG_TRI = _re.compile(r"[\s\|/\\\-–—_.·•∙,，、:：;；!！?？'\"“”‘’()（）\[\]【】<>《》*#~^`+=]+")
+
+
+def _la_ten_kenh(t):
+    """Cue này có phải CHỈ LÀ tên kênh / tên nền tảng (watermark) không? Trả True = nên BỎ CẢ CUE.
+
+    🔴 VÌ SAO CẦN, DÙ ĐÃ CÓ HAI TẦNG WATERMARK KHÁC (22/08/2026):
+      · `_loc_wm_lap` (tự dò cụm lặp theo Y) — **mặc định TẮT từ 13/08**, vì nó là tầng TOÀN CỤC duy nhất
+        và chặn kiến trúc chạy song song (cue bắn ra phút 2 có thể bị xoá ở phút 40). Chú thích tại đó đã
+        ghi sẵn CÁI MẤT: *"khách KHÔNG khoanh vùng thì watermark lặp sẽ lọt vào phụ đề (ca đã gặp
+        `@术先森影剧` lặp 8 cue)"*. Đây chính là lỗ hổng đó.
+      · `_go_chu_nen_tang` — bắt theo TẦN SUẤT ≥20% số cue. Watermark bán trong suốt chỉ đọc được LÁC ĐÁC:
+        8 cue trên video 1516 cue = **0,5%**, thấp hơn ngưỡng 40 lần ⇒ lọt sạch.
+    ⇒ Hàm này bắt theo HÌNH DẠNG, không theo tần suất, nên chỉ cần MỘT cue cũng bắt được, và vì xét TỪNG
+      CUE nên KHÔNG cần trạng thái toàn cục ⇒ **không chặn kiến trúc song song** (đúng lý do tầng kia bị tắt).
+
+    🔴 CỐ Ý HẸP — chỉ bỏ khi cue **KHÔNG CÒN GÌ** ngoài tay-cầm/tên-nền-tảng/khuôn-ID.
+    KHÔNG cắt `@tên` ra khỏi câu có thoại thật, vì video khung CHAT có `@tên` là NỘI DUNG thật
+    (`_loc_wm_lap` đã ghi: bật lọc hình học lên là "xoá nửa hội thoại" ở ảnh 003.mp4 t=36s).
+    Ca watermark DÍNH trong câu thoại vẫn là việc của `_go_chu_nen_tang`.
+    Tắt: OCR_GO_TEN_KENH=0."""
+    s = (t or "").strip()
+    if not s:
+        return False
+    con = _ID_NEN_TANG.sub("", s)
+    con = _TAY_KENH.sub("", con)
+    _th = con.lower()
+    for _p in _NEN_TANG_WM:
+        _th = _th.replace(_p, "")
+    con = _TRANG_TRI.sub("", _th)
+    if con == _TRANG_TRI.sub("", s.lower()):
+        return False              # không gỡ được gì ⇒ đây là câu thoại bình thường
+    # Còn sót ≤1 ký tự có nghĩa ⇒ coi như cue chỉ có watermark. Ngưỡng 1 (không phải 0) vì OCR hay
+    # nhả thêm một ký tự nhiễu dính vào watermark (`@术先森影剧` đọc thành `@术先森影剧口`).
+    return len(con) <= 1
+
+
+def _go_ten_kenh(segs, boxes, log=print):
+    """Bỏ các cue CHỈ chứa tên kênh / tên nền tảng. Trả (segs, boxes) đã lọc. Xem `_la_ten_kenh`."""
+    if os.environ.get("OCR_GO_TEN_KENH", "1") == "0" or not segs or len(segs) != len(boxes):
+        return segs, boxes
+    try:
+        _giu_s, _giu_b, _bo = [], [], []
+        for s, b in zip(segs, boxes):
+            if _la_ten_kenh(str(s[2])):
+                _bo.append(str(s[2]).strip())
+            else:
+                _giu_s.append(s); _giu_b.append(b)
+        if not _bo:
+            return segs, boxes
+        # KHÔNG bao giờ bỏ quá nửa số cue — nếu tới mức đó thì luật đang hiểu sai video này (vd phụ đề
+        # thật toàn dạng `@ai đó`), thà giữ nguyên còn hơn xoá trắng phụ đề.
+        if len(_bo) * 2 >= len(segs):
+            log("⚠ Luật 'cue toàn tên kênh' khớp %d/%d cue — QUÁ NỬA nên BỎ QUA luật này (nghi hiểu sai "
+                "video). Giữ nguyên toàn bộ phụ đề." % (len(_bo), len(segs)))
+            return segs, boxes
+        _vd = " · ".join(dict.fromkeys(_bo))[:70]
+        log("🏷 Bỏ %d cue chỉ chứa TÊN KÊNH/NỀN TẢNG (watermark OCR đọc phải, không phải lời thoại): %s"
+            % (len(_bo), _vd))
+        return _giu_s, _giu_b
+    except Exception:
+        return segs, boxes            # lỗi bất kỳ → giữ nguyên, không bao giờ làm mất phụ đề
+
+
+def _go_dau_duoi_lap(segs, boxes, log=print):
+    """GỠ đoạn ĐẦU hoặc CUỐI giống nhau lặp ở PHẦN LỚN cue — ca "2 dòng Trung, 1 dòng là cảnh báo".
+
+    🔴 LỖ HỔNG ĐƯỢC VÁ (22/08/2026, chủ dự án nêu: *"chữ trung 2 dòng nhưng sub thật chỉ 1, chữ còn
+    lại là cảnh báo"*). `_go_chu_nen_tang` ngay dưới CHỈ học chuỗi watermark từ những cue mà nó ĐỨNG
+    MỘT MÌNH (chú thích tại đó ghi rõ, và đó là chủ ý — bản đầu quét MỌI chuỗi con thì gỡ nhầm cả
+    khuôn chữ trong THOẠI). Nhưng khi OCR gộp 2 dòng vào MỘT hộp thì dòng cảnh báo KHÔNG BAO GIỜ
+    đứng riêng ⇒ không có ứng viên ⇒ lọt sạch.
+    ĐO THẬT (120 cue giả lập, chạy đúng chuỗi 3 tầng hiện có):
+        cảnh báo là cue RIÊNG ở Y khác     → SẠCH   (tầng `_go_chu_nen_tang` lo được)
+        cảnh báo DÍNH vào mọi cue (100%)   → **SÓT 120/120**   ← chỗ này
+        cảnh báo DÍNH ở 8/120 cue (6,7%)   → SÓT 8
+
+    DẤU HIỆU DÙNG — hẹp có chủ ý: thứ tự dòng trên/dưới trong khung là CỐ ĐỊNH, nên khi OCR gộp,
+    dòng cảnh báo luôn rơi về CÙNG MỘT PHÍA của chuỗi ⇒ nó là TIỀN TỐ hoặc HẬU TỐ chung.
+    KHÔNG quét chuỗi con giữa câu — đó đúng là thứ đã gỡ nhầm thoại ở bản đầu của `_go_chu_nen_tang`.
+
+    HAI CHẶN chống gỡ nhầm:
+      · dài ≥ `OCR_DD_LMIN` (6 ký tự) — nhãn người nói kiểu `小明：` chỉ 3 ký tự nên KHÔNG dính;
+      · có mặt ở ≥ `OCR_DD_TY` (50%) số cue — cao hơn hẳn ngưỡng 20% của tầng dưới, vì tiền/hậu tố
+        là dấu hiệu YẾU hơn "đứng một mình";
+      · và phần CÒN LẠI của cue phải ≥2 ký tự, nếu không thì đây là cue chỉ-có-cảnh-báo, để tầng
+        `_go_chu_nen_tang`/`_loc_wm_lap` xử theo luật của chúng.
+    Tắt: OCR_GO_DAU_DUOI=0."""
+    import re
+    if os.environ.get("OCR_GO_DAU_DUOI", "1") == "0" or not segs or len(segs) != len(boxes):
+        return segs, boxes
+    try:
+        _ty = float(os.environ.get("OCR_DD_TY", "") or 0.50)
+        _lmin = int(os.environ.get("OCR_DD_LMIN", "") or 6)
+    except ValueError:
+        _ty, _lmin = 0.50, 6
+    try:
+        _t = [" ".join(str(s[2]).split()) for s in segs]
+        _co = [x for x in _t if len(x) >= _lmin + 2]
+        if len(_co) < 8:
+            return segs, boxes
+        _nguong = max(4, int(len(_co) * _ty))
+
+        def _chung(lay):
+            """Chuỗi dài nhất mà ≥_nguong cue cùng có ở vị trí đó. `lay(s, k)` cắt k ký tự."""
+            _tot = ""
+            for _k in range(_lmin, 41):
+                from collections import Counter
+                _c = Counter(lay(x, _k) for x in _co if len(x) >= _k + 2)
+                if not _c:
+                    break
+                _s, _n = _c.most_common(1)[0]
+                if _n >= _nguong and _s.strip():
+                    _tot = _s
+                else:
+                    break
+            return _tot
+
+        _dau = _chung(lambda s, k: s[:k])
+        _duoi = _chung(lambda s, k: s[-k:])
+        # chọn phía dài hơn; hoà thì ưu tiên ĐUÔI (dòng cảnh báo hay nằm DƯỚI sub)
+        _mau, _la_dau = ((_dau, True) if len(_dau) > len(_duoi) else (_duoi, False))
+        if len(_mau) < _lmin:
+            return segs, boxes
+        _ds, _n = [list(x) for x in segs], 0
+        for i in range(len(_ds)):
+            _x = " ".join(str(_ds[i][2]).split())
+            if not _x:
+                continue
+            if _la_dau and _x.startswith(_mau):
+                _con = _x[len(_mau):].strip()
+            elif (not _la_dau) and _x.endswith(_mau):
+                _con = _x[:len(_x) - len(_mau)].strip()
+            else:
+                continue
+            if len(re.sub(r"\s", "", _con)) < 2:
+                continue                     # cue chỉ có cảnh báo → để tầng khác xử
+            _ds[i][2] = _con
+            _n += 1
+        if not _n:
+            return segs, boxes
+        log("\U0001f9fd Gỡ dòng lặp ở %s mọi cue (%d cue) — nghi CẢNH BÁO/banner bị OCR gộp chung "
+            "với phụ đề: %r" % ("ĐẦU" if _la_dau else "CUỐI", _n, _mau[:40]))
+        return [tuple(x) for x in _ds], boxes
+    except Exception:
+        return segs, boxes          # lỗi bất kỳ → giữ nguyên, không bao giờ làm mất phụ đề
+
+
 def _go_chu_nen_tang(segs, boxes, log=print):
     """GỠ chuỗi WATERMARK/TÊN NỀN-TẢNG ra khỏi NỘI DUNG cue (bilibili, 紫轩漫屋, @tên_kênh…).
 
@@ -1267,7 +1509,25 @@ def _loc_wm_lap(segs, boxes, log=print):
     ⚠ `_go_chu_nen_tang` (ngay TRÊN) VẪN BẬT và KHÔNG được tắt theo — nó gỡ tên nền-tảng DÍNH TRONG câu
     thoại (`紫轩漫屋bilibi啊`), thứ không khoanh vùng được vì nằm lẫn trong dải sub. Bỏ nó là tái hiện ca
     khách kienpvtsr1: chữ Hán còn trong bản dịch → `_con_sot` gắn cờ → dịch lại 3 vòng × ~15 phút."""
-    if os.environ.get("OCR_WM_LAP", "0") == "0" or not segs or len(segs) != len(boxes) or len(segs) < 4:
+    # 🟢 BẬT LẠI MẶC ĐỊ**NH "0" → "1" (22/08/2026) — LÝ DO TẮT ĐÃ HẾT HIỆU LỰC.
+    # Lý do (2) ở trên — *"chặn kiến trúc CHẠY SONG SONG (OCR → dịch → TTS)"* — **kiến trúc đó chưa
+    # từng được xây**: `OCR_SONG_SONG` xuất hiện **0 lần trong mọi file .py**, chỉ còn trong file plan
+    # `plans/260812-p0-.../phase-04-ocr-song-song-dich.md`. Và hướng đó sau này đo ra là **trò chơi tổng bằng
+    # không** (Chromium ăn hết CPU mà OCR vừa nhả). ⇒ Đang trả giá cho một lợi ích KHÔNG TỒN TẠI.
+    # Lý do (1) — *"khách nay chủ động khoanh vùng"* — vẫn đúng, nhưng chỉ với khách CÓ khoanh.
+    #
+    # ĐO ĐỘ PHỦ THẬT (200 cue giả lập, chạy đúng chuỗi 3 tầng theo thứ tự thật):
+    #     ca                                        TẮT       BẬT
+    #     `@tên_kênh` đứng riêng 8/200            SẠCH     SẠCH   ← `_go_ten_kenh` lo
+    #     `bilibili` / `拖音号：8899` riêng         SẠCH     SẠCH   ← `_go_ten_kenh` lo
+    #     watermark đứng riêng ≥20% số cue          SẠCH     SẠCH   ← `_go_chu_nen_tang` lo
+    #     **`紫轩漫屋` (tên kênh, KHÔNG @) 8/200**   **SÓT 8**  SẠCH   ← CHỈ tầng này bắt được
+    # Tên kênh không có `@`, không phải tên nền tảng, lại dưới 20% số cue ⇒ hai tầng kia đều mù.
+    # Đúng ca chú thích ngay trên đã cảnh báo: *"khách KHÔNG khoanh vùng thì watermark lặp sẽ lọt"*.
+    #
+    # VÌ SAO AN TOÀN: tầng này **KHÔNG BAO GIỜ đụng cụm đông cue nhất** (= dải phụ đề), cần ≥3 cue
+    # cùng cụm-Y VÀ đa số đôi một giống nhau ≥50%. Tắt lại: OCR_WM_LAP=0.
+    if os.environ.get("OCR_WM_LAP", "1") == "0" or not segs or len(segs) != len(boxes) or len(segs) < 4:
         return segs, boxes
     try:
         _min_n = int(os.environ.get("OCR_WM_LAP_MIN", "") or 3)
@@ -2197,6 +2457,12 @@ def ocr_dong(video, log=print, on_seg=None, on_chot=None):
     # bỏ sớm giúp 2 tầng dưới khỏi phải cân nhắc cue mà khách vốn đã loại (vd banner bị `_loc_wm_lap` coi là
     # "cụm đông nhất = dải phụ đề" rồi tha oan).
     segs, boxes = _loai_vung_tay(segs, boxes, log=log)
+    # ĐỨNG TRƯỚC `_go_chu_nen_tang`: bỏ hẳn cue-toàn-watermark trước thì tầng đếm tần suất bên dưới
+    # không còn bị mấy cue đó kéo lệch thống kê.
+    segs, boxes = _go_ten_kenh(segs, boxes, log=log)
+    # ĐỨNG TRƯỚC `_go_chu_nen_tang`: gỡ dòng cảnh báo dính-chung ra khỏi text trước, thì tầng đếm tần
+    # suất bên dưới mới nhìn thấy đúng nội dung thoại (và cue chỉ-còn-watermark mới lộ ra cho nó xử).
+    segs, boxes = _go_dau_duoi_lap(segs, boxes, log=log)
     segs, boxes = _go_chu_nen_tang(segs, boxes, log=log)
     segs, boxes = _loc_wm_lap(segs, boxes, log=log)
     # LỌC TITLE khỏi TEXT/DUB (boxes CHE giữ nguyên): cand dò với loc_title=False nên boxes bao TRỌN chữ cao
@@ -2246,4 +2512,3 @@ def ocr_dong(video, log=print, on_seg=None, on_chot=None):
             log("👁 Che SONG NGỮ: +%d dải dòng-Anh (Latin) kề dòng-Hán (che cả 2 dòng sub)." % len(_them))
             boxes = list(boxes) + _them
     return segs, boxes
-

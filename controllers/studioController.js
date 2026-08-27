@@ -11,6 +11,7 @@ const {
 } = require('../lib/subtitle-display-layout');
 const { createSubtitleFontMeasurer } = require('../lib/subtitle-font-measurer');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
+const { getCrawlerPaths } = require('../lib/crawler-paths');
 const {
   createSubtitlePostprocessSignature,
   normalizeSubtitleTimelineFile,
@@ -428,6 +429,18 @@ const resolveRenderSource = createRenderSourceResolver();
 
 function mapAutomaticSubtitleProgress(event = {}) {
   switch (event.phase) {
+    case 'language_detecting':
+      return { percent: 13, step: 'Đang nghe 25 giây đầu để xác định ngôn ngữ nguồn...' };
+    case 'language_detected':
+      return { percent: 15, step: `Đã nhận diện ngôn ngữ nguồn: ${String(event.detail?.language || 'auto').toUpperCase()}.` };
+    case 'language_detection_fallback':
+      return { percent: 15, step: 'Không dò được ngôn ngữ audio, đang kiểm tra chữ trên hình...' };
+    case 'ocr_hardsub_probe':
+      return { percent: 16, step: 'Đang thăm dò nhanh phụ đề cứng trên hình...' };
+    case 'ocr_hardsub_detected':
+      return { percent: 18, step: 'Đã thấy hardsub Trung; thử CapCut trước khi quét RapidOCR toàn video...' };
+    case 'ocr_hardsub_probe_fallback':
+      return { percent: 18, step: 'Không kết luận được từ thăm dò, sẽ dùng luồng nhận dạng đầy đủ...' };
     case 'ocr_starting':
       return { percent: 12, step: 'Đang khởi động OCR...' };
     case 'ocr_processing': {
@@ -449,6 +462,14 @@ function mapAutomaticSubtitleProgress(event = {}) {
       return { percent: 32, step: 'Đang kiểm tra phụ đề OCR...' };
     case 'whisper_fallback':
       return { percent: 33, step: 'Đang tạo phụ đề bằng Whisper...' };
+    case 'whisper_gap_fill':
+      return { percent: 33, step: 'OCR có khoảng trống lớn, Whisper đang bù phần thiếu...' };
+    case 'capcut_asr':
+      return { percent: 33, step: 'Đang nhận dạng lời thoại bằng CapCut ASR online...' };
+    case 'capcut_asr_fallback':
+      return { percent: 33, step: 'CapCut ASR không khả dụng, đang chuyển sang Faster Whisper local...' };
+    case 'capcut_asr_no_speech':
+      return { percent: 34, step: 'CapCut xác nhận video không có lời thoại; bỏ qua phụ đề và lồng tiếng.' };
     default:
       return null;
   }
@@ -493,6 +514,8 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
   const resolveSubtitle = dependencies.resolveAutomaticSubtitle || resolveAutomaticSubtitle;
   const updateStudioProgress = dependencies.updateStudioProgress || shared.updateStudioProgress;
   const logger = dependencies.logger || console;
+  const getWhisperGpuStatus = dependencies.getWhisperGpuStatus
+    || (() => readJsonFile(getCrawlerPaths().whisperGpuStatusPath));
 
   return async function resolveRenderAutomaticSubtitle(options) {
     const body = options.body || {};
@@ -501,12 +524,33 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       : 'auto';
     const forceWhisper = options.forceWhisper === true || subtitleEngine === 'whisper';
     const ocrOnly = subtitleEngine === 'ocr';
+    const requestedSourceLanguage = String(
+      body.sourceLanguage || (forceWhisper ? body.whisperLanguage : body.ocrLanguage) || 'auto'
+    ).trim().toLowerCase();
+    const sourceLanguage = [
+      'auto', 'ch', 'zh', 'zh-cn', 'zh-tw', 'cmn', 'yue', 'wuu', 'nan', 'hak', 'gan',
+      'vi', 'en', 'japan', 'ja', 'korean', 'ko', 'th', 'es', 'fr', 'de', 'ru', 'id',
+      'pt', 'it', 'nl', 'ms', 'tr', 'pl', 'ro', 'sv', 'da', 'fi', 'cs', 'hu', 'tl'
+    ]
+      .includes(requestedSourceLanguage) ? requestedSourceLanguage : 'auto';
     const whisperOnnxVariant = ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant)
       ? body.whisperOnnxVariant
       : 'q8';
+    const hybridRequested = subtitleEngine === 'auto'
+      && [true, 'true', 'on', '1'].includes(body.whisperHybridFill);
+    const gpuStatus = hybridRequested ? getWhisperGpuStatus() : null;
+    const hybridWhisperFill = hybridRequested
+      && gpuStatus?.gpuReady === true
+      && gpuStatus?.actualInference === true;
+    const capcutAsrEnabled = subtitleEngine === 'auto'
+      && (body.capcutAsrEnabled === undefined
+        || [true, 'true', 'on', '1'].includes(body.capcutAsrEnabled));
+    if (hybridRequested && !hybridWhisperFill) {
+      logger.log('[Auto Subtitle] Bỏ Whisper bù OCR vì CUDA chưa được xác minh bằng inference thật.');
+    }
     logger.log(
       `[Auto Subtitle] route=${forceWhisper ? 'whisper_manual_fallback' : 'ocr_first'} `
-      + `language=${body.ocrLanguage || 'unset'} voiceOnly=${options.isVoiceOnlySub === true}`
+      + `sourceLanguage=${sourceLanguage} voiceOnly=${options.isVoiceOnlySub === true}`
     );
     const result = await resolveSubtitle({
       videoPath: options.sourceVideo,
@@ -515,28 +559,38 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       durationMs: options.totalDuration * 1000,
       whisperModel: body.whisperModel || 'small',
       whisperOnnxVariant,
-      ...(body.whisperLanguage ? { whisperLanguage: body.whisperLanguage } : {}),
+      sourceLanguage,
+      whisperLanguage: sourceLanguage,
       whisperTimestampLevel: body.whisperTimestampLevel === 'word' ? 'word' : 'segment',
       whisperDevice: ['auto', 'cpu', 'cuda', 'dml'].includes(body.whisperDevice) ? body.whisperDevice : 'auto',
       whisperBackend: 'faster-whisper',
-      ocrLanguage: body.ocrLanguage,
+      ocrLanguage: sourceLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
       ocrRegionStrategy: body.ocrRegionStrategy === 'manual' ? 'manual' : 'auto',
       ocrPipeline: ['auto', 'viral', 'vse'].includes(body.ocrPipeline) ? body.ocrPipeline : 'auto',
       forceWhisper,
       ocrOnly,
+      hybridWhisperFill,
+      capcutAsrEnabled,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress, logger)
     });
-    logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
+    logger.log(
+      `[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'} `
+      + `detectedLanguage=${result.language || sourceLanguage} evidence=${result.languageEvidence || 'requested'}`
+    );
     try {
       const metadataPath = path.join(options.workDir, 'subtitle-source.json');
       const temporaryPath = `${metadataPath}.tmp-${process.pid}`;
       fs.writeFileSync(temporaryPath, JSON.stringify({
         source: result.source || 'unknown',
         reason: result.reason || null,
-        language: result.language || body.ocrLanguage || null,
-        cueCount: Number(result.cueCount) || 0
+        language: result.language || sourceLanguage || null,
+        languageConfidence: result.languageConfidence ?? null,
+        languageEvidence: result.languageEvidence || null,
+        cueCount: Number(result.cueCount) || 0,
+        online: result.online === true,
+        uploadedAudio: result.uploadedAudio === true
       }, null, 2), 'utf8');
       fs.renameSync(temporaryPath, metadataPath);
     } catch {}
@@ -1184,7 +1238,7 @@ async function executeRenderTask(task) {
           targetLang,
           srcLang: originalIsChinese
             ? 'zho_Hans'
-            : (body.whisperLanguage || body.ocrLanguage || 'auto'),
+            : (subtitleSource?.language || body.sourceLanguage || body.whisperLanguage || body.ocrLanguage || 'auto'),
           translationStyles: body.translationStyles,
           onTranslationBatch: earlyTtsPipeline ? (translatedItems) => {
             earlyTtsPipeline.enqueue(translatedItems.map(item => ({
@@ -1429,7 +1483,7 @@ async function executeRenderTask(task) {
           whisperVariant: ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant)
             ? body.whisperOnnxVariant
             : 'q8',
-          language: body.ocrLanguage || ''
+          language: body.sourceLanguage || body.ocrLanguage || ''
         });
         let refCheckpoint = readJsonFile(refCheckpointPath);
         if (refCheckpoint?.checkpointKey !== refCheckpointKey) {
@@ -1463,7 +1517,7 @@ async function executeRenderTask(task) {
               workDir,
               shared.FFMPEG_PATH,
               body.whisperModel || 'small',
-              body.ocrLanguage,
+              body.sourceLanguage || body.ocrLanguage,
               ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant) ? body.whisperOnnxVariant : 'q8'
             );
             console.log('Đã tự động trích xuất Ref-text:', refText);
@@ -1784,7 +1838,7 @@ async function executeRenderTask(task) {
             workDir,
             whisperModel: body.whisperModel || 'small',
             whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
-            language: body.ocrLanguage || ''
+            language: body.sourceLanguage || body.ocrLanguage || ''
           });
         }
 
@@ -1816,7 +1870,7 @@ async function executeRenderTask(task) {
               workDir,
               whisperModel: body.whisperModel || 'small',
               whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
-              language: body.ocrLanguage || ''
+              language: body.sourceLanguage || body.ocrLanguage || ''
             });
             segmentReferenceAudioPath = segmentReference.audioPath;
             segmentReferenceText = segmentReference.text;

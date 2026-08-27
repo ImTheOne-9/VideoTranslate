@@ -9,6 +9,7 @@ const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 
 const {
+  detectSpokenLanguage,
   runWorker,
   transcribeAudio,
   transcribeToSrt,
@@ -94,6 +95,67 @@ test('Python worker contains ViralCrawl recovery contracts', () => {
   assert.match(source, /HALLUCINATION_MARKERS/);
   assert.match(source, /GpuFileLock/);
   assert.match(source, /inputMode.*original_media/);
+  assert.match(source, /def detect_language/);
+  assert.match(source, /--detect-language/);
+  assert.match(source, /sample_seconds/);
+});
+
+test('Faster Whisper Tiny detects language from the bounded 25-second sample', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faster-whisper-language-'));
+  const sourcePath = path.join(directory, 'source.mp4');
+  fs.writeFileSync(sourcePath, 'media');
+  try {
+    const result = await detectSpokenLanguage({
+      sourcePath,
+      workDir: directory,
+      modelRoot: directory,
+      sampleSeconds: 25,
+      async runWorker(options) {
+        assert.equal(options.detectLanguageOnly, true);
+        assert.equal(options.model, 'tiny');
+        assert.equal(options.sampleSeconds, 25);
+        fs.writeFileSync(options.resultPath, JSON.stringify({
+          language: 'zh', languageProbability: 0.97,
+          device: 'cuda', model: 'tiny', sampleSeconds: 25
+        }));
+      }
+    });
+    assert.deepEqual(result, {
+      language: 'zh', probability: 0.97,
+      device: 'cuda', model: 'tiny', sampleSeconds: 25
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('language-only worker invocation carries the dedicated detector flags', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'faster-whisper-language-args-'));
+  const sourcePath = path.join(directory, 'source.mp4');
+  fs.writeFileSync(sourcePath, 'media');
+  let receivedArgs;
+  try {
+    await runWorker({
+      pythonPath: __filename,
+      workerPath: path.resolve(__dirname, '../tools/crawler/app/faster_whisper_asr.py'),
+      sourcePath,
+      resultPath: path.join(directory, 'result.json'),
+      modelRoot: directory,
+      workDir: directory,
+      detectLanguageOnly: true,
+      sampleSeconds: 25,
+      spawnImpl(command, args) {
+        receivedArgs = args;
+        const child = fakeChild();
+        setImmediate(() => child.emit('close', 0));
+        return child;
+      }
+    });
+    assert.ok(receivedArgs.includes('--detect-language'));
+    assert.equal(receivedArgs[receivedArgs.indexOf('--sample-seconds') + 1], '25');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('watchdog failure resumes the same Faster Whisper checkpoint on CPU', async () => {
