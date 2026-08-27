@@ -12,6 +12,9 @@ const {
   buildPrompt,
   parseResponseLo,
   nghiGopCau,
+  filterSafeGeminiMap,
+  buildRetryCorrection,
+  selectGeminiCandidate,
   splitGeminiBatches,
   maxConsecutiveMissing,
   assessGeminiBatch,
@@ -26,6 +29,7 @@ const {
   resolveGeminiEditorWaitSeconds,
   translateSrtItemsByGeminiWeb
 } = require('../lib/gemini-web-service');
+const { sanitizeResidualCjk } = require('../lib/translation-output-safety');
 
 test('tyLeHan detects Chinese character ratio correctly', () => {
   assert.equal(tyLeHan('你好世界'), 1.0);
@@ -67,6 +71,10 @@ test('buildPrompt builds full system prompt with 1:1 constraint and length ancho
   assert.ok(prompt.includes('DẤU PHẨY / DẤU CHẤM'));
   assert.ok(prompt.includes('KHÔNG ĐƯỢC VƯỢT số từ'));
   assert.ok(prompt.includes('SỐ DÒNG OUTPUT PHẢI BẰNG SỐ DÒNG INPUT'));
+  assert.match(prompt, /王明 → Vương Minh/);
+  assert.match(prompt, /北京 → Bắc Kinh/);
+  assert.match(prompt, /TUYỆT ĐỐI KHÔNG Hán-Việt hoá cả câu/);
+  assert.doesNotMatch(prompt, /CỔ TRANG \/ TU TIÊN: BẮT BUỘC dùng từ Hán-Việt/);
   assert.ok(prompt.includes('1. @00:00:01 [2.0s ≤'));
   assert.ok(prompt.includes('你好'));
   assert.ok(prompt.includes('谢谢'));
@@ -370,17 +378,94 @@ test('parseResponseLo never position-maps a partially numbered response', () => 
   assert.deepEqual(parsed, { 1: 'Câu một', 3: 'Câu ba' });
 });
 
-test('Gemini Web guard detects a suspicious merged translation and remaining Han text', () => {
+test('Gemini Web guard detects merged cues and safely cleans only light residual Han text', () => {
   assert.equal(nghiGopCau({
     1: 'Một câu bình thường',
     2: 'Một câu khá tự nhiên',
     3: 'Một câu ngắn gọn',
     4: 'Đây là một câu dài bất thường '.repeat(5)
   }), true);
-  assert.equal(isGeminiTranslationValid('剑技', 'Kiếm技 tuyệt đỉnh', {
+  const rescued = isGeminiTranslationValid('剑技', 'Kiếm技 tuyệt đỉnh', {
     targetLang: 'vi',
     final: true
+  });
+  assert.equal(rescued.valid, true);
+  assert.equal(rescued.text, 'Kiếm tuyệt đỉnh');
+  assert.equal(rescued.rescued, true);
+  assert.equal(isGeminiTranslationValid('剑技', 'Đây là 剑技 tuyệt đỉnh', {
+    targetLang: 'vi', final: true, cleanupThreshold: 0.05
   }).reason, 'source_language_remaining');
+});
+
+test('merged-cue filtering also catches a single oversized cue and preserves safe siblings', () => {
+  const batch = [{ id: '1' }, { id: '2' }, { id: '3' }];
+  const filtered = filterSafeGeminiMap(batch, {
+    1: 'Câu tốt thứ nhất',
+    2: 'Một đoạn bị dồn '.repeat(20),
+    3: 'Câu tốt thứ ba'
+  }, { targetLang: 'vi' });
+  assert.deepEqual(filtered.cleaned, { 1: 'Câu tốt thứ nhất', 3: 'Câu tốt thứ ba' });
+  assert.ok(filtered.merged[2]);
+  assert.equal(nghiGopCau({ 1: 'Câu tốt', 2: 'X'.repeat(201) }), true);
+});
+
+test('retry correction reports the previous failure and candidate selection excludes unsafe cues', () => {
+  const batch = Array.from({ length: 4 }, (_, index) => ({ id: String(index + 1) }));
+  const mergedAssessment = {
+    valid: false, reasonCode: 'merged_cue', reason: 'gộp cue', mergedKeys: [2]
+  };
+  assert.match(buildRetryCorrection(mergedAssessment, 4), /LƯỢT TRƯỚC/);
+  assert.match(buildRetryCorrection(mergedAssessment, 4), /ID: 2/);
+  const selected = selectGeminiCandidate(batch, [
+    {
+      parsed: { 1: 'Câu một', 2: 'Đoạn bị dồn '.repeat(30), 3: 'Câu ba', 4: 'Câu bốn' },
+      assessment: mergedAssessment,
+      responseLength: 500,
+      attempt: 1
+    },
+    {
+      parsed: { 1: 'Câu một mới', 2: 'Câu hai mới', 3: 'Câu ba mới' },
+      assessment: { valid: false, reasonCode: 'insufficient_coverage', parsedCount: 3 },
+      responseLength: 60,
+      attempt: 2
+    }
+  ], { targetLang: 'vi' });
+  assert.equal(selected.attempt, 2);
+  assert.deepEqual(selected.parsed, { 1: 'Câu một mới', 2: 'Câu hai mới', 3: 'Câu ba mới' });
+});
+
+test('residual CJK cleanup removes light Han and kana but blanks source-heavy output', () => {
+  assert.equal(sanitizeResidualCjk('大哥：Nhị ca tới.', { targetLang: 'vi' }).valid, false);
+  assert.equal(
+    sanitizeResidualCjk('技：Nhị ca đã tới nơi rồi.', { targetLang: 'vi' }).text,
+    'Nhị ca đã tới nơi rồi.'
+  );
+  assert.equal(sanitizeResidualCjk('Đây là 技 tuyệt đỉnh', { targetLang: 'vi' }).valid, true);
+  assert.equal(sanitizeResidualCjk('这是整段没有翻译', { targetLang: 'vi' }).valid, false);
+  assert.equal(sanitizeResidualCjk('日本語です', { targetLang: 'vi' }).valid, false);
+});
+
+test('Gemini Web retry prompt is specialized from the previous merged-cue failure', async () => {
+  const items = Array.from({ length: 4 }, (_, index) => ({
+    id: String(index + 1), startTime: '00:00:00,000', endTime: '00:00:01,000', text: `原文${index + 1}`
+  }));
+  const prompts = [];
+  const result = await translateSrtItemsByGeminiWeb(items, {
+    targetLang: 'vi', srcLang: 'zho_Hans', splitRounds: 0, requestRetryDelayMs: 0,
+    batchDelayMs: 0, tmContent: '', logFn() {},
+    requestFn: async prompt => {
+      prompts.push(prompt);
+      if (prompts.length === 1) {
+        return `1. Câu một\n2. ${'Dồn cả đoạn '.repeat(30)}\n3. Câu ba\n4. Câu bốn`;
+      }
+      return '1. Câu một\n2. Câu hai\n3. Câu ba\n4. Câu bốn';
+    }
+  });
+  assert.equal(result.failedItems.length, 0);
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /SỬA LỖI LƯỢT TRƯỚC/);
+  assert.match(prompts[1], /DỒN NHIỀU cue/);
+  assert.match(prompts[1], /ID: 2/);
 });
 
 test('Gemini Web pipeline retries only missing cues and writes progressive SRT', async (t) => {
