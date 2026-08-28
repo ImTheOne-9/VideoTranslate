@@ -56,6 +56,12 @@ test('voice audio signatures change when synthesis inputs change', () => {
   assert.notEqual(original, createVoiceAudioSignature({ ...common, text: 'Câu khác' }));
   assert.notEqual(original, createVoiceAudioSignature({ ...common, steps: '16' }));
   assert.notEqual(original, createVoiceAudioSignature({ ...common, positionTemperature: 1.5 }));
+  assert.notEqual(original, createVoiceAudioSignature({ ...common, voice: 'vi-VN-NamMinhNeural' }));
+  assert.notEqual(original, createVoiceAudioSignature({ ...common, rate: '+25%' }));
+  assert.notEqual(original, createVoiceAudioSignature({ ...common, pitch: '+10Hz' }));
+  assert.notEqual(original, createVoiceAudioSignature({
+    ...common, textNormalization: 'vietnormalizer-0.2.3'
+  }));
   assert.notEqual(original, createVoiceAudioSignature({
     ...common,
     referenceIdentity: { ...common.referenceIdentity, mtimeMs: 201 }

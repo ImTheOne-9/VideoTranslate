@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { MailCheck, Loader2, ArrowRight, BadgeCheck, AlertCircle, AlertTriangle, WifiOff } from 'lucide-react';
+import { trackRegistration } from '../utils/pixelTracker';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -28,6 +29,7 @@ export default function VerifyEmail() {
       const data = await res.json();
 
       if (res.status === 200 && data.success) {
+        trackRegistration(data.metaEventId);
         setStatus('success');
         setMessage(data.message || 'Tài khoản của bạn đã được xác thực email. Bây giờ bạn có thể đăng nhập để bắt đầu sử dụng!');
       } else {

@@ -346,6 +346,43 @@ document.addEventListener('click', (e) => {
 // ==========================================
 let clonerPollInterval = null;
 
+function updateClonerEngineUi() {
+  const engineId = $('cloner-voice-engine-select')?.value || 'current-omnivoice';
+  const isEdge = engineId === 'edge-tts';
+  const refAudio = $('cloner-ref-audio');
+  const refText = $('cloner-ref-text');
+  $('cloner-reference-audio-group')?.classList.toggle('hidden', isEdge);
+  $('cloner-reference-text-group')?.classList.toggle('hidden', isEdge);
+  $('cloner-device-group')?.classList.toggle('hidden', isEdge);
+  $('cloner-cpu-fallback-group')?.classList.toggle('hidden', isEdge);
+  $('cloner-edge-settings')?.classList.toggle('hidden', !isEdge);
+  if (refAudio) refAudio.required = !isEdge;
+  if (refText) refText.required = !isEdge;
+
+  const edgeVoice = $('cloner-edge-voice');
+  const sourceVoices = $('edge-voice-select');
+  if (edgeVoice && sourceVoices && edgeVoice.options.length === 0) {
+    edgeVoice.innerHTML = sourceVoices.innerHTML;
+    edgeVoice.value = sourceVoices.value;
+  }
+
+  const statusEl = $('cloner-omi-status');
+  if (statusEl) {
+    const descriptor = (assets.voiceEngines || []).find((engine) => engine.id === engineId);
+    if (descriptor?.status?.ready) {
+      statusEl.textContent = isEdge
+        ? '✅ Edge TTS sẵn sàng (cần kết nối Internet)'
+        : '✅ OmniVoice đã sẵn sàng';
+      statusEl.style.color = '#22c55e';
+    } else {
+      statusEl.textContent = descriptor?.status?.error || `${descriptor?.name || engineId} chưa sẵn sàng`;
+      statusEl.style.color = '#f59e0b';
+    }
+  }
+  const title = $('cloner-modal-title');
+  if (title) title.textContent = isEdge ? '🔊 Tạo giọng bằng Edge TTS' : '🤖 Tạo giọng bằng Omni Cloner';
+}
+
 function previewClonerRefAudio(input) {
   const preview = $('cloner-ref-preview');
   const player = $('cloner-ref-audio-player');
@@ -359,16 +396,9 @@ function previewClonerRefAudio(input) {
 }
 
 function openOmniClonerModal() {
-  const statusEl = $('cloner-omi-status');
-  if (statusEl) {
-    if (assets.omiConfigured) {
-      statusEl.textContent = '✅ OmniVoice đã sẵn sàng';
-      statusEl.style.color = '#22c55e';
-    } else {
-      statusEl.textContent = '⚠️ OmniVoice chưa được cài đặt. Vào Cài đặt hệ thống để tải.';
-      statusEl.style.color = '#f59e0b';
-    }
-  }
+  const engineSelect = $('cloner-voice-engine-select');
+  if (engineSelect) engineSelect.onchange = updateClonerEngineUi;
+  updateClonerEngineUi();
   const modal = $('omni-cloner-modal');
   if (modal) modal.classList.remove('hidden');
   $('cloner-generate-btn').classList.remove('hidden');
@@ -421,14 +451,17 @@ async function generateOmniClonerVoice(event) {
   const progressText = $('cloner-progress-text');
   const progressPct = $('cloner-progress-pct');
   const errorEl = $('cloner-error');
+  const engineId = $('cloner-voice-engine-select')?.value || 'current-omnivoice';
+  const isEdge = engineId === 'edge-tts';
 
-  if (!voiceName || !refAudio || !refText || !script) {
+  if (!voiceName || !script || (!isEdge && (!refAudio || !refText))) {
     toast('❌ Vui lòng nhập đầy đủ thông tin!', 'error');
     return;
   }
 
-  if (!assets.omiConfigured) {
-    toast('❌ OmniVoice chưa được cài đặt. Vui lòng tải OmniVoice trước.', 'error');
+  const engine = (assets.voiceEngines || []).find((item) => item.id === engineId);
+  if (!engine?.status?.ready || (!isEdge && !assets.omiConfigured)) {
+    toast(`❌ ${engine?.status?.error || 'Voice engine chưa sẵn sàng.'}`, 'error');
     return;
   }
 
@@ -442,11 +475,16 @@ async function generateOmniClonerVoice(event) {
 
   const formData = new FormData();
   formData.append('voiceName', voiceName);
-  formData.append('refAudio', refAudio);
-  formData.append('refText', refText);
+  if (refAudio) formData.append('refAudio', refAudio);
+  if (refText) formData.append('refText', refText);
   formData.append('script', script);
   formData.append('device', $('cloner-device').value);
-  formData.append('voiceEngine', $('cloner-voice-engine-select')?.value || 'current-omnivoice');
+  formData.append('voiceEngine', engineId);
+  if (isEdge) {
+    formData.append('edgeVoice', $('cloner-edge-voice')?.value || 'vi-VN-HoaiMyNeural');
+    formData.append('edgeRate', $('cloner-edge-rate')?.value || '+0%');
+    formData.append('edgePitch', $('cloner-edge-pitch')?.value || '+0Hz');
+  }
   formData.append('allowCpuFallback', $('cloner-allow-cpu-fallback')?.checked ? 'true' : 'false');
 
   // Bắt đầu polling tiến trình

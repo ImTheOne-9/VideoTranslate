@@ -34,6 +34,11 @@ function getVideoContentRect(video) {
   };
 }
 
+function resolveCanvasSubtitleScale(videoWidth, videoHeight) {
+  const shortSide = Math.max(1, Math.min(Number(videoWidth) || 1920, Number(videoHeight) || 1080));
+  return 1.35 * shortSide / 1080;
+}
+
 function updateInputsFromSubtitlePosition(left, top, dragWidth, dragHeight) {
   const video = $('studio-video-preview');
   
@@ -411,6 +416,10 @@ function updateSubtitleOverlayFromInputs() {
     konvaWatermark.add(wmText);
     konvaLayer.add(konvaWatermark);
 
+    konvaLogo = new Konva.Group({ name: 'logo', draggable: true, visible: false });
+    konvaLogo.add(new Konva.Image({ id: 'studio-logo-image', width: 180, height: 90 }));
+    konvaLayer.add(konvaLogo);
+
     // Vòng lặp vẽ lại liên tục khi video reaction chơi để cập nhật khung hình
     const rxAnim = new Konva.Animation(() => {}, konvaLayer);
     rxVideoElement.addEventListener('play', () => rxAnim.start());
@@ -559,7 +568,7 @@ function updateSubtitleOverlayFromInputs() {
       let clickedNode = null;
       let curr = e.target;
       while (curr && curr !== konvaStage) {
-        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'blur' || curr.name() === 'blur-box-shape') {
+        if (curr.name() === 'subtitle' || curr.name() === 'reaction' || curr.name() === 'logo' || curr.name() === 'blur' || curr.name() === 'blur-box-shape') {
           clickedNode = curr;
           break;
         }
@@ -758,6 +767,27 @@ function updateSubtitleOverlayFromInputs() {
       hideGuidelines();
     });
 
+    konvaLogo.on('dragmove transform', () => {
+      const imageNode = konvaLogo.findOne('#studio-logo-image');
+      if (!imageNode) return;
+      const stageW = konvaStage.width();
+      const stageH = konvaStage.height();
+      const width = Math.max(24, imageNode.width() * konvaLogo.scaleX());
+      const height = Math.max(12, imageNode.height() * konvaLogo.scaleY());
+      const x = Math.max(0, Math.min(konvaLogo.x(), stageW - width));
+      const y = Math.max(0, Math.min(konvaLogo.y(), stageH - height));
+      konvaLogo.scale({ x: 1, y: 1 });
+      imageNode.size({ width, height });
+      konvaLogo.position({ x, y });
+      if ($('logo-position')) $('logo-position').value = 'custom';
+      if ($('logo-x-percent')) $('logo-x-percent').value = ((x / stageW) * 100).toFixed(3);
+      if ($('logo-y-percent')) $('logo-y-percent').value = ((y / stageH) * 100).toFixed(3);
+      if ($('logo-width-percent')) $('logo-width-percent').value = Math.max(3, Math.min(60, Math.round((width / stageW) * 100)));
+      if ($('logo-width-val')) $('logo-width-val').textContent = `${$('logo-width-percent')?.value || 18}%`;
+      konvaLayer.batchDraw();
+    });
+    konvaLogo.on('dragend transformend', () => hideGuidelines());
+
     // Kéo & co giãn Blur Box
     konvaBlur.on('dragmove transform', () => {
       let scaleX = konvaBlur.scaleX();
@@ -853,7 +883,9 @@ function updateSubtitleOverlayFromInputs() {
     boxWidth = W_act - 2 * marginHInput;
   }
   boxWidth = Math.max(50, boxWidth);
-  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSizeInput * 0.5)));
+  const scaleFactor = resolveCanvasSubtitleScale(W_act, H_act);
+  const fontSize_canvas = fontSizeInput * scaleFactor;
+  const maxChars = Math.max(10, Math.floor(boxWidth / (fontSize_canvas * 0.5)));
 
   let wrappedText = rawText;
   if (maxLines === 1) {
@@ -872,9 +904,6 @@ function updateSubtitleOverlayFromInputs() {
       wrappedText = wrapTextToThreeLines(clean, maxChars);
     }
   }
-
-  const scaleFactor = 1.35;
-  const fontSize_canvas = fontSizeInput * scaleFactor;
 
   subTextNode.text(wrappedText);
   subTextNode.fontSize(fontSize_canvas);
@@ -1131,6 +1160,44 @@ function updateSubtitleOverlayFromInputs() {
   }
 
   // 5. Cập nhật các vùng làm mờ (Multiple Blur Boxes)
+  if (konvaLogo) {
+    const logoEnabled = $('logo-enabled')?.checked === true;
+    const logoFilename = $('saved-logo-select')?.value || '';
+    const logoDomImage = $('selected-logo-image');
+    const logoStart = Math.max(0, Number($('logo-start')?.value || 0));
+    const logoEndRaw = $('logo-end')?.value;
+    const logoEnd = logoEndRaw === '' || logoEndRaw == null ? Infinity : Math.max(logoStart, Number(logoEndRaw));
+    const previewTime = Number($('studio-video-preview')?.currentTime || 0);
+    const logoVisible = logoEnabled && Boolean(logoFilename) && logoDomImage?.complete
+      && logoDomImage.naturalWidth > 0 && previewTime >= logoStart && previewTime <= logoEnd;
+    konvaLogo.visible(logoVisible);
+    if (logoVisible) {
+      const imageNode = konvaLogo.findOne('#studio-logo-image');
+      const stageW = konvaStage.width();
+      const stageH = konvaStage.height();
+      const widthPercent = Math.max(3, Math.min(60, Number($('logo-width-percent')?.value || 18)));
+      const width = stageW * widthPercent / 100;
+      const ratio = logoDomImage.naturalHeight / logoDomImage.naturalWidth || 0.5;
+      const height = Math.min(stageH, width * ratio);
+      imageNode.image(logoDomImage);
+      imageNode.size({ width, height });
+      konvaLogo.opacity(Math.max(0.05, Math.min(1, Number($('logo-opacity')?.value || 0.9))));
+      const position = $('logo-position')?.value || 'br';
+      const pad = Math.max(8, Math.round(stageW * 0.015));
+      let x = Number($('logo-x-percent')?.value || 0) * stageW / 100;
+      let y = Number($('logo-y-percent')?.value || 0) * stageH / 100;
+      if (position === 'br') { x = stageW - width - pad; y = stageH - height - pad; }
+      else if (position === 'bl') { x = pad; y = stageH - height - pad; }
+      else if (position === 'tr') { x = stageW - width - pad; y = pad; }
+      else if (position === 'tl') { x = pad; y = pad; }
+      else if (position === 'center') { x = (stageW - width) / 2; y = (stageH - height) / 2; }
+      x = Math.max(0, Math.min(x, stageW - width));
+      y = Math.max(0, Math.min(y, stageH - height));
+      konvaLogo.position({ x, y });
+      konvaLogo.scale({ x: 1, y: 1 });
+    }
+  }
+
   if (konvaBlur) {
     konvaBlur.visible(false); // Ẩn blur box đơn lẻ cũ
   }
@@ -1194,9 +1261,15 @@ function updateSubtitleOverlayFromInputs() {
 
             ctx.save();
 
-            // Vẽ nội dung video đã làm mờ
+            // Xem trước đúng kiểu che đã chọn: blur, thanh đục đen hoặc màu tùy chỉnh.
             const mainVideo = $('studio-video-preview');
-            if (mainVideo && mainVideo.readyState >= 2) {
+            const maskStyle = $('ocr-mask-style')?.value || 'blur';
+            if (maskStyle !== 'blur') {
+              ctx.fillStyle = maskStyle === 'custom'
+                ? ($('ocr-mask-color')?.value || '#000000')
+                : '#000000';
+              ctx.fillRect(0, 0, w, h);
+            } else if (mainVideo && mainVideo.readyState >= 2) {
               ctx.beginPath();
               ctx.rect(0, 0, w, h);
               ctx.clip();
@@ -1354,6 +1427,7 @@ function updateSubtitleOverlayFromInputs() {
       shape.moveToBottom();
     });
     if (konvaWatermark) konvaWatermark.moveToTop();
+    if (konvaLogo) konvaLogo.moveToTop();
     if (konvaReaction) konvaReaction.moveToTop();
     if (konvaSubtitle) konvaSubtitle.moveToTop();
     if (vGuideline) vGuideline.moveToTop();
@@ -1420,10 +1494,10 @@ function selectBlurBox(id) {
     // Update title span text and color
     const titleSpan = item.querySelector('span');
     if (titleSpan) {
-      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
+      const match = titleSpan.textContent.match(/Vùng che\s+#(\d+)/);
       if (match) {
         const num = match[1];
-        titleSpan.textContent = `Vùng mờ #${num} ${isActive ? '(Đang chỉnh)' : ''}`;
+        titleSpan.textContent = `Vùng che #${num} ${isActive ? '(Đang chỉnh)' : ''}`;
       }
       titleSpan.style.color = isActive ? 'var(--accent)' : 'var(--text)';
     }
@@ -1447,8 +1521,8 @@ function deselectBlurBox() {
     item.style.borderColor = 'var(--border)';
     const titleSpan = item.querySelector('span');
     if (titleSpan) {
-      const match = titleSpan.textContent.match(/Vùng mờ\s+#(\d+)/);
-      if (match) titleSpan.textContent = `Vùng mờ #${match[1]}`;
+      const match = titleSpan.textContent.match(/Vùng che\s+#(\d+)/);
+      if (match) titleSpan.textContent = `Vùng che #${match[1]}`;
       titleSpan.style.color = 'var(--text)';
     }
   });
@@ -1462,7 +1536,7 @@ function renderBlurBoxesList() {
   container.innerHTML = '';
   
   if (blurBoxes.length === 0) {
-    container.innerHTML = `<div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">Chưa có vùng làm mờ nào. Nhấn "Thêm vùng mờ" để bắt đầu.</div>`;
+    container.innerHTML = `<div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">Chưa có vùng che thủ công. Nhấn "Thêm vùng" để bắt đầu.</div>`;
     if (typeof renderTimeline === 'function') {
       renderTimeline();
     }
@@ -1490,7 +1564,7 @@ function renderBlurBoxesList() {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${isCollapsed ? '0' : '8'}px;">
         <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;" onclick="event.stopPropagation(); toggleBlurBoxCollapse(${box.id})">
           <span style="font-size: 10px; color: var(--muted); cursor: pointer; flex-shrink: 0;">${collapseIcon}</span>
-          <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng mờ #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
+          <span style="font-size: 12px; font-weight: 700; color: ${isActive ? 'var(--accent)' : 'var(--text)'};">Vùng che #${index + 1} ${isActive ? '(Đang chỉnh)' : ''}</span>
         </div>
         <button type="button" class="ghost-btn" style="padding: 2px 6px; font-size: 11px; color: var(--danger); border-color: rgba(239,68,68,0.2); background: transparent; height: auto;" onclick="event.stopPropagation(); removeBlurBox(${box.id})">Xóa</button>
       </div>
@@ -1516,10 +1590,10 @@ function renderBlurBoxesList() {
           </div>
         </div>
         
-        <!-- Blur Radius Slider -->
+        <!-- Mỗi vùng che luôn dùng blur khi render, nên luôn cho phép chỉnh bán kính blur. -->
         <div class="form-group" style="margin: 8px 0 0 0; display: flex; flex-direction: column; gap: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Radius)</label>
+            <label style="font-size: 10px; margin: 0; font-weight: 600;">Độ mờ (Blur)</label>
             <span id="radius-val-${box.id}" style="color: var(--accent); font-weight: 700; font-size: 11px;">${box.radius || 20}px</span>
           </div>
           <input type="range" class="premium-slider blur-input" data-id="${box.id}" data-field="radius" value="${box.radius || 20}" min="1" max="50" step="1" style="width: 100%; margin: 2px 0; cursor: pointer;" oninput="document.getElementById('radius-val-${box.id}').textContent = this.value + 'px'">
@@ -1667,7 +1741,7 @@ function renderTimeline() {
       
       block.innerHTML = `
         <div class="timeline-resize-handle left-handle"></div>
-        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; pointer-events: none; user-select: none;">Vùng mờ #${index + 1} (${start.toFixed(1)}s-${end.toFixed(1)}s)</span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; pointer-events: none; user-select: none;">Vùng che #${index + 1} (${start.toFixed(1)}s-${end.toFixed(1)}s)</span>
         <div class="timeline-resize-handle right-handle"></div>
       `;
       
@@ -1755,7 +1829,7 @@ function renderTimeline() {
                 block.style.width = `${Math.max(15, ((finalEnd - finalStart) / duration) * rulerWidth)}px`;
                 const textSpan = block.querySelector('span');
                 if (textSpan) {
-                  textSpan.textContent = `Vùng mờ #${index + 1} (${finalStart.toFixed(1)}s-${finalEnd.toFixed(1)}s)`;
+                  textSpan.textContent = `Vùng che #${index + 1} (${finalStart.toFixed(1)}s-${finalEnd.toFixed(1)}s)`;
                 }
                 
                 syncBoxInputs(box);
@@ -1923,6 +1997,12 @@ document.addEventListener('keydown', (e) => {
     const noneBtn = document.querySelector('.reaction-tab-btn[data-reaction-tab-mode="none"]');
     if (noneBtn && !noneBtn.classList.contains('active')) {
       noneBtn.click();
+      changed = true;
+    }
+  } else if (nodeName === 'logo') {
+    if ($('logo-enabled')) {
+      $('logo-enabled').checked = false;
+      if (typeof updateLogoUi === 'function') updateLogoUi();
       changed = true;
     }
   } else if (nodeName === 'blur-box-shape' || nodeName === 'blur') {

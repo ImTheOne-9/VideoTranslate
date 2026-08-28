@@ -9,6 +9,7 @@ const {
   resolveAutomaticSubtitle
 } = require('../lib/subtitle-source-helper');
 const { OcrTechnicalError } = require('../lib/vse-helper');
+const { evaluateAndCleanSrt } = require('../lib/subtitle-quality');
 
 async function withTempDirectory(callback) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-source-'));
@@ -327,6 +328,43 @@ test('accepted OCR quality returns cleaned metadata and never calls Whisper', as
   });
 });
 
+test('attempts intro recovery after VSE succeeds and before OCR quality validation', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory);
+    const order = [];
+    let recoveryOptions;
+    const dependencies = createDependencies({
+      runVse: async () => {
+        order.push('vse');
+        return { kind: 'success' };
+      },
+      recoverMissingIntroCue: async (received) => {
+        order.push('recovery');
+        recoveryOptions = received;
+        return { recovered: true, recoveredCueCount: 1 };
+      },
+      evaluateAndCleanSrt: async (rawPath, cleanPath) => {
+        order.push('quality');
+        return {
+          accepted: true,
+          path: cleanPath,
+          cueCount: 3,
+          removedRepeatedLines: []
+        };
+      }
+    });
+
+    await resolveAutomaticSubtitle(options, dependencies);
+
+    assert.deepEqual(order, ['vse', 'recovery', 'quality']);
+    assert.equal(recoveryOptions.rawPath, path.join(options.workDir, 'ocr-raw.srt'));
+    assert.equal(recoveryOptions.videoPath, options.videoPath);
+    assert.equal(recoveryOptions.ffmpegPath, options.ffmpegPath);
+    assert.equal(recoveryOptions.device, 'gpu');
+    assert.equal(recoveryOptions.runVse, dependencies.runVse);
+  });
+});
+
 test('VSE no-subtitles result falls back to Whisper', async () => {
   await withTempDirectory(async (directory) => {
     const options = createOptions(directory);
@@ -361,6 +399,152 @@ test('VSE no-subtitles result falls back to Whisper', async () => {
       removedWatermarks: 0,
       reason: 'no_hardsub'
     });
+  });
+});
+
+test('automatic region scan recovers subtitles outside the selected lower region and writes metadata', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      durationMs: 180_000,
+      ocrRegionStrategy: 'auto'
+    });
+    const seenRegions = [];
+    const dependencies = createDependencies({
+      recoverMissingIntroCue: async () => ({ recovered: false }),
+      evaluateAndCleanSrt,
+      runVse: async ({ region, outputPath }) => {
+        seenRegions.push(region);
+        if (region !== '0.45,0.78,0.03,0.97') return { kind: 'no_subtitles' };
+        await fs.writeFile(outputPath, [
+          '1', '00:00:01,000 --> 00:00:02,000', 'Dòng thứ nhất', '',
+          '2', '00:00:03,000 --> 00:00:04,000', 'Dòng thứ hai', '',
+          '3', '00:00:05,000 --> 00:00:06,000', 'Dòng thứ ba', ''
+        ].join('\n'), 'utf8');
+        return { kind: 'success' };
+      }
+    });
+
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    const report = JSON.parse(await fs.readFile(path.join(options.workDir, 'ocr-report.json'), 'utf8'));
+
+    assert.equal(result.source, 'ocr');
+    assert.equal(result.cueCount, 3);
+    assert.equal(seenRegions.length, 5);
+    assert.equal(report.strategy, 'auto');
+    assert.equal(report.selectedRegion, '0.45,0.78,0.03,0.97');
+    assert.equal(report.blurBoxes.length, 3);
+  });
+});
+
+test('RapidOCR pipeline is used directly for Chinese OCR and keeps its exact cleaned SRT', async () => {
+  await withTempDirectory(async (directory) => {
+    const excludedRegions = [{ x0: 0, y0: 0, x1: 0.2, y1: 0.1, t0: 0, t1: 0 }];
+    const options = createOptions(directory, {
+      ocrLanguage: 'ch',
+      ocrPipeline: 'viral',
+      ocrExcludedRegions: excludedRegions
+    });
+    let vseCalled = false;
+    const dependencies = createDependencies({
+      getOcrComponentStatus: () => ({ status: 'ready', supportedLanguages: ['ch'] }),
+      detectOcrDevice: () => { throw new Error('RapidOCR must not use VSE auto-device detection'); },
+      runVse: async () => { vseCalled = true; },
+      runViralOcr: async ({ outputPath, reportPath, model, device, excludedRegions: receivedRegions }) => {
+        assert.equal(model, 'v6-small');
+        assert.equal(device, 'cpu');
+        assert.deepEqual(receivedRegions, excludedRegions);
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n2\n00:00:01,000 --> 00:00:02,000\n第二句\n\n3\n00:00:02,000 --> 00:00:03,000\n第三句\n', 'utf8');
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 3, blurBoxes: [{ start: 0, end: 3 }] }), 'utf8');
+        return { kind: 'success' };
+      }
+    });
+
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(result.reason, 'viral_ocr_accepted');
+    assert.equal(result.cueCount, 3);
+    assert.equal(vseCalled, false);
+    assert.match(await fs.readFile(result.path, 'utf8'), /第一句/);
+  });
+});
+
+test('automatic OCR routes Chinese subtitles to RapidOCR without requiring a manual region', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, {
+      ocrLanguage: 'ch',
+      ocrPipeline: 'auto',
+      ocrRegion: 'this,is,not,a,region'
+    });
+    let vseCalled = false;
+    const dependencies = createDependencies({
+      runVse: async () => { vseCalled = true; },
+      runViralOcr: async ({ outputPath, reportPath }) => {
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n2\n00:00:01,000 --> 00:00:02,000\n第二句\n\n3\n00:00:02,000 --> 00:00:03,000\n第三句\n', 'utf8');
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 3, blurBoxes: [] }), 'utf8');
+        return { kind: 'success' };
+      }
+    });
+
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(result.reason, 'viral_ocr_accepted');
+    assert.equal(vseCalled, false);
+  });
+});
+
+test('explicit VSE keeps Chinese OCR inside the selected region', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, { ocrLanguage: 'ch', ocrPipeline: 'vse' });
+    const seenRegions = [];
+    let viralCalled = false;
+    const dependencies = createDependencies({
+      getOcrComponentStatus: () => ({ status: 'ready', supportedLanguages: ['ch'] }),
+      runVse: async ({ region, outputPath }) => {
+        seenRegions.push(region);
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n2\n00:00:01,000 --> 00:00:02,000\n第二句\n\n3\n00:00:02,000 --> 00:00:03,000\n第三句\n', 'utf8');
+        return { kind: 'success' };
+      },
+      runViralOcr: async () => { viralCalled = true; }
+    });
+
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    assert.equal(result.reason, 'ocr_accepted');
+    assert.deepEqual(seenRegions, ['0.70,0.98,0.05,0.95']);
+    assert.equal(viralCalled, false);
+  });
+});
+
+test('explicit RapidOCR rejects non-Chinese before starting an OCR engine', async () => {
+  await withTempDirectory(async (directory) => {
+    let called = false;
+    const dependencies = createDependencies({
+      runVse: async () => { called = true; },
+      runViralOcr: async () => { called = true; }
+    });
+    await assert.rejects(
+      resolveAutomaticSubtitle(createOptions(directory, { ocrPipeline: 'viral' }), dependencies),
+      (error) => error?.code === 'OCR_INVALID_OPTIONS' && /RapidOCR.*tiếng Trung/i.test(error.message)
+    );
+    assert.equal(called, false);
+  });
+});
+
+test('RapidOCR boxes survive Whisper text fallback when fewer than three OCR cues are read', async () => {
+  await withTempDirectory(async (directory) => {
+    const options = createOptions(directory, { ocrLanguage: 'ch', ocrPipeline: 'viral' });
+    const dependencies = createDependencies({
+      getOcrComponentStatus: () => ({ status: 'ready', supportedLanguages: ['ch'] }),
+      runViralOcr: async ({ outputPath, reportPath }) => {
+        await fs.writeFile(outputPath, '1\n00:00:00,000 --> 00:00:01,000\n一句\n', 'utf8');
+        await fs.writeFile(reportPath, JSON.stringify({ cueCount: 1, blurBoxes: [{ start: 0, end: 1 }] }), 'utf8');
+        return { kind: 'success' };
+      },
+      extractAudioAndTranscribe: async (videoPath, workDir) => path.join(workDir, 'whisper.srt')
+    });
+
+    const result = await resolveAutomaticSubtitle(options, dependencies);
+    const report = JSON.parse(await fs.readFile(path.join(options.workDir, 'ocr-report.json'), 'utf8'));
+    assert.equal(result.source, 'whisper');
+    assert.equal(result.reason, 'ocr_quality_rejected');
+    assert.equal(report.blurBoxes.length, 1);
   });
 });
 

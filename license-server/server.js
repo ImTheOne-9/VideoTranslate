@@ -5,6 +5,34 @@ const path = require('path');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
+const { extractPaymentKeyRef, buildPaymentMemo } = require('./payment-utils');
+const { sendCapiEvent } = require('./lib/meta-capi');
+
+async function triggerCapiEvent(params) {
+  const pixelId = await DB.settings.get('metaPixelId', process.env.META_PIXEL_ID || '1048557318333738');
+  return sendCapiEvent({ ...params, pixelId, accessToken: process.env.META_CAPI_ACCESS_TOKEN || '' });
+}
+
+function createMetaEventId(prefix) {
+  return `${prefix}_${crypto.randomUUID()}`;
+}
+
+function sanitizeAttribution(input = {}) {
+  const clean = (value, max = 500) => value ? String(value).trim().slice(0, max) : '';
+  return {
+    fbp: clean(input.fbp, 255),
+    fbc: clean(input.fbc, 255),
+    eventSourceUrl: clean(input.eventSourceUrl),
+    referrer: clean(input.referrer),
+    utmSource: clean(input.utmSource, 120),
+    utmMedium: clean(input.utmMedium, 120),
+    utmCampaign: clean(input.utmCampaign, 160),
+    utmContent: clean(input.utmContent, 160),
+    utmTerm: clean(input.utmTerm, 160)
+  };
+}
+
+
 
 // Load environment variables from .env if it exists
 try {
@@ -49,47 +77,12 @@ if (process.env.RESEND_API_KEY) {
   }
 }
 
-let stripe = null;
-if (process.env.STRIPE_SECRET_KEY) {
-  try {
-    stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    console.log('[License Server] Stripe Configured.');
-  } catch (err) {
-    console.error('[License Server] Lỗi khi khởi tạo Stripe SDK:', err.message);
-  }
-}
-
-let payOS = null;
-if (process.env.PAYOS_CLIENT_ID && process.env.PAYOS_API_KEY && process.env.PAYOS_CHECKSUM_KEY) {
-  try {
-    const { PayOS } = require('@payos/node');
-    payOS = new PayOS({
-      clientId: process.env.PAYOS_CLIENT_ID,
-      apiKey: process.env.PAYOS_API_KEY,
-      checksumKey: process.env.PAYOS_CHECKSUM_KEY
-    });
-    console.log('[License Server] PayOS Configured.');
-  } catch (err) {
-    console.error('[License Server] Lỗi khi khởi tạo PayOS SDK:', err.message);
-  }
-}
-
 const PORT = process.env.PORT || 4000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/license_server';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'my_super_secret_admin_token_2026';
 
-let stripeWebhookHandler = null;
-
 const app = express();
 app.set('trust proxy', true);
-
-// Stripe Webhook Endpoint receives raw body before express.json() parses it
-app.post('/api/payment/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  if (stripeWebhookHandler) {
-    return stripeWebhookHandler(req, res);
-  }
-  res.status(404).json({ error: 'Stripe webhook handler not set' });
-});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -129,6 +122,8 @@ const userSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   verificationToken: { type: String, default: null },
   verificationExpires: { type: Date, default: null },
+  registrationMetaEventId: { type: String, default: null },
+  registrationAttribution: { type: mongoose.Schema.Types.Mixed, default: {} },
   resetPasswordToken: { type: String, default: null },
   resetPasswordExpires: { type: Date, default: null },
   passwordChangedAt: { type: Date, default: null },
@@ -154,6 +149,8 @@ const licenseSchema = new mongoose.Schema({
   resetCount: { type: Number, default: 0 },
   lastResetAt: { type: Date, default: null },
   priceAtPurchase: { type: Number, default: 0 },
+  metaEventId: { type: String, default: null },
+  metaAttribution: { type: mongoose.Schema.Types.Mixed, default: {} },
   lastExpiryWarningSent: { type: Date, default: null }, // Lan cuoi gui email canh bao sap het han
   createdAt: { type: Date, default: Date.now }
 });
@@ -197,6 +194,9 @@ const paymentTransactionSchema = new mongoose.Schema({
   status:         { type: String, enum: ['confirm', 'pending'], default: 'pending' }, // confirm = kích hoạt OK, pending = lỗi/chờ
   gateway:        { type: String, default: 'sepay' },             // sepay | casso | generic
   rawBody:        { type: mongoose.Schema.Types.Mixed, default: {} },
+  metaEventId:    { type: String, default: null },
+  metaEventStatus:{ type: String, enum: ['pending', 'sent', 'failed', 'skipped'], default: 'pending' },
+  metaEventError: { type: String, default: null },
   paidAt:         { type: Date, default: Date.now }
 });
 const PaymentTransactionModel = mongoose.model('PaymentTransaction', paymentTransactionSchema);
@@ -302,9 +302,10 @@ async function processWriteQueue() {
 
 // Connect to MongoDB with JSON fallback
 mongoose.connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     useMongo = true;
     console.log(`[License Server] [MongoDB Mode] Kết nối thành công tới MongoDB: ${MONGODB_URI}`);
+    await SettingModel.deleteOne({ key: 'metaCapiAccessToken' });
   })
   .catch((err) => {
     useMongo = false;
@@ -357,6 +358,8 @@ const DB = {
           resetCount: license.resetCount || 0,
           lastResetAt: license.lastResetAt,
           priceAtPurchase: license.priceAtPurchase || 0,
+          metaEventId: license.metaEventId || null,
+          metaAttribution: license.metaAttribution || {},
           lastExpiryWarningSent: license.lastExpiryWarningSent || null,
           createdAt: license.createdAt,
           save: async function() {
@@ -375,6 +378,8 @@ const DB = {
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
                 priceAtPurchase: this.priceAtPurchase,
+                metaEventId: this.metaEventId || null,
+                metaAttribution: this.metaAttribution || {},
                 lastExpiryWarningSent: this.lastExpiryWarningSent || null,
                 createdAt: this.createdAt
               };
@@ -404,6 +409,8 @@ const DB = {
           resetCount: data.resetCount || 0,
           lastResetAt: data.lastResetAt || null,
           priceAtPurchase: data.priceAtPurchase || 0,
+          metaEventId: data.metaEventId || null,
+          metaAttribution: data.metaAttribution || {},
           lastExpiryWarningSent: data.lastExpiryWarningSent || null,
           createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : (data.createdAt || new Date().toISOString())
         };
@@ -428,6 +435,8 @@ const DB = {
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
                 priceAtPurchase: this.priceAtPurchase,
+                metaEventId: this.metaEventId || null,
+                metaAttribution: this.metaAttribution || {},
                 lastExpiryWarningSent: this.lastExpiryWarningSent || null,
                 createdAt: this.createdAt
               };
@@ -487,6 +496,8 @@ const DB = {
                 resetCount: this.resetCount,
                 lastResetAt: this.lastResetAt,
                 priceAtPurchase: this.priceAtPurchase,
+                metaEventId: this.metaEventId || null,
+                metaAttribution: this.metaAttribution || {},
                 lastExpiryWarningSent: this.lastExpiryWarningSent || null,
                 createdAt: this.createdAt
               };
@@ -540,6 +551,8 @@ const DB = {
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
           verificationToken: user.verificationToken || null,
           verificationExpires: user.verificationExpires || null,
+          registrationMetaEventId: user.registrationMetaEventId || null,
+          registrationAttribution: user.registrationAttribution || {},
           resetPasswordToken: user.resetPasswordToken || null,
           resetPasswordExpires: user.resetPasswordExpires || null,
           passwordChangedAt: user.passwordChangedAt || null,
@@ -564,6 +577,8 @@ const DB = {
                 isVerified: this.isVerified,
                 verificationToken: this.verificationToken,
                 verificationExpires: this.verificationExpires,
+                registrationMetaEventId: this.registrationMetaEventId || null,
+                registrationAttribution: this.registrationAttribution || {},
                 resetPasswordToken: this.resetPasswordToken,
                 resetPasswordExpires: this.resetPasswordExpires,
                 passwordChangedAt: this.passwordChangedAt,
@@ -629,6 +644,8 @@ const DB = {
           isVerified: user.isVerified !== undefined ? user.isVerified : false,
           verificationToken: user.verificationToken || null,
           verificationExpires: user.verificationExpires || null,
+          registrationMetaEventId: user.registrationMetaEventId || null,
+          registrationAttribution: user.registrationAttribution || {},
           resetPasswordToken: user.resetPasswordToken || null,
           resetPasswordExpires: user.resetPasswordExpires || null,
           passwordChangedAt: user.passwordChangedAt || null,
@@ -653,6 +670,8 @@ const DB = {
                 isVerified: this.isVerified,
                 verificationToken: this.verificationToken,
                 verificationExpires: this.verificationExpires,
+                registrationMetaEventId: this.registrationMetaEventId || null,
+                registrationAttribution: this.registrationAttribution || {},
                 resetPasswordToken: this.resetPasswordToken,
                 resetPasswordExpires: this.resetPasswordExpires,
                 passwordChangedAt: this.passwordChangedAt,
@@ -684,7 +703,9 @@ const DB = {
           affiliateCode: data.affiliateCode || null,
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
           verificationToken: data.verificationToken || null,
-          verificationExpires: data.verificationExpires || null
+          verificationExpires: data.verificationExpires || null,
+          registrationMetaEventId: data.registrationMetaEventId || null,
+          registrationAttribution: data.registrationAttribution || {}
         });
         return await user.save();
       } else {
@@ -703,6 +724,8 @@ const DB = {
           isVerified: data.isVerified !== undefined ? data.isVerified : false,
           verificationToken: data.verificationToken || null,
           verificationExpires: data.verificationExpires || null,
+          registrationMetaEventId: data.registrationMetaEventId || null,
+          registrationAttribution: data.registrationAttribution || {},
           createdAt: new Date().toISOString()
         };
         db.users.push(newUser);
@@ -741,6 +764,18 @@ const DB = {
         if (!db.settings) db.settings = {};
         db.settings[key] = value;
         await writeJSON(db);
+      }
+    },
+
+    async delete(key) {
+      if (useMongo) {
+        await SettingModel.deleteOne({ key });
+      } else {
+        const db = readJSON();
+        if (db.settings && Object.prototype.hasOwnProperty.call(db.settings, key)) {
+          delete db.settings[key];
+          await writeJSON(db);
+        }
       }
     }
   },
@@ -932,12 +967,108 @@ const DB = {
           status: data.status || 'pending',
           gateway: data.gateway || 'sepay',
           rawBody: data.rawBody || {},
+          metaEventId: data.metaEventId || null,
+          metaEventStatus: data.metaEventStatus || 'pending',
+          metaEventError: data.metaEventError || null,
           paidAt: data.paidAt || new Date().toISOString()
         };
         db.paymentTransactions.push(newTx);
         await writeJSON(db);
         return newTx;
       }
+    },
+
+    // SePay có thể replay một giao dịch đã được lưu pending. Chỉ nâng trạng thái
+    // lên confirm; webhook pending gửi lặp không được hạ một giao dịch đã confirm.
+    async upsert(data) {
+      const status = data.status || 'pending';
+      const mutableFields = [
+        'amount', 'content', 'transferCode', 'licenseKey', 'userEmail',
+        'customerName', 'phoneNumber', 'planType', 'gateway', 'rawBody',
+        'metaEventId', 'metaEventStatus', 'metaEventError'
+      ];
+      const fieldsToSet = { status };
+      for (const field of mutableFields) {
+        if (data[field] !== undefined) fieldsToSet[field] = data[field];
+      }
+
+      if (useMongo) {
+        if (status === 'confirm') {
+          return await PaymentTransactionModel.findOneAndUpdate(
+            { transactionId: data.transactionId },
+            {
+              $set: fieldsToSet,
+              $setOnInsert: {
+                transactionId: data.transactionId,
+                paidAt: data.paidAt || new Date()
+              }
+            },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+          );
+        }
+
+        return await PaymentTransactionModel.findOneAndUpdate(
+          { transactionId: data.transactionId },
+          {
+            $setOnInsert: {
+              transactionId: data.transactionId,
+              ...fieldsToSet,
+              paidAt: data.paidAt || new Date()
+            }
+          },
+          { new: true, upsert: true, setDefaultsOnInsert: true }
+        );
+      }
+
+      const db = readJSON();
+      if (!db.paymentTransactions) db.paymentTransactions = [];
+      const index = db.paymentTransactions.findIndex(t => t.transactionId === data.transactionId);
+
+      if (index !== -1) {
+        if (status === 'confirm') {
+          db.paymentTransactions[index] = {
+            ...db.paymentTransactions[index],
+            ...fieldsToSet,
+            paidAt: db.paymentTransactions[index].paidAt || data.paidAt || new Date().toISOString()
+          };
+          await writeJSON(db);
+        }
+        return db.paymentTransactions[index];
+      }
+
+      const newTx = {
+        transactionId: data.transactionId,
+        amount: data.amount,
+        content: data.content || '',
+        transferCode: data.transferCode || '',
+        licenseKey: data.licenseKey || null,
+        userEmail: data.userEmail || null,
+        customerName: data.customerName || null,
+        phoneNumber: data.phoneNumber || null,
+        planType: data.planType || null,
+        status,
+        gateway: data.gateway || 'sepay',
+        rawBody: data.rawBody || {},
+        metaEventId: data.metaEventId || null,
+        metaEventStatus: data.metaEventStatus || 'pending',
+        metaEventError: data.metaEventError || null,
+        paidAt: data.paidAt || new Date().toISOString()
+      };
+      db.paymentTransactions.push(newTx);
+      await writeJSON(db);
+      return newTx;
+    },
+
+    async updateOne(query, update) {
+      if (useMongo) {
+        return await PaymentTransactionModel.updateOne(query, update);
+      }
+      const db = readJSON();
+      const transaction = (db.paymentTransactions || []).find(item => item.transactionId === query.transactionId);
+      if (!transaction) return { matchedCount: 0, modifiedCount: 0 };
+      Object.assign(transaction, update.$set || update);
+      await writeJSON(db);
+      return { matchedCount: 1, modifiedCount: 1 };
     }
   },
 
@@ -1394,6 +1525,8 @@ setTimeout(async () => {
   await seedDefaultPlans();
   await migrateLegacyLicenses();
   await cleanupExpiredPendingLicenses();
+  // Token CAPI cũ từng được lưu qua Admin UI; xóa khỏi DB vì secret giờ chỉ đọc từ environment.
+  await DB.settings.delete('metaCapiAccessToken');
 }, 2000);
 
 // Cryptography Utilities (Zero External dependencies, safe for Windows builds)
@@ -1699,8 +1832,8 @@ async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, s
   let bodyContent = '';
   if (status === 'pending') {
     const formattedPrice = price !== undefined ? (price === 0 ? '0đ' : price.toLocaleString('vi-VN') + 'đ') : (planType === 'monthly' ? '299.000đ' : '1.499.000đ');
-    const keyRef = key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
-    const memo = `VST ${keyRef}`;
+    const keyRef = key.split('-')[1]; // STUDIO-XXXXXXXX-... => VSTXXXXXXXX
+    const memo = buildPaymentMemo(keyRef);
     
     bodyContent = `
       <h3>Chào bạn ${escapedName},</h3>
@@ -1927,13 +2060,15 @@ app.get('/api/config', async (req, res) => {
     const supportEmail = await DB.settings.get('supportEmail', 'support@editnhanh.com');
     const supportZalo = await DB.settings.get('supportZalo', '');
     const supportTelegram = await DB.settings.get('supportTelegram', '');
+    const metaPixelId = await DB.settings.get('metaPixelId', process.env.META_PIXEL_ID || '1048557318333738');
     res.json({ 
       isDev: process.env.NODE_ENV !== 'production',
       version,
-      contact: { email: supportEmail, zalo: supportZalo, telegram: supportTelegram }
+      contact: { email: supportEmail, zalo: supportZalo, telegram: supportTelegram },
+      metaPixelId
     });
   } catch (err) {
-    res.json({ isDev: process.env.NODE_ENV !== 'production', version: '1.0.6', contact: { email: 'support@editnhanh.com', zalo: '', telegram: '' } });
+    res.json({ isDev: process.env.NODE_ENV !== 'production', version: '1.0.6', contact: { email: 'support@editnhanh.com', zalo: '', telegram: '' }, metaPixelId: '1048557318333738' });
   }
 });
 
@@ -1959,7 +2094,7 @@ function validatePhoneNumber(phone) {
 }
 
 app.post('/api/auth/register', authLimiter, async (req, res) => {
-  const { email, password, fullName, phoneNumber, hwid } = req.body;
+  const { email, password, fullName, phoneNumber, hwid, attribution } = req.body;
   if (!email || !password || !fullName || !phoneNumber) {
     return res.status(400).json({ error: 'Vui lòng nhập đầy đủ các thông tin đăng ký!' });
   }
@@ -2010,6 +2145,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     expires.setHours(expires.getHours() + 24); // 24 hours expiry
 
     const hashedPassword = hashPassword(password);
+    const registrationMetaEventId = createMetaEventId('registration');
     await DB.users.create({
       email,
       password: hashedPassword,
@@ -2020,13 +2156,16 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       role: 'user',
       isVerified: false, // Must verify email first
       verificationToken: hashed,
-      verificationExpires: expires
+      verificationExpires: expires,
+      registrationMetaEventId,
+      registrationAttribution: sanitizeAttribution(attribution)
     });
 
     // Send verification link via email
     await sendVerificationEmail({ toEmail: email, fullName, token });
 
     logAuthEvent({ type: 'register_success', email, ip: clientIp, hwid: clientHwid, userAgent: clientUA });
+
     res.status(201).json({ success: true, message: 'Đăng ký tài khoản thành công! Vui lòng kiểm tra email của bạn để xác thực tài khoản.' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi đăng ký: ' + err.message });
@@ -2166,7 +2305,26 @@ app.get('/api/auth/verify-email', async (req, res) => {
     user.verificationExpires = null;
     await user.save();
 
-    res.json({ success: true, message: 'Kích hoạt tài khoản thành công! Bạn có thể quay lại đăng nhập.' });
+    const metaEventId = user.registrationMetaEventId || createMetaEventId('registration');
+    const attribution = sanitizeAttribution(user.registrationAttribution || {});
+    triggerCapiEvent({
+      eventName: 'CompleteRegistration',
+      eventId: metaEventId,
+      eventSourceUrl: attribution.eventSourceUrl,
+      clientIp: user.registrationIp || getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      userEmail: user.email,
+      userPhone: user.phoneNumber,
+      externalId: user.email,
+      fbp: attribution.fbp,
+      fbc: attribution.fbc
+    }).catch(error => console.error('[CAPI Registration Error]', error.message));
+
+    res.json({
+      success: true,
+      message: 'Kích hoạt tài khoản thành công! Bạn có thể quay lại đăng nhập.',
+      metaEventId
+    });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi xác thực email: ' + err.message });
   }
@@ -2395,7 +2553,7 @@ const inFlightSubscriptions = new Set();
 
 // API Đăng ký gói bản quyền
 app.post('/api/plans/subscribe', userAuth, async (req, res) => {
-  const { planType } = req.body;
+  const { planType, attribution } = req.body;
   if (!planType) {
     return res.status(400).json({ error: 'Thiếu thông tin gói dịch vụ đăng ký!' });
   }
@@ -2444,6 +2602,7 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
     const expiresStr = expiresAt.toISOString();
 
     const paymentStatus = plan.price === 0 ? 'active' : 'pending';
+    const metaEventId = plan.price > 0 ? createMetaEventId('purchase') : null;
 
     const license = await DB.licenses.create({
       key,
@@ -2457,6 +2616,12 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
       resetCount: 0,
       lastResetAt: null,
       priceAtPurchase: plan.price,
+      metaEventId,
+      metaAttribution: {
+        ...sanitizeAttribution(attribution),
+        clientIp: getClientIp(req),
+        userAgent: req.headers['user-agent'] || ''
+      },
       createdAt: new Date().toISOString()
     });
 
@@ -2478,6 +2643,7 @@ app.post('/api/plans/subscribe', userAuth, async (req, res) => {
       key: license.key,
       planType: license.planType,
       paymentStatus: license.paymentStatus,
+      metaEventId: license.metaEventId || null,
       expiresAt: expiresStr
     });
   } catch (err) {
@@ -2518,6 +2684,7 @@ app.get('/api/plans/status', async (req, res) => {
       planType: license.planType,
       planName: plan ? plan.name : license.planType,
       price: license.priceAtPurchase !== undefined ? license.priceAtPurchase : (plan ? plan.price : 0),
+      metaEventId: license.metaEventId || null,
       paymentStatus: license.paymentStatus,
       status: license.status,
       expiresAt: license.expiresAt,
@@ -2528,143 +2695,6 @@ app.get('/api/plans/status', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi hệ thống khi lấy thông tin key: ' + err.message });
-  }
-});
-
-const inFlightPaymentSessions = new Set();
-
-// API Tạo phiên thanh toán Stripe Checkout
-app.post('/api/payment/stripe/create-session', userAuth, async (req, res) => {
-  const { key } = req.body;
-  if (!key) return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
-
-  const sessionLockKey = `${req.user.email}_stripe_${key}`;
-  if (inFlightPaymentSessions.has(sessionLockKey)) {
-    return res.status(429).json({ error: 'Yêu cầu thanh toán đang được xử lý, vui lòng đợi.' });
-  }
-  inFlightPaymentSessions.add(sessionLockKey);
-
-  try {
-    const license = await DB.licenses.findOne({ key });
-    if (!license) return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
-
-    // 1. Xác thực quyền sở hữu (Ownership Check)
-    if (license.userEmail !== req.user.email) {
-      return res.status(403).json({ error: 'Bạn không có quyền thanh toán cho key bản quyền của người khác!' });
-    }
-
-    // 2. Chỉ chấp nhận các License đang pending hoặc expired (Trễ hạn)
-    if (license.paymentStatus !== 'pending' && license.paymentStatus !== 'expired') {
-      return res.status(400).json({ error: 'Giao dịch không hợp lệ hoặc bản quyền đã được kích hoạt!' });
-    }
-
-    const plan = await DB.plans.findOne({ id: license.planType });
-    if (!plan) return res.status(400).json({ error: 'Không tìm thấy thông tin gói dịch vụ!' });
-
-    // Giá snapshot động
-    const amount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : plan.price;
-
-    const domain = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-
-    // Khóa Idempotency động theo 10 phút để tránh spam
-    const idempotencyKey = `${license.key}_${Math.floor(Date.now() / 600000)}`;
-
-    if (!stripe) {
-      return res.status(500).json({ error: 'Cổng thanh toán Stripe chưa được cấu hình trên hệ thống!' });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'vnd', // Stripe VND là zero-decimal (không nhân 100)
-          product_data: {
-            name: `Gia hạn bản quyền Editnhanh - ${plan.name}`,
-            description: `Mã key: ${license.key}`,
-          },
-          unit_amount: amount,
-        },
-        quantity: 1,
-      }],
-      mode: 'payment',
-      client_reference_id: license.key,
-      payment_intent_data: {
-        metadata: {
-          license_key: license.key // Bắt buộc để Stripe copy sang Charge Object
-        }
-      },
-      success_url: `${domain}/payment.html?key=${license.key}&status=success`,
-      cancel_url: `${domain}/payment.html?key=${license.key}&status=cancel`,
-    }, {
-      idempotencyKey
-    });
-
-    res.json({ success: true, url: session.url });
-
-  } catch (err) {
-    console.error('[Stripe Create Session Error]:', err.message);
-    res.status(500).json({ error: 'Lỗi khởi tạo phiên thanh toán Stripe: ' + err.message });
-  } finally {
-    inFlightPaymentSessions.delete(sessionLockKey);
-  }
-});
-
-// API Tạo liên kết thanh toán PayOS
-app.post('/api/payment/payos/create-link', userAuth, async (req, res) => {
-  const { key } = req.body;
-  if (!key) return res.status(400).json({ error: 'Mã key bản quyền là bắt buộc!' });
-
-  const sessionLockKey = `${req.user.email}_payos_${key}`;
-  if (inFlightPaymentSessions.has(sessionLockKey)) {
-    return res.status(429).json({ error: 'Yêu cầu thanh toán đang được xử lý, vui lòng đợi.' });
-  }
-  inFlightPaymentSessions.add(sessionLockKey);
-
-  try {
-    const license = await DB.licenses.findOne({ key });
-    if (!license) return res.status(404).json({ error: 'Không tìm thấy key bản quyền này!' });
-
-    // 1. Xác thực quyền sở hữu (Ownership Check)
-    if (license.userEmail !== req.user.email) {
-      return res.status(403).json({ error: 'Bạn không có quyền thanh toán cho key bản quyền của người khác!' });
-    }
-
-    // 2. Chấp nhận pending hoặc expired
-    if (license.paymentStatus !== 'pending' && license.paymentStatus !== 'expired') {
-      return res.status(400).json({ error: 'Giao dịch không hợp lệ hoặc bản quyền đã được kích hoạt!' });
-    }
-
-    const plan = await DB.plans.findOne({ id: license.planType });
-    if (!plan) return res.status(400).json({ error: 'Không tìm thấy thông tin gói dịch vụ!' });
-
-    const amount = license.priceAtPurchase !== undefined ? license.priceAtPurchase : plan.price;
-    const keyRef = license.key.split('-')[1].toUpperCase();
-
-    const domain = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-
-    if (!payOS) {
-      return res.status(500).json({ error: 'Cổng thanh toán PayOS chưa được cấu hình trên hệ thống!' });
-    }
-
-    // Tránh đụng độ mã đơn hàng tuyệt đối 100%
-    const orderCode = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-
-    const paymentLinkData = {
-      orderCode: orderCode,
-      amount: amount,
-      description: `VST ${keyRef}`,
-      cancelUrl: `${domain}/payment.html?key=${license.key}&status=cancel`,
-      returnUrl: `${domain}/payment.html?key=${license.key}&status=success`,
-    };
-
-    const paymentLink = await payOS.paymentRequests.create(paymentLinkData);
-    res.json({ success: true, url: paymentLink.checkoutUrl });
-
-  } catch (err) {
-    console.error('[PayOS Create Link Error]:', err.message);
-    res.status(500).json({ error: 'Lỗi khởi tạo liên kết thanh toán PayOS: ' + err.message });
-  } finally {
-    inFlightPaymentSessions.delete(sessionLockKey);
   }
 });
 
@@ -2728,185 +2758,6 @@ app.post('/api/user/simulate-payment', async (req, res) => {
   }
 });
 
-// Định nghĩa Stripe Webhook Handler thực tế
-stripeWebhookHandler = async (req, res) => {
-  let event;
-  try {
-    const sig = req.headers['stripe-signature'];
-    if (!stripe) {
-      console.error('[Stripe Webhook] Error: stripe SDK is not initialized.');
-      return res.status(500).json({ error: 'Stripe SDK not configured' });
-    }
-    // XÁC THỰC CHỮ KÝ SỐ STRIPE BẮT BUỘC (RAW BODY)
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error(`[Stripe Webhook] ❌ Lỗi xác thực chữ ký Stripe: ${err.message}`);
-    return res.status(400).json({ error: 'Invalid stripe webhook signature' });
-  }
-
-  // 1. Nhánh KÍCH HOẠT: Thanh toán hoàn tất thành công
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const key = session.client_reference_id;
-    if (!key) return res.status(400).json({ error: 'Missing client_reference_id' });
-
-    const keyRef = key.split('-')[1].toUpperCase();
-
-    if (inFlightWebhooks.has(keyRef)) {
-      return res.json({ success: true, message: 'Processing concurrently...' });
-    }
-    inFlightWebhooks.add(keyRef);
-
-    try {
-      const license = await DB.licenses.findOne({ key });
-      if (!license) {
-        console.warn(`[Stripe Webhook] ⚠️ WARNING: Không tìm thấy License: "${key}".`);
-        return res.status(404).json({ error: 'License not found' });
-      }
-
-      if (license.paymentStatus === 'active') {
-        return res.json({ success: true, message: 'License already active' });
-      }
-
-      // Ngăn chặn tự động phục hồi đối với Key đã bị Admin đình chỉ thủ công hoặc do tranh chấp
-      if (license.status === 'suspended') {
-        console.warn(`[Stripe Webhook] 🛑 Từ chối tự kích hoạt Key đang bị đình chỉ (Suspended): ${key}`);
-        return res.json({ success: true, message: 'Cannot auto-activate suspended license. Admin manual check required.' });
-      }
-
-      const plan = await DB.plans.findOne({ id: license.planType });
-      const days = plan ? plan.durationDays : 30;
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + days);
-
-      // Cập nhật Atomic chống Race Condition
-      const updatedLicense = await DB.licenses.findOneAndUpdate(
-        { key, paymentStatus: { $in: ['pending', 'expired'] } },
-        { $set: { paymentStatus: 'active', expiresAt: expiresAt.toISOString() } },
-        { new: true }
-      );
-
-      if (!updatedLicense) {
-        return res.json({ success: true, message: 'License activated concurrently' });
-      }
-
-      console.log(`[Stripe Webhook] 🎉 Kích hoạt thành công License Key: ${updatedLicense.key}.`);
-
-      // Gửi Email kích hoạt (Cô lập lỗi)
-      try {
-        await sendLicenseEmail({
-          toEmail: updatedLicense.userEmail,
-          fullName: updatedLicense.customerName,
-          key: updatedLicense.key,
-          planType: updatedLicense.planType,
-          expiresAt: updatedLicense.expiresAt,
-          status: 'active'
-        });
-      } catch (emailErr) {
-        console.error(`[Stripe Webhook] ⚠️ WARNING: Lỗi gửi email kích hoạt:`, emailErr.message);
-      }
-
-      // Tính hoa hồng affiliate
-      processAffiliateCommission({
-        transactionId: session.payment_intent || session.id,
-        licenseKey: updatedLicense.key,
-        userEmail: updatedLicense.userEmail,
-        customerName: updatedLicense.customerName,
-        customerPhone: '',
-        planType: updatedLicense.planType,
-        amount: session.amount_total || (updatedLicense.priceAtPurchase || 0)
-      }).catch(e => console.error('[Affiliate Hook Stripe]', e.message));
-
-      return res.json({ success: true, message: 'Activated' });
-
-
-    } catch (err) {
-      console.error('[Stripe Webhook] Lỗi xử lý checkout.session.completed:', err);
-      return res.status(500).json({ error: 'Internal error' });
-    } finally {
-      inFlightWebhooks.delete(keyRef);
-    }
-  }
-
-  // 2. Nhánh ĐÌNH CHỈ 1: Khách hàng yêu cầu hoàn tiền (Refund)
-  if (event.type === 'charge.refunded') {
-    const charge = event.data.object;
-    const isFullRefund = charge.amount_refunded >= charge.amount;
-
-    if (isFullRefund) {
-      const key = charge.metadata.license_key; 
-      if (!key) {
-        console.warn('[Stripe Webhook] WARNING: Không tìm thấy license_key trong metadata của charge.');
-        return res.json({ received: true });
-      }
-
-      const keyRef = key.split('-')[1].toUpperCase();
-      if (inFlightWebhooks.has(keyRef)) {
-        return res.json({ success: true, message: 'Processing concurrently...' });
-      }
-      inFlightWebhooks.add(keyRef);
-
-      try {
-        const license = await DB.licenses.findOneAndUpdate(
-          { key: key },
-          { $set: { status: 'suspended', paymentStatus: 'suspended' } },
-          { new: true }
-        );
-        if (license) {
-          console.log(`[Stripe Webhook] 🛑 Đình chỉ thành công License Key do hoàn tiền: ${key}`);
-        }
-        return res.json({ success: true, message: 'License suspended' });
-      } catch (err) {
-        console.error('[Stripe Webhook] Lỗi khi xử lý đình chỉ key do hoàn tiền:', err.message);
-        return res.status(500).json({ error: 'Internal error processing refund' });
-      } finally {
-        inFlightWebhooks.delete(keyRef);
-      }
-    } else {
-      console.log(`[Stripe Webhook] INFO: Hoàn tiền một phần, bỏ qua không khóa key.`);
-    }
-  }
-
-  // 3. Nhánh ĐÌNH CHỈ 2: Khách hàng tranh chấp thẻ (Chargeback/Dispute)
-  if (event.type === 'charge.dispute.created') {
-    const dispute = event.data.object;
-
-    try {
-      const charge = await stripe.charges.retrieve(dispute.charge);
-      const key = charge.metadata.license_key;
-      if (!key) {
-        console.warn('[Stripe Webhook] WARNING: Không tìm thấy license_key trong charge dispute.');
-        return res.json({ received: true });
-      }
-
-      const keyRef = key.split('-')[1].toUpperCase();
-      if (inFlightWebhooks.has(keyRef)) {
-        return res.json({ success: true, message: 'Processing concurrently...' });
-      }
-      inFlightWebhooks.add(keyRef);
-
-      try {
-        const license = await DB.licenses.findOneAndUpdate(
-          { key: key },
-          { $set: { status: 'suspended', paymentStatus: 'suspended' } },
-          { new: true }
-        );
-        if (license) {
-          console.log(`[Stripe Webhook] 🛑 Đình chỉ thành công Key do Chargeback: ${key}`);
-        }
-        return res.json({ success: true, message: 'License suspended' });
-      } finally {
-        inFlightWebhooks.delete(keyRef);
-      }
-    } catch (err) {
-      console.error('[Stripe Webhook] Lỗi xử lý Dispute:', err.message);
-      return res.status(500).json({ error: 'Internal error processing dispute' });
-    }
-  }
-
-  return res.json({ received: true });
-};
-
 const inFlightWebhooks = new Set();
 
 // Webhook tự động nhận thông tin thanh toán từ SePay / Casso để kích hoạt license key
@@ -2969,12 +2820,12 @@ app.post('/api/payment/webhook', async (req, res) => {
       const { amount, content, transactionId, transferCode } = tx;
       console.log(`[Payment Webhook] Xử lý giao dịch #${transactionId}: Số tiền=${amount}, Nội dung="${content}"`);
 
-      // Trích xuất mã keyRef từ nội dung chuyển khoản (Ví dụ: "VST A9B8C7D6" -> "A9B8C7D6")
-      const match = content.match(/vst\s+([a-z0-9]+)/i);
-      if (!match) {
-        console.log(`[Payment Webhook] Giao dịch #${transactionId} bỏ qua: Không tìm thấy cú pháp 'VST <mã_key>'`);
+      // Chấp nhận cả "VST A9B8C7D6" (cũ) và "VSTA9B8C7D6" (chuẩn mới của SePay).
+      const keyRef = extractPaymentKeyRef(content);
+      if (!keyRef) {
+        console.log(`[Payment Webhook] Giao dịch #${transactionId} bỏ qua: Không tìm thấy mã thanh toán VST hợp lệ.`);
         // Lưu lại giao dịch với trạng thái pending (không khớp key)
-        await DB.paymentTransactions.create({
+        await DB.paymentTransactions.upsert({
           transactionId,
           amount,
           content,
@@ -2986,7 +2837,6 @@ app.post('/api/payment/webhook', async (req, res) => {
         continue;
       }
 
-      const keyRef = match[1].toUpperCase();
       console.log(`[Payment Webhook] Tìm thấy keyRef: "${keyRef}"`);
 
       // Khóa Concurrency dựa trên keyRef ngay lập tức (Chống race condition trước khi gọi DB bất đồng bộ)
@@ -3016,7 +2866,7 @@ app.post('/api/payment/webhook', async (req, res) => {
         if (!license) {
           console.warn(`[Payment Webhook] Giao dịch #${transactionId}: Không tìm thấy License tương ứng với mã "${keyRef}" trong database.`);
           // Lưu pending: không tìm thấy key
-          await DB.paymentTransactions.create({
+          await DB.paymentTransactions.upsert({
             transactionId, amount, content,
             transferCode: transferCode || '',
             status: 'pending', gateway,
@@ -3031,7 +2881,7 @@ app.post('/api/payment/webhook', async (req, res) => {
           // Vẫn lưu confirm vì đã thanh toán thành công (dù key đã active)
           try {
             const u = await DB.users.findOne({ email: license.userEmail });
-            await DB.paymentTransactions.create({
+            await DB.paymentTransactions.upsert({
               transactionId, amount, content,
               transferCode: transferCode || '',
               licenseKey: license.key,
@@ -3056,7 +2906,7 @@ app.post('/api/payment/webhook', async (req, res) => {
           // Lưu pending: số tiền không đủ
           try {
             const u = await DB.users.findOne({ email: license.userEmail });
-            await DB.paymentTransactions.create({
+            await DB.paymentTransactions.upsert({
               transactionId, amount, content,
               transferCode: transferCode || '',
               licenseKey: license.key,
@@ -3079,8 +2929,10 @@ app.post('/api/payment/webhook', async (req, res) => {
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + days);
 
+        const metaEventId = license.metaEventId || createMetaEventId('purchase');
         license.expiresAt = expiresAt;
         license.paymentStatus = 'active';
+        license.metaEventId = metaEventId;
         await license.save();
 
         console.log(`[Payment Webhook] 🎉 Kích hoạt thành công License Key: ${license.key}. Hạn dùng mới: ${expiresAt.toISOString()}`);
@@ -3088,23 +2940,50 @@ app.post('/api/payment/webhook', async (req, res) => {
         processedCount++;
 
         // Lưu giao dịch vào DB với trạng thái confirm
+        let purchaseUser = null;
         try {
-          const u = await DB.users.findOne({ email: license.userEmail });
-          await DB.paymentTransactions.create({
+          purchaseUser = await DB.users.findOne({ email: license.userEmail });
+          await DB.paymentTransactions.upsert({
             transactionId,
             amount,
             content,
             transferCode: transferCode || '',
             licenseKey: license.key,
             userEmail: license.userEmail,
-            customerName: license.customerName || (u ? u.fullName : null),
-            phoneNumber: u ? u.phoneNumber : null,
+            customerName: license.customerName || (purchaseUser ? purchaseUser.fullName : null),
+            phoneNumber: purchaseUser ? purchaseUser.phoneNumber : null,
             planType: license.planType,
             status: 'confirm',
             gateway,
-            rawBody: req.body
+            rawBody: req.body,
+            metaEventId,
+            metaEventStatus: process.env.META_CAPI_ACCESS_TOKEN ? 'pending' : 'skipped'
           }).catch(() => {});
         } catch(e) {}
+
+        const metaAttribution = sanitizeAttribution(license.metaAttribution || {});
+        triggerCapiEvent({
+          eventName: 'Purchase',
+          eventId: metaEventId,
+          eventSourceUrl: metaAttribution.eventSourceUrl,
+          amount: requiredAmount,
+          planName: plan ? plan.name : license.planType,
+          planId: license.planType,
+          orderId: String(transactionId),
+          clientIp: license.metaAttribution?.clientIp,
+          userAgent: license.metaAttribution?.userAgent,
+          userEmail: license.userEmail,
+          userPhone: purchaseUser?.phoneNumber,
+          externalId: license.userEmail,
+          fbp: metaAttribution.fbp,
+          fbc: metaAttribution.fbc
+        }).then(result => DB.paymentTransactions.updateOne(
+          { transactionId },
+          { $set: {
+            metaEventStatus: result.success ? 'sent' : (result.skipped ? 'skipped' : 'failed'),
+            metaEventError: result.success ? null : (result.reason || result.error || JSON.stringify(result.data || {})).slice(0, 500)
+          } }
+        )).catch(error => console.error('[CAPI VietQR Purchase Error]', error.message));
 
         // Tính hoa hồng affiliate (bất đồng bộ, không block response)
         try {
@@ -3152,111 +3031,6 @@ app.post('/api/payment/webhook', async (req, res) => {
   } catch (err) {
     console.error('[Payment Webhook] Lỗi hệ thống khi xử lý webhook:', err);
     res.status(500).json({ error: 'Internal system error processing webhook: ' + err.message });
-  }
-});
-
-// Webhook tự động nhận thông tin thanh toán từ PayOS
-app.post('/api/payment/payos/webhook', async (req, res) => {
-  try {
-    if (!payOS) {
-      console.error('[PayOS Webhook] Error: payOS SDK is not initialized.');
-      return res.status(500).json({ error: 'PayOS SDK not configured' });
-    }
-
-    // XÁC THỰC CHỮ KÝ VÀ DỮ LIỆU BẢO MẬT PAYOS
-    const webhookData = await payOS.webhooks.verify(req.body);
-    
-    // Webhook data chứa description/orderCode để tìm ra License
-    const orderDescription = webhookData.description;
-    const keyRefMatch = orderDescription.match(/vst\s+([a-z0-9]+)/i);
-    if (!keyRefMatch) {
-      console.log('[PayOS Webhook] Bỏ qua: Không tìm thấy cú pháp VST keyRef trong description.');
-      return res.json({ success: true, message: 'Webhook ignored: no VST key reference found' });
-    }
-    
-    const keyRef = keyRefMatch[1].toUpperCase();
-
-    if (inFlightWebhooks.has(keyRef)) {
-      return res.json({ success: true, message: 'Processing in parallel' });
-    }
-    inFlightWebhooks.add(keyRef);
-
-    try {
-      // Tìm License đầy đủ sử dụng regex động: ^[^-]+-keyRef-
-      let license = null;
-      if (useMongo) {
-        license = await LicenseModel.findOne({ key: { $regex: `^[^\\-]+-${keyRef}-`, $options: 'i' } });
-      } else {
-        const db = readJSON();
-        const found = db.licenses.find(l => {
-          const parts = l.key.split('-');
-          return parts.length > 1 && parts[1].toUpperCase() === keyRef;
-        });
-        if (found) license = await DB.licenses.findOne({ key: found.key });
-      }
-
-      if (!license) {
-        console.warn(`[PayOS Webhook] ⚠️ WARNING: Không tìm thấy License tương ứng với keyRef "${keyRef}".`);
-        return res.status(404).json({ error: 'License not found' });
-      }
-
-      if (license.paymentStatus === 'active') {
-        return res.json({ success: true, message: 'Already active' });
-      }
-
-      // Ngăn chặn tự động phục hồi đối với Key đã bị Admin đình chỉ thủ công
-      if (license.status === 'suspended') {
-        console.warn(`[PayOS Webhook] 🛑 Từ chối tự kích hoạt Key đang bị đình chỉ (Suspended): ${license.key}`);
-        return res.json({ success: true, message: 'Cannot auto-activate suspended license.' });
-      }
-
-      const plan = await DB.plans.findOne({ id: license.planType });
-      const days = plan ? plan.durationDays : 30;
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + days);
-
-      // Cập nhật Atomic chống Race Condition
-      const updatedLicense = await DB.licenses.findOneAndUpdate(
-        { key: license.key, paymentStatus: { $in: ['pending', 'expired'] } },
-        { $set: { paymentStatus: 'active', expiresAt: expiresAt.toISOString() } },
-        { new: true }
-      );
-
-      if (updatedLicense) {
-        console.log(`[PayOS Webhook] 🎉 Kích hoạt thành công License Key: ${updatedLicense.key}.`);
-        try {
-          await sendLicenseEmail({
-            toEmail: updatedLicense.userEmail,
-            fullName: updatedLicense.customerName,
-            key: updatedLicense.key,
-            planType: updatedLicense.planType,
-            expiresAt: updatedLicense.expiresAt,
-            status: 'active'
-          });
-        } catch (emailErr) {
-          console.error(`[PayOS Webhook] Lỗi gửi email:`, emailErr.message);
-        }
-
-        // Tính hoa hồng affiliate
-        processAffiliateCommission({
-          transactionId: String(webhookData.orderCode || ''),
-          licenseKey: updatedLicense.key,
-          userEmail: updatedLicense.userEmail,
-          customerName: updatedLicense.customerName,
-          customerPhone: '',
-          planType: updatedLicense.planType,
-          amount: webhookData.amount || (updatedLicense.priceAtPurchase || 0)
-        }).catch(e => console.error('[Affiliate Hook PayOS]', e.message));
-      }
-
-      return res.json({ success: true });
-    } finally {
-      inFlightWebhooks.delete(keyRef);
-    }
-
-  } catch (err) {
-    console.error(`[PayOS Webhook] Lỗi xác thực chữ ký PayOS hoặc lỗi xử lý:`, err.message);
-    return res.status(400).json({ error: 'Invalid PayOS signature or process error' });
   }
 });
 
@@ -3695,7 +3469,9 @@ app.get('/api/admin/config', adminAuth, async (req, res) => {
     const bankCode = await DB.settings.get('bankCode', process.env.BANK_CODE || 'MB');
     const bankAccount = await DB.settings.get('bankAccount', process.env.BANK_ACCOUNT || '');
     const bankAccountName = await DB.settings.get('bankAccountName', process.env.BANK_ACCOUNT_NAME || '');
-    res.json({ success: true, installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName });
+    const metaPixelId = await DB.settings.get('metaPixelId', process.env.META_PIXEL_ID || '1048557318333738');
+    const metaCapiConfigured = Boolean(process.env.META_CAPI_ACCESS_TOKEN);
+    res.json({ success: true, installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName, metaPixelId, metaCapiConfigured });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi lấy cấu hình: ' + err.message });
   }
@@ -3703,7 +3479,7 @@ app.get('/api/admin/config', adminAuth, async (req, res) => {
 
 // API cập nhật cấu hình hệ thống (Admin)
 app.post('/api/admin/config', adminOnlyAuth, async (req, res) => {
-  const { installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName } = req.body;
+  const { installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName, metaPixelId } = req.body;
   try {
     await DB.settings.set('installerUrl', (installerUrl || '').trim());
     if (supportEmail !== undefined) await DB.settings.set('supportEmail', (supportEmail || '').trim());
@@ -3712,6 +3488,7 @@ app.post('/api/admin/config', adminOnlyAuth, async (req, res) => {
     if (bankCode !== undefined) await DB.settings.set('bankCode', (bankCode || '').trim());
     if (bankAccount !== undefined) await DB.settings.set('bankAccount', (bankAccount || '').trim());
     if (bankAccountName !== undefined) await DB.settings.set('bankAccountName', (bankAccountName || '').trim());
+    if (metaPixelId !== undefined) await DB.settings.set('metaPixelId', (metaPixelId || '').trim());
     res.json({ success: true, message: 'Cập nhật cấu hình thành công!' });
   } catch (err) {
     res.status(500).json({ error: 'Lỗi khi cập nhật cấu hình: ' + err.message });

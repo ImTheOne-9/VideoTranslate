@@ -13,6 +13,7 @@ import Profile from './pages/Profile';
 import Pricing from './pages/Pricing';
 import About from './pages/About';
 import Guide from './pages/Guide';
+import { captureMetaAttribution, getMetaAttribution, initMetaPixel, trackContact } from './utils/pixelTracker';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ function AppContent() {
   const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
+    captureMetaAttribution();
     checkConfig();
     checkSession();
   }, []);
@@ -62,8 +64,12 @@ function AppContent() {
       if (data.contact) {
         setContact(data.contact);
       }
+      if (data.metaPixelId) {
+        initMetaPixel(data.metaPixelId);
+      }
     } catch (err) {
       console.warn('Lỗi kiểm tra cấu hình:', err.message);
+      initMetaPixel('1048557318333738');
     }
   };
 
@@ -138,7 +144,7 @@ function AppContent() {
       const res = await fetch('/api/plans/subscribe', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ planType })
+        body: JSON.stringify({ planType, attribution: getMetaAttribution() })
       });
       const data = await res.json();
 
@@ -365,7 +371,7 @@ function AppContent() {
                 <ul className="space-y-3 text-xs text-zinc-400 font-medium">
                   <li className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-indigo-400 shrink-0" />
-                    <a href={`mailto:${contact.email}`} className="hover:text-white transition-colors truncate">{contact.email}</a>
+                    <a href={`mailto:${contact.email}`} onClick={() => trackContact('Email Support')} className="hover:text-white transition-colors truncate">{contact.email}</a>
                   </li>
                   {contact.zalo && (
                     <li className="flex items-center gap-2">
@@ -373,6 +379,7 @@ function AppContent() {
                       <a
                         href={contact.zalo.startsWith('http') ? contact.zalo : `https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
                         target="_blank" rel="noopener noreferrer"
+                        onClick={() => trackContact('Zalo Support')}
                         className="hover:text-white transition-colors"
                       >
                         {contact.zalo.startsWith('http') ? 'Nhóm Zalo hỗ trợ' : `Zalo: ${contact.zalo}`}
@@ -382,7 +389,13 @@ function AppContent() {
                   {contact.telegram && (
                     <li className="flex items-center gap-2">
                       <Globe className="h-4 w-4 text-indigo-400 shrink-0" />
-                      <span className="select-text">Telegram: {contact.telegram}</span>
+                      <a
+                        href={`https://t.me/${contact.telegram.replace(/^@/, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => trackContact('Telegram Support')}
+                        className="hover:text-white transition-colors"
+                      >Telegram: {contact.telegram}</a>
                     </li>
                   )}
                 </ul>
@@ -440,6 +453,7 @@ function AppContent() {
           href={contact.zalo.startsWith('http') ? contact.zalo : `https://zalo.me/${contact.zalo.replace(/[^0-9]/g, '')}`}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => trackContact('Zalo Support')}
           title={contact.zalo.startsWith('http') ? 'Tham gia nhóm Zalo hỗ trợ' : `Chat Zalo hỗ trợ: ${contact.zalo}`}
           style={{ zIndex: 9999 }}
           className="fixed bottom-6 right-6 group flex flex-row-reverse items-center gap-3"

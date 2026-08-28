@@ -3,6 +3,33 @@ let currentUser = null;
 let authMode = 'login'; // 'login' | 'register' | 'forgot'
 let redirectActionAfterAuth = null; // Stored subscribe action if unauthenticated
 
+// Helper gọi Meta Pixel an toàn
+function safeFbq(action, eventName, params = {}, options = {}) {
+  if (typeof window !== 'undefined' && typeof window.fbq === 'function') {
+    try {
+      if (Object.keys(options).length > 0) {
+        window.fbq(action, eventName, params, options);
+      } else if (Object.keys(params).length > 0) {
+        window.fbq(action, eventName, params);
+      } else {
+        window.fbq(action, eventName);
+      }
+    } catch (e) {
+      console.warn('[Meta Pixel Warning]', e);
+    }
+  }
+}
+
+function trackRegistration() { safeFbq('track', 'CompleteRegistration', { content_name: 'Tài khoản Editnhanh', status: true }); }
+function trackDownloadApp() { safeFbq('trackCustom', 'DownloadApp', { content_name: 'Bộ cài Editnhanh Windows', file_type: 'exe' }); }
+function trackInitiateCheckout(planName, price) { safeFbq('track', 'InitiateCheckout', { content_name: planName || 'Gói Bản Quyền Editnhanh', value: Number(price) || 0, currency: 'VND' }); }
+function trackPurchase(planName, price, orderId) { safeFbq('track', 'Purchase', { content_name: planName || 'Bản Quyền Editnhanh', value: Number(price) || 0, currency: 'VND', order_id: orderId || undefined }, orderId ? { eventID: String(orderId) } : {}); }
+function trackLogin() { safeFbq('trackCustom', 'Login', { content_name: 'Đăng nhập Editnhanh', method: 'Password' }); }
+function trackViewContent(contentName = 'Bảng giá Editnhanh') { safeFbq('track', 'ViewContent', { content_name: contentName, content_type: 'product_group' }); }
+function trackContact(channelName = 'Zalo Support') { safeFbq('track', 'Contact', { content_name: channelName }); }
+function trackCopyLicenseKey() { safeFbq('trackCustom', 'CopyLicenseKey', { content_name: 'Sao chép License Key' }); }
+
+
 // Tao fingerprint thiet bi on dinh (hash thong tin trinh duyet + persist localStorage)
 function getDeviceFingerprint() {
   try {
@@ -615,8 +642,8 @@ function renderPaymentInstruction(keyObj) {
 
   const amount = keyObj.price !== undefined ? keyObj.price : (keyObj.planType === 'monthly' ? 199000 : 1499000);
   const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
-  const keyRef = keyObj.key.split('-')[1]; // VST STUDIO-XXXX-XXXX... => VST XXXX
-  const memo = `VST ${keyRef}`;
+  const keyRef = keyObj.key.split('-')[1]; // STUDIO-XXXXXXXX-... => VSTXXXXXXXX
+  const memo = `VST${keyRef}`;
   
   const qrUrl = `https://img.vietqr.io/image/MB-0352516480-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=HOANG%20DEVS`;
 

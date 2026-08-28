@@ -46,7 +46,13 @@ test('current OmniVoice adapter reports capabilities and installation status', a
   const description = await engine.describe();
   assert.equal(description.status.ready, true);
   assert.equal(description.capabilities.cloneVoice, true);
-  assert.deepEqual(description.capabilities.languages, ['vi', 'en', 'zh']);
+  assert.ok(description.capabilities.languages.length > 60);
+  assert.ok(['vi', 'en', 'zh', 'ja', 'fr', 'de'].every(
+    language => description.capabilities.languages.includes(language)
+  ));
+  assert.ok(['ne', 'su', 'ar'].every(
+    language => !description.capabilities.languages.includes(language)
+  ));
   assert.deepEqual(description.capabilities.devices, ['cpu', 'vulkan:0', 'cuda:0']);
   assert.equal(description.capabilities.modelSizeBytes, 123456);
   assert.equal(description.capabilities.sampleRate, 24000);

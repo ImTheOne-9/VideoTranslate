@@ -7,7 +7,28 @@ python_engine/
 temp_env/
 
 # Binaries, models, third-party tools and dependencies
-tools/
+tools/*
+
+# First-party crawler/RapidOCR sources required by packaged builds. Keep large
+# binaries, browser profiles, downloaded media and third-party crawler data ignored.
+!tools/crawler/
+tools/crawler/*
+!tools/crawler/requirements-crawler.txt
+!tools/crawler/setup-runtime.ps1
+!tools/crawler/install-ocr-gpu.py
+!tools/crawler/app/
+tools/crawler/app/*
+!tools/crawler/app/piper_tts_bridge.py
+!tools/crawler/app/tts_chuan_hoa.py
+!tools/crawler/app/audio_stretch_bridge.py
+!tools/crawler/app/viral_ocr/
+tools/crawler/app/viral_ocr/*
+!tools/crawler/app/viral_ocr/*.py
+!tools/crawler/app/viral_ocr/zhcdict.json
+!tools/crawler/app/MediaCrawler/
+tools/crawler/app/MediaCrawler/*
+!tools/crawler/app/MediaCrawler/pyproject.toml
+!tools/crawler/app/MediaCrawler/uv.lock
 
 # Local media assets and renders (data local, KHÔNG commit)
 downloads/
@@ -31,6 +52,7 @@ Thumbs.db
 # Build output
 dist/
 .tmp-mdx-cuda/
+.tmp-ffmpeg-rollback/
 release/mdx-onnx-cuda/*.zip
 
 # Logs

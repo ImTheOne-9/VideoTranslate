@@ -53,6 +53,8 @@ export default function Admin({ showToast }) {
   const [bankCode, setBankCode] = useState('MB');
   const [bankAccount, setBankAccount] = useState('');
   const [bankAccountName, setBankAccountName] = useState('');
+  const [metaPixelId, setMetaPixelId] = useState('');
+  const [metaCapiConfigured, setMetaCapiConfigured] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -591,6 +593,8 @@ export default function Admin({ showToast }) {
         setBankCode(data.bankCode || 'MB');
         setBankAccount(data.bankAccount || '');
         setBankAccountName(data.bankAccountName || '');
+        setMetaPixelId(data.metaPixelId || '1048557318333738');
+        setMetaCapiConfigured(Boolean(data.metaCapiConfigured));
       }
     } catch (err) {
       showToast('Lỗi khi tải cấu hình link tải: ' + err.message, 'error');
@@ -606,7 +610,7 @@ export default function Admin({ showToast }) {
       const res = await apiFetch('/api/admin/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName })
+        body: JSON.stringify({ installerUrl, supportEmail, supportZalo, supportTelegram, bankCode, bankAccount, bankAccountName, metaPixelId })
       });
       const data = await res.json();
       if (data.success) {
@@ -1791,6 +1795,29 @@ export default function Admin({ showToast }) {
                     placeholder="Ví dụ: NGUYEN VAN A"
                     className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono uppercase"
                   />
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-800/50 pt-4 space-y-4">
+                <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                  <span>Cấu hình Meta Ads Pixel & CAPI</span>
+                </p>
+                <div className="space-y-2">
+                  <label htmlFor="metaPixelId" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">Meta Pixel ID</label>
+                  <input
+                    id="metaPixelId"
+                    type="text"
+                    value={metaPixelId}
+                    onChange={(e) => setMetaPixelId(e.target.value)}
+                    placeholder="Ví dụ: 1048557318333738"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                  />
+                </div>
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+                  <p className="text-xs font-semibold text-zinc-300">Meta CAPI Token</p>
+                  <p className={`mt-1 text-[11px] ${metaCapiConfigured ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {metaCapiConfigured ? 'Đã cấu hình an toàn bằng biến môi trường trên server.' : 'Chưa cấu hình META_CAPI_ACCESS_TOKEN trên server.'}
+                  </p>
                 </div>
               </div>
 

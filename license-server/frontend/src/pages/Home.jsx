@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Youtube, Video, Download, Languages, Volume2, Cpu, Layers, Settings, Tv, Flame, ShieldCheck, Check, X, Zap, Sparkles, Share2, Music, HardDrive, Scissors, Mic2, Facebook, ZoomIn, Star, HelpCircle, ChevronDown, CheckCircle2, Play } from 'lucide-react';
+import { trackDownloadApp } from '../utils/pixelTracker';
 
 import downloaderImg from '../assets/downloader_screenshot.png';
+
 import studioImg from '../assets/studio_render_screenshot.png';
 import bamcanhImg from '../assets/bamcanh_screenshot.png';
 import libraryImg from '../assets/library_screenshot.png';
@@ -92,6 +94,7 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
       const data = await res.json();
       
       if (data.success && data.token) {
+        trackDownloadApp();
         showToast('Bắt đầu tải file cài đặt phần mềm...');
         window.location.href = `/download?token=${data.token}`;
       } else {

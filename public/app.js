@@ -40,6 +40,7 @@ function setBusy(button, busy, text) {
 
 let pendingSwitchViewName = null;
 let studioAssetsReady = false;
+let studioVideoRefreshPromise = null;
 
 function closeSaveProjectConfirmModal() {
   const modal = $('save-project-confirm-modal');
@@ -104,7 +105,12 @@ function executeSwitchView(name) {
   $('view-desc').textContent = views[name].desc;
   if (name === 'library') {
     switchLibraryTab(currentLibraryTab);
+  } else if (name === 'crawl-history') {
+    crawlLoadHistory();
   } else if (name === 'studio') {
+    refreshStudioVideoAssets().catch((error) => {
+      console.error('Không cập nhật được Video nguồn:', error);
+    });
     const homeView = $('studio-home-view');
     const editorView = $('studio-editor-view');
     if (homeView) homeView.classList.remove('hidden');
@@ -175,12 +181,13 @@ function refreshStudioPreviewLayout() {
 // Setup bottom configuration tabs switcher
 document.querySelectorAll('.config-tab-icon-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.config-tab-icon-btn').forEach(b => b.classList.remove('active'));
+    const tabButtons = Array.from(document.querySelectorAll('.config-tab-icon-btn'));
+    tabButtons.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const targetPanelId = btn.dataset.target;
 
-    const panels = ['panel-source-video', 'panel-reaction', 'panel-subtitle', 'panel-voice', 'panel-music'];
-    panels.forEach(id => {
+    const panelIds = [...new Set(tabButtons.map(button => button.dataset.target).filter(Boolean))];
+    panelIds.forEach(id => {
       const el = $(id);
       if (el) el.classList.toggle('hidden', id !== targetPanelId);
     });
@@ -254,6 +261,76 @@ function renderAssetList(id, items) {
   }
 }
 
+function populateOutputLanguageOptions(languages = []) {
+  const select = $('global-output-lang');
+  if (!select || !Array.isArray(languages) || languages.length === 0) return;
+  const previous = select.value || 'vi';
+  select.innerHTML = '';
+  for (const language of languages) {
+    const option = document.createElement('option');
+    option.value = language.code;
+    option.textContent = language.label || language.promptName || language.code.toUpperCase();
+    select.appendChild(option);
+  }
+  select.value = languages.some((language) => language.code === previous) ? previous : 'vi';
+  updateOutputLangInfo();
+}
+
+function refreshTtsVoiceCatalogs(voiceEngines = []) {
+  const targetLang = ($('global-output-lang')?.value || 'vi').toLowerCase().split('-')[0];
+  const fillEngineVoiceSelect = (selectId, engineId) => {
+    const select = $(selectId);
+    const descriptor = voiceEngines.find((engine) => engine.id === engineId);
+    const voices = (descriptor?.capabilities?.voices || []).filter((voice) => voice.lang === targetLang);
+    if (!select) return;
+    if (voices.length === 0) {
+      select.innerHTML = '';
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = `${descriptor?.name || engineId} chưa hỗ trợ — sẽ dùng Edge TTS`;
+      select.appendChild(option);
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = '';
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = voice.name || voice.id;
+      select.appendChild(option);
+    }
+    select.value = voices.some((voice) => voice.id === previous) ? previous : voices[0].id;
+  };
+  fillEngineVoiceSelect('edge-voice-select', 'edge-tts');
+  fillEngineVoiceSelect('piper-voice-select', 'piper');
+
+  const fillGenderSelect = (name, engineId, gender) => {
+    const select = document.querySelector(`select[name="${name}"]`);
+    const descriptor = voiceEngines.find((engine) => engine.id === engineId);
+    const voices = (descriptor?.capabilities?.voices || []).filter(
+      (voice) => voice.lang === targetLang && voice.gender === gender
+    );
+    if (!select) return;
+    if (voices.length === 0) {
+      select.innerHTML = '<option value="">Sẽ dùng Edge TTS</option>';
+      return;
+    }
+    const previous = select.value;
+    select.innerHTML = '';
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = `${gender === 'male' ? 'Nam' : 'Nữ'}: ${voice.name || voice.id}`;
+      select.appendChild(option);
+    }
+    select.value = voices.some((voice) => voice.id === previous) ? previous : voices[0].id;
+  };
+  fillGenderSelect('piperMaleVoice', 'piper', 'male');
+  fillGenderSelect('piperFemaleVoice', 'piper', 'female');
+  fillGenderSelect('edgeMaleVoice', 'edge-tts', 'male');
+  fillGenderSelect('edgeFemaleVoice', 'edge-tts', 'female');
+}
+
 function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-omnivoice') {
   const select = $('voice-engine-select');
   const capabilityText = $('voice-engine-capabilities');
@@ -265,41 +342,94 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const option = document.createElement('option');
     option.value = engine.id;
     option.textContent = engine.id === 'current-omnivoice'
-      ? 'OmniVoice hiện tại'
+      ? 'OmniVoice Clone'
       : engine.name;
     option.disabled = engine.status?.ready !== true;
     if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
     select.appendChild(option);
   }
 
+  const fallbackEngineId = voiceEngines.some(
+    (engine) => engine.id === defaultEngineId && engine.status?.ready
+  )
+    ? defaultEngineId
+    : (voiceEngines.find((engine) => engine.status?.ready)?.id || defaultEngineId);
   const preferred = voiceEngines.some((engine) => engine.id === previousValue && engine.status?.ready)
     ? previousValue
-    : defaultEngineId;
+    : fallbackEngineId;
   select.value = preferred;
+  refreshTtsVoiceCatalogs(voiceEngines);
+
+  const targetLanguageSelect = $('global-output-lang');
+  if (targetLanguageSelect && targetLanguageSelect.dataset.voiceCatalogBound !== 'true') {
+    targetLanguageSelect.dataset.voiceCatalogBound = 'true';
+    targetLanguageSelect.addEventListener('change', () => refreshTtsVoiceCatalogs(assets.voiceEngines || voiceEngines));
+  }
 
   const updateDescription = () => {
     const engine = voiceEngines.find((item) => item.id === select.value);
     if (!engine || !capabilityText) return;
     const capabilities = engine.capabilities || {};
-    const languageLabels = { vi: 'Việt', en: 'Anh', zh: 'Trung' };
-    const languages = (capabilities.languages || [])
-      .map((language) => languageLabels[language] || language)
-      .join(', ');
-    const devices = (capabilities.devices || []).map((device) => {
-      if (device === 'cpu') return 'CPU';
-      if (device.startsWith('vulkan')) return 'Vulkan';
-      if (device.startsWith('cuda')) return 'CUDA';
-      return device;
-    }).join(', ');
-    const features = [
-      capabilities.cloneVoice ? 'Clone giọng' : null,
-      languages || null,
-      devices || null,
-      capabilities.sampleRate ? `${Math.round(capabilities.sampleRate / 1000)} kHz` : null
-    ].filter(Boolean);
-    capabilityText.textContent = engine.status?.ready
-      ? features.join(' • ')
-      : 'Engine chưa sẵn sàng. Hãy cài đủ CLI và model.';
+
+    if (engine.status?.ready !== true) {
+      capabilityText.innerHTML = `
+        <div class="engine-badge-list">
+          <span class="engine-badge badge-error">❌ ${escapeHtml(engine.status?.error || 'Engine chưa sẵn sàng')}</span>
+        </div>`;
+    } else {
+      const badges = [];
+      if (engine.id === 'current-omnivoice') {
+        badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng AI</span>');
+        badges.push('<span class="engine-badge badge-blue">🌍 70+ ngôn ngữ</span>');
+        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • Vulkan • CPU</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz GGUF</span>');
+      } else if (engine.id === 'piper') {
+        badges.push('<span class="engine-badge badge-green">⚡ Offline 100% (Siêu nhanh)</span>');
+        badges.push('<span class="engine-badge badge-blue">🇻🇳 16 giọng Việt + Quốc tế</span>');
+        const provider = engine.status?.providers?.includes('CUDAExecutionProvider') ? 'CUDA GPU' : 'CPU';
+        badges.push(`<span class="engine-badge badge-purple">💻 Provider: ${provider}</span>`);
+        badges.push('<span class="engine-badge badge-slate">🎧 22.05 kHz</span>');
+      } else if (engine.id === 'edge-tts') {
+        badges.push('<span class="engine-badge badge-blue">☁️ Microsoft Cloud</span>');
+        badges.push('<span class="engine-badge badge-cyan">🌍 70+ ngôn ngữ Neural</span>');
+        badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz HQ</span>');
+      } else {
+        if (capabilities.cloneVoice) badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng</span>');
+        const langCount = capabilities.languages?.length || 0;
+        if (langCount > 10) badges.push(`<span class="engine-badge badge-blue">🌍 ${langCount} ngôn ngữ</span>`);
+        else if (langCount > 0) badges.push('<span class="engine-badge badge-blue">🌍 Đa ngôn ngữ</span>');
+        if (engine.status?.requiresInternet) badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
+        else badges.push('<span class="engine-badge badge-green">⚡ Offline</span>');
+        if (capabilities.sampleRate) badges.push(`<span class="engine-badge badge-slate">🎧 ${Math.round(capabilities.sampleRate / 1000)} kHz</span>`);
+      }
+      capabilityText.innerHTML = `<div class="engine-badge-list">${badges.join('')}</div>`;
+    }
+
+    const runtimeInstallButton = $('voice-runtime-install-btn');
+    const piperDescriptor = voiceEngines.find((item) => item.id === 'piper');
+    if (runtimeInstallButton) {
+      runtimeInstallButton.classList.toggle('hidden', piperDescriptor?.status?.ready === true);
+    }
+
+    const edgeVoiceGroup = $('edge-voice-group');
+    const isEdge = select.value === 'edge-tts';
+    const isPiper = select.value === 'piper';
+    if (edgeVoiceGroup) {
+      edgeVoiceGroup.style.display = isEdge ? 'block' : 'none';
+    }
+    const piperVoiceGroup = $('piper-voice-group');
+    if (piperVoiceGroup) piperVoiceGroup.style.display = isPiper ? 'block' : 'none';
+    const dualVoiceGroup = $('dual-voice-group');
+    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper ? 'block' : 'none';
+    const piperDualVoices = $('piper-dual-voices');
+    if (piperDualVoices) piperDualVoices.style.display = isPiper ? 'grid' : 'none';
+    const edgeDualVoices = $('edge-dual-voices');
+    if (edgeDualVoices) edgeDualVoices.style.display = isEdge ? 'grid' : 'none';
+    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper);
+    if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
+    if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
 
   select.onchange = updateDescription;
@@ -328,14 +458,15 @@ async function loadAssets() {
   }
   const res = await fetch('/api/studio-assets');
   assets = await res.json();
-  renderVideoGrid(assets.videos);
-  renderReactionVideoGrid(assets.videos);
+  populateOutputLanguageOptions(assets.outputLanguages || []);
+  applyStudioVideoAssets(assets.videos);
   fillSelect('saved-voice-select', assets.voices, 'Chọn giọng đã lưu');
   renderQuickVoices();
   fillSelect('saved-music-select', assets.music, 'Chọn nhạc đã lưu');
   renderQuickMusic();
+  fillSelect('saved-logo-select', assets.logos || [], '-- Chọn logo --');
+  updateLogoUi();
   fillSelect('saved-subtitle-select', assets.subtitles, 'Chọn sub đã lưu');
-  renderAssetList('asset-videos', assets.videos);
   renderAssetList('asset-voices', assets.voices);
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
@@ -920,6 +1051,7 @@ function updateOcrLanguages(languages) {
     select.appendChild(option);
   });
   if (normalized.some(language => language.id === previous)) select.value = previous;
+  updateOcrPipelineUi();
 }
 
 async function refreshOcrComponentStatusForUi() {
@@ -1015,6 +1147,7 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
+const OCR_PIPELINES = new Set(['auto', 'viral', 'vse']);
 const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
 const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
 const WHISPER_DEVICES = new Set(['auto', 'cpu', 'dml']);
@@ -1053,8 +1186,46 @@ function updateSubtitleEngineUi() {
   document.querySelectorAll('.whisper-engine-settings').forEach(element => {
     element.classList.toggle('hidden', engine === 'ocr');
   });
-  updateOcrRegionOverlay();
+  updateOcrPipelineUi();
   return engine;
+}
+
+function isChineseOcrLanguage() {
+  return ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String($('ocr-language-select')?.value || '').toLowerCase());
+}
+
+function usesRapidOcrUi() {
+  const pipeline = $('ocr-pipeline-value')?.value;
+  return pipeline === 'viral' || (pipeline === 'auto' && isChineseOcrLanguage());
+}
+
+function updateOcrPipelineUi() {
+  const input = $('ocr-pipeline-value');
+  if (!input) return 'auto';
+  let pipeline = OCR_PIPELINES.has(input.value) ? input.value : 'auto';
+  const chinese = isChineseOcrLanguage();
+  if (pipeline === 'viral' && !chinese) {
+    pipeline = 'auto';
+    input.value = pipeline;
+  }
+  const rapidOption = input.querySelector('option[value="viral"]');
+  if (rapidOption) rapidOption.disabled = !chinese;
+  const usesRapid = usesRapidOcrUi();
+  const shouldHideRegion = $('subtitle-engine-value')?.value === 'whisper' || usesRapid;
+  document.querySelectorAll('.ocr-region-settings').forEach(element => {
+    element.classList.toggle('hidden', shouldHideRegion);
+  });
+  const hint = $('ocr-pipeline-hint');
+  if (hint) {
+    hint.textContent = usesRapid
+      ? 'RapidOCR tự quét & tracking chữ toàn khung hình.'
+      : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
+  }
+  updateOcrRegionOverlay();
+  const showRapidRuntime = usesRapid && $('subtitle-engine-value')?.value !== 'whisper';
+  updateRapidOcrRuntimeUi({ visible: showRapidRuntime });
+  if (showRapidRuntime) void refreshRapidOcrRuntimeStatusForUi();
+  return pipeline;
 }
 
 function updateWhisperOnnxVariantButtons() {
@@ -1102,6 +1273,7 @@ function updateOcrRegionOverlay() {
   const wrapper = $('video-preview-wrapper');
   const shouldShow = $('subtitle-mode')?.value === 'generate'
     && $('subtitle-engine-value')?.value !== 'whisper'
+    && !usesRapidOcrUi()
     && wrapper
     && !wrapper.classList.contains('hidden');
   if (!overlay || !shouldShow) {
@@ -1206,11 +1378,13 @@ document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
     if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
     input.value = button.dataset.subtitleEngine;
     const engine = updateSubtitleEngineUi();
-    if (engine !== 'whisper' && $('subtitle-mode')?.value === 'generate') {
+    if (engine !== 'whisper' && !usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
       refreshOcrComponentStatusForUi();
     }
   });
 });
+$('ocr-pipeline-value')?.addEventListener('change', updateOcrPipelineUi);
+$('ocr-language-select')?.addEventListener('change', updateOcrPipelineUi);
 document.querySelectorAll('.ocr-mode-btn').forEach(button => {
   button.addEventListener('click', () => {
     const input = $('ocr-mode-value');
@@ -1235,6 +1409,230 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 });
 
 initOcrRegionOverlay();
+
+let rapidOcrRuntimeInstallPromise = null;
+let rapidOcrGpuInstallPromise = null;
+
+function updateRapidOcrGpuUi(status = {}) {
+  const row = $('rapidocr-gpu-row');
+  const label = $('rapidocr-gpu-status');
+  const button = $('rapidocr-gpu-install-btn');
+  if (!row || !label || !button) return;
+  row.classList.toggle('hidden', status.runtimeReady === false);
+  if (status.runtimeReady === false) return;
+  if (status.installing || status.status === 'installing') {
+    const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
+    label.textContent = status.message || `Đang cài GPU${percent}…`;
+    button.textContent = `Đang cài${percent}`;
+    button.disabled = true;
+    return;
+  }
+  if (status.gpuReady) {
+    label.textContent = status.enabled
+      ? `GPU CUDA đang bật`
+      : 'GPU sẵn sàng (Mặc định chạy CPU)';
+    button.textContent = status.enabled ? 'Đang dùng GPU' : 'GPU sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'unsupported') {
+    label.textContent = 'GPU không hỗ trợ (Chạy CPU)';
+    button.textContent = status.reason === 'driver_too_old' ? 'Driver cũ' : 'Không hỗ trợ';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'error') {
+    label.textContent = 'Lỗi GPU (Đang chạy CPU)';
+    button.textContent = 'Thử sửa GPU';
+    button.disabled = false;
+    return;
+  }
+  label.textContent = 'Đang chạy CPU';
+  button.textContent = 'Cài/sửa GPU';
+  button.disabled = false;
+}
+
+$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+  const button = $('voice-runtime-install-btn');
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Đang cài runtime…';
+    }
+    await installRapidOcrRuntime('Piper');
+    await loadAssets();
+    toast('Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Cài Piper offline';
+    }
+  }
+});
+
+async function readRapidOcrGpuStatus() {
+  const response = await fetch('/api/rapidocr-gpu/status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được RapidOCR GPU.');
+  return status;
+}
+
+async function refreshRapidOcrGpuStatusForUi() {
+  try {
+    const status = await readRapidOcrGpuStatus();
+    updateRapidOcrGpuUi(status);
+    return status;
+  } catch (error) {
+    updateRapidOcrGpuUi({ status: 'error', runtimeReady: true, error: error.message });
+    return null;
+  }
+}
+
+function updateRapidOcrRuntimeUi({ visible, status } = {}) {
+  const row = $('rapidocr-runtime-row');
+  const label = $('rapidocr-runtime-status');
+  const button = $('rapidocr-runtime-install-btn');
+  if (!row || !label || !button) return;
+  if (visible !== undefined) row.classList.toggle('hidden', !visible);
+  if (row.classList.contains('hidden') || !status) return;
+
+  if (status.ready) {
+    label.textContent = 'RapidOCR đã sẵn sàng';
+    button.textContent = 'Đã sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'installing') {
+    const percent = Number.isFinite(Number(status.percent)) ? ` ${Math.round(Number(status.percent))}%` : '';
+    label.textContent = status.message || `Đang cài RapidOCR${percent}…`;
+    button.textContent = `Đang tải${percent}`;
+    button.disabled = true;
+    return;
+  }
+  if (status.status === 'error') {
+    label.textContent = status.error || status.message || 'Cài RapidOCR thất bại.';
+    button.textContent = 'Thử lại';
+    button.disabled = false;
+    return;
+  }
+  label.textContent = 'Chưa cài RapidOCR';
+  button.textContent = 'Tải RapidOCR';
+  button.disabled = false;
+}
+
+async function readRapidOcrRuntimeStatus() {
+  const response = await fetch('/api/download-crawl/runtime-status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được runtime RapidOCR.');
+  return status;
+}
+
+async function refreshRapidOcrRuntimeStatusForUi() {
+  if (!usesRapidOcrUi()) return null;
+  try {
+    const status = await readRapidOcrRuntimeStatus();
+    updateRapidOcrRuntimeUi({ visible: true, status });
+    if (status.ready) await refreshRapidOcrGpuStatusForUi();
+    else updateRapidOcrGpuUi({ runtimeReady: false });
+    return status;
+  } catch (error) {
+    updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    return null;
+  }
+}
+
+async function installRapidOcrRuntime(purpose = 'RapidOCR') {
+  if (rapidOcrRuntimeInstallPromise) return rapidOcrRuntimeInstallPromise;
+  rapidOcrRuntimeInstallPromise = (async () => {
+    let status = await readRapidOcrRuntimeStatus();
+    if (status.ready) {
+      updateRapidOcrRuntimeUi({ visible: true, status });
+      return true;
+    }
+    const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const installResult = await installResponse.json();
+    if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
+    toast(`Đang cài/cập nhật runtime ${purpose}. Chỉ cần thực hiện một lần.`, 'info');
+
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      status = await readRapidOcrRuntimeStatus();
+      updateRapidOcrRuntimeUi({ visible: true, status });
+      if ($('render-status') && status.message) $('render-status').textContent = status.message;
+      if (status.ready) {
+        toast(`${purpose} đã sẵn sàng.`, 'success');
+        await refreshRapidOcrGpuStatusForUi();
+        return true;
+      }
+      if (status.status === 'error') throw new Error(status.error || status.message || 'Cài RapidOCR thất bại.');
+    }
+    throw new Error('Cài RapidOCR quá thời gian chờ.');
+  })();
+  try {
+    return await rapidOcrRuntimeInstallPromise;
+  } finally {
+    rapidOcrRuntimeInstallPromise = null;
+  }
+}
+
+$('rapidocr-runtime-install-btn')?.addEventListener('click', async () => {
+  try {
+    await installRapidOcrRuntime();
+  } catch (error) {
+    updateRapidOcrRuntimeUi({ visible: true, status: { status: 'error', error: error.message } });
+    toast(error.message, 'error');
+  }
+});
+
+async function installRapidOcrGpu() {
+  if (rapidOcrGpuInstallPromise) return rapidOcrGpuInstallPromise;
+  rapidOcrGpuInstallPromise = (async () => {
+    const response = await fetch('/api/rapidocr-gpu/install', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không thể cài tăng tốc RapidOCR GPU.');
+    updateRapidOcrGpuUi(result);
+    toast('Đang kiểm tra và cài tăng tốc GPU. Không render trong lúc này.', 'info');
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const status = await readRapidOcrGpuStatus();
+      updateRapidOcrGpuUi(status);
+      if (status.status === 'error') throw new Error(status.error || status.message || 'Cài GPU thất bại.');
+      if (!status.installing && status.status !== 'installing') {
+        if (status.gpuReady) {
+          toast(status.enabled
+            ? 'RapidOCR đang dùng GPU thật bằng CUDAExecutionProvider.'
+            : 'Đã cài GPU thành công. RapidOCR vẫn dùng CPU mặc định để đạt tốc độ tốt hơn.', 'success');
+        }
+        else toast(status.message || 'GPU không hoạt động; RapidOCR tiếp tục chạy CPU.', 'warning');
+        return status.gpuReady === true;
+      }
+    }
+    throw new Error('Cài RapidOCR GPU quá thời gian chờ.');
+  })();
+  try {
+    return await rapidOcrGpuInstallPromise;
+  } finally {
+    rapidOcrGpuInstallPromise = null;
+  }
+}
+
+$('rapidocr-gpu-install-btn')?.addEventListener('click', async () => {
+  try {
+    await installRapidOcrGpu();
+  } catch (error) {
+    updateRapidOcrGpuUi({ status: 'error', runtimeReady: true, error: error.message });
+    toast(error.message, 'error');
+  }
+});
+
+async function ensureViralOcrRuntimeReady() {
+  let status = await readRapidOcrRuntimeStatus();
+  updateRapidOcrRuntimeUi({ visible: true, status });
+  if (status.ready) return true;
+  return installRapidOcrRuntime();
+}
 
 async function renderStudio(event) {
   event.preventDefault();
@@ -1276,9 +1674,18 @@ async function renderStudio(event) {
     if (subtitleEngine !== 'whisper') {
       try {
         data.set('ocrRegion', syncOcrRegion());
-        const ready = await ensureOcrComponentReady();
+        const ocrPipeline = OCR_PIPELINES.has(data.get('ocrPipeline')) ? data.get('ocrPipeline') : 'auto';
+        const isChinese = ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String(data.get('ocrLanguage') || '').toLowerCase());
+        if (ocrPipeline === 'viral' && !isChinese) {
+          toast('RapidOCR hiện chỉ hỗ trợ tiếng Trung. Hãy chọn VSE hoặc đổi ngôn ngữ chữ gốc thành Trung.', 'error');
+          return;
+        }
+        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && isChinese);
+        const ready = usesViralOcr
+          ? await ensureViralOcrRuntimeReady()
+          : await ensureOcrComponentReady();
         if (!ready) return;
-        if (currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
+        if (!usesViralOcr && currentOcrSupportedLanguages.length && !currentOcrSupportedLanguages.includes(data.get('ocrLanguage'))) {
           toast('Ngôn ngữ đã chọn không được bộ OCR hiện tại hỗ trợ.', 'error');
           return;
         }
@@ -1315,7 +1722,10 @@ async function renderStudio(event) {
     data.set('voiceEngine', voiceEngineId);
   }
 
-  if (voiceMode === 'omi' && omiDevice === 'cuda:0' && !dependencyStatus.cuda) {
+  if (voiceMode === 'omi'
+    && data.get('voiceEngine') === 'current-omnivoice'
+    && omiDevice === 'cuda:0'
+    && !dependencyStatus.cuda) {
     showDependencyModal('cuda', () => {
       const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
       form.dispatchEvent(submitEvent);
@@ -1325,6 +1735,11 @@ async function renderStudio(event) {
 
   if (!$('video-upload').files.length && !data.get('mainVideoFile')) {
     toast('Chọn video nguồn hoặc upload video mới.', 'error');
+    return;
+  }
+
+  if (data.get('logoMode') === 'saved' && !data.get('savedLogoFile')) {
+    toast('Hãy chọn một logo đã tải trước khi render.', 'error');
     return;
   }
 
@@ -1352,6 +1767,7 @@ async function renderStudio(event) {
   data.set('opencodeModel', aiSettings.opencodeModel || 'DeepSeek V4 Flash (Free)');
   data.set('openaiApiKey', aiSettings.openaiApiKey || '');
   data.set('openaiModel', aiSettings.openaiModel || 'gpt-4o-mini');
+  data.set('translationStyles', JSON.stringify(aiSettings.translationStyles || []));
   
   const keepBgmAi = document.querySelector('input[name="keepOriginalBgmAI"]')?.checked;
   if (keepBgmAi) {
@@ -2887,7 +3303,12 @@ function updateConditionalFields() {
   }
 
   const voiceMode = $('voice-mode').value;
-  $('voice-saved-wrapper').classList.toggle('hidden', !['saved', 'omi'].includes(voiceMode));
+  const selectedVoiceEngine = $('voice-engine-select')?.value || 'current-omnivoice';
+  const selectedVoiceDescriptor = (assets.voiceEngines || [])
+    .find((engine) => engine.id === selectedVoiceEngine);
+  const needsSavedVoice = voiceMode === 'saved'
+    || (voiceMode === 'omi' && selectedVoiceDescriptor?.capabilities?.cloneVoice === true);
+  $('voice-saved-wrapper').classList.toggle('hidden', !needsSavedVoice);
   $('voice-upload-wrapper').classList.toggle('hidden', voiceMode !== 'upload');
   $('omi-cloner-container').classList.toggle('hidden', voiceMode !== 'omi');
 
@@ -2942,6 +3363,73 @@ function updateConditionalFields() {
   }
 }
 
+const studioVideoPlatformLabels = {
+  local: 'Tải đơn lẻ', youtube: 'YouTube', tiktok: 'TikTok', douyin: 'Douyin',
+  bilibili: 'Bilibili', facebook: 'Facebook', instagram: 'Instagram',
+  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote'
+};
+const studioVideoModeLabels = { local: 'Tải đơn lẻ', detail: 'Theo link', search: 'Theo từ khóa', creator: 'Theo kênh', chase: 'Theo bộ' };
+
+function applyStudioVideoAssets(videos) {
+  assets.videos = Array.isArray(videos) ? videos : [];
+  studioInitializeVideoFilters(assets.videos);
+  renderReactionVideoGrid(assets.videos);
+  renderAssetList('asset-videos', assets.videos);
+}
+
+async function refreshStudioVideoAssets() {
+  if (studioVideoRefreshPromise) return studioVideoRefreshPromise;
+  studioVideoRefreshPromise = (async () => {
+    const response = await fetch('/api/studio-assets', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không đọc được danh sách video nguồn.');
+    applyStudioVideoAssets(data.videos);
+    return assets.videos;
+  })();
+  try {
+    return await studioVideoRefreshPromise;
+  } finally {
+    studioVideoRefreshPromise = null;
+  }
+}
+
+function studioDownloadUrl(relativePath) {
+  const encoded = String(relativePath || '').replace(/\\/g, '/').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  return `/downloads/${encoded}`;
+}
+
+function studioInitializeVideoFilters(videos = []) {
+  const platformSelect = $('studio-video-platform-filter');
+  if (platformSelect) {
+    const previous = platformSelect.value;
+    const platforms = [...new Set(videos.map((item) => item.platform || 'local'))];
+    platformSelect.innerHTML = '<option value="">Tất cả nền tảng</option>' + platforms
+      .map((platform) => `<option value="${crawlEscape(platform)}">${crawlEscape(studioVideoPlatformLabels[platform] || platform)}</option>`).join('');
+    if (platforms.includes(previous)) platformSelect.value = previous;
+    else platformSelect.value = '';
+  }
+  studioApplyVideoFilters();
+}
+
+function studioApplyVideoFilters() {
+  const allVideos = Array.isArray(assets.videos) ? assets.videos : [];
+  const platform = $('studio-video-platform-filter')?.value || '';
+  const mode = $('studio-video-mode-filter')?.value || '';
+  const sourceSelect = $('studio-video-source-filter');
+  const sourceCandidates = allVideos.filter((item) => (!platform || item.platform === platform) && (!mode || item.mode === mode));
+  if (sourceSelect) {
+    const previous = sourceSelect.value;
+    const sources = [...new Set(sourceCandidates.map((item) => item.source).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+    sourceSelect.innerHTML = '<option value="">Mọi nguồn</option>' + sources
+      .map((source) => `<option value="${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('');
+    sourceSelect.value = sources.includes(previous) ? previous : '';
+  }
+  const source = sourceSelect?.value || '';
+  const filtered = sourceCandidates.filter((item) => !source || item.source === source);
+  if ($('studio-video-filter-summary')) $('studio-video-filter-summary').textContent = `${filtered.length}/${allVideos.length} video`;
+  renderVideoGrid(filtered);
+}
+
 function renderVideoGrid(videos) {
   const grid = $('studio-video-grid');
   if (!grid) return;
@@ -2962,7 +3450,10 @@ function renderVideoGrid(videos) {
     }
     card.dataset.filename = item.filename;
 
-    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    const videoUrl = studioDownloadUrl(item.filename);
+    const displayName = item.name || String(item.filename).split(/[\\/]/).pop();
+    const platformLabel = studioVideoPlatformLabels[item.platform] || item.platform || 'Tải đơn lẻ';
+    const modeLabel = studioVideoModeLabels[item.mode] || '';
 
     card.innerHTML = `
       <div class="video-card-thumb">
@@ -2971,7 +3462,8 @@ function renderVideoGrid(videos) {
         <div class="video-card-duration">--:--</div>
       </div>
       <div class="video-card-info">
-        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
+        <div class="video-card-meta">${crawlEscape(platformLabel)}${modeLabel ? ` · ${crawlEscape(modeLabel)}` : ''}${item.source ? ` · ${crawlEscape(item.source)}` : ''}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
       </div>
     `;
@@ -3027,7 +3519,8 @@ function renderReactionVideoGrid(videos) {
     }
     card.dataset.filename = item.filename;
 
-    const videoUrl = `/downloads/${encodeURIComponent(item.filename)}`;
+    const videoUrl = studioDownloadUrl(item.filename);
+    const displayName = item.name || String(item.filename).split(/[\\/]/).pop();
 
     card.innerHTML = `
       <div class="video-card-thumb">
@@ -3036,7 +3529,7 @@ function renderReactionVideoGrid(videos) {
         <div class="video-card-duration">--:--</div>
       </div>
       <div class="video-card-info">
-        <div class="video-card-name" title="${item.filename}">${item.filename}</div>
+        <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
       </div>
     `;
@@ -3207,21 +3700,21 @@ function renderCurrentConfigSummary() {
     }
     if (themeSelect) subtitleParts.push(`Kiểu: ${getSelectedText(themeSelect)}`);
     if (boldSelect && boldSelect.value === 'yes') subtitleParts.push(`In đậm`);
-    if (maxLinesSelect) subtitleParts.push(`Dòng tối đa: ${maxLinesSelect.value}`);
+    if (maxLinesSelect) subtitleParts.push(`Dòng: ${getSelectedText(maxLinesSelect)}`);
     if (marginInput) subtitleParts.push(`Lề dọc: ${marginInput.value}px`);
     if (marginHInput) subtitleParts.push(`Lề ngang: ${marginHInput.value}px`);
 
     summary.push(`<div>📝 <b>Phụ đề:</b> ${subtitleParts.join(' | ') || 'Không thiết lập'}</div>`);
   }
 
-  // Làm mờ phụ đề gốc
+  // Che phụ đề gốc
   if (blurBoxes && blurBoxes.length > 0) {
     const details = blurBoxes.map((box, idx) => {
       const startSec = Number(box.start || 0).toFixed(1);
       const endSec = box.end === 99999 ? 'Hết video' : `${Number(box.end || 0).toFixed(1)}s`;
-      return `Vùng ${idx + 1}: ${startSec}s - ${endSec} (Độ mờ: ${box.radius || 20}px)`;
+      return `Vùng ${idx + 1}: ${startSec}s - ${endSec}`;
     }).join(' | ');
-    summary.push(`<div>🛡️ <b>Mờ phụ đề gốc:</b> Bật (${blurBoxes.length} vùng mờ)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
+    summary.push(`<div>🛡️ <b>Che chữ gốc:</b> Làm mờ (${blurBoxes.length} vùng)<br><span style="color: var(--muted); font-size: 11px; margin-left: 20px;">➔ ${details}</span></div>`);
   }
 
   // 2. Thuyết minh (Voiceover)
@@ -3232,7 +3725,7 @@ function renderCurrentConfigSummary() {
     voiceModeVal = voiceModeInput.value;
     if (voiceModeVal === 'saved') voiceModeText = 'Giọng thuyết minh đã lưu';
     else if (voiceModeVal === 'upload') voiceModeText = 'Tải lên file mới';
-    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh tự động (Omni Cloner)';
+    else if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') voiceModeText = 'Thuyết minh AI tự động';
 
     let voiceDetail = '';
     if (voiceModeVal !== 'none') {
@@ -3275,7 +3768,7 @@ function renderCurrentConfigSummary() {
     summary.push(`<div>🔊 <b>Âm lượng:</b> ${vols.join(' | ')}</div>`);
   }
 
-  // 5. Cấu hình AI Cloner (nếu có thuyết minh cloner)
+  // 5. Cấu hình pipeline thuyết minh AI
   if (voiceModeVal === 'omi' || voiceModeVal === 'cloner') {
     const outputLang = document.getElementById('global-output-lang');
     const omiDevice = document.querySelector('select[name="omiDevice"]');
@@ -3296,7 +3789,7 @@ function renderCurrentConfigSummary() {
       clonerParts.push(`Seed: ${omiSeed.value}`);
     }
     clonerParts.push(`Fallback CPU: ${allowCpuFallback?.checked ? 'Cho phép' : 'Không'}`);
-    summary.push(`<div>🤖 <b>OmniVoice Cloner:</b> ${clonerParts.join(' | ')}</div>`);
+    summary.push(`<div>🤖 <b>Thuyết minh AI:</b> ${clonerParts.join(' | ')}</div>`);
   }
 
   list.innerHTML = summary.map(item => `<div style="line-height: 1.6; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 4px; margin-bottom: 4px;">${item}</div>`).join('');
@@ -3334,6 +3827,12 @@ function submitSaveTemplate(event) {
     blurBoxes: blurBoxes,
     voiceMode: $('voice-mode').value,
     savedVoiceFile: $('saved-voice-select').value,
+    voiceEngine: $('voice-engine-select')?.value || 'current-omnivoice',
+    edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
+    piperVoice: $('piper-voice-select')?.value || 'ngochuyen',
+    piperDevice: $('piper-device-select')?.value || 'auto',
+    edgeRate: $('edge-rate-select')?.value || '+0%',
+    edgePitch: $('edge-pitch-select')?.value || '+0Hz',
     omiLanguage: document.getElementById('global-output-lang')?.value || 'vi',
     omiDevice: document.querySelector('select[name="omiDevice"]').value,
     omiSteps: document.querySelector('input[name="omiSteps"]').value,
@@ -3341,6 +3840,16 @@ function submitSaveTemplate(event) {
     omiCustomSeed: $('omi-seed-input').value,
     musicMode: $('music-mode').value,
     savedMusicFile: $('saved-music-select').value,
+    logoMode: $('logo-mode')?.value || 'none',
+    logoEnabled: $('logo-mode')?.value === 'saved',
+    savedLogoFile: $('saved-logo-select')?.value || '',
+    logoPosition: $('logo-position')?.value || 'br',
+    logoXPercent: $('logo-x-percent')?.value || '80',
+    logoYPercent: $('logo-y-percent')?.value || '85',
+    logoWidthPercent: $('logo-width-percent')?.value || '18',
+    logoOpacity: $('logo-opacity')?.value || '0.9',
+    logoStart: $('logo-start')?.value || '0',
+    logoEnd: $('logo-end')?.value || '',
     originalVolume: sliderToVolume(document.querySelector('input[name="originalVolume"]').value),
     voiceVolume: sliderToVolume(document.querySelector('input[name="voiceVolume"]').value),
     musicVolume: sliderToVolume(document.querySelector('input[name="musicVolume"]').value),
@@ -3537,7 +4046,9 @@ function loadStudioTemplate(templateName) {
 
   document.querySelector('select[name="subtitleTheme"]').value = template.subtitleTheme;
   document.querySelector('select[name="subtitleBold"]').value = template.subtitleBold;
-  document.querySelector('select[name="subtitleMaxLines"]').value = template.subtitleMaxLines;
+  // Bố cục dòng hiện tự động theo tỷ lệ video; template cũ có giá trị 1/2/3
+  // cũng được nâng về chế độ tự động để không tách cue/timestamp.
+  document.querySelector('select[name="subtitleMaxLines"]').value = '0';
   document.querySelector('input[name="subtitleMargin"]').value = template.subtitleMargin;
   const marginHInput = document.querySelector('input[name="subtitleMarginH"]');
   if (marginHInput) {
@@ -3555,12 +4066,21 @@ function loadStudioTemplate(templateName) {
   if (marginLInput) marginLInput.value = template.subtitleMarginL || '';
   if (marginRInput) marginRInput.value = template.subtitleMarginR || '';
 
-  // Restore blur settings
-
-
   blurBoxes = template.blurBoxes || [];
   activeBlurBoxId = blurBoxes.length > 0 ? blurBoxes[0].id : null;
   renderBlurBoxesList();
+
+  // Restore voice engine before opening voice mode so Edge TTS does not depend on OmniVoice.
+  const voiceEngineSelect = $('voice-engine-select');
+  if (voiceEngineSelect && template.voiceEngine) {
+    voiceEngineSelect.value = template.voiceEngine;
+    voiceEngineSelect.dispatchEvent(new Event('change'));
+  }
+  if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
+  if ($('piper-voice-select') && template.piperVoice) $('piper-voice-select').value = template.piperVoice;
+  if ($('piper-device-select') && template.piperDevice) $('piper-device-select').value = template.piperDevice;
+  if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
+  if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
 
   // Restore voice mode
   const voiceModeBtn = document.querySelector(`.voice-tab-btn[data-voice-mode="${template.voiceMode}"]`);
@@ -3576,6 +4096,7 @@ function loadStudioTemplate(templateName) {
   if (globalLangSel) {
     const langMap = { 'Vietnamese': 'vi', 'English': 'en', 'Chinese': 'zh' };
     globalLangSel.value = langMap[template.omiLanguage] || template.omiLanguage || 'vi';
+    globalLangSel.dispatchEvent(new Event('change'));
   }
   document.querySelector('select[name="omiDevice"]').value = template.omiDevice;
 
@@ -3603,6 +4124,19 @@ function loadStudioTemplate(templateName) {
   if (template.savedMusicFile) {
     $('saved-music-select').value = template.savedMusicFile;
   }
+
+  const templateLogoMode = template.logoMode || ((template.logoEnabled === true || template.logoEnabled === 'true') ? 'saved' : 'none');
+  const logoModeBtn = document.querySelector(`.logo-tab-btn[data-logo-mode="${templateLogoMode}"]`);
+  if (logoModeBtn) logoModeBtn.click();
+  if ($('saved-logo-select')) $('saved-logo-select').value = template.savedLogoFile || '';
+  if ($('logo-position')) $('logo-position').value = template.logoPosition || 'br';
+  if ($('logo-x-percent')) $('logo-x-percent').value = template.logoXPercent || '80';
+  if ($('logo-y-percent')) $('logo-y-percent').value = template.logoYPercent || '85';
+  if ($('logo-width-percent')) $('logo-width-percent').value = template.logoWidthPercent || '18';
+  if ($('logo-opacity')) $('logo-opacity').value = template.logoOpacity || '0.9';
+  if ($('logo-start')) $('logo-start').value = template.logoStart || '0';
+  if ($('logo-end')) $('logo-end').value = template.logoEnd || '';
+  updateLogoUi();
 
   // Restore volumes
   const originalSlider = document.querySelector('input[name="originalVolume"]');
@@ -3677,7 +4211,7 @@ document.querySelectorAll('.source-tab-btn').forEach(btn => {
       // Khôi phục preview nếu đã có video library được chọn
       const selectedFile = $('selected-video-file')?.value;
       if (selectedFile) {
-        setPreviewVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+        setPreviewVideo(studioDownloadUrl(selectedFile));
       }
     }
     updateConditionalFields();
@@ -3704,7 +4238,7 @@ document.querySelectorAll('.reaction-tab-btn').forEach(btn => {
       // Khôi phục preview nếu đã có reaction video được chọn
       const selectedFile = $('selected-reaction-video-file')?.value;
       if (selectedFile) {
-        setPreviewReactionVideo(`/downloads/${encodeURIComponent(selectedFile)}`);
+        setPreviewReactionVideo(studioDownloadUrl(selectedFile));
       }
     } else {
       // "none" mode: clear reaction hoàn toàn
@@ -4507,10 +5041,21 @@ initDraggableBlurBox();
 document.querySelectorAll('.voice-tab-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const mode = btn.dataset.voiceMode;
-    if (mode === 'omi' && !assets.omiConfigured && e && e.isTrusted) {
-      toast('⚠️ Thiếu file Model AI để chạy Omi Cloner. Vui lòng tải xuống!', 'warn');
-      openModelDownloadModal();
-      return;
+    let selectedEngine = $('voice-engine-select')?.value || assets.defaultVoiceEngineId;
+    const selectedDescriptor = (assets.voiceEngines || []).find((engine) => engine.id === selectedEngine);
+    if (mode === 'omi' && selectedDescriptor?.status?.ready !== true && e && e.isTrusted) {
+      const edgeReady = (assets.voiceEngines || []).some(
+        (engine) => engine.id === 'edge-tts' && engine.status?.ready
+      );
+      if (edgeReady && $('voice-engine-select')) {
+        $('voice-engine-select').value = 'edge-tts';
+        $('voice-engine-select').dispatchEvent(new Event('change'));
+        selectedEngine = 'edge-tts';
+      } else {
+        toast('⚠️ Chưa có engine thuyết minh sẵn sàng. Hãy cài runtime hoặc kiểm tra kết nối.', 'warn');
+        openModelDownloadModal();
+        return;
+      }
     }
     document.querySelectorAll('.voice-tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
@@ -4534,7 +5079,7 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
       input.value = mode;
       $('ocr-settings-container')?.classList.toggle('hidden', mode !== 'generate');
       updateOcrRegionOverlay();
-      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper') {
+      if (mode === 'generate' && $('subtitle-engine-value')?.value !== 'whisper' && !usesRapidOcrUi()) {
         refreshOcrComponentStatusForUi();
       }
       // Automatically center subtitle overlay when any active subtitle mode is selected
@@ -5616,23 +6161,997 @@ function cancelBulkDownload() {
   }
 }
 
+// ===== CÀO NGAY: preview đa nền tảng + chống trùng + hàng đợi tải tuần tự =====
+function crawlLoadRecordedTaskIds() {
+  try {
+    const values = JSON.parse(localStorage.getItem('crawlRecordedTaskIds') || '[]');
+    return new Set(Array.isArray(values) ? values : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function crawlSaveRecordedTaskIds(ids) {
+  try {
+    localStorage.setItem('crawlRecordedTaskIds', JSON.stringify(Array.from(ids).slice(-500)));
+  } catch (_) {}
+}
+
+const crawlNowState = {
+  platform: 'youtube',
+  mode: 'search',
+  capabilities: {},
+  engine: null,
+  engines: [],
+  previewItems: [],
+  selected: new Set(),
+  pollTimer: null,
+  recordedSuccess: crawlLoadRecordedTaskIds(),
+  studioRefreshSuccess: new Set(),
+  lastSnapshot: null,
+  previewBaseCount: 100,
+  previewRequestedCount: 100,
+  previewLoadingMore: false
+};
+const hiddenCrawlPlatforms = new Set(['weibo', 'twitter', 'reddit']);
+
+function crawlEscape(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  })[char]);
+}
+
+function crawlFormatDuration(seconds) {
+  if (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return '--:--';
+  const value = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const secs = Math.floor(value % 60);
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function crawlSetBusy(busy, label = '') {
+  const previewButton = $('crawl-preview-btn');
+  const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
+  if (previewButton) previewButton.disabled = busy || !previewModes.includes(crawlNowState.mode);
+  const crawlAllButton = $('crawl-all-btn');
+  if (crawlAllButton) crawlAllButton.disabled = busy;
+  const pill = $('crawl-now-ready');
+  if (pill) {
+    pill.classList.toggle('busy', busy);
+    pill.textContent = label || (busy ? 'Đang xử lý' : 'Sẵn sàng');
+  }
+}
+
+function crawlCurrentRequest() {
+  return {
+    platform: crawlNowState.platform,
+    mode: crawlNowState.mode,
+    input: $('crawl-now-input')?.value?.trim() || '',
+    count: Number($('crawl-now-count')?.value || 100),
+    sort: $('crawl-now-sort')?.value || 'relevance',
+    timeDays: Number($('crawl-now-time')?.value || 0),
+    quality: $('crawl-now-quality')?.value || '1080',
+    language: $('crawl-now-language')?.value || '',
+    deepNew: $('crawl-now-skip-dupe')?.checked !== false
+  };
+}
+
+function crawlKeywordList() {
+  return ($('crawl-now-input')?.value || '').split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
+}
+
+async function crawlTranslateKeywords(silent = false) {
+  const keywords = crawlKeywordList();
+  if (!keywords.length) {
+    if (!silent) toast('Hãy nhập từ khóa trước.', 'error');
+    return [];
+  }
+  try {
+    const response = await fetch('/api/download-crawl/translate-keywords', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywords, target: $('crawl-now-language')?.value || 'zh-CN' })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không dịch được từ khóa.');
+    if ($('crawl-now-input')) $('crawl-now-input').value = (data.translated || []).join('\n');
+    if (!silent) toast('Đã dịch từ khóa sang tiếng Trung.', 'success');
+    return data.translated || [];
+  } catch (error) {
+    if (!silent) toast(error.message, 'error');
+    return [];
+  }
+}
+
+async function crawlPrepareRequest() {
+  const chinesePlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+  if (crawlNowState.mode === 'search' && chinesePlatforms.includes(crawlNowState.platform)) {
+    const keywords = crawlKeywordList();
+    if (keywords.some((value) => !/[\u3400-\u9fff]/.test(value))) await crawlTranslateKeywords(true);
+  }
+  return crawlCurrentRequest();
+}
+
+function crawlUpdateModeUi() {
+  const labels = {
+    search: ['Từ khóa', 'Nhập từ khóa tìm kiếm...'],
+    detail: ['Link video', 'Dán link video, mỗi dòng một link...'],
+    creator: ['Link kênh / tài khoản', 'Dán link kênh, playlist hoặc @tên-kênh...'],
+    chase: ['Link video trong bộ', 'Dán link playlist/bộ hoặc một video thuộc bộ...']
+  };
+  const [label, placeholder] = labels[crawlNowState.mode] || labels.detail;
+  if ($('crawl-now-input-label')) $('crawl-now-input-label').textContent = label;
+  if ($('crawl-now-input')) $('crawl-now-input').placeholder = placeholder;
+  if ($('crawl-translate-keywords')) $('crawl-translate-keywords').classList.toggle('hidden', crawlNowState.mode !== 'search');
+  document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.mode === crawlNowState.mode);
+  });
+  crawlUpdateCapabilities();
+}
+
+function crawlUpdateCapabilities() {
+  const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili');
+  const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
+  document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
+    button.disabled = caps[button.dataset.mode] === false;
+    button.title = button.disabled ? 'Bộ tải hiện tại chưa hỗ trợ chế độ này cho nền tảng đã chọn' : '';
+  });
+  const previewButton = $('crawl-preview-btn');
+  const canPreview = previewModes.includes(crawlNowState.mode);
+  if (previewButton) {
+    previewButton.disabled = !canPreview;
+    previewButton.title = canPreview ? '' : 'Chế độ này vẫn cào được nhưng chưa hỗ trợ xem trước ổn định; hãy dùng Cào hết hoặc Thêm vào hàng đợi.';
+  }
+}
+
+async function crawlLoadCapabilities() {
+  try {
+    const response = await fetch('/api/download-crawl/capabilities');
+    const data = await response.json();
+    crawlNowState.capabilities = data.platforms || {};
+    crawlNowState.engine = data.engine || null;
+    crawlNowState.engines = data.engines || [];
+  } catch (_) {
+    crawlNowState.capabilities = {};
+    crawlNowState.engine = null;
+    crawlNowState.engines = [];
+  }
+  const engineBadge = $('crawl-engine-badge');
+  const installButton = $('crawl-runtime-install-btn');
+  if (engineBadge) {
+    const ready = crawlNowState.engine?.available;
+    const projectReady = crawlNowState.engines.some((engine) => engine.engine === 'Video Studio yt-dlp' && engine.available);
+    engineBadge.classList.toggle('unavailable', !ready && !projectReady);
+    engineBadge.textContent = ready && projectReady
+      ? 'MediaCrawler + Video Studio yt-dlp sẵn sàng'
+      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Crawler chưa sẵn sàng · hãy cài runtime';
+    installButton?.classList.toggle('hidden', ready || projectReady);
+  }
+  crawlUpdateCapabilities();
+}
+
+async function crawlInstallRuntime() {
+  const button = $('crawl-runtime-install-btn');
+  const badge = $('crawl-engine-badge');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu cài bộ cào.');
+    toast(data.alreadyReady ? 'Bộ cào đã sẵn sàng.' : 'Đang cài bộ cào. Có thể theo dõi trong nhật ký.', 'success');
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const statusResponse = await fetch('/api/download-crawl/runtime-status');
+      const status = await statusResponse.json();
+      if (badge) badge.textContent = status.status === 'installing'
+        ? `Đang cài crawler ${Number(status.percent || 0)}% · ${status.message || 'vui lòng chờ'}`
+        : status.message || 'Đang kiểm tra crawler…';
+      if (status.ready) {
+        toast('Đã cài xong bộ cào video.', 'success');
+        await crawlLoadCapabilities();
+        break;
+      }
+      if (status.status === 'error') throw new Error(status.message || 'Cài bộ cào thất bại.');
+    }
+  } catch (error) {
+    toast(error.message, 'error');
+    await crawlLoadCapabilities();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function crawlLoadLoginStatus() {
+  try {
+    const response = await fetch('/api/download-crawl/login-status');
+    const data = await response.json();
+    const platforms = data.platforms || {};
+    const labels = {
+      douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
+      xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],
+      youtube: ['YouTube', '▶', 'youtube'], tiktok: ['TikTok', '♪', 'tiktok'],
+      facebook: ['Facebook', 'f', 'facebook'], instagram: ['Instagram', '◎', 'instagram']
+    };
+    const grid = $('crawl-login-grid');
+    if (grid) grid.innerHTML = Object.entries(labels).map(([key, config]) => {
+      const [label, icon, theme] = config;
+      const status = platforms[key] || 'out';
+      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : 'Chưa đăng nhập';
+      const action = status === 'in' ? 'Mở lại' : status === 'na' ? 'Mở nền tảng' : 'Đăng nhập';
+      return `<button type="button" class="crawl-login-card ${status} ${theme}" onclick="crawlOpenPlatformLogin('${key}')">
+        <span class="crawl-login-icon">${icon}</span><span class="crawl-login-state"><i></i>${text}</span>
+        <b>${label}</b><span class="crawl-login-action">${action}</span></button>`;
+    }).join('');
+  } catch (_) {}
+}
+
+async function crawlOpenPlatformLogin(platform) {
+  if (['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter'].includes(platform)) {
+    try {
+      const response = await fetch('/api/download-crawl/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        toast(data.message || 'Đã mở cửa sổ đăng nhập.', 'success');
+        return;
+      }
+    } catch (_) {}
+  }
+  openCookieModal();
+  const select = $('cookie-platform-select');
+  const mapped = platform;
+  if (select && Array.from(select.options).some((option) => option.value === mapped)) select.value = mapped;
+}
+
+async function crawlRefreshStats() {
+  try {
+    const date = $('crawl-date-filter')?.value || '';
+    const response = await fetch(`/api/download-crawl/stats?date=${encodeURIComponent(date)}`);
+    const data = await response.json();
+    if ($('stat-today-downloads')) $('stat-today-downloads').textContent = data.today || 0;
+    if ($('stat-error-count')) $('stat-error-count').textContent = data.errors || 0;
+    for (const platform of Object.keys(crawlNowState.capabilities)) {
+      const el = $(`crawl-count-${platform}`);
+      if (el) el.textContent = `${data.byPlatform?.[platform] || 0} đã cào`;
+    }
+    const select = $('crawl-date-filter');
+    if (select && select.options.length <= 1) {
+      for (const value of data.dates || []) select.add(new Option(value, value));
+    }
+  } catch (_) {}
+}
+
+function crawlRefreshAll() {
+  crawlLoadCapabilities();
+  crawlLoadLoginStatus();
+  crawlRefreshStats();
+  crawlPollStatus();
+  crawlLoadHistory();
+}
+
+let crawlHistoryTimer = null;
+let crawlHistoryItems = [];
+const crawlHistorySelected = new Set();
+
+function crawlScheduleHistory() {
+  clearTimeout(crawlHistoryTimer);
+  crawlHistoryTimer = setTimeout(crawlLoadHistory, 250);
+}
+
+function updateLogoUi() {
+  const mode = $('logo-mode')?.value || 'none';
+  const filename = $('saved-logo-select')?.value || '';
+  const enabled = mode === 'saved' && Boolean(filename);
+  if ($('logo-enabled')) $('logo-enabled').checked = mode === 'saved';
+  $('logo-saved-wrapper')?.classList.toggle('hidden', mode !== 'saved');
+  $('logo-upload-wrapper')?.classList.toggle('hidden', mode !== 'upload');
+  $('logo-settings')?.classList.toggle('hidden', !enabled);
+  const preview = $('selected-logo-preview');
+  const image = $('selected-logo-image');
+  const name = $('selected-logo-name');
+  preview?.classList.toggle('hidden', !enabled);
+  if (image) {
+    const nextSrc = filename ? `/logos/${encodeURIComponent(filename)}` : '';
+    if (image.getAttribute('src') !== nextSrc) image.src = nextSrc;
+  }
+  if (name) name.textContent = filename;
+  if ($('logo-width-val')) $('logo-width-val').textContent = `${$('logo-width-percent')?.value || 18}%`;
+  if ($('logo-opacity-val')) $('logo-opacity-val').textContent = `${Math.round(Number($('logo-opacity')?.value || 0.9) * 100)}%`;
+  if (typeof updateSubtitleOverlayFromInputs === 'function') updateSubtitleOverlayFromInputs();
+}
+
+async function uploadStudioLogo(file) {
+  if (!file) return;
+  const data = new FormData();
+  data.append('logo', file);
+  data.append('logoName', file.name);
+  try {
+    const response = await fetch('/api/save-logo', { method: 'POST', body: data });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không tải được logo.');
+    await loadAssets();
+    if ($('saved-logo-select')) $('saved-logo-select').value = result.logo;
+    const savedTab = document.querySelector('.logo-tab-btn[data-logo-mode="saved"]');
+    if (savedTab) savedTab.click();
+    else updateLogoUi();
+    toast('Đã thêm logo vào thư viện.', 'success');
+  } catch (error) {
+    toast(error.message || 'Không tải được logo.', 'error');
+  } finally {
+    if ($('logo-library-upload')) $('logo-library-upload').value = '';
+  }
+}
+
+document.querySelectorAll('.logo-tab-btn').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.logo-tab-btn').forEach((item) => item.classList.remove('active'));
+    button.classList.add('active');
+    if ($('logo-mode')) $('logo-mode').value = button.dataset.logoMode || 'none';
+    updateLogoUi();
+  });
+});
+$('saved-logo-select')?.addEventListener('change', updateLogoUi);
+$('logo-library-upload')?.addEventListener('change', (event) => uploadStudioLogo(event.target.files?.[0]));
+$('selected-logo-image')?.addEventListener('load', updateLogoUi);
+['logo-position', 'logo-width-percent', 'logo-opacity', 'logo-start', 'logo-end'].forEach((id) => {
+  $(id)?.addEventListener('input', updateLogoUi);
+  $(id)?.addEventListener('change', updateLogoUi);
+});
+
+async function crawlLoadHistory() {
+  const list = $('crawl-history-list');
+  if (!list) return;
+  list.innerHTML = '<div class="crawl-history-empty">Đang đọc lịch sử cào...</div>';
+  const params = new URLSearchParams({
+    platform: $('crawl-history-platform')?.value || '',
+    q: $('crawl-history-query')?.value || '',
+    onlyUndownloaded: $('crawl-history-undownloaded')?.checked ? '1' : '0',
+    days: $('crawl-history-days')?.value || '0',
+    limit: '800'
+  });
+  try {
+    const response = await fetch(`/api/download-crawl/history?${params}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không đọc được lịch sử cào.');
+    crawlHistoryItems = (Array.isArray(data.items) ? data.items : [])
+      .filter((item) => !hiddenCrawlPlatforms.has(String(item.platform || '').toLowerCase()));
+    const liveKeys = new Set(crawlHistoryItems.map((item) => item.key));
+    for (const key of crawlHistorySelected) if (!liveKeys.has(key)) crawlHistorySelected.delete(key);
+    crawlHistoryPopulateSources();
+    crawlRenderHistory();
+  } catch (error) {
+    crawlHistoryItems = [];
+    list.innerHTML = `<div class="crawl-history-empty error">${crawlEscape(error.message || 'Không đọc được lịch sử cào.')}</div>`;
+  }
+}
+
+function crawlHistorySource(item) {
+  if (item.sourceMode === 'search') return String(item.sourceInput || item.keyword || item.uploader || '').trim();
+  if (item.sourceMode === 'creator') return String(item.sourceName || item.uploader || item.sourceInput || '').trim();
+  return String(item.sourceName || item.uploader || item.keyword || '').trim();
+}
+
+function crawlHistoryModeLabel(mode) {
+  return ({ search: 'Từ khóa', creator: 'Kênh', detail: 'Link', chase: 'Bộ' })[mode] || 'Link';
+}
+
+function crawlHistoryPopulateSources() {
+  const select = $('crawl-history-source');
+  if (!select) return;
+  const current = select.value;
+  const channels = [...new Set(crawlHistoryItems.filter((item) => item.sourceMode === 'creator').map(crawlHistorySource).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  const keywords = [...new Set(crawlHistoryItems.filter((item) => item.sourceMode === 'search').map(crawlHistorySource).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  let html = '<option value="">Mọi kênh / từ khóa</option>';
+  if (channels.length) html += `<optgroup label="Kênh (${channels.length})">${channels.map((source) => `<option value="creator:${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('')}</optgroup>`;
+  if (keywords.length) html += `<optgroup label="Từ khóa (${keywords.length})">${keywords.map((source) => `<option value="search:${crawlEscape(source)}">${crawlEscape(source)}</option>`).join('')}</optgroup>`;
+  select.innerHTML = html;
+  if (Array.from(select.options).some((option) => option.value === current)) select.value = current;
+}
+
+function crawlHistoryVisibleItems() {
+  const source = $('crawl-history-source')?.value || '';
+  const mode = $('crawl-history-mode')?.value || '';
+  const oldestFirst = $('crawl-history-sort')?.value === 'oldest';
+  return crawlHistoryItems
+    .filter((item) => !mode || item.sourceMode === mode)
+    .filter((item) => !source || `${item.sourceMode}:${crawlHistorySource(item)}` === source)
+    .sort((a, b) => oldestFirst ? Number(a.timestamp || 0) - Number(b.timestamp || 0) : Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+function crawlHistoryDate(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return 'Không rõ ngày';
+  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value * 1000));
+}
+
+function crawlRenderHistory() {
+  const list = $('crawl-history-list');
+  if (!list) return;
+  const items = crawlHistoryVisibleItems();
+  const selectedVisible = items.filter((item) => crawlHistorySelected.has(item.key)).length;
+  if ($('crawl-history-summary')) $('crawl-history-summary').textContent = `${items.length} video`;
+  if ($('crawl-history-selected-count')) $('crawl-history-selected-count').textContent = `Đã chọn ${crawlHistorySelected.size}`;
+  const selectAll = $('crawl-history-select-all');
+  if (selectAll) {
+    selectAll.checked = items.length > 0 && selectedVisible === items.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < items.length;
+  }
+  const downloadButton = $('crawl-history-download-selected');
+  if (downloadButton) downloadButton.disabled = crawlHistorySelected.size === 0;
+  if (!items.length) {
+    list.innerHTML = '<div class="crawl-history-empty">Chưa có dữ liệu lịch sử phù hợp với bộ lọc.</div>';
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const encodedKey = encodeURIComponent(item.key).replace(/'/g, '%27');
+    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : '';
+    const source = crawlHistorySource(item) || item.platform;
+    return `<article class="crawl-history-item${item.downloaded ? ' downloaded' : ''}">
+      <div class="crawl-history-thumb">
+        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span>▶</span>'}
+        <input type="checkbox" aria-label="Chọn video" ${crawlHistorySelected.has(item.key) ? 'checked' : ''} onchange="crawlHistoryToggleItem('${encodedKey}', this.checked)">
+        <em>${item.downloaded ? '✓ Đã tải' : 'Chưa tải'}</em>
+      </div>
+      <div class="crawl-history-content">
+        <span class="crawl-history-kind ${crawlEscape(item.sourceMode || 'detail')}">${crawlHistoryModeLabel(item.sourceMode)}</span>
+        <b title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</b>
+        <small>${crawlEscape(item.platform)} · ${crawlEscape(source)}</small>
+        <small>${crawlHistoryDate(item.timestamp)}${item.keyword ? ` · ${crawlEscape(item.keyword)}` : ''}</small>
+      </div>
+      <div class="crawl-history-actions">
+        ${item.url ? `<a href="${crawlEscape(item.url)}" target="_blank" rel="noreferrer">Mở bài gốc</a>` : ''}
+        ${item.downloaded && item.mediaPath ? `<button type="button" onclick="crawlHistoryOpenFolder('${encodeURIComponent(item.mediaPath).replace(/'/g, '%27')}')">Mở thư mục</button>` : ''}
+        <button type="button" onclick="crawlHistoryDownloadOne('${encodedKey}')">${item.downloaded ? 'Tải lại' : 'Tải video'}</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function crawlHistoryOpenFolder(encodedPath) {
+  try {
+    const relativePath = decodeURIComponent(encodedPath);
+    const response = await fetch(`/api/download-crawl/open-file-folder?path=${encodeURIComponent(relativePath)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không mở được vị trí video.');
+  } catch (error) {
+    toast(error.message || 'Không mở được vị trí video.', 'error');
+    await crawlLoadHistory();
+  }
+}
+
+function crawlHistoryToggleItem(encodedKey, checked) {
+  const key = decodeURIComponent(encodedKey);
+  if (checked) crawlHistorySelected.add(key);
+  else crawlHistorySelected.delete(key);
+  crawlRenderHistory();
+}
+
+function crawlHistoryToggleAll(checked) {
+  for (const item of crawlHistoryVisibleItems()) {
+    if (checked) crawlHistorySelected.add(item.key);
+    else crawlHistorySelected.delete(item.key);
+  }
+  crawlRenderHistory();
+}
+
+async function crawlHistoryEnqueue(items) {
+  const groups = new Map();
+  for (const item of items) {
+    if (!item.url) continue;
+    const sourceMode = item.sourceMode || 'detail';
+    const sourceInput = item.sourceInput || '';
+    const sourceName = item.sourceName || item.uploader || '';
+    const groupKey = `${item.platform}\u0000${sourceMode}\u0000${sourceInput}\u0000${sourceName}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, { platform: item.platform, sourceMode, sourceInput, sourceName, urls: [] });
+    groups.get(groupKey).urls.push(item.url);
+  }
+  if (!groups.size) {
+    toast('Các mục đã chọn không có link video hợp lệ.', 'error');
+    return;
+  }
+  let queued = 0;
+  try {
+    for (const { platform, sourceMode, sourceInput, sourceName, urls } of groups.values()) {
+      const response = await fetch('/api/download-crawl/enqueue-job', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, mode: 'detail', input: urls.join('\n'), count: urls.length, deepNew: false,
+          sourceMode, sourceInput, sourceName, label: `${platform} · ${urls.length} video từ lịch sử` })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Không thêm được job ${platform}.`);
+      queued += urls.length;
+    }
+    crawlHistorySelected.clear();
+    crawlRenderHistory();
+    toast(`Đã thêm ${queued} video từ lịch sử vào hàng đợi.`, 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message || 'Không thêm được video từ lịch sử.', 'error');
+  }
+}
+
+function crawlHistoryDownloadOne(encodedKey) {
+  const key = decodeURIComponent(encodedKey);
+  const item = crawlHistoryItems.find((entry) => entry.key === key);
+  return item ? crawlHistoryEnqueue([item]) : undefined;
+}
+
+function crawlHistoryDownloadSelected() {
+  return crawlHistoryEnqueue(crawlHistoryItems.filter((item) => crawlHistorySelected.has(item.key)));
+}
+
+async function crawlHistoryDelete(value) {
+  const select = $('crawl-history-delete-range');
+  if (select) select.value = '';
+  if (value === '' || value == null) return;
+  const labels = { '1': 'trong 1 giờ qua', '24': 'trong 24 giờ qua', '168': 'trong 7 ngày qua', '720': 'trong 30 ngày qua', '0': 'TẤT CẢ' };
+  const label = labels[String(value)] || '';
+  const confirmed = window.confirm(`Xóa lịch sử cào ${label}?\n\nChỉ danh sách metadata bị xóa. Video đã tải và dữ liệu đánh dấu chống trùng vẫn được giữ nguyên. Danh sách đã xóa không thể khôi phục.`);
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/download-crawl/history/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours: Number(value) })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không xóa được lịch sử cào.');
+    crawlHistorySelected.clear();
+    toast(`Đã xóa ${Number(data.deleted || 0)} mục khỏi lịch sử cào.`, 'success');
+    await crawlLoadHistory();
+  } catch (error) {
+    toast(error.message || 'Không xóa được lịch sử cào.', 'error');
+  }
+}
+
+function crawlFilteredItems() {
+  const minLike = Number($('crawl-now-min-like')?.value || 0);
+  const minView = Number($('crawl-now-min-view')?.value || 0);
+  const days = Number($('crawl-now-days')?.value || $('crawl-now-time')?.value || 0);
+  const minTimestamp = days > 0 ? Date.now() / 1000 - days * 86400 : 0;
+  return crawlNowState.previewItems.filter((item) => {
+    if (minLike && Number(item.likeCount || 0) < minLike) return false;
+    if (minView && Number(item.viewCount || 0) < minView) return false;
+    if (minTimestamp && Number(item.timestamp || 0) && Number(item.timestamp) < minTimestamp) return false;
+    return true;
+  });
+}
+
+function crawlRenderPreview() {
+  const wrap = $('crawl-preview-wrap');
+  const grid = $('crawl-preview-grid');
+  if (!wrap || !grid) return;
+  wrap.classList.remove('hidden');
+  const items = crawlFilteredItems();
+  if ($('crawl-preview-summary')) {
+    $('crawl-preview-summary').textContent = `${items.length}/${crawlNowState.previewItems.length} video · đã chọn ${crawlNowState.selected.size}`;
+  }
+  if (!items.length) {
+    grid.innerHTML = '<div class="status-line">Không có video khớp bộ lọc.</div>';
+    return;
+  }
+  grid.innerHTML = items.map((item) => {
+    const key = item.key || `${item.platform}:${item.id}`;
+    const needsProxy = ['douyin', 'bilibili', 'xiaohongshu', 'rednote'].includes(item.platform);
+    const thumb = item.thumbnail ? (needsProxy ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : item.thumbnail) : '';
+    return `<article class="crawl-preview-item">
+      <div class="crawl-preview-thumb">
+        ${thumb ? `<img src="${crawlEscape(thumb)}" alt="" loading="lazy">` : ''}
+        <input type="checkbox" data-crawl-key="${crawlEscape(key)}" ${crawlNowState.selected.has(key) ? 'checked' : ''}
+          onchange="crawlToggleItem(${crawlEscape(JSON.stringify(key))}, this.checked)">
+        ${item.downloaded ? '<span class="crawl-downloaded-badge">✓ đã tải</span>' : ''}
+      </div>
+      <div class="crawl-preview-info">
+        <div class="crawl-preview-title" title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</div>
+        <div class="crawl-preview-meta">${crawlFormatDuration(item.duration)} · ${crawlEscape(item.uploader || item.platform)}</div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function crawlPreview(options = {}) {
+  const request = await crawlPrepareRequest();
+  if (Number.isFinite(Number(options.requestCount))) {
+    request.count = Math.min(500, Math.max(1, Number(options.requestCount)));
+  }
+  const previewModes = crawlNowState.capabilities[crawlNowState.platform]?.previewModes || [];
+  if (!previewModes.includes(crawlNowState.mode)) {
+    toast('Chế độ này chưa hỗ trợ xem trước ổn định. Hãy dùng Cào hết hoặc Thêm vào hàng đợi.', 'warn');
+    return [];
+  }
+  if (!request.input) {
+    toast('Hãy nhập từ khóa, link hoặc kênh trước.', 'error');
+    return [];
+  }
+  crawlSetBusy(true, 'Đang tìm video');
+  crawlStartPolling();
+  await crawlPollStatus();
+  try {
+    if (!options.append) {
+      crawlNowState.previewItems = [];
+      crawlNowState.selected = new Set();
+    }
+    let renderQueued = false;
+    const schedulePreviewRender = () => {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        crawlRenderPreview();
+      });
+    };
+    const response = await fetch('/api/download-crawl/preview-stream', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    });
+    if (!response.ok) {
+      const failed = await response.json().catch(() => ({}));
+      throw new Error(failed.error || 'Không lấy được danh sách video.');
+    }
+    let data = null;
+    let streamError = '';
+    const reader = response.body?.getReader?.();
+    if (reader) {
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      const consumeLine = (line) => {
+        if (!line.trim()) return;
+        let event;
+        try { event = JSON.parse(line); } catch (_) { return; }
+        if (event.type === 'item' && event.item) {
+          const item = event.item;
+          const key = item.key || `${item.platform}:${item.id}`;
+          const index = crawlNowState.previewItems.findIndex((current) => (current.key || `${current.platform}:${current.id}`) === key);
+          if (index >= 0) crawlNowState.previewItems[index] = item;
+          else crawlNowState.previewItems.push(item);
+          crawlNowState.selected.add(key);
+          schedulePreviewRender();
+        } else if (event.type === 'result') data = event.data;
+        else if (event.type === 'error') streamError = event.error || 'Không lấy được danh sách video.';
+      };
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (const line of lines) consumeLine(line);
+        if (done) break;
+      }
+      consumeLine(buffer);
+    } else {
+      data = await response.json();
+    }
+    if (streamError) throw new Error(streamError);
+    if (!data) throw new Error('Luồng xem trước kết thúc nhưng không trả về kết quả.');
+    const received = Array.isArray(data.items) ? data.items : [];
+    if (options.append) {
+      const merged = new Map(crawlNowState.previewItems.map((item) => [item.key || `${item.platform}:${item.id}`, item]));
+      for (const item of received) merged.set(item.key || `${item.platform}:${item.id}`, item);
+      crawlNowState.previewItems = [...merged.values()];
+      for (const item of received) crawlNowState.selected.add(item.key || `${item.platform}:${item.id}`);
+    } else {
+      crawlNowState.previewItems = received;
+      crawlNowState.selected = new Set(crawlNowState.previewItems.map((item) => item.key || `${item.platform}:${item.id}`));
+      crawlNowState.previewBaseCount = request.count;
+    }
+    crawlNowState.previewRequestedCount = request.count;
+    if (!options.silent) crawlRenderPreview();
+    if (!crawlNowState.previewItems.length) toast('Không tìm thấy video nào.', 'warn');
+    return crawlNowState.previewItems;
+  } catch (error) {
+    toast(error.message, 'error');
+    return [];
+  } finally {
+    crawlSetBusy(false);
+    await crawlPollStatus();
+  }
+}
+
+function crawlClosePreview() {
+  $('crawl-preview-wrap')?.classList.add('hidden');
+}
+
+async function crawlLoadMore() {
+  if (crawlNowState.previewLoadingMore) return;
+  crawlNowState.previewLoadingMore = true;
+  const previous = Number(crawlNowState.previewRequestedCount || crawlNowState.previewBaseCount || 100);
+  const requestCount = Math.min(500, previous + crawlNowState.previewBaseCount);
+  try {
+    await crawlPreview({ append: true, requestCount });
+  } finally {
+    crawlNowState.previewLoadingMore = false;
+  }
+}
+
+function crawlToggleItem(key, checked) {
+  if (checked) crawlNowState.selected.add(key);
+  else crawlNowState.selected.delete(key);
+  crawlRenderPreview();
+}
+
+function crawlToggleAll(checked) {
+  for (const item of crawlFilteredItems()) {
+    const key = item.key || `${item.platform}:${item.id}`;
+    if (checked) crawlNowState.selected.add(key);
+    else crawlNowState.selected.delete(key);
+  }
+  crawlRenderPreview();
+}
+
+async function crawlEnqueue(items) {
+  const selectedItems = items || crawlNowState.previewItems.filter((item) => {
+    const key = item.key || `${item.platform}:${item.id}`;
+    return crawlNowState.selected.has(key);
+  });
+  if (!selectedItems.length) {
+    toast('Chưa chọn video nào.', 'error');
+    return;
+  }
+  try {
+    const jobCrawlerPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+    if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
+      const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
+      const sourceRequest = crawlCurrentRequest();
+      const sourceName = sourceRequest.mode === 'creator'
+        ? String(selectedItems.find((item) => item.uploader)?.uploader || '')
+        : '';
+      const response = await fetch('/api/download-crawl/enqueue-job', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...sourceRequest, mode: 'detail', input: urls.join('\n'), count: urls.length,
+          sourceMode: sourceRequest.mode, sourceInput: sourceRequest.input, sourceName,
+          label: `${crawlNowState.platform} · ${urls.length} video đã chọn`
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Không thêm được job crawler vào hàng đợi.');
+      toast(`Đã thêm ${urls.length} video vào job Video Studio yt-dlp.`, 'success');
+      crawlStartPolling();
+      await crawlPollStatus();
+      return;
+    }
+    const response = await fetch('/api/download-crawl/enqueue', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: crawlNowState.platform,
+        skipDuplicates: $('crawl-now-skip-dupe')?.checked !== false,
+        items: selectedItems
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thêm được vào hàng đợi.');
+    toast(`Đã thêm ${data.created} video vào hàng đợi${data.skipped ? `, bỏ qua ${data.skipped} video trùng` : ''}.`, 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function crawlEnqueueSelected() { return crawlEnqueue(); }
+
+async function crawlAllNow() {
+  return crawlEnqueueJob(true);
+}
+
+function crawlTaskStatusLabel(task) {
+  return ({ pending: 'Đang chờ', downloading: task.step || 'Đang tải', success: 'Đã xong', error: 'Lỗi', cancelled: 'Đã hủy' })[task.status] || task.status;
+}
+
+function crawlRenderQueue(snapshot) {
+  crawlNowState.lastSnapshot = snapshot;
+  const queue = Array.isArray(snapshot.queue) ? snapshot.queue : [];
+  const summary = snapshot.summary || {};
+  const list = $('crawl-queue-list');
+  if ($('crawl-queue-summary')) {
+    $('crawl-queue-summary').textContent = queue.length
+      ? `${summary.downloading || 0} đang tải · ${summary.pending || 0} chờ · ${summary.success || 0} xong · ${summary.error || 0} lỗi`
+      : 'Chưa có tác vụ';
+  }
+  if (list) {
+    list.innerHTML = queue.slice().reverse().map((task) => `<div class="crawl-queue-item">
+      <div class="crawl-queue-item-head">
+        <div style="min-width:0;flex:1"><div class="crawl-queue-item-title" title="${crawlEscape(task.title)}">${crawlEscape(task.title)}</div>
+          <div class="crawl-queue-item-status" title="${crawlEscape(crawlTaskStatusLabel(task))}">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
+          ${task.reason ? `<div class="crawl-queue-reason">${crawlEscape(task.reason)}${task.error ? ` · ${crawlEscape(task.error)}` : ''}</div>` : ''}</div>
+        ${['pending', 'downloading'].includes(task.status) ? `<button class="crawl-queue-cancel" onclick="crawlCancelTask('${crawlEscape(task.id)}')">Hủy</button>` : ''}
+        ${['error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
+        ${['success', 'error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRemoveTask('${crawlEscape(task.id)}')">✕</button>` : ''}
+      </div>
+      <div class="crawl-queue-mini-track"><i style="width:${Math.max(0, Math.min(100, Number(task.percent) || 0))}%"></i></div>
+    </div>`).join('');
+  }
+
+  const total = queue.length;
+  const completed = queue.filter((task) => ['success', 'error', 'cancelled'].includes(task.status)).length;
+  const active = queue.find((task) => task.id === snapshot.activeTaskId) || queue.find((task) => task.status === 'downloading');
+  const overall = total ? Math.round(((completed + (active ? (Number(active.percent) || 0) / 100 : 0)) / total) * 100) : 0;
+  if ($('crawl-progress-count')) $('crawl-progress-count').textContent = `${completed}/${total} video`;
+  if ($('crawl-progress-bar')) $('crawl-progress-bar').style.width = `${overall}%`;
+  if ($('crawl-progress-percent')) $('crawl-progress-percent').textContent = `${overall}%`;
+  if ($('crawl-progress-label')) $('crawl-progress-label').textContent = active?.step || (total ? 'Hàng đợi đã xử lý' : 'Sẵn sàng');
+  if ($('crawl-progress-speed')) $('crawl-progress-speed').textContent = `Tốc độ: ${active?.speed || snapshot.speed || '—'}`;
+  if ($('crawl-progress-eta')) $('crawl-progress-eta').textContent = `Ước tính còn: ${active?.eta || snapshot.eta || '—'}`;
+  if ($('stat-queue-count')) $('stat-queue-count').textContent = (summary.pending || 0) + (summary.downloading || 0);
+  const pauseButton = $('crawl-pause-btn');
+  if (pauseButton) pauseButton.textContent = snapshot.paused ? '▶ Tiếp tục hàng đợi' : '⏸ Dừng sau task này';
+  const retryPlatforms = $('crawl-retry-platforms');
+  if (retryPlatforms) {
+    const failed = {};
+    queue.filter((task) => task.status === 'error').forEach((task) => { failed[task.platform] = (failed[task.platform] || 0) + 1; });
+    retryPlatforms.innerHTML = Object.entries(failed).map(([platform, count]) => `<button type="button" onclick="crawlRetryAll('${crawlEscape(platform)}')">↻ ${crawlEscape(platform)} (${count})</button>`).join('');
+  }
+
+  const log = $('crawl-activity-log');
+  if (log) {
+    const entries = Array.isArray(snapshot.logs) ? snapshot.logs : [];
+    log.innerHTML = entries.length ? entries.map((entry) => `<div class="crawl-log-line ${crawlEscape(entry.level)}"><span>${crawlEscape(new Date(entry.time).toLocaleTimeString('vi-VN'))}</span> · ${crawlEscape(entry.message)}</div>`).join('') : '<span>Chưa có hoạt động.</span>';
+    log.scrollTop = log.scrollHeight;
+  }
+
+  let shouldRefreshStudioVideos = false;
+  for (const task of queue.filter((candidate) => candidate.status === 'success')) {
+    if (!crawlNowState.studioRefreshSuccess.has(task.id)) {
+      crawlNowState.studioRefreshSuccess.add(task.id);
+      shouldRefreshStudioVideos = true;
+    }
+    if (task.kind === 'crawl') continue;
+    if (crawlNowState.recordedSuccess.has(task.id)) continue;
+    crawlNowState.recordedSuccess.add(task.id);
+    crawlSaveRecordedTaskIds(crawlNowState.recordedSuccess);
+    const filename = String(task.outputPath || '').split(/[\\/]/).pop();
+    addDownloadHistory(task.title, task.sourceUrl || task.url, 'success', filename, task.platform);
+  }
+  if (shouldRefreshStudioVideos) {
+    refreshStudioVideoAssets().catch((error) => {
+      console.error('Không cập nhật được Video nguồn sau khi tải:', error);
+    });
+  }
+  crawlRefreshStats();
+}
+
+async function crawlPollStatus() {
+  try {
+    const response = await fetch('/api/download-crawl/status');
+    if (!response.ok) return;
+    const snapshot = await response.json();
+    crawlRenderQueue(snapshot);
+    const activeCount = Number(snapshot.summary?.pending || 0) + Number(snapshot.summary?.downloading || 0);
+    if (activeCount > 0 || snapshot.previewing) crawlStartPolling();
+    else crawlStopPolling();
+  } catch (_) {}
+}
+
+function crawlStartPolling() {
+  if (crawlNowState.pollTimer) return;
+  crawlNowState.pollTimer = setInterval(crawlPollStatus, 3000);
+}
+
+function crawlStopPolling() {
+  if (!crawlNowState.pollTimer) return;
+  clearInterval(crawlNowState.pollTimer);
+  crawlNowState.pollTimer = null;
+}
+
+async function crawlCancelTask(taskId) {
+  await fetch('/api/download-crawl/cancel', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId })
+  });
+  await crawlPollStatus();
+}
+
+async function crawlRemoveTask(taskId) {
+  await fetch('/api/download-crawl/remove', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId })
+  });
+  await crawlPollStatus();
+}
+
+async function crawlStopAll() {
+  await fetch('/api/download-crawl/stop', { method: 'POST' });
+  toast('Đang dừng hàng đợi tải...', 'info');
+  await crawlPollStatus();
+}
+
+async function crawlClearFinished() {
+  await fetch('/api/download-crawl/clear', { method: 'POST' });
+  await crawlPollStatus();
+}
+
+async function crawlTogglePause() {
+  const paused = !(crawlNowState.lastSnapshot?.paused);
+  await fetch('/api/download-crawl/pause', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused })
+  });
+  await crawlPollStatus();
+}
+
+async function crawlRetryTask(taskId) {
+  await fetch('/api/download-crawl/retry', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId })
+  });
+  crawlStartPolling();
+  await crawlPollStatus();
+}
+
+async function crawlRetryAll(platform = '') {
+  await fetch('/api/download-crawl/retry-all', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+  });
+  crawlStartPolling();
+  await crawlPollStatus();
+}
+
+async function crawlClearLogs() {
+  await fetch('/api/download-crawl/clear-logs', { method: 'POST' });
+  await crawlPollStatus();
+}
+
+async function crawlEnqueueJob(startNow = false) {
+  const request = await crawlPrepareRequest();
+  if (!request.input) {
+    toast('Hãy nhập từ khóa, link hoặc kênh trước.', 'error');
+    return;
+  }
+  try {
+    const response = await fetch('/api/download-crawl/enqueue-job', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không thêm được job cào.');
+    toast(startNow ? 'Đã bắt đầu job cào. Theo dõi ở hàng đợi.' : 'Đã thêm job cào vào hàng đợi.', 'success');
+    crawlStartPolling();
+    await crawlPollStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+function crawlAddCurrentToQueue() {
+  return crawlEnqueueJob(false);
+}
+
+document.querySelectorAll('#crawl-platform-grid .crawl-platform').forEach((button) => {
+  button.addEventListener('click', () => {
+    crawlNowState.platform = button.dataset.platform;
+    document.querySelectorAll('#crawl-platform-grid .crawl-platform').forEach((item) => item.classList.toggle('active', item === button));
+    const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+    if (caps[crawlNowState.mode] === false) crawlNowState.mode = caps.detail ? 'detail' : Object.keys(caps).find((mode) => caps[mode]) || 'detail';
+    crawlUpdateModeUi();
+  });
+});
+document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
+  button.addEventListener('click', () => {
+    if (button.disabled) return;
+    crawlNowState.mode = button.dataset.mode;
+    crawlUpdateModeUi();
+  });
+});
+['crawl-now-min-like', 'crawl-now-min-view', 'crawl-now-days'].forEach((id) => $(id)?.addEventListener('input', crawlRenderPreview));
+if ($('crawl-preview-select-all')) $('crawl-preview-select-all').checked = true;
+crawlLoadCapabilities();
+crawlLoadLoginStatus();
+crawlRefreshStats();
+crawlLoadHistory();
+crawlPollStatus();
+
 function switchDownloadMode(mode) {
+  const crawlBtn = $('download-mode-crawl-btn');
   const singleBtn = $('download-mode-single-btn');
   const bulkBtn = $('download-mode-bulk-btn');
+  const crawlCont = $('download-crawl-container');
   const singleCont = $('download-single-container');
   const bulkCont = $('download-bulk-container');
+  const historyPanel = $('download-history-panel');
 
-  if (mode === 'single') {
-    if (singleBtn) singleBtn.classList.add('active');
-    if (bulkBtn) bulkBtn.classList.remove('active');
-    if (singleCont) singleCont.classList.remove('hidden');
-    if (bulkCont) bulkCont.classList.add('hidden');
-  } else {
-    if (singleBtn) singleBtn.classList.remove('active');
-    if (bulkBtn) bulkBtn.classList.add('active');
-    if (singleCont) singleCont.classList.add('hidden');
-    if (bulkCont) bulkCont.classList.remove('hidden');
-  }
+  if (crawlBtn) crawlBtn.classList.toggle('active', mode === 'crawl');
+  if (singleBtn) singleBtn.classList.toggle('active', mode === 'single');
+  if (bulkBtn) bulkBtn.classList.toggle('active', mode === 'bulk');
+  if (crawlCont) crawlCont.classList.toggle('hidden', mode !== 'crawl');
+  if (singleCont) singleCont.classList.toggle('hidden', mode !== 'single');
+  if (bulkCont) bulkCont.classList.toggle('hidden', mode !== 'bulk');
+  if (historyPanel) historyPanel.classList.toggle('hidden', mode === 'crawl');
 }
 
 // Khởi chạy nạp danh sách đã lưu
@@ -5652,14 +7171,27 @@ window.openBulkDownloadModal = openBulkDownloadModal;
 window.closeBulkDownloadModal = closeBulkDownloadModal;
 window.cancelBulkDownload = cancelBulkDownload;
 window.switchDownloadMode = switchDownloadMode;
+window.crawlPreview = crawlPreview;
+window.crawlAllNow = crawlAllNow;
+window.crawlToggleItem = crawlToggleItem;
+window.crawlToggleAll = crawlToggleAll;
+window.crawlEnqueueSelected = crawlEnqueueSelected;
+window.crawlCancelTask = crawlCancelTask;
+window.crawlStopAll = crawlStopAll;
+window.crawlClearFinished = crawlClearFinished;
 
 /* ==========================================================================
    GLOBAL AI SETTINGS MODAL & HELPERS
    ========================================================================== */
 
 function getGlobalAiSettings() {
+  let translationStyles = [];
+  try {
+    const savedStyles = JSON.parse(localStorage.getItem('global_translation_styles') || '[]');
+    if (Array.isArray(savedStyles)) translationStyles = savedStyles.map(String);
+  } catch {}
   return {
-    aiProvider: localStorage.getItem('global_ai_provider') || 'nllb',
+    aiProvider: localStorage.getItem('global_ai_provider') || 'gemini-web',
     geminiApiKey: localStorage.getItem('global_gemini_key') || '',
     geminiModel: localStorage.getItem('global_gemini_model') || '',
     openRouterApiKey: localStorage.getItem('global_openrouter_key') || '',
@@ -5670,6 +7202,7 @@ function getGlobalAiSettings() {
     opencodeModel: localStorage.getItem('global_opencode_model') || 'DeepSeek V4 Flash (Free)',
     openaiApiKey: localStorage.getItem('global_openai_key') || '',
     openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
+    translationStyles,
     whisperModel: 'medium',
     whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
@@ -5678,7 +7211,7 @@ function getGlobalAiSettings() {
 
 function getGlobalAiQueryParams() {
   const settings = getGlobalAiSettings();
-  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
+  return `aiProvider=${encodeURIComponent(settings.aiProvider)}&geminiApiKey=${encodeURIComponent(settings.geminiApiKey)}&geminiModel=${encodeURIComponent(settings.geminiModel)}&openRouterApiKey=${encodeURIComponent(settings.openRouterApiKey)}&openRouterModel=${encodeURIComponent(settings.openRouterModel)}&ninerouterApiKey=${encodeURIComponent(settings.ninerouterApiKey)}&ninerouterModel=${encodeURIComponent(settings.ninerouterModel)}&ninerouterBaseUrl=${encodeURIComponent(settings.ninerouterBaseUrl)}&opencodeModel=${encodeURIComponent(settings.opencodeModel)}&openaiApiKey=${encodeURIComponent(settings.openaiApiKey)}&openaiModel=${encodeURIComponent(settings.openaiModel)}&translationStyles=${encodeURIComponent(settings.translationStyles.join(','))}&whisperModel=${encodeURIComponent(settings.whisperModel)}&whisperOnnxVariant=${encodeURIComponent(settings.whisperOnnxVariant)}`;
 }
 
 async function loadGeminiModels(apiKey) {
@@ -6022,6 +7555,9 @@ function openGlobalSettingsModal() {
   const whisperModelSelect = $('whisper-model-select');
 
   if (providerSelect) providerSelect.value = settings.aiProvider;
+  document.querySelectorAll('#global-translation-style-options input[type="checkbox"]').forEach((input) => {
+    input.checked = settings.translationStyles.includes(input.value);
+  });
   if (openaiInput) {
     openaiInput.value = settings.openaiApiKey;
     if (settings.openaiApiKey) {
@@ -6128,6 +7664,40 @@ function toggleGlobalAiProviderFields() {
       opencodeFields.classList.add('hidden');
     }
   }
+  const geminiWebFields = $('global-gemini-web-fields');
+  if (geminiWebFields) {
+    if (val === 'gemini-web') {
+      geminiWebFields.classList.remove('hidden');
+    } else {
+      geminiWebFields.classList.add('hidden');
+    }
+  }
+}
+
+async function openGeminiWebLoginWindow() {
+  console.log('[GeminiWeb] 🌐 Đang mở cửa sổ trình duyệt đăng nhập Gemini...');
+  if (typeof toast === 'function') {
+    toast('Đang mở cửa sổ Chrome đăng nhập Gemini...', 'info');
+  }
+  try {
+    const res = await fetch('/api/gemini-web/login', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      if (typeof toast === 'function') {
+        toast(data.message || (data.loggedIn
+          ? 'Đã xác nhận đăng nhập Gemini.'
+          : 'Đã đóng trình duyệt. Gemini Web vẫn có thể dịch ở chế độ khách.'), data.loggedIn ? 'success' : 'info');
+      }
+    } else {
+      if (typeof toast === 'function') {
+        toast(`Lỗi mở đăng nhập Gemini: ${data.error}`, 'error');
+      }
+    }
+  } catch (err) {
+    if (typeof toast === 'function') {
+      toast(`Lỗi mở đăng nhập Gemini: ${err.message}`, 'error');
+    }
+  }
 }
 
 function saveGlobalSettings() {
@@ -6142,6 +7712,8 @@ function saveGlobalSettings() {
   const ninerouterModelSelect = $('global-ninerouter-model');
   const ninerouterBaseUrlInput = $('global-ninerouter-base-url');
   const whisperModelSelect = $('whisper-model-select');
+  const translationStyles = Array.from(document.querySelectorAll('#global-translation-style-options input[type="checkbox"]:checked'))
+    .map(input => input.value);
 
   if (providerSelect) localStorage.setItem('global_ai_provider', providerSelect.value);
   if (geminiInput) localStorage.setItem('global_gemini_key', geminiInput.value);
@@ -6154,6 +7726,7 @@ function saveGlobalSettings() {
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
   if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
+  localStorage.setItem('global_translation_styles', JSON.stringify(translationStyles));
   const globalOcrSelect = $('global-ocr-mode-select');
   if (globalOcrSelect) localStorage.setItem('global_ocr_mode', globalOcrSelect.value);
 
@@ -6297,9 +7870,8 @@ function updateOutputLangInfo() {
   const sel = document.getElementById('global-output-lang');
   const info = document.getElementById('output-lang-info');
   if (!sel || !info) return;
-  const val = sel.value;
-  const names = { vi: 'Việt Nam', en: 'English', zh: 'Trung Quốc' };
-  info.textContent = `Dịch + Giọng đọc: ${names[val] || val}`;
+  const selectedLabel = sel.options[sel.selectedIndex]?.textContent || sel.value.toUpperCase();
+  info.textContent = `Dịch + Giọng đọc: ${selectedLabel}`;
   info.style.color = 'var(--muted)';
 }
 
@@ -6805,6 +8377,72 @@ function playVoicePreview(event, filename) {
   togglePlayAudio(btn, voiceUrl);
 }
 
+async function previewEngineVoice(engineId) {
+  let voice = '';
+  let btnId = '';
+  if (engineId === 'piper') {
+    voice = $('piper-voice-select')?.value || 'ngochuyen';
+    btnId = 'preview-piper-voice-btn';
+  } else if (engineId === 'edge-tts') {
+    voice = $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural';
+    btnId = 'preview-edge-voice-btn';
+  }
+  const btn = $(btnId);
+  if (!btn) return;
+
+  const currentUrl = btn.getAttribute('data-preview-url');
+  if (currentAudio && currentAudioUrl === currentUrl && !currentAudio.paused) {
+    currentAudio.pause();
+    updatePlayButtonsState(currentUrl, false);
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Đang tạo...';
+
+  try {
+    const res = await fetch('/api/preview-engine-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: engineId, voice })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Không thể tạo giọng mẫu.');
+
+    btn.setAttribute('data-preview-url', data.audioUrl);
+    togglePlayAudio(btn, data.audioUrl);
+    btn.innerHTML = '⏸ Dừng';
+    btn.classList.add('playing');
+  } catch (error) {
+    console.error('Lỗi khi nghe thử giọng:', error);
+    toast(error.message || 'Lỗi nghe thử giọng.', 'error');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.previewEngineVoice = previewEngineVoice;
+
+$('piper-voice-select')?.addEventListener('change', () => {
+  const btn = $('preview-piper-voice-btn');
+  if (btn) {
+    btn.removeAttribute('data-preview-url');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  }
+});
+$('edge-voice-select')?.addEventListener('change', () => {
+  const btn = $('preview-edge-voice-btn');
+  if (btn) {
+    btn.removeAttribute('data-preview-url');
+    btn.innerHTML = '🔊 Nghe thử';
+    btn.classList.remove('playing');
+  }
+});
+
 function openAllVoicesModal() {
   const modal = $('all-voices-modal');
   if (modal) {
@@ -6947,7 +8585,7 @@ function resetStudioConfig() {
   if (boldSelect) boldSelect.value = 'true';
 
   const maxLinesSelect = document.querySelector('select[name="subtitleMaxLines"]');
-  if (maxLinesSelect) maxLinesSelect.value = '1';
+  if (maxLinesSelect) maxLinesSelect.value = '0';
 
   const marginInput = document.querySelector('input[name="subtitleMargin"]');
   if (marginInput) marginInput.value = '28';
@@ -6988,7 +8626,6 @@ function resetStudioConfig() {
   blurBoxes = [];
   activeBlurBoxId = null;
   renderBlurBoxesList();
-
   // Reset voice mode
   const voiceModeBtn = document.querySelector('.voice-tab-btn[data-voice-mode="none"]');
   if (voiceModeBtn) {
@@ -7009,9 +8646,9 @@ function resetStudioConfig() {
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
-    stepsSlider.value = '40';
+    stepsSlider.value = '8';
     const stepsBadge = $('omi-steps-badge');
-    if (stepsBadge) stepsBadge.textContent = '40';
+    if (stepsBadge) stepsBadge.textContent = '8';
   }
 
   const omiSeedPreset = $('omi-seed-preset');
@@ -7276,7 +8913,7 @@ function selectSourceVideo(filename) {
     card.classList.toggle('selected', isMatch);
   });
 
-  const videoUrl = `/downloads/${encodeURIComponent(filename)}`;
+  const videoUrl = studioDownloadUrl(filename);
   setPreviewVideo(videoUrl);
   if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
   updateConditionalFields();
@@ -7294,7 +8931,7 @@ function selectReactionVideo(filename) {
     card.classList.toggle('selected', isMatch);
   });
 
-  const videoUrl = `/downloads/${encodeURIComponent(filename)}`;
+  const videoUrl = studioDownloadUrl(filename);
   setPreviewReactionVideo(videoUrl);
   updateConditionalFields();
 }
@@ -8006,6 +9643,7 @@ function serializeStudioForm() {
   obj._subMode = document.querySelector('.sub-tab-btn.active')?.dataset.subMode || 'none';
   obj._voiceMode = document.querySelector('.voice-tab-btn.active')?.dataset.voiceMode || 'none';
   obj._musicMode = document.querySelector('.music-tab-btn.active')?.dataset.musicMode || 'none';
+  obj._logoMode = document.querySelector('.logo-tab-btn.active')?.dataset.logoMode || 'none';
 
   // Lưu danh sách vùng làm mờ
   obj.blurBoxes = blurBoxes;
@@ -8066,6 +9704,11 @@ function deserializeStudioForm(obj) {
     const btn = document.querySelector(`.music-tab-btn[data-music-mode="${obj._musicMode}"]`);
     if (btn) btn.click();
   }
+  if (obj._logoMode || obj.logoMode || obj.logoEnabled === 'true') {
+    const logoMode = obj._logoMode || obj.logoMode || 'saved';
+    const btn = document.querySelector(`.logo-tab-btn[data-logo-mode="${logoMode}"]`);
+    if (btn) btn.click();
+  }
 
   // Tải lại video nguồn đã chọn và nạp preview
   if (obj.mainVideoFile) {
@@ -8091,7 +9734,7 @@ function deserializeStudioForm(obj) {
 
   // Cập nhật lại các trường phụ đề
   updateConditionalFields();
-
+  updateLogoUi();
   // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark
   ['antidupe-flip', 'antidupe-enable', 'antidupe-wm-enable'].forEach(id => {
     const el = $(id);
@@ -8188,6 +9831,8 @@ function resetStudioForm() {
   if (voiceBtn) voiceBtn.click();
   const musicBtn = document.querySelector('.music-tab-btn[data-music-mode="none"]');
   if (musicBtn) musicBtn.click();
+  const logoBtn = document.querySelector('.logo-tab-btn[data-logo-mode="none"]');
+  if (logoBtn) logoBtn.click();
 
   const previewVideo = $('studio-video-preview');
   if (previewVideo) {
@@ -8198,6 +9843,7 @@ function resetStudioForm() {
   $('preview-placeholder').classList.remove('hidden');
 
   updateConditionalFields();
+  updateLogoUi();
 
   // Xóa vùng làm mờ
   blurBoxes = [];

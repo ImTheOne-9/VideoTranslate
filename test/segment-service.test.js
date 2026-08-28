@@ -48,6 +48,7 @@ function createFixture(options = {}) {
     finalSubtitlePath: finalPath,
     durationMs: 10000,
     reviewRequired: true,
+    cuePerSegment: options.cuePerSegment === true,
     defaultVoiceFile: 'voice.wav',
     defaultEngineId: 'current-omnivoice',
     asrMetadataPath: options.asrMetadata ? asrMetadataPath : null
@@ -55,44 +56,49 @@ function createFixture(options = {}) {
   return { asrMetadataPath, finalPath, manifest, service, sourcePath, workDir };
 }
 
-test('creates one OmniVoice segment per SRT cue without grouping', (t) => {
+test('groups adjacent SRT cues into natural OmniVoice speech segments', (t) => {
   const fixture = createFixture();
   t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
 
-  assert.equal(fixture.manifest.version, 2);
+  assert.equal(fixture.manifest.version, 1);
   assert.equal(fixture.manifest.reviewStatus, 'pending');
-  assert.equal(fixture.manifest.segments.length, 3);
+  assert.equal(fixture.manifest.segments.length, 2);
   assert.match(fixture.manifest.segments[0].id, /^seg_[a-zA-Z0-9_-]+$/);
-  assert.equal(fixture.manifest.segments[0].sourceText, '你好');
-  assert.equal(fixture.manifest.segments[0].text, 'Xin chào');
+  assert.equal(fixture.manifest.segments[0].sourceText, '你好 世界。');
+  assert.equal(fixture.manifest.segments[0].text, 'Xin chào thế giới.');
   assert.equal(fixture.manifest.segments[0].startMs, 0);
-  assert.equal(fixture.manifest.segments[0].endMs, 1000);
-  assert.equal(fixture.manifest.segments[1].sourceText, '世界。');
-  assert.equal(fixture.manifest.segments[1].text, 'thế giới.');
-  assert.equal(fixture.manifest.segments[1].startMs, 1000);
-  assert.equal(fixture.manifest.segments[1].endMs, 2000);
+  assert.equal(fixture.manifest.segments[0].endMs, 2000);
+  assert.equal(fixture.manifest.segments[1].sourceText, '再见');
+  assert.equal(fixture.manifest.segments[1].text, 'Tạm biệt');
+  assert.equal(fixture.manifest.segments[1].startMs, 4000);
+  assert.equal(fixture.manifest.segments[1].endMs, 5000);
   assert.equal(fs.existsSync(fixture.manifest.reviewedSrtPath), true);
 });
 
-test('rebuilds a legacy grouped manifest instead of reusing it', (t) => {
+test('review mode can preserve exactly one SRT cue per editable segment', (t) => {
+  const fixture = createFixture({ cuePerSegment: true });
+  t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
+
+  assert.equal(fixture.manifest.segmentMode, 'per-cue');
+  assert.equal(fixture.manifest.segments.length, 3);
+  assert.deepEqual(
+    fixture.manifest.segments.map((segment) => [segment.text, segment.startMs, segment.endMs]),
+    [
+      ['Xin chào', 0, 1000],
+      ['thế giới.', 1000, 2000],
+      ['Tạm biệt', 4000, 5000]
+    ]
+  );
+  const reviewedSrt = fs.readFileSync(fixture.manifest.reviewedSrtPath, 'utf8').replace(/\r\n/g, '\n');
+  assert.match(reviewedSrt, /Xin chào\n\n2\n00:00:01,000 --> 00:00:02,000\nthế giới\./);
+});
+
+test('reuses an unchanged version 1 grouped manifest', (t) => {
   const fixture = createFixture();
   t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
-  const legacy = {
-    ...fixture.manifest,
-    version: 1,
-    segments: [{
-      ...fixture.manifest.segments[0],
-      text: 'Xin chào thế giới.',
-      endMs: 2000
-    }]
-  };
-  fs.writeFileSync(
-    fixture.service.getManifestPath(fixture.workDir),
-    JSON.stringify(legacy),
-    'utf8'
-  );
+  const segmentIds = fixture.manifest.segments.map((segment) => segment.id);
 
-  const rebuilt = fixture.service.createOrLoad({
+  const restored = fixture.service.createOrLoad({
     taskId: 'task_segments',
     workDir: fixture.workDir,
     sourceSubtitlePath: fixture.sourcePath,
@@ -101,16 +107,12 @@ test('rebuilds a legacy grouped manifest instead of reusing it', (t) => {
     reviewRequired: true
   });
 
-  assert.equal(rebuilt.version, 2);
-  assert.equal(rebuilt.segments.length, 3);
-  assert.deepEqual(
-    rebuilt.segments.map((segment) => [segment.startMs, segment.endMs, segment.text]),
-    [
-      [0, 1000, 'Xin chào'],
-      [1000, 2000, 'thế giới.'],
-      [4000, 5000, 'Tạm biệt']
-    ]
-  );
+  assert.equal(restored.version, 1);
+  assert.deepEqual(restored.segments.map((segment) => segment.id), segmentIds);
+  assert.deepEqual(restored.segments.map((segment) => [segment.startMs, segment.endMs]), [
+    [0, 2000],
+    [4000, 5000]
+  ]);
 });
 
 test('reloading unchanged subtitle inputs preserves immutable segment IDs', (t) => {
@@ -158,13 +160,12 @@ test('maps optional ASR metadata into segments without changing manifest version
   });
   t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
 
-  assert.equal(fixture.manifest.version, 2);
+  assert.equal(fixture.manifest.version, 1);
   assert.equal(fixture.manifest.asr.engineId, 'whisper-onnx');
   assert.equal(fixture.manifest.asr.languageMode, 'auto');
-  assert.equal(fixture.manifest.segments[0].asr.qualityScore, 92);
-  assert.equal(fixture.manifest.segments[1].asr.qualityScore, 48);
-  assert.equal(fixture.manifest.segments[1].asr.modelConfidence, 0.48);
-  assert.ok(fixture.manifest.segments[1].warnings.includes('asr_low_confidence'));
+  assert.deepEqual(fixture.manifest.segments[0].sourceCueIds, ['1', '2']);
+  assert.equal(fixture.manifest.segments[0].asr.modelConfidence, 0.48);
+  assert.ok(fixture.manifest.segments[0].warnings.includes('asr_low_confidence'));
 });
 
 test('single-segment ASR retry updates source text and marks translated text stale', (t) => {
@@ -204,7 +205,7 @@ test('current manifests without ASR metadata still load unchanged', (t) => {
   t.after(() => fs.rmSync(fixture.workDir, { recursive: true, force: true }));
   const loaded = fixture.service.load(fixture.workDir);
 
-  assert.equal(loaded.version, 2);
+  assert.equal(loaded.version, 1);
   assert.equal(loaded.asr, null);
   assert.equal(loaded.segments[0].asr, null);
 });
@@ -396,7 +397,7 @@ test('bulk replacement skips locked segments', (t) => {
   );
 
   assert.equal(replaced.segments[0].text, fixture.manifest.segments[0].text);
-  assert.equal(replaced.segments[2].text, 'Hẹn gặp lại');
+  assert.equal(replaced.segments[1].text, 'Hẹn gặp lại');
 });
 
 test('handles a 2000-segment manifest without truncating data', (t) => {

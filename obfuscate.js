@@ -192,20 +192,38 @@ async function main() {
   } else if (args.includes('--build')) {
     let buildSuccess = false;
     try {
+      console.log('\n🧪 Đang chạy toàn bộ test trước khi đóng gói...');
+      child_process.execFileSync(process.execPath, [path.join(__dirname, 'test', 'run-tests.js')], {
+        stdio: 'inherit',
+        cwd: __dirname
+      });
+      child_process.execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'package-preflight.js')], {
+        stdio: 'inherit',
+        cwd: __dirname
+      });
       backupFiles();
       await prepareBuildCode();
+      child_process.execFileSync(process.execPath, [
+        path.join(__dirname, 'scripts', 'package-preflight.js'),
+        '--compiled'
+      ], { stdio: 'inherit', cwd: __dirname });
       
       console.log('\n🚀 Đang khởi chạy quy trình đóng gói Electron Builder...');
       
-      let buildCmd = 'npx electron-builder build --win --x64';
+      const builderCli = require.resolve('electron-builder/cli.js');
+      const builderArgs = [builderCli, 'build', '--win', '--x64'];
+      if (args.includes('--dir')) {
+        console.log('💡 Cấu hình build: bản thư mục win-unpacked để smoke test');
+        builderArgs.push('--dir');
+      }
       if (args.includes('--no-update')) {
         console.log('💡 Cấu hình build: KHÔNG có tự động cập nhật (--publish never)');
-        buildCmd += ' --publish never';
+        builderArgs.push('--publish', 'never');
       } else {
         console.log('💡 Cấu hình build: CÓ tự động cập nhật (HuggingFace)');
       }
       
-      child_process.execSync(buildCmd, { stdio: 'inherit', cwd: __dirname });
+      child_process.execFileSync(process.execPath, builderArgs, { stdio: 'inherit', cwd: __dirname });
       buildSuccess = true;
     } catch (err) {
       console.error('\n❌ Lỗi trong quá trình build/đóng gói:', err.message);

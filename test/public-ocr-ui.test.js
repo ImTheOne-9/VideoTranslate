@@ -191,8 +191,17 @@ test('studio markup exposes language, advanced region, and first-use download co
     'ocr-region-right',
     'ocr-region-value',
     'ocr-region-overlay',
+    'ocr-region-strategy',
     'global-ocr-mode-select',
     'subtitle-engine-value',
+    'ocr-pipeline-value',
+    'ocr-pipeline-hint',
+    'rapidocr-runtime-row',
+    'rapidocr-runtime-status',
+    'rapidocr-runtime-install-btn',
+    'rapidocr-gpu-row',
+    'rapidocr-gpu-status',
+    'rapidocr-gpu-install-btn',
     'ocr-component-modal',
     'ocr-download-btn',
     'ocr-download-cancel-btn'
@@ -201,12 +210,21 @@ test('studio markup exposes language, advanced region, and first-use download co
   }
   assert.match(html, /name=["']ocrLanguage["']/);
   assert.match(html, /name=["']subtitleEngine["']/);
+  assert.match(html, /name=["']ocrPipeline["']/);
   assert.match(html, /id=["']whisper-model-select["']/);
   assert.match(html, /name=["']whisperTimestampLevel["']/);
   assert.match(html, /name=["']whisperDevice["']/);
   assert.match(html, /name=["']ocrRegion["']/);
+  assert.match(html, /name=["']ocrRegionStrategy["']/);
+  assert.doesNotMatch(html, /name=["']ocrAutoBlur["']/);
+  assert.doesNotMatch(html, /name=["']ocrMaskStyle["']/);
+  assert.doesNotMatch(html, /name=["']ocrMaskColor["']/);
   for (const engine of ['auto', 'ocr', 'whisper']) {
     assert.match(html, new RegExp(`data-subtitle-engine=["']${engine}["']`));
+  }
+  assert.match(html, /<select id=["']ocr-pipeline-value["'][^>]*name=["']ocrPipeline["']/);
+  for (const pipeline of ['auto', 'viral', 'vse']) {
+    assert.match(html, new RegExp(`<option value=["']${pipeline}["']`));
   }
   assert.match(html, /src=["']js\/ocr-ui\.js["']/);
 });
@@ -219,6 +237,16 @@ test('studio client wires OCR preflight and Whisper fallback endpoint', () => {
   assert.match(source, /waiting_input/);
   assert.match(source, /\/api\/render-use-whisper/);
   assert.match(source, /useWhisperForTask/);
+  assert.doesNotMatch(source, /function updateOcrMaskStyleUi/);
+  assert.match(source, /function updateOcrPipelineUi/);
+  assert.match(source, /function installRapidOcrRuntime/);
+  assert.match(source, /rapidocr-runtime-install-btn/);
+  assert.match(source, /\/api\/download-crawl\/runtime-install/);
+  assert.match(source, /function installRapidOcrGpu/);
+  assert.match(source, /\/api\/rapidocr-gpu\/status/);
+  assert.match(source, /\/api\/rapidocr-gpu\/install/);
+  assert.match(source, /ocr-region-settings/);
+  assert.doesNotMatch(source, /data\.set\('ocrMaskStyle'/);
 
   const subtitleTabs = source.slice(source.indexOf('// Setup sub mode tabs'), source.indexOf('// Setup whisper model change handler'));
   const voiceTabs = source.slice(source.indexOf('// Setup voice mode tabs'), source.indexOf('// Setup sub mode tabs'));

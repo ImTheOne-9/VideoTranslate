@@ -1,14 +1,16 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.38",
+  "version": "1.0.45",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "electron-dev": "electron .",
-    "electron-dist": "electron-builder build --win --x64",
+    "package-preflight": "node scripts/package-preflight.js",
+    "electron-dist": "node obfuscate.js --build --no-update",
     "build-obfuscate": "node obfuscate.js --build",
+    "pack-unpacked": "node obfuscate.js --build --dir --no-update",
     "test": "node test/run-tests.js"
   },
   "dependencies": {
@@ -26,9 +28,12 @@
     "mongoose": "^9.7.1",
     "multer": "^2.1.1",
     "node-machine-id": "^1.1.12",
+    "playwright": "^1.49.1",
+    "sharp": "^0.34.5",
     "srt-parser-2": "^1.2.3",
     "unzipper": "^0.12.3",
-    "wavefile": "^11.0.0"
+    "wavefile": "^11.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "electron": "^42.4.1",
@@ -58,6 +63,7 @@
     ],
     "files": [
       "public/**/*",
+      "scripts/**/*",
       "lib/**/*.jsc",
       "controllers/**/*.jsc",
       "server.jsc",
@@ -71,11 +77,36 @@
     ],
     "extraResources": [
       {
+        "from": "tools/crawler/",
+        "to": "tools/crawler/",
+        "filter": [
+          "app/**/*",
+          "!app/**/browser_data/**/*",
+          "!app/**/__pycache__/**/*",
+          "!app/**/*.pyc",
+          "!app/**/test/**/*",
+          "!app/**/tests/**/*",
+          "!app/**/test_data/**/*",
+          "!app/**/docs/**/*",
+          "!app/**/.git/**/*",
+          "!app/**/data/**/*",
+          "!app/**/media_data/**/*",
+          "requirements-crawler.txt",
+          "README.md",
+          "install-ocr-gpu.py",
+          "setup-runtime.ps1",
+          "runtime/**/*"
+        ]
+      },
+      {
         "from": "tools/",
         "to": "tools/",
         "filter": [
           "ffmpeg.exe",
+          "ffprobe.exe",
           "yt-dlp.exe",
+          "uv.exe",
+          "node/node.exe",
           "nllb_translate.exe",
           "silero-vad/silero_vad.onnx",
           "omnivoice/omnivoice-cli.exe",

@@ -67,6 +67,15 @@
             </svg></span>
           <strong>Tải video</strong>
         </button>
+        <button class="nav-btn" data-view="crawl-history" title="Lịch sử cào">
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 14" />
+              <path d="M3 12H1m22 0h-2" />
+            </svg></span>
+          <strong>Lịch sử cào</strong>
+        </button>
         <button class="nav-btn" data-view="studio" title="Render studio">
           <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">
@@ -230,14 +239,124 @@
 
         <!-- Sub tabs navigation -->
         <div class="studio-source-tabs" style="margin-bottom: 14px; display: flex; gap: 4px;">
-          <button type="button" class="source-tab-btn active" id="download-mode-single-btn"
+          <button type="button" class="download-mode-tab active" id="download-mode-crawl-btn"
+            onclick="switchDownloadMode('crawl')">Cào ngay</button>
+          <button type="button" class="download-mode-tab" id="download-mode-single-btn"
             onclick="switchDownloadMode('single')">Tải đơn lẻ</button>
-          <button type="button" class="source-tab-btn" id="download-mode-bulk-btn"
+          <button type="button" class="download-mode-tab" id="download-mode-bulk-btn"
             onclick="switchDownloadMode('bulk')">Tải hàng loạt</button>
         </div>
 
+        <!-- Crawl Now: giao diện cào đa nền tảng, preview, chống trùng và hàng đợi -->
+        <div id="download-crawl-container" class="download-subview">
+          <div class="crawl-now-layout">
+            <div class="panel crawl-now-config">
+              <div class="panel-head crawl-now-heading">
+                <div>
+                  <h3>⚡ Cào ngay — tải video về máy</h3>
+                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Cài bộ cào</button></span>
+                </div>
+                <span class="crawl-now-status-pill" id="crawl-now-ready">Sẵn sàng</span>
+              </div>
+
+              <div class="crawl-toolbar-row">
+                <label>📅 Ngày
+                  <select id="crawl-date-filter" onchange="crawlRefreshStats()"><option value="">Tất cả</option></select>
+                </label>
+                <button type="button" class="ghost-btn" onclick="crawlRefreshAll()">↻ Làm mới trạng thái</button>
+              </div>
+
+              <div class="crawl-login-panel">
+                <div class="crawl-side-head"><div><b>🔑 Đăng nhập nền tảng</b><small>Chỉ cần thực hiện lần đầu trên máy này</small></div><button type="button" class="crawl-login-refresh" onclick="crawlLoadLoginStatus()">↻ Kiểm tra lại</button></div>
+                <p>Chọn đúng nền tảng, bấm <b>Đăng nhập</b>, hoàn tất trong cửa sổ trình duyệt rồi đóng cửa sổ để lưu phiên.</p>
+                <div class="crawl-login-grid" id="crawl-login-grid"></div>
+                <div class="crawl-login-legend"><span class="in">● Đã đăng nhập</span><span class="out">● Chưa đăng nhập</span><span class="na">● Không bắt buộc</span></div>
+              </div>
+
+              <div class="crawl-now-label">Chọn nền tảng</div>
+              <div class="crawl-platform-grid" id="crawl-platform-grid">
+                <button type="button" class="crawl-platform active" data-platform="youtube"><b>▶</b><span>YouTube</span><small id="crawl-count-youtube">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="tiktok"><b>♪</b><span>TikTok</span><small id="crawl-count-tiktok">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="douyin"><b>抖</b><span>Douyin</span><small id="crawl-count-douyin">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="bilibili"><b>哔</b><span>Bilibili</span><small id="crawl-count-bilibili">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="xiaohongshu"><b>小</b><span>Xiaohongshu</span><small id="crawl-count-xiaohongshu">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="rednote"><b>小</b><span>RedNote</span><small id="crawl-count-rednote">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="facebook"><b>f</b><span>Facebook</span><small id="crawl-count-facebook">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="instagram"><b>◎</b><span>Instagram</span><small id="crawl-count-instagram">0 đã cào</small></button>
+              </div>
+
+              <div class="crawl-now-label">Cách cào</div>
+              <div class="crawl-mode-tabs" id="crawl-mode-tabs">
+                <button type="button" class="active" data-mode="search">⌕ Theo từ khóa</button>
+                <button type="button" data-mode="detail">🔗 Theo link</button>
+                <button type="button" data-mode="creator">♙ Theo kênh</button>
+                <button type="button" data-mode="chase">▣ Theo bộ</button>
+              </div>
+
+              <div class="crawl-input-heading"><label class="crawl-input-label" for="crawl-now-input" id="crawl-now-input-label">Từ khóa</label><button type="button" class="crawl-link-btn" id="crawl-translate-keywords" onclick="crawlTranslateKeywords()">✨ Gợi ý (dịch sang Trung)</button></div>
+              <textarea id="crawl-now-input" class="crawl-now-input" rows="4"
+                placeholder="Nhập từ khóa tìm kiếm, mỗi dòng một từ khóa..."></textarea>
+
+              <div class="crawl-option-grid">
+                <label>Số lượng<input type="number" id="crawl-now-count" value="100" min="1" max="500"></label>
+                <label>Sắp xếp<select id="crawl-now-sort"><option value="relevance">Liên quan</option><option value="likes">Nhiều like</option><option value="views">Nhiều lượt xem</option><option value="newest">Mới nhất</option></select></label>
+                <label>Thời gian<select id="crawl-now-time"><option value="0">Tất cả</option><option value="1">1 ngày</option><option value="7">1 tuần</option><option value="30">1 tháng</option><option value="180">6 tháng</option></select></label>
+                <label>Ngôn ngữ<select id="crawl-now-language"><option value="">Giữ nguyên</option><option value="zh-CN">Dịch sang Trung giản thể</option><option value="zh-TW">Dịch sang Trung phồn thể</option></select></label>
+                <label>Like tối thiểu<input type="number" id="crawl-now-min-like" value="0" min="0"></label>
+                <label>Lượt xem tối thiểu<input type="number" id="crawl-now-min-view" value="0" min="0"></label>
+                <label>Trong số ngày gần đây<input type="number" id="crawl-now-days" value="0" min="0" placeholder="0 = tất cả"></label>
+                <label id="crawl-now-quality-wrap" class="hidden">Chất lượng Bilibili<select id="crawl-now-quality"><option value="1080" selected>Tối đa 1080p</option><option value="best">Cao nhất có thể</option><option value="720">Tối đa 720p</option><option value="480">Tối đa 480p</option><option value="360">Tối đa 360p</option></select></label>
+              </div>
+
+              <label class="crawl-check-row">
+                <input type="checkbox" id="crawl-now-skip-dupe" checked>
+                <span><b>Cào không trùng</b> — MediaCrawler đào sâu nền tảng hỗ trợ; Video Studio yt-dlp dùng archive để bỏ qua video đã tải.</span>
+              </label>
+
+              <div class="crawl-action-grid">
+                <button type="button" class="primary-btn" id="crawl-preview-btn" onclick="crawlPreview()">👁 Xem trước & chọn</button>
+                <button type="button" class="ghost-btn" id="crawl-all-btn" onclick="crawlAllNow()">🚀 Cào hết (không xem)</button>
+                <button type="button" class="ghost-btn" onclick="crawlAddCurrentToQueue()">📋 Thêm vào hàng đợi</button>
+                <button type="button" class="ghost-btn danger" onclick="crawlStopAll()">■ Dừng tất cả</button>
+              </div>
+
+              <div class="crawl-preview-wrap hidden" id="crawl-preview-wrap">
+                <div class="crawl-preview-dialog">
+                  <div class="crawl-preview-titlebar"><b>👁 Xem trước & chọn video</b><button type="button" class="crawl-link-btn" onclick="crawlClosePreview()">✕ Đóng</button></div>
+                  <div class="crawl-preview-toolbar">
+                    <label><input type="checkbox" id="crawl-preview-select-all" checked onchange="crawlToggleAll(this.checked)"> Chọn tất cả</label>
+                    <span id="crawl-preview-summary">0 video</span>
+                    <button type="button" class="ghost-btn" id="crawl-preview-more" onclick="crawlLoadMore()">＋ Tải thêm</button>
+                    <button type="button" class="primary-btn" onclick="crawlEnqueueSelected()">Cào video đã chọn</button>
+                  </div>
+                  <div class="crawl-preview-grid" id="crawl-preview-grid"></div>
+                </div>
+              </div>
+
+              <div class="crawl-log-head"><b>Nhật ký hoạt động</b><button type="button" class="crawl-link-btn" onclick="crawlClearLogs()">🗑 Xóa log</button></div>
+              <div class="crawl-activity-log" id="crawl-activity-log"><span>Chưa có hoạt động.</span></div>
+            </div>
+
+            <aside class="crawl-now-side">
+              <div class="panel crawl-progress-card">
+                <div class="crawl-side-head"><b>Tiến trình</b><span id="crawl-progress-count">0/0 video</span></div>
+                <div class="crawl-progress-track"><i id="crawl-progress-bar"></i></div>
+                <div class="crawl-progress-meta"><strong id="crawl-progress-percent">0%</strong><span id="crawl-progress-label">Sẵn sàng</span></div>
+                <div class="crawl-progress-telemetry"><span id="crawl-progress-speed">Tốc độ: —</span><span id="crawl-progress-eta">Ước tính còn: —</span></div>
+              </div>
+              <div class="panel crawl-queue-card">
+                <div class="crawl-side-head"><b>📋 Hàng đợi tải</b><button type="button" class="crawl-link-btn" onclick="crawlClearFinished()">Dọn xong/lỗi</button></div>
+                <div class="crawl-queue-summary" id="crawl-queue-summary">Chưa có tác vụ</div>
+                <div class="crawl-queue-list" id="crawl-queue-list"></div>
+                <div class="crawl-retry-platforms" id="crawl-retry-platforms"></div>
+                <div class="crawl-queue-actions"><button type="button" class="crawl-link-btn" id="crawl-pause-btn" onclick="crawlTogglePause()">⏸ Dừng sau task này</button><button type="button" class="crawl-link-btn" onclick="crawlRetryAll()">↻ Thử lại tất cả lỗi</button></div>
+              </div>
+            </aside>
+          </div>
+        </div>
+
         <!-- Download Single Section -->
-        <div id="download-single-container" class="download-subview">
+        <div id="download-single-container" class="download-subview hidden">
           <div class="panel">
             <div class="panel-head">
               <h3>Tải một video</h3>
@@ -366,7 +485,7 @@
           </div>
         </div>
 
-        <div class="panel" style="margin-top: 14px;">
+        <div class="panel hidden" id="download-history-panel" style="margin-top: 14px;">
           <div class="panel-head" style="margin-bottom: 14px;">
             <h3>Lịch sử tải video</h3>
             <button type="button" class="ghost-btn" id="clear-download-history-btn" onclick="clearDownloadHistory()"
@@ -377,6 +496,45 @@
           </div>
           <div id="download-history-pagination"
             style="display: flex; justify-content: center; gap: 6px; margin-top: 12px;"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-crawl-history">
+        <div class="crawl-history-page-head">
+          <div>
+            <p>Tất cả video đã tìm thấy từ Cào ngay. Video đã tải được làm mờ và vẫn có thể chọn để tải lại.</p>
+          </div>
+          <div class="crawl-history-head-actions">
+            <select id="crawl-history-delete-range" onchange="crawlHistoryDelete(this.value)">
+              <option value="">🗑 Xóa lịch sử...</option><option value="1">Trong 1 giờ qua</option><option value="24">Trong 24 giờ qua</option><option value="168">Trong 7 ngày qua</option><option value="720">Trong 30 ngày qua</option><option value="0">Tất cả lịch sử</option>
+            </select>
+            <button type="button" class="ghost-btn" onclick="crawlLoadHistory()">↻ Làm mới dữ liệu</button>
+          </div>
+        </div>
+
+        <div class="panel crawl-history-page-panel">
+          <div class="crawl-history-toolbar">
+            <input id="crawl-history-query" type="search" placeholder="Tìm tiêu đề, kênh hoặc từ khóa..." oninput="crawlScheduleHistory()">
+            <select id="crawl-history-platform" onchange="crawlLoadHistory()">
+              <option value="">Tất cả nền tảng</option><option value="youtube">YouTube</option><option value="tiktok">TikTok</option><option value="douyin">Douyin</option><option value="bilibili">Bilibili</option><option value="xiaohongshu">Xiaohongshu</option><option value="rednote">RedNote</option><option value="facebook">Facebook</option><option value="instagram">Instagram</option>
+            </select>
+            <select id="crawl-history-days" onchange="crawlLoadHistory()">
+              <option value="0">Mọi thời gian</option><option value="1">Hôm nay</option><option value="7">7 ngày qua</option><option value="30">30 ngày qua</option><option value="90">90 ngày qua</option>
+            </select>
+            <select id="crawl-history-mode" onchange="crawlRenderHistory()"><option value="">Mọi kiểu cào</option><option value="search">Theo từ khóa</option><option value="creator">Theo kênh</option><option value="detail">Theo link</option><option value="chase">Theo bộ</option></select>
+            <select id="crawl-history-source" onchange="crawlRenderHistory()"><option value="">Mọi kênh / từ khóa</option></select>
+            <select id="crawl-history-sort" onchange="crawlRenderHistory()"><option value="newest">Mới nhất trước</option><option value="oldest">Cũ nhất trước</option></select>
+            <label class="crawl-history-check"><input id="crawl-history-undownloaded" type="checkbox" onchange="crawlLoadHistory()"> Chỉ chưa tải</label>
+          </div>
+
+          <div class="crawl-history-selection-bar">
+            <label><input id="crawl-history-select-all" type="checkbox" onchange="crawlHistoryToggleAll(this.checked)"> Chọn tất cả đang hiển thị</label>
+            <span id="crawl-history-summary">0 video</span>
+            <span id="crawl-history-selected-count">Đã chọn 0</span>
+            <button type="button" class="primary-btn" id="crawl-history-download-selected" onclick="crawlHistoryDownloadSelected()" disabled>⬇ Tải video đã chọn</button>
+          </div>
+
+          <div id="crawl-history-list" class="crawl-history-list"><div class="crawl-history-empty">Đang đọc lịch sử cào...</div></div>
         </div>
       </section>
 
@@ -867,6 +1025,13 @@
                       <rect x="2" y="2" width="20" height="20" rx="2.18" />
                       <rect x="9" y="9" width="10" height="10" rx="1.5" />
                     </svg></button>
+                  <button type="button" class="config-tab-icon-btn" data-target="panel-logo"
+                    title="Chèn logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <circle cx="9" cy="9" r="2" />
+                      <path d="m21 15-5-5L5 21" />
+                    </svg></button>
                   <button type="button" class="config-tab-icon-btn" data-target="panel-subtitle"
                     title="Phụ đề Subtitle"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                       stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -916,6 +1081,23 @@
 
                     <div id="source-library-container" class="source-section">
                       <label>Chọn video từ thư mục downloads</label>
+                      <div class="studio-video-filters">
+                        <select id="studio-video-platform-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Tất cả nền tảng</option>
+                        </select>
+                        <select id="studio-video-mode-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Mọi kiểu nguồn</option>
+                          <option value="local">Tải đơn lẻ</option>
+                          <option value="detail">Theo link</option>
+                          <option value="search">Theo từ khóa</option>
+                          <option value="creator">Theo kênh</option>
+                          <option value="chase">Theo bộ</option>
+                        </select>
+                        <select id="studio-video-source-filter" onchange="studioApplyVideoFilters()">
+                          <option value="">Mọi nguồn</option>
+                        </select>
+                      </div>
+                      <div id="studio-video-filter-summary" class="studio-video-filter-summary">0 video</div>
                       <div id="studio-video-grid" class="studio-video-grid">
                         <!-- Video grid items will be inserted here dynamically -->
                       </div>
@@ -1021,6 +1203,87 @@
                     </div>
                   </div>
 
+                  <!-- Panel: Chèn logo -->
+                  <div id="panel-logo" class="panel hidden">
+                    <div class="panel-head logo-panel-head">
+                      <div>
+                        <h3>Chèn logo</h3>
+                        <p>Thêm nhận diện thương hiệu vào video</p>
+                      </div>
+                    </div>
+                    <div class="studio-source-tabs logo-source-tabs">
+                      <button type="button" class="logo-tab-btn active" data-logo-mode="none">Không ghép</button>
+                      <button type="button" class="logo-tab-btn" data-logo-mode="saved">Logo đã tải</button>
+                      <button type="button" class="logo-tab-btn" data-logo-mode="upload">Tải lên</button>
+                    </div>
+                    <input type="hidden" id="logo-mode" name="logoMode" value="none">
+                    <input type="checkbox" id="logo-enabled" name="logoEnabled" value="true" class="hidden">
+
+                    <div id="logo-saved-wrapper" class="logo-source-card hidden">
+                      <div class="form-group logo-select-group">
+                        <label for="saved-logo-select">Chọn logo trong thư viện</label>
+                        <select id="saved-logo-select" name="savedLogoFile" class="premium-select">
+                          <option value="">-- Chọn logo --</option>
+                        </select>
+                        <span class="form-hint">Logo tải lên được lưu lại để dùng cho các video sau.</span>
+                      </div>
+                    </div>
+
+                    <div id="logo-upload-wrapper" class="logo-source-card hidden">
+                      <div class="form-group logo-upload-group">
+                        <input type="file" id="logo-library-upload" accept=".png,.jpg,.jpeg,.webp" class="hidden-input">
+                        <label for="logo-library-upload" class="premium-upload-zone logo-upload-zone">
+                          <span class="logo-upload-icon">＋</span>
+                          <strong>Chọn logo từ máy</strong>
+                          <small>PNG, JPG hoặc WebP · nên dùng PNG nền trong suốt</small>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div id="logo-settings" class="logo-editor-card hidden">
+                      <div id="selected-logo-preview" class="studio-logo-preview">
+                        <div class="studio-logo-thumb"><img id="selected-logo-image" alt="Logo đã chọn"></div>
+                        <div class="studio-logo-meta">
+                          <span>Logo đang dùng</span>
+                          <strong id="selected-logo-name"></strong>
+                        </div>
+                        <span class="studio-logo-ready">Sẵn sàng</span>
+                      </div>
+                      <div class="logo-control-grid">
+                        <div class="form-group">
+                          <label>Vị trí</label>
+                          <select id="logo-position" name="logoPosition" class="premium-select">
+                            <option value="br">Dưới - Phải</option>
+                            <option value="bl">Dưới - Trái</option>
+                            <option value="tr">Trên - Phải</option>
+                            <option value="tl">Trên - Trái</option>
+                            <option value="center">Chính giữa</option>
+                            <option value="custom">Tự chọn (kéo thả)</option>
+                          </select>
+                        </div>
+                        <div class="form-group logo-drag-hint">
+                          <span>Kéo trực tiếp logo trên màn hình xem trước để đặt vị trí tự do.</span>
+                        </div>
+                      </div>
+                      <input type="hidden" id="logo-x-percent" name="logoXPercent" value="80">
+                      <input type="hidden" id="logo-y-percent" name="logoYPercent" value="85">
+                      <div class="logo-slider-grid">
+                        <div class="form-group">
+                          <label>Kích thước <span id="logo-width-val" class="logo-control-value">18%</span></label>
+                          <input id="logo-width-percent" name="logoWidthPercent" type="range" min="3" max="60" step="1" value="18">
+                        </div>
+                        <div class="form-group">
+                          <label>Độ hiển thị <span id="logo-opacity-val" class="logo-control-value">90%</span></label>
+                          <input id="logo-opacity" name="logoOpacity" type="range" min="0.05" max="1" step="0.05" value="0.9">
+                        </div>
+                      </div>
+                      <div class="sub-settings-grid logo-time-grid">
+                        <div><label>Bắt đầu (giây)</label><input id="logo-start" name="logoStart" type="number" min="0" step="0.1" value="0" class="premium-input"></div>
+                        <div><label>Kết thúc (giây)</label><input id="logo-end" name="logoEnd" type="number" min="0" step="0.1" placeholder="Đến hết video" class="premium-input"></div>
+                      </div>
+                    </div>
+                  </div>
+
                   <!-- Panel 3: Phụ đề -->
                   <div id="panel-subtitle" class="panel premium-sub-panel hidden">
                     <div class="panel-head">
@@ -1077,6 +1340,31 @@
                           <option value="korean">Hàn</option>
                         </select>
                       </div>
+                      <div class="form-group ocr-engine-settings">
+                        <label for="ocr-pipeline-value">Bộ OCR</label>
+                        <select id="ocr-pipeline-value" name="ocrPipeline" class="premium-select">
+                          <option value="auto" selected>Tự động</option>
+                          <option value="viral">RapidOCR — quét toàn khung hình</option>
+                          <option value="vse">VSE — dùng vùng OCR đã chọn</option>
+                        </select>
+                        <span id="ocr-pipeline-hint" class="form-hint" style="font-size: 11px; margin-top: 3px; color: #94a3b8;">Tự động: tiếng Trung dùng RapidOCR, ngôn ngữ khác dùng VSE.</span>
+                        <div id="rapidocr-runtime-row" class="hidden rapidocr-mini-card">
+                          <div class="rapidocr-mini-row">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-status-dot"></span>
+                              <span id="rapidocr-runtime-status" class="rapidocr-status-text">Đang kiểm tra RapidOCR...</span>
+                            </div>
+                            <button type="button" id="rapidocr-runtime-install-btn" class="mini-pill-btn">Tải RapidOCR</button>
+                          </div>
+                          <div id="rapidocr-gpu-row" class="hidden rapidocr-mini-row rapidocr-gpu-divider">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-gpu-dot"></span>
+                              <span id="rapidocr-gpu-status" class="rapidocr-status-text">Đang kiểm tra GPU...</span>
+                            </div>
+                            <button type="button" id="rapidocr-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
+                          </div>
+                        </div>
+                      </div>
                       <div class="form-group whisper-engine-settings">
                         <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
                         <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
@@ -1106,8 +1394,16 @@
                         </select>
                         <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>
                       </div>
-                      <details class="ocr-region-details ocr-engine-settings">
+                      <details class="ocr-region-details ocr-engine-settings ocr-region-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
+                        <div class="form-group" style="margin-top: 10px;">
+                          <label for="ocr-region-strategy">Cách chọn vùng OCR</label>
+                          <select id="ocr-region-strategy" name="ocrRegionStrategy" class="premium-select">
+                            <option value="auto" selected>Tự dò khi vùng chính thiếu chữ</option>
+                            <option value="manual">Chỉ dùng vùng đã chọn</option>
+                          </select>
+                          <span class="form-hint">Tự dò sẽ thử thêm vùng dưới, giữa và trên rồi chọn SRT đạt chất lượng tốt nhất.</span>
+                        </div>
                         <div class="ocr-region-grid">
                           <label>Trên<input id="ocr-region-top" type="number" value="0.70" min="0" max="1" step="0.01"></label>
                           <label>Dưới<input id="ocr-region-bottom" type="number" value="0.98" min="0" max="1" step="0.01"></label>
@@ -1126,8 +1422,8 @@
                       style="margin-top: 10px; margin-bottom: 15px; background: rgba(8, 12, 16, 0.4); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
                       <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng làm
-                          mờ</label>
+                        <label style="font-weight: 700; margin: 0; font-size: 13px; color: var(--text);">Các vùng che
+                          thủ công</label>
                         <button type="button" class="premium-dropdown-btn"
                           style="padding: 4px 10px; font-size: 11px; height: auto; margin: 0; background: var(--accent); color: white;"
                           onclick="addBlurBox()">Thêm vùng</button>
@@ -1550,19 +1846,17 @@
                       <div class="form-group" style="margin-top: 10px;">
                         <label>Cấu trúc dòng phụ đề</label>
                           <select name="subtitleMaxLines" class="premium-select">
-                            <option value="0">Tự động chia dòng (1-2 dòng)</option>
-                            <option value="1" selected>Tối đa 1 dòng (Ngắn gọn)</option>
-                          <option value="2">Tối đa 2 dòng (Thông thường)</option>
-                          <option value="3">Tối đa 3 dòng (Chi tiết)</option>
+                            <option value="0" selected>Tự động theo video (ngang 2 dòng · dọc 3 dòng)</option>
                         </select>
+                        <small class="form-hint">Chỉ thay đổi cách hiển thị khi render; không tách cue hoặc chia lại timestamp SRT.</small>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Panel 4: Voice / Omi Cloner -->
+                  <!-- Panel 4: Adaptive dubbing. Legacy narration UI remains in code but is not exposed. -->
                   <div id="panel-voice" class="panel hidden">
                     <div class="panel-head">
-                      <h3>Thuyết minh</h3>
+                      <h3>Thuyết minh AI</h3>
                     </div>
                     <div class="form-group">
                       <label>Chế độ giọng nói</label>
@@ -1574,9 +1868,10 @@
                         <button type="button" class="voice-tab-btn" data-voice-mode="upload"
                           title="Tải lên file thu âm mới" style="display: none;">Tải lên</button>
                         <button type="button" class="voice-tab-btn omi-tab" data-voice-mode="omi"
-                          title="Omi Cloner (Nhái giọng AI)">Thuyết minh tự động</button>
+                          title="Tạo thuyết minh theo từng cue và tự căn timeline">Thuyết minh tự động</button>
                       </div>
                       <input type="hidden" id="voice-mode" name="voiceMode" value="none">
+                      <input type="hidden" id="narration-pipeline" name="narrationPipeline" value="adaptive">
                     </div>
 
                     <div id="output-language-wrapper" class="form-group" style="margin-top: 4px;">
@@ -1587,6 +1882,20 @@
                           <option value="vi">Việt Nam</option>
                           <option value="en">English</option>
                           <option value="zh">Trung Quốc</option>
+                          <option value="ja">日本語</option>
+                          <option value="ko">한국어</option>
+                          <option value="th">ไทย</option>
+                          <option value="fr">Français</option>
+                          <option value="es">Español</option>
+                          <option value="pt">Português</option>
+                          <option value="de">Deutsch</option>
+                          <option value="it">Italiano</option>
+                          <option value="ru">Русский</option>
+                          <option value="id">Bahasa Indonesia</option>
+                          <option value="ms">Bahasa Melayu</option>
+                          <option value="ar">العربية</option>
+                          <option value="hi">हिन्दी</option>
+                          <option value="tr">Türkçe</option>
                         </select>
                       </div>
                       <p id="output-lang-info" style="font-size: 11px; color: var(--muted); margin: 2px 0 0 0;"></p>
@@ -1626,14 +1935,103 @@
                         <div class="form-group">
                           <label>Engine giọng nói</label>
                           <select id="voice-engine-select" name="voiceEngine" class="premium-select">
-                            <option value="current-omnivoice">OmniVoice hiện tại</option>
+                            <option value="piper">Piper (Offline)</option>
+                            <option value="current-omnivoice">OmniVoice Clone</option>
+                            <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
                           </select>
                           <div id="voice-engine-capabilities"
                             style="font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45;">
                             Đang kiểm tra khả năng engine...
                           </div>
+                          <button type="button" id="voice-runtime-install-btn" class="secondary-btn hidden"
+                            style="margin-top: 8px; width: 100%;">Cài Piper offline</button>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="edge-voice-group" style="display: none;">
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng đọc Edge-TTS</label>
+                            <button type="button" id="preview-edge-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('edge-tts')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">🔊 Nghe thử</button>
+                          </div>
+                          <select id="edge-voice-select" name="edgeVoice" class="premium-select">
+                            <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ - Tiếng Việt)</option>
+                            <option value="vi-VN-NamMinhNeural">Nam Minh (Nam - Tiếng Việt)</option>
+                            <option value="en-US-AndrewNeural">Andrew (Nam - Tiếng Anh)</option>
+                            <option value="en-US-AvaNeural">Ava (Nữ - Tiếng Anh)</option>
+                            <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao (Nữ - Tiếng Trung)</option>
+                            <option value="zh-CN-YunjianNeural">Yunjian (Nam - Tiếng Trung)</option>
+                            <option value="ja-JP-NanamiNeural">Nanami (Nữ - Tiếng Nhật)</option>
+                            <option value="ko-KR-SunHiNeural">Sun-Hi (Nữ - Tiếng Hàn)</option>
+                            <option value="fr-FR-DeniseNeural">Denise (Nữ - Tiếng Pháp)</option>
+                            <option value="de-DE-KatjaNeural">Katja (Nữ - Tiếng Đức)</option>
+                            <option value="es-ES-ElviraNeural">Elvira (Nữ - Tiếng Tây Ban Nha)</option>
+                            <option value="ru-RU-SvetlanaNeural">Svetlana (Nữ - Tiếng Nga)</option>
+                          </select>
+                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <div>
+                              <label for="edge-rate-select">Tốc độ đọc</label>
+                              <select id="edge-rate-select" name="edgeRate" class="premium-select">
+                                <option value="-25%">Chậm</option>
+                                <option value="+0%" selected>Bình thường</option>
+                                <option value="+25%">Nhanh</option>
+                                <option value="+50%">Rất nhanh</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label for="edge-pitch-select">Cao độ</label>
+                              <select id="edge-pitch-select" name="edgePitch" class="premium-select">
+                                <option value="-10Hz">Trầm</option>
+                                <option value="+0Hz" selected>Bình thường</option>
+                                <option value="+10Hz">Cao</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="form-group" id="piper-voice-group" style="display: none;">
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng Piper</label>
+                            <button type="button" id="preview-piper-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('piper')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">🔊 Nghe thử</button>
+                          </div>
+                          <select id="piper-voice-select" name="piperVoice" class="premium-select">
+                            <option value="ngochuyen" selected>Ngọc Huyền</option>
+                            <option value="manhdung">Mạnh Dũng</option>
+                            <option value="maiphuong">Mai Phương</option>
+                            <option value="minhkhang">Minh Khang</option>
+                          </select>
+                          <label for="piper-device-select" style="margin-top: 8px;">Tăng tốc Piper</label>
+                          <select id="piper-device-select" name="piperDevice" class="premium-select">
+                            <option value="auto" selected>Tự động (ưu tiên CUDA nếu có)</option>
+                            <option value="cpu">Chỉ CPU</option>
+                            <option value="cuda">Ưu tiên GPU CUDA</option>
+                          </select>
+                          <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
+                            Model giọng được tải một lần vào runtime riêng của ứng dụng.
+                          </p>
+                        </div>
+                        <div class="form-group" id="dual-voice-group" style="display: none;">
+                          <label class="premium-switch">
+                            <input type="checkbox" id="dual-voice-enabled" name="dualVoiceEnabled" value="true">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Tự phân giọng nam/nữ theo âm thanh gốc</span>
+                          </label>
+                          <div id="piper-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="piperMaleVoice" class="premium-select">
+                              <option value="manhdung">Nam: Mạnh Dũng</option>
+                              <option value="minhkhang">Nam: Minh Khang</option>
+                            </select>
+                            <select name="piperFemaleVoice" class="premium-select">
+                              <option value="ngochuyen">Nữ: Ngọc Huyền</option>
+                              <option value="maiphuong">Nữ: Mai Phương</option>
+                            </select>
+                          </div>
+                          <div id="edge-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="edgeMaleVoice" class="premium-select">
+                              <option value="vi-VN-NamMinhNeural">Nam: Nam Minh</option>
+                            </select>
+                            <select name="edgeFemaleVoice" class="premium-select">
+                              <option value="vi-VN-HoaiMyNeural">Nữ: Hoài My</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div class="form-group" id="voice-device-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
                             <option value="cpu">CPU</option>
@@ -1642,20 +2040,25 @@
                         </div>
                       </div>
 
-                      <label class="premium-switch" style="margin-top: 8px;">
+                      <label class="premium-switch" id="voice-cpu-fallback-group" style="margin-top: 8px;">
                         <input type="checkbox" id="voice-allow-cpu-fallback" name="voiceAllowCpuFallback" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
                       </label>
                       <label class="premium-switch" style="margin-top: 8px;">
+                        <input type="checkbox" id="sync-subtitle-to-voice" name="syncSubtitleToVoice" value="true">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label">Đồng bộ phụ đề theo lúc giọng bắt đầu (thử nghiệm)</span>
+                      </label>
+                      <label class="premium-switch" id="segment-review-group" style="margin-top: 8px;">
                         <input type="checkbox" id="segment-review-enabled" name="segmentReviewEnabled" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Duyệt từng câu trước khi tạo giọng</span>
                       </label>
 
                       <div style="display: none;">
-                        <span id="omi-steps-badge">40</span>
-                        <input type="range" name="omiSteps" id="omi-steps-slider" value="40" min="10" max="50" step="1">
+                        <span id="omi-steps-badge">8</span>
+                        <input type="range" name="omiSteps" id="omi-steps-slider" value="8" min="8" max="32" step="8">
                         <select id="omi-seed-preset">
                           <option value="42" selected>Cố định (42)</option>
                         </select>
@@ -2539,8 +2942,8 @@
     <div class="fb-modal-content">
       <div class="fb-modal-header"
         style="background: rgba(59, 130, 246, 0.1); border-bottom-color: rgba(59, 130, 246, 0.2);">
-        <h3 style="color: #3b82f6; display: flex; align-items: center; gap: 8px;">
-          🤖 Tạo giọng bằng Omni Cloner
+        <h3 id="cloner-modal-title" style="color: #3b82f6; display: flex; align-items: center; gap: 8px;">
+          🤖 Tạo giọng nói
         </h3>
         <button class="fb-modal-close" onclick="closeOmniClonerModal()">&times;</button>
       </div>
@@ -2551,7 +2954,7 @@
             <input type="text" id="cloner-voice-name" required class="premium-input"
               placeholder="Ví dụ: Giọng kể chuyện Nam tính">
           </div>
-          <div class="form-group" style="margin-bottom: 10px;">
+          <div class="form-group" id="cloner-reference-audio-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">File ghi âm giọng mẫu (WAV, MP3, M4A...)</label>
             <input type="file" id="cloner-ref-audio" accept="audio/*" required class="premium-input"
               onchange="previewClonerRefAudio(this)">
@@ -2561,7 +2964,7 @@
             <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Chọn file ghi âm ngắn (5-30 giây) làm
               chất liệu clone giọng.</p>
           </div>
-          <div class="form-group" style="margin-bottom: 10px;">
+          <div class="form-group" id="cloner-reference-text-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">Nội dung trong file ghi âm (kịch bản mẫu)</label>
             <textarea id="cloner-ref-text" required class="premium-textarea" rows="2"
               placeholder="Gõ chính xác nội dung trong file ghi âm mẫu..."></textarea>
@@ -2571,14 +2974,31 @@
             <select id="cloner-voice-engine-select" class="premium-select" style="margin: 0 0 8px 0;"
               aria-label="Engine giọng nói">
               <option value="current-omnivoice">OmniVoice hiện tại</option>
+              <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
             </select>
-            <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
-            <select id="cloner-device" class="premium-select" style="margin: 0;">
-              <option value="cpu">CPU (Mặc định)</option>
-              <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
-            </select>
+            <div id="cloner-edge-settings" class="hidden">
+              <label for="cloner-edge-voice" style="margin: 0 0 6px 0;">Giọng Edge TTS</label>
+              <select id="cloner-edge-voice" class="premium-select" style="margin-bottom: 8px;"></select>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <select id="cloner-edge-rate" class="premium-select" aria-label="Tốc độ Edge TTS">
+                  <option value="-25%">Chậm</option><option value="+0%" selected>Bình thường</option>
+                  <option value="+25%">Nhanh</option><option value="+50%">Rất nhanh</option>
+                </select>
+                <select id="cloner-edge-pitch" class="premium-select" aria-label="Cao độ Edge TTS">
+                  <option value="-10Hz">Trầm</option><option value="+0Hz" selected>Bình thường</option>
+                  <option value="+10Hz">Cao</option>
+                </select>
+              </div>
+            </div>
+            <div id="cloner-device-group">
+              <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
+              <select id="cloner-device" class="premium-select" style="margin: 0;">
+                <option value="cpu">CPU (Mặc định)</option>
+                <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
+              </select>
+            </div>
           </div>
-          <label class="premium-switch" style="margin-bottom: 10px;">
+          <label class="premium-switch" id="cloner-cpu-fallback-group" style="margin-bottom: 10px;">
             <input type="checkbox" id="cloner-allow-cpu-fallback">
             <span class="switch-slider"></span>
             <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
@@ -2656,6 +3076,7 @@
             <div class="dl-config-group">
               <label>Dịch phụ đề bằng (AI Provider)</label>
               <select id="dl-ai-provider" class="premium-select" onchange="onDlAiProviderChange()">
+                <option value="gemini-web" selected>🌐 Gemini Web · Dịch phụ đề thông minh (Mặc định)</option>
                 <option value="google-translate">🌐 Google Dịch (Miễn phí & Nhanh)</option>
                 <option value="nllb">📴 AI Dịch Offline (NLLB-200 - Nhẹ & Không cần mạng)</option>
                 <option value="gemini">♊ Gemini AI (Thông minh & Tự nhiên - Yêu cầu Key)</option>
@@ -2698,14 +3119,20 @@
                   <option value="de">Tiếng Đức (German)</option>
                   <option value="es">Tiếng Tây Ban Nha (Spanish)</option>
                   <option value="th">Tiếng Thái (Thai)</option>
+                  <option value="pt">Tiếng Bồ Đào Nha (Portuguese)</option>
+                  <option value="it">Tiếng Ý (Italian)</option>
+                  <option value="ru">Tiếng Nga (Russian)</option>
+                  <option value="id">Tiếng Indonesia (Indonesian)</option>
+                  <option value="ms">Tiếng Malaysia (Malay)</option>
+                  <option value="ar">Tiếng Ả Rập (Arabic)</option>
+                  <option value="hi">Tiếng Hindi (Hindi)</option>
+                  <option value="tr">Tiếng Thổ Nhĩ Kỳ (Turkish)</option>
                 </select>
               </div>
               <div class="dl-config-group">
-                <label>Số dòng phụ đề tối đa</label>
+                <label>Cấu trúc dòng phụ đề</label>
                 <select id="dl-subtitle-max-lines" class="premium-select" onchange="updateLiveSubPreview()">
-                  <option value="0">Tự động ngắt dòng (Mặc định)</option>
-                  <option value="1">Tối đa 1 dòng (Ngắn gọn)</option>
-                  <option value="2">Tối đa 2 dòng (Thông thường)</option>
+                  <option value="0" selected>Tự động theo khung video</option>
                 </select>
               </div>
             </div>
@@ -3023,7 +3450,8 @@
             <label style="font-size: 13px; font-weight: 600; color: var(--text);">Dịch phụ đề bằng (AI Provider)</label>
             <select id="global-ai-provider" class="premium-select" onchange="toggleGlobalAiProviderFields()"
               style="margin: 0; height: 38px;">
-              <option value="nllb" selected>🤖 AI Dịch Offline NLLB-200 (Mặc định - Nhẹ &amp; Không cần mạng)</option>
+              <option value="gemini-web" selected>🌐 Gemini Web · Dịch phụ đề thông minh (Mặc định)</option>
+              <option value="nllb">🤖 AI Dịch Offline NLLB-200 (Nhẹ &amp; Không cần mạng)</option>
               <option value="google-translate">🌐 Google Translate (An toàn &amp; Khuyên dùng)</option>
               <option value="openai">💬 ChatGPT OpenAI (Cần API Key &amp; chọn Model)</option>
               <option value="gemini">♊ Google Gemini AI (Cần API Key)</option>
@@ -3031,6 +3459,33 @@
               <option value="ninerouter">🤖 9Router Local AI Proxy</option>
               <option value="opencode">⚡ OpenCode SDK (Tự động Server ngầm &amp; OpenCode Zen Models)</option>
             </select>
+          </div>
+
+          <!-- Gemini Web Fields -->
+          <div id="global-gemini-web-fields" class="hidden"
+            style="display: flex; flex-direction: column; gap: 14px; border-top: 1px dashed var(--border); padding-top: 14px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 13px; font-weight: 600; color: var(--text);">Tài khoản Google Gemini Web</label>
+              <p style="font-size: 11px; color: var(--muted); margin: 0;">Giới hạn số từ theo thời lượng, giữ đúng 1 cue gốc → 1 cue dịch, kiểm tra chữ Hán/gộp câu, ghi lũy tiến và dịch lại cue lỗi bằng Gemini Web. Không tự chuyển sang NLLB.</p>
+              <div class="form-group" style="margin-top: 8px;">
+                <label style="font-size: 12px; font-weight: 600; color: var(--text);">Phong cách dịch (có thể chọn nhiều)</label>
+                <div id="global-translation-style-options" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 7px;">
+                  <label><input type="checkbox" value="hai_huoc"> Hài hước</label>
+                  <label><input type="checkbox" value="viral"> Viral TikTok</label>
+                  <label><input type="checkbox" value="kich_tinh"> Kịch tính</label>
+                  <label><input type="checkbox" value="cam_xuc"> Cảm xúc</label>
+                  <label><input type="checkbox" value="doi_thuong"> Đời thường</label>
+                  <label><input type="checkbox" value="van_hoc"> Văn học</label>
+                  <label><input type="checkbox" value="ngan_gon"> Ngắn gọn</label>
+                </div>
+                <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">Không chọn = Gemini tự nhận diện thể loại và giữ văn phong phù hợp.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                <button type="button" class="premium-render-btn ghost-btn"
+                  style="margin: 0; width: auto; padding: 0 14px; height: 36px; font-size: 12px; border-color: #4285f4; color: #4285f4;"
+                  onclick="openGeminiWebLoginWindow()">🌐 Mở trình duyệt Đăng nhập Gemini</button>
+              </div>
+            </div>
           </div>
 
           <!-- OpenAI (ChatGPT) Fields -->
@@ -3233,7 +3688,9 @@
                 <option value="youtube">▶️ YouTube</option>
                 <option value="facebook">📘 Facebook</option>
                 <option value="instagram">📷 Instagram</option>
-                <option value="xiaohongshu">📕 Xiaohongshu</option>
+                  <option value="xiaohongshu">📕 Xiaohongshu</option>
+                  <option value="rednote">📕 RedNote</option>
+                  <option value="weibo">微 Weibo</option>
                 <option value="youku">🎬 Youku</option>
                 <option value="mgtv">🥭 MangoTV</option>
                 <option value="iq">🍿 iQIYI</option>
@@ -3664,6 +4121,12 @@
           <div id="segment-editor-summary" class="segment-editor-summary">Đang tải segment...</div>
         </div>
         <div class="segment-editor-header-actions">
+          <button type="button" id="segment-editor-export-srt" class="ghost-btn" title="Xuất file phụ đề SRT hoặc sao chép" onclick="window.openExportSrtModal && window.openExportSrtModal()">
+            📥 Xuất SRT
+          </button>
+          <button type="button" id="segment-editor-import-srt" class="ghost-btn" title="Nhập phụ đề từ file hoặc dán trực tiếp" onclick="window.openImportSrtModal && window.openImportSrtModal()">
+            📤 Nhập SRT
+          </button>
           <button type="button" id="segment-editor-save" class="ghost-btn" title="Lưu các câu đã thay đổi (Ctrl+S)">
             Lưu thay đổi
           </button>
@@ -3695,6 +4158,11 @@
               aria-label="Hoàn tác">↶</button>
             <button type="button" id="segment-editor-redo" class="icon-btn" title="Làm lại (Ctrl+Y)"
               aria-label="Làm lại">↷</button>
+          </div>
+          <div class="segment-editor-top-pagination">
+            <button type="button" id="segment-editor-top-prev" class="ghost-btn segment-page-btn" title="Trang trước (Phím tắt: [ hoặc Alt+Left)">‹ Trước</button>
+            <span id="segment-editor-top-page-info" class="segment-page-badge">Trang 1/1</span>
+            <button type="button" id="segment-editor-top-next" class="ghost-btn segment-page-btn" title="Trang sau (Phím tắt: ] hoặc Alt+Right)">Sau ›</button>
           </div>
         </div>
         <details class="segment-editor-replace-panel">
@@ -3746,14 +4214,112 @@
       </div>
 
       <footer class="segment-editor-footer">
-        <span id="segment-editor-page-info"></span>
+        <div class="segment-editor-footer-left">
+          <span id="segment-editor-page-info" class="segment-editor-page-info"></span>
+        </div>
         <div class="segment-editor-pagination">
-          <button type="button" id="segment-editor-prev" class="icon-btn" title="Trang trước" aria-label="Trang trước">‹</button>
-          <button type="button" id="segment-editor-next" class="icon-btn" title="Trang sau" aria-label="Trang sau">›</button>
+          <button type="button" id="segment-editor-prev" class="ghost-btn segment-page-btn" title="Trang trước (Phím tắt: [ hoặc Alt+Left)">‹ Trang trước</button>
+          <div id="segment-editor-page-pills" class="segment-editor-page-pills"></div>
+          <button type="button" id="segment-editor-next" class="ghost-btn segment-page-btn" title="Trang sau (Phím tắt: ] hoặc Alt+Right)">Trang sau ›</button>
         </div>
       </footer>
       <audio id="segment-editor-audio" preload="none"></audio>
     </section>
+  </div>
+
+  <!-- Modal Xuất SRT -->
+  <div id="segment-editor-export-modal" class="fb-modal-overlay hidden" style="z-index: 10050 !important;">
+    <div class="fb-modal-content" style="width: 680px; max-width: 95%;">
+      <div class="fb-modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--accent);">
+          📥 Xuất file phụ đề SRT
+        </h3>
+        <button type="button" class="fb-modal-close" id="segment-editor-export-close" onclick="window.closeExportSrtModal && window.closeExportSrtModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label for="segment-export-type" style="font-weight: 600; font-size: 13px; margin: 0;">Loại phụ đề:</label>
+            <select id="segment-export-type" class="premium-select" style="width: 220px;">
+              <option value="translated" selected>🇻🇳 Bản dịch (Tiếng Việt)</option>
+              <option value="source">🌐 Lời thoại gốc</option>
+              <option value="bilingual">📑 Song ngữ (Dịch + Gốc)</option>
+            </select>
+          </div>
+          <span id="segment-export-count" style="font-size: 12px; color: var(--muted); font-weight: 500;">0 câu thoại</span>
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 12px; margin-bottom: 4px; display: flex; justify-content: space-between;">
+            <span>Nội dung SRT (bạn có thể xem hoặc bôi đen copy trực tiếp):</span>
+          </label>
+          <textarea id="segment-export-textarea" class="premium-input" readonly
+            style="width: 100%; height: 260px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; background: var(--bg-card); color: var(--text-primary);"></textarea>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color);">
+        <button type="button" id="segment-export-copy-btn" class="ghost-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          📋 Sao chép nội dung
+        </button>
+        <button type="button" id="segment-export-download-btn" class="premium-render-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          💾 Tải xuống file .srt
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Nhập SRT -->
+  <div id="segment-editor-import-modal" class="fb-modal-overlay hidden" style="z-index: 10050 !important;">
+    <div class="fb-modal-content" style="width: 720px; max-width: 95%;">
+      <div class="fb-modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--accent);">
+          📤 Nhập file phụ đề SRT
+        </h3>
+        <button type="button" class="fb-modal-close" id="segment-editor-import-close" onclick="window.closeImportSrtModal && window.closeImportSrtModal()">&times;</button>
+      </div>
+      <div class="fb-modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+        <!-- Option 1: File upload -->
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-weight: 600; font-size: 13px;">Cách 1: Tải file từ máy tính (.srt / .txt / .vtt)</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="file" id="segment-import-file" accept=".srt,.txt,.vtt" class="premium-input" style="flex: 1; padding: 6px 10px;">
+            <button type="button" id="segment-import-read-file-btn" class="ghost-btn">Đọc file</button>
+          </div>
+        </div>
+
+        <div style="text-align: center; color: var(--muted); font-size: 12px; font-weight: 600; position: relative;">
+          <span>— HOẶC —</span>
+        </div>
+
+        <!-- Option 2: Paste content -->
+        <div class="form-group" style="margin: 0;">
+          <label style="font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Cách 2: Dán nội dung SRT trực tiếp vào ô bên dưới</span>
+            <span id="segment-import-parsed-count" style="font-size: 12px; color: var(--accent); font-weight: 600;"></span>
+          </label>
+          <textarea id="segment-import-textarea" class="premium-input" placeholder="1&#10;00:00:01,000 --> 00:00:03,500&#10;Dán nội dung SRT của bạn vào đây..."
+            style="width: 100%; height: 180px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; background: var(--bg-card);"></textarea>
+        </div>
+
+        <!-- Import mode selection -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+          <span style="font-weight: 600; font-size: 12px; color: var(--text-primary);">Chế độ áp dụng:</span>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="radio" name="segment-import-mode" value="text-only" checked>
+            <span><strong>Chỉ cập nhật nội dung dịch</strong> (Khớp theo thứ tự câu, giữ nguyên mốc thời gian cũ)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="radio" name="segment-import-mode" value="full-timeline">
+            <span><strong>Cập nhật cả nội dung dịch và mốc thời gian</strong> (start / end từ file SRT)</span>
+          </label>
+        </div>
+      </div>
+      <div class="fb-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color);">
+        <button type="button" id="segment-import-cancel-btn" class="ghost-btn" onclick="window.closeImportSrtModal && window.closeImportSrtModal()">Hủy</button>
+        <button type="button" id="segment-import-apply-btn" class="premium-render-btn" style="display: inline-flex; align-items: center; gap: 6px;">
+          ✅ Áp dụng vào danh sách
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Modal Hàng đợi Render -->

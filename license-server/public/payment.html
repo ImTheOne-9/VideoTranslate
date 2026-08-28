@@ -159,7 +159,7 @@
               <span class="text-[10px] text-zinc-500">Nội dung chuyển khoản (Click để copy)</span>
               <div class="flex items-center gap-1.5 cursor-pointer bg-indigo-950/40 border border-indigo-900/50 p-2 rounded-lg hover:border-indigo-850 mt-1" 
                    onclick="copyText(document.getElementById('memoVal').innerText, 'Đã copy nội dung chuyển khoản!')">
-                <span class="font-mono text-indigo-400 font-bold select-all text-sm" id="memoVal">VST XXXX</span>
+                <span class="font-mono text-indigo-400 font-bold select-all text-sm" id="memoVal">VSTXXXXXXXX</span>
                 <i data-lucide="copy" class="h-3.5 w-3.5 text-indigo-400"></i>
               </div>
             </div>
@@ -297,7 +297,7 @@
       const amount = targetKeyDetail.price !== undefined ? targetKeyDetail.price : (targetKeyDetail.planType === 'monthly' ? 299000 : 1499000);
       const priceText = amount === 0 ? '0đ' : amount.toLocaleString('vi-VN') + 'đ';
       const keyRef = licenseKey.split('-')[1];
-      const memo = `VST ${keyRef}`;
+      const memo = `VST${keyRef}`;
 
       document.getElementById('planName').innerText = planName;
       document.getElementById('licenseKey').innerText = licenseKey;

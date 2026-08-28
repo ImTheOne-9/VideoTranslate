@@ -457,6 +457,32 @@ module.exports = {
     }
   },
 
+  openDownloadedFileFolder: async (req, res) => {
+    try {
+      const relativePath = String(req.query.path || '').trim();
+      if (!relativePath) return res.status(400).json({ error: 'Thiếu đường dẫn file' });
+      const downloadsRoot = path.resolve(shared.DOWNLOADS_DIR);
+      const fullPath = path.resolve(downloadsRoot, relativePath);
+      if (!fullPath.startsWith(`${downloadsRoot}${path.sep}`)
+          || !/\.(?:mp4|mkv|webm|mov)$/i.test(fullPath)
+          || !fs.existsSync(fullPath)
+          || !fs.statSync(fullPath).isFile()) {
+        return res.status(404).json({ error: 'Không tìm thấy video đã tải' });
+      }
+      if (electronShell) {
+        electronShell.showItemInFolder(fullPath);
+        return res.json({ success: true });
+      }
+      if (process.platform === 'win32') child_process.execFile('explorer.exe', ['/select,', fullPath]);
+      else if (process.platform === 'darwin') child_process.execFile('open', ['-R', fullPath]);
+      else child_process.execFile('xdg-open', [path.dirname(fullPath)]);
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('Open downloaded file folder error:', error.message);
+      return res.status(500).json({ error: 'Lỗi mở vị trí video' });
+    }
+  },
+
   serveFile: async (req, res) => {
     try {
       const filePath = req.query.path;
