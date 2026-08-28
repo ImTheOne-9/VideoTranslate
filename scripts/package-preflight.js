@@ -63,7 +63,12 @@ const requiredFiles = [
   'tools/crawler/app/viral_ocr/chan_doan_loi.py',
   'tools/crawler/app/viral_ocr/phu_de.py',
   'tools/crawler/app/viral_ocr/cai_gpu.py',
-  'tools/crawler/app/MediaCrawler/main.py'
+  'tools/crawler/app/MediaCrawler/main.py',
+  'tools/crawler/app/MediaCrawler/tools/tien_do_tai.py',
+  'tools/crawler/app/MediaCrawler/media_platform/douyin/client.py',
+  'tools/crawler/app/MediaCrawler/media_platform/bilibili/client.py',
+  'tools/crawler/app/MediaCrawler/media_platform/xhs/client.py',
+  'tools/crawler/app/MediaCrawler/media_platform/xhs/core.py'
 ];
 
 for (const relativePath of requiredFiles) {

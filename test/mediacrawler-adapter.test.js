@@ -16,6 +16,13 @@ const {
   bilibiliNativeQn
 } = require('../lib/mediacrawler-adapter');
 
+function writeFakeValidMp4(filePath) {
+  const bytes = Buffer.alloc(110 * 1024);
+  bytes.writeUInt32BE(24, 0);
+  bytes.write('ftyp', 4, 'ascii');
+  fs.writeFileSync(filePath, bytes);
+}
+
 test('Bilibili crawl quality defaults to 1080p and prefers H.264 before other DASH codecs', () => {
   assert.equal(normalizeBilibiliQuality(), '1080');
   assert.equal(normalizeBilibiliQuality('720p'), '720');
@@ -55,7 +62,7 @@ test('Bilibili crawl keeps MediaCrawler metadata but downloads DASH with yt-dlp 
     adapter._runExecutable = async (executable, args, options) => {
       if (args[0] === '-c') return { stdout: '{"ok":false}\n', stderr: '', code: 0 };
       ytCall = { executable, args, options };
-      fs.writeFileSync(path.join(options.cwd, 'Demo [123456789].mp4'), 'video');
+      writeFakeValidMp4(path.join(options.cwd, 'Demo [123456789].mp4'));
       return { stdout: '', stderr: '', code: 0 };
     };
 
@@ -99,7 +106,7 @@ test('Bilibili falls back to native resumable CDN downloader after yt-dlp 503', 
       } else {
         const nativeOutput = path.join(directory, 'bili', 'videos', 'kenh', 'UP Demo_99887766');
         fs.mkdirSync(nativeOutput, { recursive: true });
-        fs.writeFileSync(path.join(nativeOutput, 'Demo_945780.mp4'), 'video');
+        writeFakeValidMp4(path.join(nativeOutput, 'Demo_945780.mp4'));
       }
       return { stdout: '' };
     };

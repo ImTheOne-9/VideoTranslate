@@ -6107,22 +6107,42 @@ function renderSavedLinks() {
   });
 }
 
-function loadSavedChannels() {
+async function loadSavedChannels() {
   try {
-    const data = localStorage.getItem('savedChannels');
-    savedChannels = data ? JSON.parse(data) : [];
+    const response = await fetch('/api/source-channels');
+    if (!response.ok) throw new Error('Không đọc được Kênh nguồn.');
+    const data = await response.json();
+    savedChannels = Array.isArray(data.channels) ? data.channels : [];
+    // Nhập bookmark cũ đúng một lần để người dùng không mất dữ liệu khi nâng cấp.
+    const legacy = JSON.parse(localStorage.getItem('savedChannels') || '[]');
+    if (!savedChannels.length && Array.isArray(legacy) && legacy.length) {
+      for (const item of legacy) {
+        await fetch('/api/source-channels', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: item.url, name: item.name })
+        });
+      }
+      localStorage.removeItem('savedChannels');
+      return loadSavedChannels();
+    }
   } catch (e) {
-    console.error('Lỗi khi đọc savedChannels:', e);
+    console.error('Lỗi khi đọc Kênh nguồn:', e);
     savedChannels = [];
   }
   renderSavedChannels();
 }
 
 function saveSavedChannels() {
-  localStorage.setItem('savedChannels', JSON.stringify(savedChannels));
+  // Kênh nguồn được lưu phía ứng dụng, không còn phụ thuộc localStorage của Chromium.
 }
 
-function saveCurrentChannel() {
+function escapeSavedChannelHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+async function saveCurrentChannel() {
   const urlInput = $('bulk-url-input');
   if (!urlInput) return;
   const rawText = urlInput.value.trim();
@@ -6146,29 +6166,64 @@ function saveCurrentChannel() {
 
   const displayName = extractTitleFromPastedText(rawText) || getFriendlyNameFromUrl(url);
 
-  const newItem = {
-    id: Date.now().toString(),
-    url: url,
-    name: displayName,
-    timestamp: Date.now()
-  };
-
-  savedChannels.unshift(newItem);
-  saveSavedChannels();
-  currentSavedChannelPage = 1;
-  renderSavedChannels();
-  toast('Đã lưu kênh thành công', 'success');
+  try {
+    const response = await fetch('/api/source-channels', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, name: displayName })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không lưu được Kênh nguồn.');
+    currentSavedChannelPage = 1;
+    await loadSavedChannels();
+    toast('Đã lưu Kênh nguồn thành công', 'success');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
 }
 
-function deleteSavedChannel(id) {
+async function deleteSavedChannel(id) {
+  await fetch(`/api/source-channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
   savedChannels = savedChannels.filter(item => item.id !== id);
-  saveSavedChannels();
   const totalPages = Math.ceil(savedChannels.length / savedChannelsPerPage) || 1;
   if (currentSavedChannelPage > totalPages) {
     currentSavedChannelPage = totalPages;
   }
   renderSavedChannels();
   toast('Đã xóa kênh đã lưu', 'info');
+}
+
+async function updateSavedChannelSchedule(id, enabled) {
+  const count = Number($(`source-count-${id}`)?.value || 3);
+  const time = $(`source-time-${id}`)?.value || '02:00';
+  const response = await fetch(`/api/source-channels/${encodeURIComponent(id)}/schedule`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, dailyCount: count, time })
+  });
+  const data = await response.json();
+  if (!response.ok) return toast(data.error || 'Không lưu được lịch Kênh nguồn.', 'error');
+  await loadSavedChannels();
+  toast(enabled ? 'Đã bật lịch cào kênh.' : 'Đã tắt lịch cào kênh.', 'success');
+}
+
+async function refreshSavedChannel(id) {
+  toast('Đang quét metadata mới của kênh…', 'info');
+  const response = await fetch(`/api/source-channels/${encodeURIComponent(id)}/refresh`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 100 })
+  });
+  const data = await response.json();
+  if (!response.ok) return toast(data.error || 'Không quét được kênh.', 'error');
+  await loadSavedChannels();
+  toast(`Đã cập nhật ${data.channel?.discoveredCount || 0} video trong kênh.`, 'success');
+}
+
+async function runSavedChannelNow(id) {
+  const count = Number($(`source-count-${id}`)?.value || 3);
+  const response = await fetch(`/api/source-channels/${encodeURIComponent(id)}/run`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count })
+  });
+  const data = await response.json();
+  if (!response.ok) return toast(data.error || 'Không tạo được job cào.', 'error');
+  toast('Đã thêm job Kênh nguồn vào hàng đợi cào.', 'success');
 }
 
 function loadSavedChannel(url) {
@@ -6210,16 +6265,27 @@ function renderSavedChannels() {
   paginatedItems.forEach(item => {
     const card = document.createElement('div');
     card.className = 'saved-item';
-    card.style = 'display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; gap: 10px; transition: all 0.15s;';
+    card.style = 'display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; gap: 8px 10px; transition: all 0.15s;';
+    const schedule = item.schedule || { enabled: false, dailyCount: 3, time: '02:00' };
+    const safeName = escapeSavedChannelHtml(item.name);
+    const safePlatform = escapeSavedChannelHtml(item.platform);
     card.innerHTML = `
-      <div style="flex: 1; min-width: 0; cursor: pointer;" onclick="loadSavedChannel('${item.url}')" title="Nhấn để nạp link kênh">
-        <div style="font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</div>
-        <div style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">${item.url}</div>
+      <div class="source-channel-open" style="flex: 1; min-width: 0; cursor: pointer;" title="Nhấn để nạp link kênh">
+        <div style="font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeName}</div>
+        <div style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">${safePlatform} · ${item.discoveredCount || 0} video · ${item.downloadedCount || 0} đã tải</div>
       </div>
       <button type="button" class="ghost-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0; border-color: rgba(239, 68, 68, 0.2);" onclick="deleteSavedChannel('${item.id}'); event.stopPropagation();">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>
+      <div style="grid-column:1/-1;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted)">
+        <button type="button" class="crawl-link-btn" onclick="refreshSavedChannel('${item.id}')">↻ Quét kênh</button>
+        <button type="button" class="crawl-link-btn" onclick="runSavedChannelNow('${item.id}')">⬇ Cào ngay</button>
+        <label>Mỗi ngày <input id="source-count-${item.id}" type="number" min="1" max="100" value="${schedule.dailyCount || 3}" style="width:54px"></label>
+        <label>lúc <input id="source-time-${item.id}" type="time" value="${schedule.time || '02:00'}"></label>
+        <label><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSavedChannelSchedule('${item.id}', this.checked)"> Bật lịch</label>
+      </div>
     `;
+    card.querySelector('.source-channel-open')?.addEventListener('click', () => loadSavedChannel(item.url));
     list.appendChild(card);
   });
 
@@ -6393,7 +6459,7 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
-  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili');
+  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili' && crawlNowState.platform !== 'bilitv');
   const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
     button.disabled = caps[button.dataset.mode] === false;
@@ -6469,6 +6535,13 @@ async function crawlLoadLoginStatus() {
     const response = await fetch('/api/download-crawl/login-status');
     const data = await response.json();
     const platforms = data.platforms || {};
+    for (const [platform, status] of Object.entries(platforms)) {
+      if (status === 'in') {
+        fetch('/api/download-crawl/resume-login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+        }).catch(() => {});
+      }
+    }
     const labels = {
       douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
       xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],

@@ -32,6 +32,13 @@ tools/crawler/app/*
 !tools/crawler/app/omnivoice_batch_worker.py
 !tools/crawler/app/capcut_voice_catalog.json
 !tools/crawler/app/whisper_cuda_runtime.py
+!tools/crawler/app/tai_ytdlp.py
+!tools/crawler/app/tim_anh.py
+!tools/crawler/app/mo_dang_nhap.py
+!tools/crawler/app/kiem_tra_login.py
+!tools/crawler/app/xhs_browser.py
+!tools/crawler/app/cookie_decrypt.py
+!tools/crawler/app/index_metadata.py
 !tools/crawler/app/viral_ocr/
 tools/crawler/app/viral_ocr/*
 !tools/crawler/app/viral_ocr/*.py
@@ -40,6 +47,22 @@ tools/crawler/app/viral_ocr/*
 tools/crawler/app/MediaCrawler/*
 !tools/crawler/app/MediaCrawler/pyproject.toml
 !tools/crawler/app/MediaCrawler/uv.lock
+!tools/crawler/app/MediaCrawler/main.py
+!tools/crawler/app/MediaCrawler/tools/
+tools/crawler/app/MediaCrawler/tools/*
+!tools/crawler/app/MediaCrawler/tools/tien_do_tai.py
+!tools/crawler/app/MediaCrawler/media_platform/
+tools/crawler/app/MediaCrawler/media_platform/*
+!tools/crawler/app/MediaCrawler/media_platform/douyin/
+tools/crawler/app/MediaCrawler/media_platform/douyin/*
+!tools/crawler/app/MediaCrawler/media_platform/douyin/client.py
+!tools/crawler/app/MediaCrawler/media_platform/bilibili/
+tools/crawler/app/MediaCrawler/media_platform/bilibili/*
+!tools/crawler/app/MediaCrawler/media_platform/bilibili/client.py
+!tools/crawler/app/MediaCrawler/media_platform/xhs/
+tools/crawler/app/MediaCrawler/media_platform/xhs/*
+!tools/crawler/app/MediaCrawler/media_platform/xhs/client.py
+!tools/crawler/app/MediaCrawler/media_platform/xhs/core.py
 
 # Local media assets and renders (data local, KHÔNG commit)
 downloads/

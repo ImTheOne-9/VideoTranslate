@@ -43,12 +43,14 @@ test('server exposes MediaCrawler engine status and integration', () => {
   assert.match(server, /mediacrawler-adapter/);
   assert.match(server, /project-ytdlp-adapter/);
   assert.match(server, /ProjectYtDlpAdapter/);
-  assert.match(server, /\['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit'\]/);
+  assert.match(server, /\['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'bilitv'\]/);
   assert.match(server, /\/api\/download-crawl\/engine-status/);
   assert.match(server, /'douyin:detail': createMediaCrawlerPreviewResolver\('douyin'\)/);
   assert.match(server, /anonymousPreviewResolvers:\s*{[\s\S]*'douyin:detail': previewDouyinDetail/);
   assert.match(server, /engine: 'Douyin BrowserWindow'/);
   assert.match(server, /'bilibili:detail': createMediaCrawlerPreviewResolver\('bilibili'\)/);
+  assert.match(server, /'xiaohongshu:detail': createMediaCrawlerPreviewResolver\('xiaohongshu'\)/);
+  assert.match(server, /'rednote:detail': createMediaCrawlerPreviewResolver\('rednote'\)/);
   assert.match(server, /'instagram:creator': createProjectYtDlpPreviewResolver\('instagram'\)/);
   assert.match(server, /'instagram:detail': createProjectYtDlpPreviewResolver\('instagram'\)/);
   assert.match(server, /crawlResolvers/);

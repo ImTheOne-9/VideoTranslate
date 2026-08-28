@@ -44,6 +44,16 @@ function makeDownloadProcess({ code = 0, stderr = '' } = {}) {
   return proc;
 }
 
+function writeFakeValidMp4(outputTemplate) {
+  const filePath = String(outputTemplate).replace('%(ext)s', 'mp4');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const body = Buffer.alloc(110 * 1024);
+  body.writeUInt32BE(24, 0);
+  body.write('ftyp', 4, 'ascii');
+  fs.writeFileSync(filePath, body);
+  return filePath;
+}
+
 test('crawl input helpers normalize limits and progress', () => {
   assert.deepEqual(splitInputs('a\nb, c'), ['a', 'b', 'c']);
   assert.equal(safeCount('0'), 1);
@@ -234,6 +244,46 @@ test('public Douyin detail preview prefers its anonymous BrowserWindow resolver 
   }
 });
 
+test('logged-in detail preview uses the authenticated platform resolver', async () => {
+  const directory = makeTempDir();
+  try {
+    const sourceUrl = 'https://www.douyin.com/video/7674985967115078927';
+    let authenticatedCalls = 0;
+    let anonymousCalls = 0;
+    let loginChecks = 0;
+    const manager = new DownloadCrawlManager({
+      shared: makeShared({
+        DOWNLOADS_DIR: directory,
+        runYtDlp: async () => { throw new Error('generic preview must not run'); }
+      }),
+      downloadsDir: directory,
+      loginChecker: async () => { loginChecks += 1; return 'in'; },
+      crawlResolvers: {
+        douyin: async () => ({ completedVideos: 1 })
+      },
+      previewResolvers: {
+        'douyin:detail': async ({ input }) => {
+          authenticatedCalls += 1;
+          assert.equal(input, sourceUrl);
+          return [{ id: '7674985967115078927', title: 'Authenticated Douyin', url: sourceUrl }];
+        }
+      },
+      anonymousPreviewResolvers: {
+        'douyin:detail': async () => { anonymousCalls += 1; return []; }
+      }
+    });
+
+    const result = await manager.preview({ platform: 'douyin', mode: 'detail', input: sourceUrl, count: 1 });
+
+    assert.equal(loginChecks, 1);
+    assert.equal(authenticatedCalls, 1);
+    assert.equal(anonymousCalls, 0);
+    assert.equal(result.items[0].title, 'Authenticated Douyin');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('queue pause, retry and stats expose persistent operator controls', () => {
   const directory = makeTempDir();
   try {
@@ -360,7 +410,7 @@ test('crawl job delegates Chinese platforms to MediaCrawler resolver', async () 
   }
 });
 
-test('Bilibili detail uses anonymous single-download path before login or MediaCrawler', async () => {
+test('Bilibili detail uses anonymous single-download path when logged out', async () => {
   const directory = makeTempDir();
   try {
     const sourceUrl = 'https://www.bilibili.com/video/BV1PUBLIC';
@@ -378,6 +428,7 @@ test('Bilibili detail uses anonymous single-download path before login or MediaC
           : [],
         spawn: (_command, args) => {
           downloadArgs = args;
+          writeFakeValidMp4(args[args.indexOf('-o') + 1]);
           return makeDownloadProcess();
         }
       }),
@@ -395,7 +446,7 @@ test('Bilibili detail uses anonymous single-download path before login or MediaC
 
     await manager._runCrawlTask(task);
 
-    assert.equal(loginChecks, 0);
+    assert.equal(loginChecks, 1);
     assert.equal(crawlCalls, 0);
     assert.equal(task.status, 'success');
     assert.equal(task.completedVideos, 1);
@@ -414,7 +465,7 @@ test('Bilibili detail uses anonymous single-download path before login or MediaC
   }
 });
 
-test('Douyin detail keeps the public CDN extractor without requiring login', async () => {
+test('Douyin detail keeps the public CDN extractor when logged out', async () => {
   const directory = makeTempDir();
   try {
     const sourceUrl = 'https://www.douyin.com/video/123456789';
@@ -428,6 +479,7 @@ test('Douyin detail keeps the public CDN extractor without requiring login', asy
         runYtDlp: async () => { throw new Error('yt-dlp must not inspect public Douyin detail'); },
         spawn: (_command, args) => {
           downloadedUrl = args.at(-1);
+          writeFakeValidMp4(args[args.indexOf('-o') + 1]);
           return makeDownloadProcess();
         }
       }),
@@ -451,7 +503,7 @@ test('Douyin detail keeps the public CDN extractor without requiring login', asy
 
     await manager._runCrawlTask(task);
 
-    assert.equal(loginChecks, 0);
+    assert.equal(loginChecks, 1);
     assert.equal(resolverCalls, 0);
     assert.equal(downloadedUrl, cdnUrl);
     assert.equal(task.status, 'success');
@@ -461,7 +513,7 @@ test('Douyin detail keeps the public CDN extractor without requiring login', asy
   }
 });
 
-test('anonymous RedNote detail asks for login only after the real download reports login required', async () => {
+test('logged-out RedNote detail asks for login only after the real download reports login required', async () => {
   const directory = makeTempDir();
   try {
     const sourceUrl = 'https://www.rednote.com/explore/public-note?xsec_token=token';
@@ -484,10 +536,52 @@ test('anonymous RedNote detail asks for login only after the real download repor
 
     await manager._runCrawlTask(task);
 
-    assert.equal(loginChecks, 0);
+    assert.equal(loginChecks, 1);
     assert.equal(task.status, 'error');
     assert.equal(task.reason, 'login_expired');
     assert.match(task.error, /Sign in required/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('logged-in detail routes Douyin, Bilibili and RedNote through the authenticated crawler', async () => {
+  const directory = makeTempDir();
+  try {
+    for (const platform of ['douyin', 'bilibili', 'rednote']) {
+      const input = {
+        douyin: 'https://www.douyin.com/video/123456789',
+        bilibili: 'https://www.bilibili.com/video/BV1PUBLIC',
+        rednote: 'https://www.rednote.com/explore/public-note?xsec_token=token'
+      }[platform];
+      let loginChecks = 0;
+      let crawlCalls = 0;
+      const manager = new DownloadCrawlManager({
+        shared: makeShared({
+          DOWNLOADS_DIR: directory,
+          runYtDlp: async () => { throw new Error('anonymous preview must not run'); }
+        }),
+        downloadsDir: directory,
+        loginChecker: async () => { loginChecks += 1; return 'in'; },
+        crawlResolvers: {
+          [platform]: async (config) => {
+            crawlCalls += 1;
+            assert.equal(config.mode, 'detail');
+            return { engine: platform === 'rednote' ? 'XHS Browser' : 'MediaCrawler', outputDir: directory, completedVideos: 1 };
+          }
+        }
+      });
+      manager._processQueue = () => {};
+      const { taskId } = manager.enqueueJob({
+        platform, mode: 'detail', input, count: 1
+      });
+      const task = manager.tasks.find((item) => item.id === taskId);
+      await manager._runCrawlTask(task);
+      assert.equal(loginChecks, 1);
+      assert.equal(crawlCalls, 1);
+      assert.equal(task.status, 'success');
+      assert.equal(task.completedVideos, 1);
+    }
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
