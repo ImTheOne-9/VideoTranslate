@@ -43,9 +43,17 @@ const {
   evaluateCoverage,
   evaluateOnsetAlignment,
   planAdaptiveCue,
+  planAdaptiveTimeline,
   preparePiperCueText,
-  synthesizeWithFallback
+  synthesizeWithFallback,
+  warpTimeMs
 } = require('../lib/adaptive-dubbing-pipeline');
+const {
+  activeWarp,
+  buildVideoAssistAudioFilters,
+  buildVideoAssistVideoFilters,
+  warpTimedBoxes
+} = require('../lib/video-assist');
 const { analyzeWavFile, readPcm16WavFile } = require('../lib/audio-quality');
 const { classifyCueSpeakers } = require('../lib/voice-speaker-classifier');
 const { EarlyTtsPipeline } = require('../lib/early-tts-pipeline');
@@ -865,6 +873,9 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
 async function executeRenderTask(task) {
   const tempFiles = [];
   const voiceChunks = [];
+  const adaptiveCueRecords = [];
+  let dubbingTimeWarp = [];
+  let subtitleAlignedToVoice = false;
   const renderId = task.id;
   let workDir = null;
 
@@ -1188,28 +1199,34 @@ async function executeRenderTask(task) {
 
     let earlyTtsPipeline = null;
     const earlyPiperVoice = resolvePiperVoice(targetLang, body.piperVoice);
+    const earlyTtsEngineId = body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
+    const earlyTtsVoice = earlyTtsEngineId === 'capcut-tts'
+      ? String(body.capcutVoice || 'BV074_streaming')
+      : earlyPiperVoice;
     const earlyTtsRequested = !segmentReviewEnabled
       && adaptiveNarrationEnabled
       && voiceMode === 'omi'
-      && (body.voiceEngine || DEFAULT_VOICE_ENGINE_ID) === 'piper'
+      && ['piper', 'capcut-tts'].includes(earlyTtsEngineId)
       && body.aiProvider === 'gemini-web'
       && body.translateVi === 'true'
-      && Boolean(earlyPiperVoice)
+      && Boolean(earlyTtsVoice)
       && !(body.dualVoiceEnabled === true || body.dualVoiceEnabled === 'true' || body.dualVoiceEnabled === 'on')
       && process.env.TTS_SOM !== '0';
     if (earlyTtsRequested) {
       try {
-        const earlyEngine = voiceEngineRegistry.get('piper');
+        const earlyEngine = voiceEngineRegistry.get(earlyTtsEngineId);
         await earlyEngine.loadModel();
         earlyTtsPipeline = new EarlyTtsPipeline({
           engine: earlyEngine,
           workDir: path.join(workDir, 'early-tts'),
-          voice: earlyPiperVoice,
+          voice: earlyTtsVoice,
           language: targetLang,
-          device: ['auto', 'cpu', 'cuda'].includes(body.piperDevice) ? body.piperDevice : 'auto',
+          device: earlyTtsEngineId === 'piper'
+            ? (['auto', 'cpu', 'cuda'].includes(body.piperDevice) ? body.piperDevice : 'auto')
+            : 'online',
           logger: console
         });
-        console.log('[TTS đọc sớm] Piper đã sẵn sàng; mỗi lô Gemini hoàn tất sẽ được tạo giọng ngay.');
+        console.log(`[TTS đọc sớm] ${earlyEngine.name} đã sẵn sàng; mỗi lô Gemini hoàn tất sẽ được tạo giọng ngay.`);
       } catch (error) {
         console.warn(`[TTS đọc sớm] Không khởi động được Piper, đường TTS chính vẫn tiếp tục: ${error.message}`);
       }
@@ -1343,9 +1360,13 @@ async function executeRenderTask(task) {
       const edgeVoice = voiceEngine.id === 'edge-tts' ? String(body.edgeVoice || '') : '';
       const edgeRate = voiceEngine.id === 'edge-tts' ? String(body.edgeRate || '+0%') : '+0%';
       const edgePitch = voiceEngine.id === 'edge-tts' ? String(body.edgePitch || '+0Hz') : '+0Hz';
-      const voiceLogTag = voiceEngine.id === 'edge-tts'
+      const capcutVoice = voiceEngine.id === 'capcut-tts'
+        ? String(body.capcutVoice || 'BV074_streaming')
+        : '';
+      const baseVoiceLogTag = voiceEngine.id === 'edge-tts'
         ? 'EdgeTTS'
         : (voiceEngine.id === 'piper' ? 'Piper' : 'OmniVoice');
+      const voiceLogTag = voiceEngine.id === 'capcut-tts' ? 'CapCutTTS' : baseVoiceLogTag;
       const piperVoice = voiceEngine.id === 'piper'
         ? resolvePiperVoice(targetLang, body.piperVoice)
         : '';
@@ -1354,8 +1375,10 @@ async function executeRenderTask(task) {
         : '';
       const requestedLanguage = String(targetLang || body.omiLanguage || 'vi')
         .toLowerCase().split(/[-_]/)[0];
-      const requestedVoiceDevice = voiceEngine.id === 'edge-tts'
-        ? 'cpu'
+      const requestedVoiceDevice = voiceEngine.id === 'capcut-tts'
+        ? 'online'
+        : voiceEngine.id === 'edge-tts'
+          ? 'cpu'
         : voiceEngine.id === 'piper'
           ? piperDevice
         : (body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu');
@@ -1438,6 +1461,14 @@ async function executeRenderTask(task) {
             concurrency: selectedEngine.getCapabilities().batchConcurrency || 1
           });
           const successfulResults = results.filter((item) => item.ok);
+          const recoveredMergedCues = successfulResults.filter(
+            (item) => item.result?.fallbackFromMerged === true
+          ).length;
+          if (recoveredMergedCues > 0) {
+            console.log(
+              `[CapCutTTS] Đã tháo nhóm timestamp không khớp và đọc lại ${recoveredMergedCues} cue theo lô cùng giọng.`
+            );
+          }
           const actualDevice = successfulResults.find((item) => item.result?.usedDevice)?.result?.usedDevice
             || (selectedIsEdge ? 'cpu' : requestedVoiceDevice);
           task.voiceExecution = {
@@ -1460,7 +1491,7 @@ async function executeRenderTask(task) {
       };
 
       let fallbackVoiceEngine = null;
-      if (adaptiveNarrationEnabled && voiceEngine.id !== 'edge-tts') {
+      if (adaptiveNarrationEnabled && !['edge-tts', 'capcut-tts'].includes(voiceEngine.id)) {
         try {
           fallbackVoiceEngine = voiceEngineRegistry.get('edge-tts');
         } catch (_) {
@@ -1678,16 +1709,17 @@ async function executeRenderTask(task) {
             if (speaker === 'female') return String(body.piperFemaleVoice || 'ngochuyen');
             return piperVoice;
           }
+          if (voiceEngine.id === 'capcut-tts') return capcutVoice;
           return '';
         };
 
         const voiceCheckpointSignature = createCheckpointSignature({
-          version: adaptiveNarrationEnabled ? 5 : 3,
+          version: adaptiveNarrationEnabled ? 6 : 3,
           narrationPipeline: adaptiveNarrationEnabled ? 'adaptive-cue' : 'legacy-grouped',
           referenceAudio: supportsVoiceCloning ? getFileIdentity(refAudioPath) : null,
           refText: supportsVoiceCloning ? refText : '',
           engineId: voiceEngine.id,
-          voice: edgeVoice || piperVoice,
+          voice: edgeVoice || piperVoice || capcutVoice,
           dualVoice: dualVoiceSpeakers ? {
             speakers: dualVoiceSpeakers,
             male: voiceEngine.id === 'edge-tts' ? body.edgeMaleVoice : body.piperMaleVoice,
@@ -1728,6 +1760,7 @@ async function executeRenderTask(task) {
           });
         };
 
+        const batchAttemptedKeys = new Set();
         if (adaptiveNarrationEnabled && voiceCapabilities.batchSynthesis === true) {
           const pendingBatch = [];
           for (let batchIndex = 0; batchIndex < groups.length; batchIndex++) {
@@ -1789,8 +1822,10 @@ async function executeRenderTask(task) {
               endMs: srtTimeToMs(group[group.length - 1].endTime),
               outputPath: voiceCheckpoint.getRawChunkPath(checkpointKey),
               voice: voiceForGroup(batchIndex),
+              sequenceIndex: batchIndex,
               lengthScale: 0.8
             });
+            batchAttemptedKeys.add(String(checkpointKey));
           }
           if (pendingBatch.length > 0) {
             shared.updateStudioProgress(48, `Đang tạo trước ${pendingBatch.length} câu thoại theo lô...`);
@@ -1965,7 +2000,7 @@ async function executeRenderTask(task) {
             let fitPlan;
             let narration;
               try {
-                const narrationOptions = {
+                  const narrationOptions = {
                   initialText: lineText,
                   startMs,
                   endMs,
@@ -1989,8 +2024,18 @@ async function executeRenderTask(task) {
                     && hasRawChunk
                     && isUsableFile(rawChunkPath, 44)
                   ),
-                  synthesize: async (text) => {
-                    const synthesisOptions = {
+                    synthesize: async (text) => {
+                    if (
+                      voiceEngine.id === 'capcut-tts'
+                      && batchAttemptedKeys.has(String(checkpointKey))
+                    ) {
+                      const missingBatchError = new Error(
+                        'CapCut không trả audio sau các lượt đọc bù theo lô; không gọi lại tuần tự để tránh shark block'
+                      );
+                      missingBatchError.code = 'CAPCUT_BATCH_CUE_MISSING';
+                      throw missingBatchError;
+                    }
+                      const synthesisOptions = {
                       text,
                       outputPath: rawChunkPath,
                       voice: voiceForGroup(idx),
@@ -2132,6 +2177,16 @@ async function executeRenderTask(task) {
                   startMs: fitPlan.placementStartMs,
                   endMs: fitPlan.placementEndMs
                 });
+                adaptiveCueRecords.push({
+                  cueIndex: idx,
+                  startMs,
+                  endMs,
+                  rawDurationMs,
+                  rawPath: rawChunkPath,
+                  fittedPath: fittedChunkPath,
+                  checkpointKey,
+                  chunkSignature
+                });
               }
               const fittedQuality = analyzeWavFile(fittedChunkPath);
               voiceCheckpoint.markFittedChunk(checkpointKey, {
@@ -2174,17 +2229,100 @@ async function executeRenderTask(task) {
         }
 
         if (adaptiveNarrationEnabled) {
+          const timelinePlan = planAdaptiveTimeline(adaptiveCueRecords, totalDuration * 1000, {
+            videoAssistMaxSlow: process.env.DUB_VIDEO_MAXSLOW,
+            videoAssistVoiceCap: process.env.DUB_VOICE_CAP,
+            videoAssistMaxSegments: process.env.VC_WARP_MAX_DOAN,
+            redistributeClusters: process.env.DUB_CHIA_DEU === '1',
+            clusterGapMs: process.env.DUB_CHIA_DEU_GAP !== undefined
+              ? Number(process.env.DUB_CHIA_DEU_GAP) * 1000 : undefined,
+            redistributeThreshold: process.env.DUB_CHIA_DEU_NGUONG,
+            borrowLeadMs: process.env.DUB_LEAD !== undefined
+              ? Number(process.env.DUB_LEAD) * 1000 : undefined,
+            borrowTailMs: process.env.DUB_TAIL !== undefined
+              ? Number(process.env.DUB_TAIL) * 1000 : undefined,
+            maxOverflowMs: process.env.DUB_TRAN_MAX !== undefined
+              ? Number(process.env.DUB_TRAN_MAX) * 1000 : undefined
+          });
+          const recordByCue = new Map(adaptiveCueRecords.map((record) => [record.cueIndex, record]));
+          voiceChunks.length = 0;
+          narrationPlacements.length = 0;
+          for (const placement of timelinePlan.placements) {
+            const record = recordByCue.get(placement.cueIndex);
+            if (!record) continue;
+            const plannedPath = `${record.fittedPath}.timeline.wav`;
+            const backupPath = `${record.fittedPath}.pre-timeline.bak`;
+            try {
+              fs.rmSync(plannedPath, { force: true });
+              fs.rmSync(backupPath, { force: true });
+              await createFittedVoiceChunk({
+                rawPath: record.rawPath,
+                outputPath: plannedPath,
+                fitPlan: placement,
+                ffmpegPath: shared.FFMPEG_PATH,
+                runExecFile: shared.runExecFile,
+                normalizationOptions: {
+                  integratedLufs: audioMastering.voiceLufs,
+                  loudnessRange: audioMastering.loudnessRange,
+                  truePeakDb: audioMastering.truePeakDb,
+                  skipLoudness: true
+                },
+                audioStretchy: stretchVoiceWithAudioStretchy,
+                label: `Timeline cue ${placement.cueIndex + 1}`
+              });
+              if (!isNarrationAudioUsable(plannedPath, { minimumRmsDbfs: -45, minimumPeakDbfs: -36 })) {
+                throw new Error('Audio timeline bị câm hoặc quá yếu');
+              }
+              // Keep the known-good fit recoverable until the planned file is in place.
+              fs.renameSync(record.fittedPath, backupPath);
+              try {
+                fs.renameSync(plannedPath, record.fittedPath);
+                fs.rmSync(backupPath, { force: true });
+              } catch (replaceError) {
+                if (!fs.existsSync(record.fittedPath) && fs.existsSync(backupPath)) {
+                  fs.renameSync(backupPath, record.fittedPath);
+                }
+                throw replaceError;
+              }
+            } catch (error) {
+              try { fs.rmSync(plannedPath, { force: true }); } catch (_) {}
+              try {
+                if (!fs.existsSync(record.fittedPath) && fs.existsSync(backupPath)) {
+                  fs.renameSync(backupPath, record.fittedPath);
+                }
+              } catch (_) {}
+              console.warn(
+                `[Dubbing] Không áp được timeline mới cho cue ${placement.cueIndex + 1};`
+                + ` giữ bản fit cũ: ${error.message}`
+              );
+            }
+            voiceChunks.push({ filePath: record.fittedPath, startMs: placement.placementStartMs });
+            narrationPlacements.push({
+              cueIndex: placement.cueIndex,
+              startMs: placement.placementStartMs,
+              endMs: placement.placementEndMs
+            });
+          }
+          dubbingTimeWarp = timelinePlan.timeWarp;
+          task.videoAssist = {
+            enabled: activeWarp(dubbingTimeWarp),
+            maxSlow: timelinePlan.policy.videoAssistMaxSlow,
+            voiceCap: timelinePlan.policy.videoAssistVoiceCap,
+            outputDurationMs: timelinePlan.outputDurationMs,
+            ...timelinePlan.stats
+          };
           const coverage = evaluateCoverage(groups.length, voiceChunks.length);
           task.voiceCoverage = {
             ...coverage,
             failed: narrationFailures,
-            timeline: { ...narrationTimeline }
+            timeline: { ...timelinePlan.stats }
           };
           renderJobStore.saveTask(task);
           console.log(
             `[Dubbing] Độ phủ ${coverage.successful}/${coverage.total}`
-            + ` (${Math.round(coverage.ratio * 100)}%), catch-up=${narrationTimeline.catchUps},`
-            + ` cap-hit=${narrationTimeline.capHits}.`
+            + ` (${Math.round(coverage.ratio * 100)}%), catch-up=${timelinePlan.stats.catchUps},`
+            + ` cap-hit=${timelinePlan.stats.capHits}, mượn=${timelinePlan.stats.borrowedMs}ms,`
+            + ` Video Assist=${timelinePlan.stats.slowedSegments} đoạn.`
           );
           if (!coverage.accepted) {
             const coverageError = new Error(
@@ -2204,6 +2342,7 @@ async function executeRenderTask(task) {
             const alignedCues = alignSubtitleCuesToNarration(srtArray, narrationPlacements);
             fs.writeFileSync(alignedSubtitlePath, parser.toSrt(alignedCues), 'utf8');
             subtitlePath = alignedSubtitlePath;
+            subtitleAlignedToVoice = true;
             console.log(
               `[Dubbing] Đã đồng bộ onset phụ đề theo ${narrationPlacements.length}`
               + ` cue giọng đọc: ${alignedSubtitlePath}`
@@ -2429,7 +2568,8 @@ async function executeRenderTask(task) {
       audioInputs.push({
         index: args.filter(v => v === '-i').length - 1,
         volume: bgmVolume,
-        type: 'music'
+        type: 'music',
+        extractedFromSource: Boolean(extractedBgmPath && path.resolve(musicPath) === path.resolve(extractedBgmPath))
       });
     }
 
@@ -2455,6 +2595,24 @@ async function executeRenderTask(task) {
     let renderSubtitlePath = null;
     let videoFilter = null;
     let hasVideoFilter = false;
+
+    if (activeWarp(dubbingTimeWarp) && subtitlePath && fs.existsSync(subtitlePath) && !subtitleAlignedToVoice) {
+      try {
+        const Parser = require('srt-parser-2').default;
+        const parser = new Parser();
+        const warpedCues = parser.fromSrt(fs.readFileSync(subtitlePath, 'utf8')).map((cue) => ({
+          ...cue,
+          startTime: msToSrtTime(warpTimeMs(srtTimeToMs(cue.startTime), dubbingTimeWarp)),
+          endTime: msToSrtTime(warpTimeMs(srtTimeToMs(cue.endTime), dubbingTimeWarp))
+        }));
+        const warpedSubtitlePath = path.join(workDir, 'video-assist-subtitles.srt');
+        fs.writeFileSync(warpedSubtitlePath, parser.toSrt(warpedCues), 'utf8');
+        subtitlePath = warpedSubtitlePath;
+        console.log(`[Video Assist] Đã ánh xạ ${warpedCues.length} cue phụ đề sang timeline sau warp.`);
+      } catch (error) {
+        console.warn(`[Video Assist] Không ánh xạ được phụ đề; giữ SRT gốc: ${error.message}`);
+      }
+    }
 
     if (subtitlePath && body.burnSub === 'true' && !isVoiceOnlySub) {
       const scaleFactor = resolveSubtitleScale(videoWidth, videoHeight);
@@ -2569,6 +2727,7 @@ async function executeRenderTask(task) {
       }
     }
     if (!Array.isArray(requestedBlurBoxes)) requestedBlurBoxes = [];
+    requestedBlurBoxes = warpTimedBoxes(requestedBlurBoxes, dubbingTimeWarp);
     const automaticOcrBlurBoxes = [];
     const useAutomaticOcrBlur = false;
     const shouldBlurOriginalSub = body.blurOriginalSub === 'true' || useAutomaticOcrBlur;
@@ -2674,20 +2833,30 @@ async function executeRenderTask(task) {
     }
 
     const filterComplex = [];
+    const videoAssistVideo = buildVideoAssistVideoFilters({
+      timeWarp: dubbingTimeWarp,
+      inputLabel: '0:v',
+      outputLabel: 'v_assist'
+    });
+    if (videoAssistVideo.active) {
+      filterComplex.push(...videoAssistVideo.segments);
+      if (videoFilter) videoFilter = videoFilter.replace(/\[0:v\]/g, '[v_assist]');
+    }
+    const sourceVideoLabel = videoAssistVideo.outputLabel;
     if (flipEnabled) {
       if (videoFilter) {
-        filterComplex.push('[0:v]hflip[v_flipped]');
+        filterComplex.push(`[${sourceVideoLabel}]hflip[v_flipped]`);
         filterComplex.push(videoFilter);
       } else {
         hasVideoFilter = true;
-        filterComplex.push('[0:v]hflip[vout]');
+        filterComplex.push(`[${sourceVideoLabel}]hflip[vout]`);
       }
     } else if (videoFilter) {
       filterComplex.push(videoFilter);
     }
 
     if (logoPath) {
-      const logoBaseLabel = hasVideoFilter ? 'v_logo_base' : '0:v';
+      const logoBaseLabel = hasVideoFilter ? 'v_logo_base' : sourceVideoLabel;
       if (hasVideoFilter && !renameVideoOutput(filterComplex, logoBaseLabel)) {
         throw new Error('Không thể nối logo vào filter video');
       }
@@ -2699,17 +2868,41 @@ async function executeRenderTask(task) {
       filterComplex.push(...logoOverlay.segments);
       hasVideoFilter = true;
     }
+    if (videoAssistVideo.active && !hasVideoFilter) {
+      filterComplex.push(`[${sourceVideoLabel}]null[vout]`);
+      hasVideoFilter = true;
+    }
 
     let hasAudioFilter = false;
     let originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
     if ((body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') && extractedBgmPath) {
       originalVolume = 0;
     }
+    const videoAssistAudio = buildVideoAssistAudioFilters({
+      timeWarp: dubbingTimeWarp,
+      inputLabel: '0:a',
+      outputLabel: 'a_assist'
+    });
+    if (videoAssistAudio.active) filterComplex.push(...videoAssistAudio.segments);
+    const sourceAudioLabel = videoAssistAudio.outputLabel;
+    if (videoAssistAudio.active) {
+      for (const input of audioInputs.filter((item) => item.type === 'music' && item.extractedFromSource)) {
+        const warpedMusic = buildVideoAssistAudioFilters({
+          timeWarp: dubbingTimeWarp,
+          inputLabel: `${input.index}:a`,
+          outputLabel: `music_assist_${input.index}`,
+          prefix: `va_music_${input.index}`
+        });
+        filterComplex.push(...warpedMusic.segments);
+        input.inputLabel = warpedMusic.outputLabel;
+      }
+    }
     if (audioInputs.length > 0 || audioMastering.enabled) {
       hasAudioFilter = true;
       const audioMix = buildAudioMixGraph({
         inputs: audioInputs,
         originalVolume,
+        originalInputLabel: sourceAudioLabel,
         config: audioMastering
       });
       task.audioMastering = {
@@ -2720,14 +2913,20 @@ async function executeRenderTask(task) {
       filterComplex.push(audioMix.filter);
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
-      filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
+      filterComplex.push(`[${sourceAudioLabel}]volume=${originalVolume}[aout]`);
+    } else if (videoAssistAudio.active) {
+      hasAudioFilter = true;
+      filterComplex.push(`[${sourceAudioLabel}]anull[aout]`);
     }
 
     // ---- Anti-dupe filter (single pass) ----
     // Flip is already pre-applied at source level, skip it here
+    const renderDuration = task.videoAssist?.outputDurationMs > 0
+      ? task.videoAssist.outputDurationMs / 1000
+      : totalDuration;
     const antidupeEnabled = body.antidupeEnabled === 'true';
     if (antidupeEnabled) {
-      const trimWin = anti.resolveTrimWindow(body.antidupeStart, body.antidupeEnd, totalDuration);
+      const trimWin = anti.resolveTrimWindow(body.antidupeStart, body.antidupeEnd, renderDuration);
       const hasTrim = trimWin.start > 0 || trimWin.end !== null;
       const hasAdWm = (body.antidupeWatermark || '').toString().trim().length > 0;
       const hasAdVideo = hasTrim || hasAdWm;
@@ -2736,7 +2935,7 @@ async function executeRenderTask(task) {
       const needsAudioRename = hasTrim; // trim only
 
       if (needsVideoRename || needsAudioRename) {
-        console.log('[AntiDupe] Received:', JSON.stringify({ start: body.antidupeStart, end: body.antidupeEnd, totalDuration }));
+        console.log('[AntiDupe] Received:', JSON.stringify({ start: body.antidupeStart, end: body.antidupeEnd, totalDuration: renderDuration }));
         console.log('[AntiDupe] TrimWin:', JSON.stringify(trimWin));
         for (let i = 0; i < filterComplex.length; i++) {
           if (hasVideoFilter && needsVideoRename) filterComplex[i] = filterComplex[i].replace(/\[vout\]$/, '[v_ad_in]');
@@ -2798,13 +2997,13 @@ async function executeRenderTask(task) {
     shared.updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
     console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
     try {
-      await runFFmpegWithProgress(args, totalDuration);
+      await runFFmpegWithProgress(args, renderDuration);
     } catch (ffErr) {
       const stderrMsg = (ffErr.stderr || ffErr.message || '').toLowerCase();
       if (hasCUDA && stderrMsg.includes('nvenc')) {
         console.log('[FFmpeg] NVENC không khả dụng, fallback sang libx264...');
         const fallbackArgs = replaceVideoEncoderArgs(args, buildX264EncoderArgs());
-        await runFFmpegWithProgress(fallbackArgs, totalDuration);
+        await runFFmpegWithProgress(fallbackArgs, renderDuration);
       } else {
         throw ffErr;
       }

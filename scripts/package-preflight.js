@@ -50,6 +50,8 @@ const requiredFiles = [
   'tools/crawler/app/audio_stretch_bridge.py',
   'tools/crawler/app/faster_whisper_asr.py',
   'tools/crawler/app/capcut_asr.py',
+  'tools/crawler/app/capcut_tts_worker.py',
+  'tools/crawler/app/capcut_voice_catalog.json',
   'tools/crawler/app/whisper_cuda_runtime.py',
   'tools/crawler/app/viral_ocr/viral_ocr_cli.py',
   'tools/crawler/app/viral_ocr/ocr_text.py',
@@ -80,6 +82,7 @@ for (const filename of ['requirements-crawler.txt', 'requirements-asr.txt', 'req
   check(crawlerFilters.includes(filename), `extraResources chưa chứa tools/crawler/${filename}`);
 }
 for (const pattern of [
+  '!app/models/**/*',
   '!app/**/browser_data/**/*',
   '!app/**/__pycache__/**/*',
   '!app/**/*.pyc',

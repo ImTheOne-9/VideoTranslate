@@ -90,6 +90,8 @@ module.exports = {
         };
         const matched = Object.entries(piperLangVoices).find(([l, v]) => v === voice);
         if (matched) lang = matched[0];
+      } else if (engine.id === 'capcut-tts') {
+        lang = engine.getCapabilities().voices.find((item) => item.id === voice)?.lang || 'vi';
       }
 
       let sampleText = String(text || '').trim();

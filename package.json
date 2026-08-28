@@ -81,6 +81,7 @@
         "to": "tools/crawler/",
         "filter": [
           "app/**/*",
+          "!app/models/**/*",
           "!app/**/browser_data/**/*",
           "!app/**/__pycache__/**/*",
           "!app/**/*.pyc",

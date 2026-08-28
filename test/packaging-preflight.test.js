@@ -13,6 +13,7 @@ test('packaging excludes crawler profiles, cache, docs and test fixtures', () =>
   assert.ok(crawler.filter.includes('requirements-ocr.txt'));
   assert.ok(crawler.filter.includes('install-whisper-gpu.py'));
   for (const pattern of [
+    '!app/models/**/*',
     '!app/**/browser_data/**/*',
     '!app/**/__pycache__/**/*',
     '!app/**/*.pyc',
@@ -109,4 +110,13 @@ test('packaging includes the dedicated Piper installer and bridge', () => {
   assert.ok(crawler.filter.includes('setup-piper-runtime.ps1'));
   assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'setup-piper-runtime.ps1')), true);
   assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'piper_tts_bridge.py')), true);
+});
+
+test('packaging includes the CapCut TTS worker and complete voice catalog', () => {
+  const appRoot = path.join(root, 'tools', 'crawler', 'app');
+  assert.equal(fs.existsSync(path.join(appRoot, 'capcut_tts_worker.py')), true);
+  const catalog = JSON.parse(fs.readFileSync(path.join(appRoot, 'capcut_voice_catalog.json'), 'utf8'));
+  assert.equal(catalog.voiceCount, 459);
+  assert.equal(catalog.voices.length, 459);
+  assert.ok(catalog.voices.some((voice) => voice.provider === '11labs'));
 });

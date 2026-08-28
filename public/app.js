@@ -303,6 +303,7 @@ function refreshTtsVoiceCatalogs(voiceEngines = []) {
   };
   fillEngineVoiceSelect('edge-voice-select', 'edge-tts');
   fillEngineVoiceSelect('piper-voice-select', 'piper');
+  fillEngineVoiceSelect('capcut-voice-select', 'capcut-tts');
 
   const fillGenderSelect = (name, engineId, gender) => {
     const select = document.querySelector(`select[name="${name}"]`);
@@ -394,6 +395,11 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
         badges.push('<span class="engine-badge badge-cyan">🌍 70+ ngôn ngữ Neural</span>');
         badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
         badges.push('<span class="engine-badge badge-slate">🎧 24 kHz HQ</span>');
+      } else if (engine.id === 'capcut-tts') {
+        badges.push('<span class="engine-badge badge-blue">☁️ CapCut/ByteDance</span>');
+        badges.push('<span class="engine-badge badge-cyan">🎙️ Tạo giọng theo lô</span>');
+        badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet • không cần tài khoản</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz</span>');
       } else {
         if (capabilities.cloneVoice) badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng</span>');
         const langCount = capabilities.languages?.length || 0;
@@ -415,19 +421,22 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const edgeVoiceGroup = $('edge-voice-group');
     const isEdge = select.value === 'edge-tts';
     const isPiper = select.value === 'piper';
+    const isCapCut = select.value === 'capcut-tts';
     if (edgeVoiceGroup) {
       edgeVoiceGroup.style.display = isEdge ? 'block' : 'none';
     }
     const piperVoiceGroup = $('piper-voice-group');
     if (piperVoiceGroup) piperVoiceGroup.style.display = isPiper ? 'block' : 'none';
+    const capcutVoiceGroup = $('capcut-voice-group');
+    if (capcutVoiceGroup) capcutVoiceGroup.style.display = isCapCut ? 'block' : 'none';
     const dualVoiceGroup = $('dual-voice-group');
     if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper ? 'block' : 'none';
     const piperDualVoices = $('piper-dual-voices');
     if (piperDualVoices) piperDualVoices.style.display = isPiper ? 'grid' : 'none';
     const edgeDualVoices = $('edge-dual-voices');
     if (edgeDualVoices) edgeDualVoices.style.display = isEdge ? 'grid' : 'none';
-    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper);
-    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper);
+    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut);
     if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
     if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
@@ -3897,6 +3906,7 @@ function submitSaveTemplate(event) {
     voiceEngine: $('voice-engine-select')?.value || 'current-omnivoice',
     edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
     piperVoice: $('piper-voice-select')?.value || 'ngochuyen',
+    capcutVoice: $('capcut-voice-select')?.value || 'BV074_streaming',
     piperDevice: $('piper-device-select')?.value || 'auto',
     edgeRate: $('edge-rate-select')?.value || '+0%',
     edgePitch: $('edge-pitch-select')?.value || '+0Hz',
@@ -4145,6 +4155,7 @@ function loadStudioTemplate(templateName) {
   }
   if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
   if ($('piper-voice-select') && template.piperVoice) $('piper-voice-select').value = template.piperVoice;
+  if ($('capcut-voice-select') && template.capcutVoice) $('capcut-voice-select').value = template.capcutVoice;
   if ($('piper-device-select') && template.piperDevice) $('piper-device-select').value = template.piperDevice;
   if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
   if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
@@ -8458,6 +8469,9 @@ async function previewEngineVoice(engineId) {
   } else if (engineId === 'edge-tts') {
     voice = $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural';
     btnId = 'preview-edge-voice-btn';
+  } else if (engineId === 'capcut-tts') {
+    voice = $('capcut-voice-select')?.value || 'BV074_streaming';
+    btnId = 'preview-capcut-voice-btn';
   }
   const btn = $(btnId);
   if (!btn) return;

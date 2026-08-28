@@ -8,6 +8,7 @@ const {
   evaluateCoverage,
   evaluateOnsetAlignment,
   planAdaptiveCue,
+  planAdaptiveTimeline,
   preparePiperCueText,
   synthesizeWithFallback
 } = require('../lib/adaptive-dubbing-pipeline');
@@ -18,6 +19,70 @@ test('adaptive cue fit keeps natural overflow inside tolerance', () => {
   assert.equal(plan.speed, 1);
   assert.equal(plan.status, 'natural');
   assert.equal(state.cursorMs, 1100);
+});
+
+test('Viral-style timeline borrows both cue edges and caps ordinary overflow', () => {
+  const timeline = planAdaptiveTimeline([
+    { cueIndex: 0, startMs: 1000, endMs: 2000, rawDurationMs: 3000 },
+    { cueIndex: 1, startMs: 2500, endMs: 3500, rawDurationMs: 900 }
+  ], 5000, { videoAssistMaxSlow: 0, redistributeClusters: false });
+  const first = timeline.placements[0];
+  assert.equal(first.borrowedLeadMs, 250);
+  assert.equal(first.borrowedTailMs, 250);
+  assert.ok(first.overflowMs <= 200);
+  assert.ok(first.speed > 1.6);
+});
+
+test('Viral-style borrowing is only charged when a cue actually exceeds its slot', () => {
+  const timeline = planAdaptiveTimeline([
+    { cueIndex: 0, startMs: 1000, endMs: 2000, rawDurationMs: 800 },
+    { cueIndex: 1, startMs: 2500, endMs: 3500, rawDurationMs: 1100 }
+  ], 5000, { videoAssistMaxSlow: 0 });
+  assert.equal(timeline.placements[0].borrowedLeadMs, 0);
+  assert.equal(timeline.placements[0].borrowedTailMs, 0);
+  assert.equal(timeline.placements[1].borrowedLeadMs + timeline.placements[1].borrowedTailMs, 100);
+});
+
+test('Viral-style absolute overflow target supersedes percentage tolerance', () => {
+  const timeline = planAdaptiveTimeline([
+    { cueIndex: 0, startMs: 0, endMs: 4000, rawDurationMs: 4500 }
+  ], 5000, { videoAssistMaxSlow: 0 });
+  assert.ok(timeline.placements[0].overflowMs <= 200);
+  assert.ok(timeline.placements[0].speed > 1);
+});
+
+test('Viral-style timeline slows only overloaded video cues and redistributes dense clusters', () => {
+  const timeline = planAdaptiveTimeline([
+    { cueIndex: 0, startMs: 0, endMs: 1000, rawDurationMs: 400 },
+    { cueIndex: 1, startMs: 1000, endMs: 2000, rawDurationMs: 2200 },
+    { cueIndex: 2, startMs: 2000, endMs: 3000, rawDurationMs: 500 }
+  ], 4000, { redistributeClusters: true });
+  assert.ok(timeline.stats.slowedSegments >= 1);
+  assert.ok(timeline.stats.redistributed >= 1);
+  assert.ok(timeline.outputDurationMs > 4000);
+  assert.equal(timeline.timeWarp[0].startMs, 0);
+  assert.equal(timeline.timeWarp.at(-1).endMs, 4000);
+});
+
+test('Viral-style dense-cluster redistribution stays disabled by default', () => {
+  const timeline = planAdaptiveTimeline([
+    { cueIndex: 0, startMs: 0, endMs: 1000, rawDurationMs: 400 },
+    { cueIndex: 1, startMs: 1000, endMs: 2000, rawDurationMs: 2200 },
+    { cueIndex: 2, startMs: 2000, endMs: 3000, rawDurationMs: 500 }
+  ], 4000, { videoAssistMaxSlow: 0 });
+  assert.equal(timeline.stats.redistributed, 0);
+});
+
+test('Video Assist quantizes factors and absorbs only short gaps between slow regions', () => {
+  const timeline = planAdaptiveTimeline([
+    { cueIndex: 0, startMs: 0, endMs: 1000, rawDurationMs: 1300 },
+    { cueIndex: 1, startMs: 1200, endMs: 2200, rawDurationMs: 1300 }
+  ], 3000);
+  const firstSlow = timeline.timeWarp.find((segment) => segment.factor < 0.999);
+  assert.equal(firstSlow.factor, 0.9);
+  assert.equal(firstSlow.startMs, 0);
+  assert.equal(firstSlow.endMs, 2200);
+  assert.equal(timeline.timeWarp.at(-1).endMs, 3000);
 });
 
 test('adaptive cue fit caps normal compression at 1.6x', () => {
