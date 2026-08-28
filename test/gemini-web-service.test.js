@@ -31,6 +31,14 @@ const {
 } = require('../lib/gemini-web-service');
 const { sanitizeResidualCjk } = require('../lib/translation-output-safety');
 
+function idLine(id, text) {
+  return `[ID_${String(id).padStart(3, '0')}] ${text}`;
+}
+
+function promptIds(prompt) {
+  return [...String(prompt || '').matchAll(/^\[ID_(\d+)\]\s/gm)].map(match => Number(match[1]));
+}
+
 test('tyLeHan detects Chinese character ratio correctly', () => {
   assert.equal(tyLeHan('你好世界'), 1.0);
   assert.equal(tyLeHan('Xin chào thế giới'), 0.0);
@@ -75,7 +83,8 @@ test('buildPrompt builds full system prompt with 1:1 constraint and length ancho
   assert.match(prompt, /北京 → Bắc Kinh/);
   assert.match(prompt, /TUYỆT ĐỐI KHÔNG Hán-Việt hoá cả câu/);
   assert.doesNotMatch(prompt, /CỔ TRANG \/ TU TIÊN: BẮT BUỘC dùng từ Hán-Việt/);
-  assert.ok(prompt.includes('1. @00:00:01 [2.0s ≤'));
+  assert.ok(prompt.includes('[ID_001] [2.0s ≤'));
+  assert.doesNotMatch(prompt, /@00:00:01/);
   assert.ok(prompt.includes('你好'));
   assert.ok(prompt.includes('谢谢'));
 });
@@ -98,7 +107,8 @@ test('buildPrompt switches to spelling correction without dubbing length anchors
   ], '', 'vi', false, 'spellcheck');
   assert.match(prompt, /SỬA LỖI CHÍNH TẢ \+ dấu câu/);
   assert.match(prompt, /không dịch, không viết lại/i);
-  assert.match(prompt, /1\. @00:00:01 Hòa ra cô ấy đã về/);
+  assert.match(prompt, /\[ID_001\] Hòa ra cô ấy đã về/);
+  assert.doesNotMatch(prompt, /@00:00:01/);
   assert.doesNotMatch(prompt, /≤\d+ từ/);
 });
 
@@ -126,7 +136,7 @@ test('Gemini Web pipeline loads Han-Vietnamese glossary only for Vietnamese targ
   let viPrompt = '';
   await translateSrtItemsByGeminiWeb(makeItems(), {
     targetLang: 'vi', srcLang: 'zho_Hans', styleRule: 'STYLE RULE', tmContent: 'HAN VIET GLOSSARY',
-    requestFn: async prompt => { viPrompt = prompt; return '1. Câu thứ nhất'; },
+    requestFn: async prompt => { viPrompt = prompt; return idLine(1, 'Câu thứ nhất'); },
     retryRounds: 0, batchDelayMs: 0, logFn() {}
   });
   assert.match(viPrompt, /STYLE RULE/);
@@ -135,7 +145,7 @@ test('Gemini Web pipeline loads Han-Vietnamese glossary only for Vietnamese targ
   let enPrompt = '';
   await translateSrtItemsByGeminiWeb(makeItems(), {
     targetLang: 'en', srcLang: 'zho_Hans', styleRule: 'STYLE RULE', tmContent: 'HAN VIET GLOSSARY',
-    requestFn: async prompt => { enPrompt = prompt; return '1. First sentence'; },
+    requestFn: async prompt => { enPrompt = prompt; return idLine(1, 'First sentence'); },
     retryRounds: 0, batchDelayMs: 0, logFn() {}
   });
   assert.match(enPrompt, /STYLE RULE/);
@@ -224,6 +234,25 @@ test('Gemini translation reuses the persistent login profile', (t) => {
   const translationDir = getGeminiTranslationProfileDir();
   assert.equal(getGeminiProfileDir(), loginDir);
   assert.equal(translationDir, loginDir);
+});
+
+test('Vietnamese dubbing keeps duration guidance without the unreliable numeric word cap', () => {
+  const prompt = buildPrompt([
+    { id: 1, timestamp: '00:00:01,000 --> 00:00:03,000', text: '你好' }
+  ], '', 'vi', false, 'translate', { compact: true, voiceWordsPerSecond: 4.8 });
+  assert.match(prompt, /\[ID_001\] \[2\.0s\] 你好/);
+  assert.doesNotMatch(prompt, /≤\d+ từ/);
+  assert.doesNotMatch(prompt, /@00:00:01/);
+});
+
+test('parseResponseLo locks sparse responses to the requested ViralCrawl IDs', () => {
+  const parsed = parseResponseLo([
+    '[ID_002] Câu thứ hai',
+    '[ID_099] ID lạ không được nhận',
+    '[ID_004v36] Câu thứ tư'
+  ].join('\n'), 2, { expectedIds: [2, 4], requireIds: true });
+  assert.deepEqual({ ...parsed }, { 2: 'Câu thứ hai', 4: 'Câu thứ tư' });
+  assert.deepEqual(parsed._unexpectedIds, [99]);
 });
 
 test('multilingual timing uses measured word rates instead of a shared character budget', () => {
@@ -456,9 +485,9 @@ test('Gemini Web retry prompt is specialized from the previous merged-cue failur
     requestFn: async prompt => {
       prompts.push(prompt);
       if (prompts.length === 1) {
-        return `1. Câu một\n2. ${'Dồn cả đoạn '.repeat(30)}\n3. Câu ba\n4. Câu bốn`;
+        return `${idLine(1, 'Câu một')}\n${idLine(2, 'Dồn cả đoạn '.repeat(30))}\n${idLine(3, 'Câu ba')}\n${idLine(4, 'Câu bốn')}`;
       }
-      return '1. Câu một\n2. Câu hai\n3. Câu ba\n4. Câu bốn';
+      return [idLine(1, 'Câu một'), idLine(2, 'Câu hai'), idLine(3, 'Câu ba'), idLine(4, 'Câu bốn')].join('\n');
     }
   });
   assert.equal(result.failedItems.length, 0);
@@ -480,8 +509,8 @@ test('Gemini Web pipeline retries only missing cues and writes progressive SRT',
   const calls = [];
   const requestFn = async (prompt) => {
     calls.push(prompt);
-    if (calls.length <= 2) return '1. Câu thứ nhất';
-    return '1. Câu thứ hai\n2. Câu thứ ba';
+    if (calls.length <= 2) return idLine(1, 'Câu thứ nhất');
+    return `${idLine(2, 'Câu thứ hai')}\n${idLine(3, 'Câu thứ ba')}`;
   };
 
   const result = await translateSrtItemsByGeminiWeb(items, {
@@ -498,9 +527,10 @@ test('Gemini Web pipeline retries only missing cues and writes progressive SRT',
 
   assert.equal(result.failedItems.length, 0);
   assert.equal(calls.length, 3);
-  assert.match(calls[0], /1\. @00:00:00 \[1\.5s ≤3 từ\] 第一句/);
-  assert.match(calls[2], /1\. @00:00:01/);
-  assert.doesNotMatch(calls[2], /第一句/);
+  assert.match(calls[0], /\[ID_001\] 第一句/);
+  assert.match(calls[2], /\[ID_002\] 第二句/);
+  assert.match(calls[2], /CONTEXT_ONLY/);
+  assert.doesNotMatch(calls[2], /^\[ID_001\]/m);
   assert.deepEqual(items.map(item => item.text), ['Câu thứ nhất', 'Câu thứ hai', 'Câu thứ ba']);
   const output = fs.readFileSync(outputPath, 'utf8');
   assert.match(output, /Câu thứ nhất/);
@@ -520,8 +550,8 @@ test('Gemini Web keeps one conversation across successful batches', async () => 
     batchDelayMs: 0, splitRounds: 0, requestRetryDelayMs: 0, tmContent: '', logFn() {},
     requestFn: async (prompt, requestOptions) => {
       conversationModes.push(requestOptions.continueChat);
-      const count = (prompt.match(/^\d+\. @/gm) || []).length;
-      return Array.from({ length: count }, (_, index) => `${index + 1}. Bản dịch ${index + 1}`).join('\n');
+      const ids = promptIds(prompt);
+      return ids.map(id => idLine(id, `Bản dịch ${id}`)).join('\n');
     }
   });
   assert.equal(result.failedItems.length, 0);
@@ -537,7 +567,7 @@ test('Gemini Web publishes each accepted batch immediately for early TTS', async
   await translateSrtItemsByGeminiWeb(items, {
     targetLang: 'vi', srcLang: 'zho_Hans', batchDelayMs: 0,
     splitRounds: 0, requestRetryDelayMs: 0, tmContent: '', logFn() {},
-    requestFn: async () => '1. Câu một\n2. Câu hai',
+    requestFn: async () => `${idLine(1, 'Câu một')}\n${idLine(2, 'Câu hai')}`,
     onBatchTranslated: async batch => published.push(batch)
   });
   assert.equal(published.length, 1);
@@ -546,7 +576,7 @@ test('Gemini Web publishes each accepted batch immediately for early TTS', async
   assert.equal(published[0][0].nextStartTime, '00:00:01,200');
 });
 
-test('Gemini Web splits a failed batch and preserves translations already accepted', async () => {
+test('Gemini Web asks only for missing IDs before splitting and preserves accepted translations', async () => {
   const items = Array.from({ length: 24 }, (_, index) => ({
     id: String(index + 1), startTime: '00:00:00,000', endTime: '00:00:01,000', text: `原文${index + 1}`
   }));
@@ -558,14 +588,14 @@ test('Gemini Web splits a failed batch and preserves translations already accept
     tmContent: '', logFn() {},
     requestFn: async (prompt) => {
       call += 1;
-      const count = (prompt.match(/^\d+\. @/gm) || []).length;
-      requestedCounts.push(count);
-      if (call <= 2) return '1. Bản dịch được giữ';
-      return Array.from({ length: count }, (_, index) => `${index + 1}. Câu cứu ${index + 1}`).join('\n');
+      const ids = promptIds(prompt);
+      requestedCounts.push(ids.length);
+      if (call <= 2) return idLine(1, 'Bản dịch được giữ');
+      return ids.map(id => idLine(id, `Câu cứu ${id}`)).join('\n');
     }
   });
   assert.equal(result.failedItems.length, 0);
-  assert.deepEqual(requestedCounts, [24, 24, 11, 12]);
+  assert.deepEqual(requestedCounts, [24, 24, 23]);
   assert.equal(items[0].text, 'Bản dịch được giữ');
 });
 
@@ -593,7 +623,7 @@ test('Gemini Web spellcheck accepts unchanged correct lines', async () => {
     srcLang: 'vie_Latn',
     mode: 'spellcheck',
     fit: false,
-    requestFn: async () => '1. Câu này đã đúng.',
+    requestFn: async () => idLine(1, 'Câu này đã đúng.'),
     retryRounds: 0,
     batchDelayMs: 0,
     tmContent: '',

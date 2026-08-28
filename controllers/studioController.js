@@ -69,6 +69,7 @@ const {
   voiceSpeedToEdgeRate,
   voiceSpeedToPiperLengthScale
 } = require('../lib/voice-speed-policy');
+const { measuredVoiceWordsPerSecond } = require('../lib/voice-translation-rate');
 const { restoreVoiceCache, saveVoiceCache } = require('../lib/voice-content-cache');
 const {
   buildAudioMixGraph,
@@ -1281,6 +1282,11 @@ async function executeRenderTask(task) {
             ? 'zho_Hans'
             : (subtitleSource?.language || body.sourceLanguage || body.whisperLanguage || body.ocrLanguage || 'auto'),
           translationStyles: body.translationStyles,
+          dubbingEnabled: voiceMode === 'omi',
+          voiceSpeed: requestedVoiceSpeed,
+          voiceWordsPerSecond: earlyTtsEngineId === 'capcut-tts'
+            ? measuredVoiceWordsPerSecond(earlyTtsVoice)
+            : null,
           onTranslationBatch: earlyTtsPipeline ? (translatedItems) => {
             earlyTtsPipeline.enqueue(translatedItems.map(item => ({
               ...item,

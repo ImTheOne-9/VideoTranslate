@@ -203,6 +203,24 @@ test('changing source invalidates a stale translation checkpoint', async (t) => 
   assert.deepEqual(changed.checkpoint.entries, {});
 });
 
+test('changing Gemini prompt policy invalidates cached translations', async (t) => {
+  const outputPath = await tempOutput(t);
+  const first = createTranslationCheckpoint(outputPath, {
+    sourceText: 'same source',
+    targetLang: 'vi',
+    pipeline: 'gemini-web-v5:id-lock:tm-a'
+  });
+  first.success({ id: 1, text: 'same source' }, 'bản dịch cũ', 'Gemini Web');
+  first.save();
+
+  const changed = createTranslationCheckpoint(outputPath, {
+    sourceText: 'same source',
+    targetLang: 'vi',
+    pipeline: 'gemini-web-v5:id-lock:tm-b'
+  });
+  assert.deepEqual(changed.checkpoint.entries, {});
+});
+
 test('whole-SRT analysis is checkpointed and reused without storing credentials', async (t) => {
   const outputPath = await tempOutput(t);
   const checkpoint = createTranslationCheckpoint(outputPath, {
