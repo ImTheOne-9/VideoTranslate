@@ -30,3 +30,13 @@ test('dedicated Piper setup verifies every runtime dependency and never installs
   assert.doesNotMatch(setup, /playwright install/u);
   assert.doesNotMatch(setup, /requirements-crawler\.txt/u);
 });
+
+test('Piper bridge has bundled, Banmai, vais1000, timeout and API compatibility recovery', () => {
+  const bridge = fs.readFileSync(path.join(root, 'tools', 'crawler', 'app', 'piper_tts_bridge.py'), 'utf8');
+  assert.match(bridge, /VIDEO_STUDIO_PIPER_BUNDLED/u);
+  assert.match(bridge, /VIDEO_STUDIO_PIPER_BANMAI_BASE/u);
+  assert.match(bridge, /vi_VN-vais1000-medium/u);
+  assert.match(bridge, /VIDEO_STUDIO_PIPER_DOWNLOAD_TIMEOUT/u);
+  assert.match(bridge, /_synthesize_compatible/u);
+  assert.match(bridge, /hasattr\(voice, "synthesize_wav"\)/u);
+});

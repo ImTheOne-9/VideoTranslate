@@ -52,6 +52,15 @@ test('studio UI exposes engine selection, capabilities, and CPU fallback control
   assert.match(app, /function renderVoiceEngineOptions/);
   assert.match(app, /assets\.voiceEngines/);
   assert.match(app, /Voice engine đã chọn chưa sẵn sàng/);
+  assert.match(html, /id="voice-speed-select" name="voiceSpeed"/);
+});
+
+test('studio uses the Viral fallback chain and keeps actual second-pass WAV timing', () => {
+  assert.match(studioController, /fallbackIds = voiceEngine\.id === 'capcut-tts'[\s\S]*\['piper', 'edge-tts'\]/);
+  assert.match(studioController, /fallbacks: fallbackVoiceEngines/);
+  assert.match(studioController, /resolveEdgeVoice\(options\.speaker\)/);
+  assert.match(studioController, /resolveSafeNarrationPlacement/);
+  assert.match(studioController, /outputDurationMs: Math\.max\(timelinePlan\.outputDurationMs, safeTimelineCursorMs\)/);
 });
 
 test('packaging uses the on-demand Python OmniVoice runtime and excludes legacy GGUF servers', () => {

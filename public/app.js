@@ -3920,6 +3920,7 @@ function submitSaveTemplate(event) {
     edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
     piperVoice: $('piper-voice-select')?.value || 'ngochuyen',
     capcutVoice: $('capcut-voice-select')?.value || 'BV074_streaming',
+    voiceSpeed: $('voice-speed-select')?.value || '1',
     piperDevice: $('piper-device-select')?.value || 'auto',
     edgeRate: $('edge-rate-select')?.value || '+0%',
     edgePitch: $('edge-pitch-select')?.value || '+0Hz',
@@ -4169,6 +4170,15 @@ function loadStudioTemplate(templateName) {
   if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
   if ($('piper-voice-select') && template.piperVoice) $('piper-voice-select').value = template.piperVoice;
   if ($('capcut-voice-select') && template.capcutVoice) $('capcut-voice-select').value = template.capcutVoice;
+  if ($('voice-speed-select') && template.voiceSpeed) $('voice-speed-select').value = String(template.voiceSpeed);
+  if ($('voice-speed-select') && !template.voiceSpeed && template.edgeRate) {
+    const legacyRate = String(template.edgeRate).match(/^([+-]?)(\d+)%$/);
+    if (legacyRate) {
+      const percent = Number(legacyRate[2]) * (legacyRate[1] === '-' ? -1 : 1);
+      const migratedSpeed = Math.max(0.85, Math.min(1.15, 1 + percent / 100));
+      $('voice-speed-select').value = String(Number(migratedSpeed.toFixed(2)));
+    }
+  }
   if ($('piper-device-select') && template.piperDevice) $('piper-device-select').value = template.piperDevice;
   if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
   if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
@@ -8505,7 +8515,11 @@ async function previewEngineVoice(engineId) {
     const res = await fetch('/api/preview-engine-voice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ engine: engineId, voice })
+      body: JSON.stringify({
+        engine: engineId,
+        voice,
+        voiceSpeed: $('voice-speed-select')?.value || '1'
+      })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Không thể tạo giọng mẫu.');

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  DEFAULT_POLICY,
   alignSubtitleCuesToNarration,
   createTimelineState,
   evaluateCoverage,
@@ -10,8 +11,14 @@ const {
   planAdaptiveCue,
   planAdaptiveTimeline,
   preparePiperCueText,
+  resolveSafeNarrationPlacement,
   synthesizeWithFallback
 } = require('../lib/adaptive-dubbing-pipeline');
+
+test('Video Assist defaults match the current ViralCrawl policy', () => {
+  assert.equal(DEFAULT_POLICY.videoAssistMaxSlow, 0.20);
+  assert.equal(DEFAULT_POLICY.videoAssistMaxSegments, 1200);
+});
 
 test('adaptive cue fit keeps natural overflow inside tolerance', () => {
   const state = createTimelineState();
@@ -54,7 +61,7 @@ test('Viral-style absolute overflow target supersedes percentage tolerance', () 
 test('Viral-style timeline slows only overloaded video cues and redistributes dense clusters', () => {
   const timeline = planAdaptiveTimeline([
     { cueIndex: 0, startMs: 0, endMs: 1000, rawDurationMs: 400 },
-    { cueIndex: 1, startMs: 1000, endMs: 2000, rawDurationMs: 2200 },
+    { cueIndex: 1, startMs: 1000, endMs: 2000, rawDurationMs: 2400 },
     { cueIndex: 2, startMs: 2000, endMs: 3000, rawDurationMs: 500 }
   ], 4000, { redistributeClusters: true });
   assert.ok(timeline.stats.slowedSegments >= 1);
@@ -79,7 +86,7 @@ test('Video Assist quantizes factors and absorbs only short gaps between slow re
     { cueIndex: 1, startMs: 1200, endMs: 2200, rawDurationMs: 1300 }
   ], 3000);
   const firstSlow = timeline.timeWarp.find((segment) => segment.factor < 0.999);
-  assert.equal(firstSlow.factor, 0.9);
+  assert.equal(firstSlow.factor, 0.85);
   assert.equal(firstSlow.startMs, 0);
   assert.equal(firstSlow.endMs, 2200);
   assert.equal(timeline.timeWarp.at(-1).endMs, 3000);
@@ -132,6 +139,29 @@ test('failed primary engine retries cue with fallback engine', async () => {
   assert.equal(result.engine.id, 'edge-tts');
   assert.equal(result.fallback, true);
   assert.deepEqual(result.attempts.map((item) => item.ok), [false, true]);
+});
+
+test('fallback chain can rescue CapCut through Piper before Edge', async () => {
+  const primary = { id: 'capcut-tts' };
+  const piper = { id: 'piper' };
+  const edge = { id: 'edge-tts' };
+  const result = await synthesizeWithFallback({
+    primary,
+    fallbacks: [piper, edge],
+    synthesize: async (engine) => {
+      if (engine.id === 'capcut-tts') throw new Error('shark block');
+      return { engineId: engine.id };
+    }
+  });
+  assert.equal(result.engine.id, 'piper');
+  assert.deepEqual(result.attempts.map((item) => item.engineId), ['capcut-tts', 'piper']);
+});
+
+test('safe second-pass placement follows the retained WAV duration and never overlaps', () => {
+  const first = resolveSafeNarrationPlacement({ placementStartMs: 1000, placementEndMs: 1800 }, 2500, 0);
+  const second = resolveSafeNarrationPlacement({ placementStartMs: 1900, placementEndMs: 2600 }, 700, first.endMs);
+  assert.deepEqual(first, { startMs: 1000, endMs: 3500, durationMs: 2500 });
+  assert.deepEqual(second, { startMs: 3500, endMs: 4200, durationMs: 700 });
 });
 
 test('Piper continuation punctuation keeps adjacent unfinished cues connected', () => {

@@ -7,8 +7,10 @@ installed application directory.
 """
 
 import argparse
+import itertools
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -21,11 +23,12 @@ HF_BASE = os.environ.get(
     "https://huggingface.co/doof-ferb/nghitts-copy/resolve/main/piper-tts",
 ).rstrip("/")
 DEFAULT_VOICE = "ngochuyen"
+FALLBACK_VOICE = "vi_VN-vais1000-medium"
 KNOWN_VOICES = {
     "ngochuyen", "ngochuyennew", "ngocngan3701", "maiphuong",
     "phuongtrang", "thanhphuong2", "calmwoman3688", "yannew",
     "lacphi", "manhdung", "minhkhang", "minhquang", "duyoryx3175",
-    "adam1", "chieuthanh", "taian4",
+    "adam1", "chieuthanh", "taian4", "banmai",
 }
 PIPER_LANGUAGE_VOICES = {
     "en": "en_US-ryan-high",
@@ -35,6 +38,13 @@ PIPER_LANGUAGE_VOICES = {
     "uk": "uk_UA-tetiana-high",
     "kk": "kk_KZ-issai-high",
 }
+
+
+def _download_timeout():
+    try:
+        return max(5, min(300, int(os.environ.get("VIDEO_STUDIO_PIPER_DOWNLOAD_TIMEOUT", "30"))))
+    except (TypeError, ValueError):
+        return 30
 
 try:
     import tts_chuan_hoa
@@ -91,7 +101,8 @@ def _runtime_root():
 
 
 def _model_path(voice_name):
-    safe_name = voice_name if voice_name in KNOWN_VOICES or voice_name in PIPER_LANGUAGE_VOICES.values() else DEFAULT_VOICE
+    supported = set(PIPER_LANGUAGE_VOICES.values()) | {FALLBACK_VOICE}
+    safe_name = voice_name if voice_name in KNOWN_VOICES or voice_name in supported else DEFAULT_VOICE
     return os.path.join(_runtime_root(), "piper_models", safe_name + ".onnx")
 
 
@@ -109,7 +120,9 @@ def _valid_model(model_path):
 def _download_file(url, destination):
     temporary = destination + ".part"
     try:
-        urllib.request.urlretrieve(url, temporary)
+        request = urllib.request.Request(url, headers={"User-Agent": "Video-Studio-Tools/1.0"})
+        with urllib.request.urlopen(request, timeout=_download_timeout()) as response, open(temporary, "wb") as stream:
+            shutil.copyfileobj(response, stream, length=1024 * 1024)
         os.replace(temporary, destination)
     finally:
         try:
@@ -119,8 +132,29 @@ def _download_file(url, destination):
             pass
 
 
-def ensure_model(voice_name):
-    safe_name = voice_name if voice_name in KNOWN_VOICES or voice_name in PIPER_LANGUAGE_VOICES.values() else DEFAULT_VOICE
+def _bundled_model_roots():
+    configured = os.environ.get("VIDEO_STUDIO_PIPER_BUNDLED", "").strip()
+    roots = [configured] if configured else []
+    roots.extend([
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "piper_models"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "piper_models"),
+    ])
+    return [root for root in roots if root and os.path.isdir(root)]
+
+
+def _copy_bundled_model(voice_name, model_path, config_path):
+    for root in _bundled_model_roots():
+        source_model = os.path.join(root, voice_name + ".onnx")
+        source_configs = [source_model + ".json", os.path.join(root, voice_name + ".json")]
+        source_config = next((item for item in source_configs if os.path.isfile(item)), None)
+        if _valid_model(source_model) and source_config:
+            shutil.copy2(source_model, model_path)
+            shutil.copy2(source_config, config_path)
+            return True
+    return False
+
+
+def _ensure_one_model(safe_name):
     model_path = _model_path(safe_name)
     config_path = model_path + ".json"
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
@@ -141,7 +175,12 @@ def ensure_model(voice_name):
                 deadline = time.time() + 30
             time.sleep(0.2)
     try:
-        if safe_name in PIPER_LANGUAGE_VOICES.values() and (
+        if (not _valid_model(model_path) or not os.path.isfile(config_path)) and _copy_bundled_model(
+            safe_name, model_path, config_path
+        ):
+            return model_path
+        registry_voices = set(PIPER_LANGUAGE_VOICES.values()) | {FALLBACK_VOICE}
+        if safe_name in registry_voices and (
             not _valid_model(model_path) or not os.path.isfile(config_path)
         ):
             completed = subprocess.run(
@@ -159,10 +198,14 @@ def ensure_model(voice_name):
                 except OSError:
                     pass
             if safe_name in KNOWN_VOICES:
-                _download_file(f"{HF_BASE}/{safe_name}.onnx", model_path)
+                model_base = os.environ.get("VIDEO_STUDIO_PIPER_BANMAI_BASE", HF_BASE).rstrip("/") \
+                    if safe_name == "banmai" else HF_BASE
+                _download_file(f"{model_base}/{safe_name}.onnx", model_path)
         if not os.path.isfile(config_path):
             if safe_name in KNOWN_VOICES:
-                _download_file(f"{HF_BASE}/config.json", config_path)
+                config_base = os.environ.get("VIDEO_STUDIO_PIPER_BANMAI_BASE", HF_BASE).rstrip("/") \
+                    if safe_name == "banmai" else HF_BASE
+                _download_file(f"{config_base}/config.json", config_path)
     finally:
         try:
             os.close(lock_fd)
@@ -177,14 +220,32 @@ def ensure_model(voice_name):
     return model_path
 
 
+def ensure_model(voice_name, language="vi"):
+    supported = set(PIPER_LANGUAGE_VOICES.values()) | {FALLBACK_VOICE}
+    safe_name = voice_name if voice_name in KNOWN_VOICES or voice_name in supported else DEFAULT_VOICE
+    candidates = [safe_name]
+    if str(language or "vi").lower().split("-")[0].split("_")[0] == "vi":
+        if safe_name != "banmai":
+            candidates.append("banmai")
+        if safe_name != FALLBACK_VOICE:
+            candidates.append(FALLBACK_VOICE)
+    errors = []
+    for candidate in candidates:
+        try:
+            return _ensure_one_model(candidate), candidate
+        except Exception as error:
+            errors.append(f"{candidate}: {error}")
+    raise RuntimeError("Không tìm được model Piper khả dụng: " + " | ".join(errors))
+
+
 class PiperRuntime:
     def __init__(self):
         from piper import PiperVoice
         self._piper_voice = PiperVoice
         self._voices = {}
 
-    def voice(self, name, requested_device="auto"):
-        model_path = ensure_model(name)
+    def voice(self, name, requested_device="auto", language="vi"):
+        model_path, resolved_name = ensure_model(name, language)
         providers = []
         try:
             import onnxruntime as ort
@@ -201,7 +262,48 @@ class PiperRuntime:
                 self._voices[cache_key] = self._piper_voice.load(model_path)
                 use_cuda = False
                 cache_key = (model_path, "cpu")
-        return self._voices[cache_key], ("cuda" if use_cuda else "cpu"), providers
+        return self._voices[cache_key], ("cuda" if use_cuda else "cpu"), providers, resolved_name
+
+    @staticmethod
+    def _synthesize_compatible(voice, text, output_path, syn_config=None):
+        if hasattr(voice, "synthesize_wav"):
+            try:
+                with wave.open(output_path, "wb") as wav_file:
+                    if syn_config is None:
+                        voice.synthesize_wav(text, wav_file)
+                    else:
+                        voice.synthesize_wav(text, wav_file, syn_config=syn_config)
+                return
+            except TypeError:
+                try:
+                    if os.path.isfile(output_path):
+                        os.remove(output_path)
+                except OSError:
+                    pass
+                with wave.open(output_path, "wb") as wav_file:
+                    voice.synthesize_wav(text, wav_file)
+                return
+        if not hasattr(voice, "synthesize"):
+            raise RuntimeError("Phiên bản Piper không có API synthesize tương thích")
+        try:
+            chunks = voice.synthesize(text, syn_config=syn_config) if syn_config is not None else voice.synthesize(text)
+        except TypeError:
+            chunks = voice.synthesize(text)
+        chunks = iter(chunks)
+        first = next(chunks, None)
+        if first is None:
+            raise RuntimeError("Piper không trả audio")
+        sample_rate = int(getattr(first, "sample_rate", 22050) or 22050)
+        sample_width = int(getattr(first, "sample_width", 2) or 2)
+        channels = int(getattr(first, "sample_channels", 1) or 1)
+        with wave.open(output_path, "wb") as wav_file:
+            wav_file.setframerate(sample_rate)
+            wav_file.setsampwidth(sample_width)
+            wav_file.setnchannels(channels)
+            for chunk in itertools.chain((first,), chunks):
+                audio = getattr(chunk, "audio_int16_bytes", None) or getattr(chunk, "audio_bytes", None)
+                if audio:
+                    wav_file.writeframes(audio)
 
     def synthesize(self, request):
         text = normalize_piper_text(
@@ -214,8 +316,9 @@ class PiperRuntime:
         if not text or not output_path:
             raise ValueError("Thiếu text hoặc outputPath")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        voice, used_device, providers = self.voice(
-            voice_name, str(request.get("device") or "auto").strip().lower()
+        language = str(request.get("language") or "vi")
+        voice, used_device, providers, resolved_voice = self.voice(
+            voice_name, str(request.get("device") or "auto").strip().lower(), language
         )
         syn_config = None
         try:
@@ -224,16 +327,12 @@ class PiperRuntime:
             syn_config = SynthesisConfig(length_scale=length_scale)
         except Exception:
             syn_config = None
-        with wave.open(output_path, "wb") as wav_file:
-            if syn_config is None:
-                voice.synthesize_wav(text, wav_file)
-            else:
-                voice.synthesize_wav(text, wav_file, syn_config=syn_config)
+        self._synthesize_compatible(voice, text, output_path, syn_config)
         if not os.path.isfile(output_path) or os.path.getsize(output_path) <= 44:
             raise RuntimeError("Piper không sinh được âm thanh")
         return {
             "outputPath": output_path,
-            "voice": voice_name,
+            "voice": resolved_voice,
             "normalizedText": text,
             "usedDevice": used_device,
             "providers": providers,

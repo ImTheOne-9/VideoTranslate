@@ -2,6 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
 const { prepareOmnivoiceReference } = require('../lib/omnivoice-reference-preprocessor');
+const { applyVoiceSpeedToFile } = require('../lib/voice-audio-fit');
+const {
+  engineUsesNativeVoiceSpeed,
+  resolveVoiceSpeed,
+  voiceSpeedToEdgeRate,
+  voiceSpeedToPiperLengthScale
+} = require('../lib/voice-speed-policy');
 const shared = require('../lib/shared-state');
 const {
   DEFAULT_VOICE_ENGINE_ID,
@@ -57,12 +64,16 @@ module.exports = {
 
   previewEngineVoice: async (req, res) => {
     try {
-      const { engine: engineId = 'piper', voice = '', text = '' } = req.body || {};
+      const { engine: engineId = 'piper', voice = '', text = '', voiceSpeed } = req.body || {};
       const engine = voiceEngineRegistry.resolve(engineId, 'piper');
+      const resolvedVoiceSpeed = resolveVoiceSpeed(voiceSpeed, {
+        environmentSpeed: process.env.DUB_TOC,
+        maxSpeed: process.env.DUB_TOC_MAX || 1.15
+      });
 
       const safeVoice = shared.safeFileName(voice || 'default') || 'default';
       const ext = engine.id === 'edge-tts' ? 'mp3' : 'wav';
-      const previewFileName = `${engine.id}_${safeVoice}.${ext}`;
+      const previewFileName = `${engine.id}_${safeVoice}_${resolvedVoiceSpeed.toFixed(2)}x.${ext}`;
 
       const previewDir = shared.VOICE_PREVIEWS_DIR;
       fs.mkdirSync(previewDir, { recursive: true });
@@ -111,9 +122,20 @@ module.exports = {
       await engine.synthesize({
         text: sampleText,
         voice,
+        rate: voiceSpeedToEdgeRate(resolvedVoiceSpeed),
+        lengthScale: voiceSpeedToPiperLengthScale(resolvedVoiceSpeed),
+        speechRate: resolvedVoiceSpeed,
         language: lang,
         outputPath: previewPath
       });
+      if (!engineUsesNativeVoiceSpeed(engine.id)) {
+        await applyVoiceSpeedToFile({
+          inputPath: previewPath,
+          speed: resolvedVoiceSpeed,
+          ffmpegPath: shared.FFMPEG_PATH,
+          runExecFile: shared.runExecFile
+        });
+      }
 
       return res.json({
         success: true,

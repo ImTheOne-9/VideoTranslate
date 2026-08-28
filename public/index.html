@@ -1976,6 +1976,20 @@
                           <button type="button" id="voice-runtime-install-btn" class="secondary-btn hidden"
                             style="margin-top: 8px; width: 100%;">Cài Piper offline</button>
                         </div>
+                        <div class="form-group">
+                          <label for="voice-speed-select">Tốc độ giọng chung</label>
+                          <select id="voice-speed-select" name="voiceSpeed" class="premium-select">
+                            <option value="0.85">0.85× · Chậm</option>
+                            <option value="0.90">0.90×</option>
+                            <option value="1" selected>1.00× · Tự nhiên</option>
+                            <option value="1.05">1.05×</option>
+                            <option value="1.10">1.10×</option>
+                            <option value="1.15">1.15× · Nhanh tối đa an toàn</option>
+                          </select>
+                          <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
+                            Áp dụng thống nhất cho Edge, Piper, CapCut và OmniVoice trước Smart Fit.
+                          </p>
+                        </div>
                         <div class="form-group" id="edge-voice-group" style="display: none;">
                           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                             <label style="margin: 0;">Chọn giọng đọc Edge-TTS</label>
@@ -1995,16 +2009,8 @@
                             <option value="es-ES-ElviraNeural">Elvira (Nữ - Tiếng Tây Ban Nha)</option>
                             <option value="ru-RU-SvetlanaNeural">Svetlana (Nữ - Tiếng Nga)</option>
                           </select>
-                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-                            <div>
-                              <label for="edge-rate-select">Tốc độ đọc</label>
-                              <select id="edge-rate-select" name="edgeRate" class="premium-select">
-                                <option value="-25%">Chậm</option>
-                                <option value="+0%" selected>Bình thường</option>
-                                <option value="+25%">Nhanh</option>
-                                <option value="+50%">Rất nhanh</option>
-                              </select>
-                            </div>
+                          <input type="hidden" id="edge-rate-select" name="edgeRate" value="+0%">
+                          <div style="margin-top: 8px;">
                             <div>
                               <label for="edge-pitch-select">Cao độ</label>
                               <select id="edge-pitch-select" name="edgePitch" class="premium-select">
@@ -2025,7 +2031,7 @@
                             <option value="BV075_streaming">Thanh Niên Tự Tin</option>
                           </select>
                           <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
-                            Giọng online, gửi theo lô và đọc bù bằng chính giọng đã chọn khi một lô bị lỗi.
+                            Giọng online theo lô; cue lỗi được cứu lần lượt bằng Piper rồi Edge cùng giới tính.
                           </p>
                         </div>
                         <div class="form-group" id="piper-voice-group" style="display: none;">

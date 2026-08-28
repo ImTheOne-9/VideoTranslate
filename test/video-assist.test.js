@@ -31,3 +31,17 @@ test('Video Assist maps timed blur boxes to the output timeline', () => {
   assert.ok(mapped[0].end > 2.5);
   assert.equal(mapped[0].x, 10);
 });
+
+test('Video Assist pads video and source audio when a retained safe WAV extends the timeline', () => {
+  const video = buildVideoAssistVideoFilters({ timeWarp: [], tailPadMs: 750 });
+  const audio = buildVideoAssistAudioFilters({ timeWarp: [], tailPadMs: 750 });
+  assert.equal(video.active, true);
+  assert.equal(audio.active, true);
+  assert.match(video.segments[0], /tpad=stop_mode=clone:stop_duration=0\.750000/);
+  assert.match(audio.segments[0], /apad=pad_dur=0\.750000/);
+
+  const warpedVideo = buildVideoAssistVideoFilters({ timeWarp: warp, tailPadMs: 500 });
+  const warpedAudio = buildVideoAssistAudioFilters({ timeWarp: warp, tailPadMs: 500 });
+  assert.match(warpedVideo.segments.at(-1), /\[va_v_warped\]tpad=.*\[v_assist\]/);
+  assert.match(warpedAudio.segments.at(-1), /\[va_a_warped\]apad=.*\[a_assist\]/);
+});
