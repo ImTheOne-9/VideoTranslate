@@ -3,8 +3,6 @@ app.commandLine.appendSwitch('disable-http2');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { ensureModelsExist } = require('./lib/model-downloader');
-const { getAppDataRoot } = require('./lib/path-helper');
 const { checkLicenseStartup, startExpiryWarningWatcher } = require('./lib/license-manager');
 
 // Cấu hình thư mục log
@@ -295,23 +293,10 @@ app.whenReady().then(async () => {
     
     loadingWin.loadFile(path.join(__dirname, 'public', 'loading.html'));
     
-    // 2. Định tuyến thư mục chứa model
-    const appDataRoot = getAppDataRoot(__dirname);
-    const MODELS_DIR = path.join(appDataRoot, 'models');
+    // OmniVoice Python/model là component tải theo yêu cầu trong Render Studio.
+    // Không tải model GGUF cũ khi khởi động ứng dụng.
 
-    // 3. Tiến hành tải ngầm nếu model chưa tồn tại
-    try {
-      await ensureModelsExist(MODELS_DIR, (progress) => {
-        if (loadingWin && !loadingWin.isDestroyed()) {
-          loadingWin.webContents.send('download-progress', progress);
-        }
-      });
-    } catch (downloadErr) {
-      console.error('Lỗi khi tải Model AI:', downloadErr.message);
-      // Có thể hiển thị alert cho người dùng ở đây, hiện tại bỏ qua để tiếp tục chạy app
-    }
-
-    // 4. Khởi chạy Server và màn hình chính
+    // 2. Khởi chạy Server và màn hình chính
     const preferredPort = 3456;
     console.log(`Đang dò port trống và khởi chạy Express server...`);
     const result = await startServer(preferredPort);

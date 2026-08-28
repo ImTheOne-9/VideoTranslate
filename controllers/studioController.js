@@ -27,6 +27,7 @@ const {
   createVoiceAudioSignature,
   resolveVoiceReference
 } = require('../lib/voice-reference-helper');
+const { prepareOmnivoiceReference } = require('../lib/omnivoice-reference-preprocessor');
 const {
   createFittedVoiceChunk,
   isNarrationAudioUsable,
@@ -1375,7 +1376,9 @@ async function executeRenderTask(task) {
         : '';
       const requestedLanguage = String(targetLang || body.omiLanguage || 'vi')
         .toLowerCase().split(/[-_]/)[0];
-      const requestedVoiceDevice = voiceEngine.id === 'capcut-tts'
+      const requestedVoiceDevice = voiceEngine.id === 'current-omnivoice'
+        ? 'cuda:0'
+        : voiceEngine.id === 'capcut-tts'
         ? 'online'
         : voiceEngine.id === 'edge-tts'
           ? 'cpu'
@@ -1477,10 +1480,13 @@ async function executeRenderTask(task) {
             usedDevice: actualDevice,
             fallback: false,
             language: requestedLanguage,
-            persistentRuntime: selectedEngine.getCapabilities().persistentRuntime === true,
+            persistentRuntime: successfulResults.some((item) => item.result?.persistentRuntime === true),
+            referencePromptCache: successfulResults.some((item) => item.result?.referencePromptCache === true),
             batch: {
               total: results.length,
-              successful: successfulResults.length
+              successful: successfulResults.length,
+              native: successfulResults.some((item) => item.result?.nativeBatch === true),
+              size: successfulResults.find((item) => item.result?.batchSize)?.result?.batchSize || 1
             }
           };
           renderJobStore.saveTask(task);
@@ -1508,7 +1514,8 @@ async function executeRenderTask(task) {
       if (supportsVoiceCloning && refAudioPath) {
         const refCheckpointPath = path.join(workDir, 'ref-voice-checkpoint.json');
         const refCheckpointKey = createCheckpointSignature({
-          version: 1,
+          version: 4,
+          referenceMaxSeconds: 10,
           referenceAudio: getFileIdentity(refAudioPath),
           whisperModel: body.whisperModel || 'small',
           whisperVariant: ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant)
@@ -1518,7 +1525,7 @@ async function executeRenderTask(task) {
         });
         let refCheckpoint = readJsonFile(refCheckpointPath);
         if (refCheckpoint?.checkpointKey !== refCheckpointKey) {
-          refCheckpoint = { version: 1, checkpointKey: refCheckpointKey };
+          refCheckpoint = { version: 4, checkpointKey: refCheckpointKey };
         }
 
         if (!refText && refAudioPath) {
@@ -1573,19 +1580,21 @@ async function executeRenderTask(task) {
             shared.updateStudioProgress(45, 'Đang dùng lại giọng mẫu đã chuẩn hóa...');
           } else {
             shared.updateStudioProgress(45, 'Đang chuẩn bị giọng mẫu (FFmpeg)...');
-            console.log('Đang chuyển đổi giọng mẫu sang định dạng WAV chuẩn 16kHz cho OmniVoice...');
-            await new Promise((resolve, reject) => {
-              shared.execFile(shared.FFMPEG_PATH, [
-                '-i', refAudioPath,
-                '-acodec', 'pcm_s16le',
-                '-ar', '16000',
-                '-ac', '1',
-                '-y', refWavPath
-              ], (err, stdout, stderr) => {
-                if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
-                else resolve();
-              });
+            console.log('Đang chuẩn hóa giọng mẫu 24kHz và cắt tại khoảng lặng cho OmniVoice...');
+            const preparedReference = await prepareOmnivoiceReference({
+              inputPath: refAudioPath,
+              outputPath: refWavPath,
+              ffmpegPath: shared.FFMPEG_PATH,
+              ffprobePath: shared.FFPROBE_PATH,
+              runExecFile: shared.runExecFile
             });
+            if (preparedReference.trimmed) {
+              console.log(
+                `[OmniVoice] Mẫu dài ${preparedReference.sourceDuration.toFixed(1)}s đã cắt còn`
+                + ` ${preparedReference.duration.toFixed(1)}s`
+                + (preparedReference.silenceAware ? ' tại khoảng lặng gần nhất.' : '.')
+              );
+            }
             refCheckpoint.convertedPath = refWavPath;
             refCheckpoint.refText = refText;
             writeJsonAtomic(refCheckpointPath, refCheckpoint);
@@ -1663,7 +1672,7 @@ async function executeRenderTask(task) {
 
         const dualVoiceEnabled = adaptiveNarrationEnabled
           && (body.dualVoiceEnabled === true || body.dualVoiceEnabled === 'true' || body.dualVoiceEnabled === 'on')
-          && ['piper', 'edge-tts'].includes(voiceEngine.id);
+          && ['piper', 'edge-tts', 'current-omnivoice'].includes(voiceEngine.id);
         let dualVoiceSpeakers = null;
         if (dualVoiceEnabled) {
           const analysisPath = path.join(workDir, 'speaker-analysis-16k.wav');
@@ -1697,6 +1706,51 @@ async function executeRenderTask(task) {
             console.warn(`[Dubbing] Phân hai giọng lỗi, dùng một giọng: ${error.message}`);
           }
         }
+        let omnivoiceDualReferences = null;
+        if (voiceEngine.id === 'current-omnivoice' && dualVoiceSpeakers) {
+          const primaryReference = {
+            audioPath: finalRefAudioPath,
+            text: refText,
+            sourceIdentity: getFileIdentity(refAudioPath),
+            voiceFile: body.savedVoiceFile || ''
+          };
+          const resolveGenderReference = async (voiceFile) => {
+            if (!voiceFile || voiceFile === body.savedVoiceFile) return primaryReference;
+            const resolved = await resolveVoiceReference({
+              voiceFile,
+              defaultVoiceFile: body.savedVoiceFile || '',
+              providedText: '',
+              workDir,
+              whisperModel: body.whisperModel || 'small',
+              whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
+              language: body.sourceLanguage || body.ocrLanguage || ''
+            });
+            return { ...resolved, voiceFile };
+          };
+          try {
+            const [male, female] = await Promise.all([
+              resolveGenderReference(body.omnivoiceMaleVoice),
+              resolveGenderReference(body.omnivoiceFemaleVoice)
+            ]);
+            omnivoiceDualReferences = { male, female, primary: primaryReference };
+            console.log('[OmniVoice] Đã chuẩn bị riêng mẫu giọng nam/nữ cho diffusion batch.');
+          } catch (error) {
+            console.warn(`[OmniVoice] Không chuẩn bị được hai mẫu clone; dùng mẫu chính: ${error.message}`);
+            omnivoiceDualReferences = { male: primaryReference, female: primaryReference, primary: primaryReference };
+          }
+        }
+        const referenceForGroup = (groupIndex) => {
+          if (!omnivoiceDualReferences) {
+            return {
+              audioPath: supportsVoiceCloning ? finalRefAudioPath : null,
+              text: supportsVoiceCloning ? refText : '',
+              sourceIdentity: supportsVoiceCloning ? getFileIdentity(refAudioPath) : null,
+              voiceFile: body.savedVoiceFile || ''
+            };
+          }
+          const speaker = dualVoiceSpeakers?.[groupIndex];
+          return omnivoiceDualReferences[speaker] || omnivoiceDualReferences.primary;
+        };
         const voiceForGroup = (groupIndex) => {
           const speaker = dualVoiceSpeakers?.[groupIndex];
           if (voiceEngine.id === 'edge-tts') {
@@ -1710,6 +1764,10 @@ async function executeRenderTask(task) {
             return piperVoice;
           }
           if (voiceEngine.id === 'capcut-tts') return capcutVoice;
+          if (voiceEngine.id === 'current-omnivoice') {
+            if (speaker === 'male') return 'omnivoice:male-default-v1';
+            return 'omnivoice:female-default-v1';
+          }
           return '';
         };
 
@@ -1722,14 +1780,16 @@ async function executeRenderTask(task) {
           voice: edgeVoice || piperVoice || capcutVoice,
           dualVoice: dualVoiceSpeakers ? {
             speakers: dualVoiceSpeakers,
-            male: voiceEngine.id === 'edge-tts' ? body.edgeMaleVoice : body.piperMaleVoice,
-            female: voiceEngine.id === 'edge-tts' ? body.edgeFemaleVoice : body.piperFemaleVoice
+            male: voiceEngine.id === 'edge-tts'
+              ? body.edgeMaleVoice
+              : voiceEngine.id === 'piper' ? body.piperMaleVoice : body.omnivoiceMaleVoice,
+            female: voiceEngine.id === 'edge-tts'
+              ? body.edgeFemaleVoice
+              : voiceEngine.id === 'piper' ? body.piperFemaleVoice : body.omnivoiceFemaleVoice
           } : null,
           rate: edgeRate,
           pitch: edgePitch,
-          model: voiceEngine.id === DEFAULT_VOICE_ENGINE_ID
-            ? getFileIdentity(shared.OMNIVOICE_MODEL_PATH)
-            : voiceEngine.getCapabilities(),
+          model: voiceEngine.getCapabilities(),
           language: requestedLanguage,
           steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
           seed: resolveOmnivoiceSeed(body.omiSeed),
@@ -1761,6 +1821,7 @@ async function executeRenderTask(task) {
         };
 
         const batchAttemptedKeys = new Set();
+        const batchFallbackKeys = new Set();
         if (adaptiveNarrationEnabled && voiceCapabilities.batchSynthesis === true) {
           const pendingBatch = [];
           for (let batchIndex = 0; batchIndex < groups.length; batchIndex++) {
@@ -1768,11 +1829,12 @@ async function executeRenderTask(task) {
             const text = narrationTextForGroup(batchIndex);
             if (!text) continue;
             const checkpointKey = group[0]?.segment?.id || batchIndex;
+            const batchReference = referenceForGroup(batchIndex);
             const signature = createVoiceAudioSignature({
               text,
-              voiceFile: '',
-              referenceIdentity: null,
-              referenceText: '',
+              voiceFile: batchReference.voiceFile,
+              referenceIdentity: batchReference.sourceIdentity,
+              referenceText: batchReference.text,
               engineId: voiceEngine.id,
               voice: voiceForGroup(batchIndex),
               rate: edgeRate,
@@ -1822,6 +1884,15 @@ async function executeRenderTask(task) {
               endMs: srtTimeToMs(group[group.length - 1].endTime),
               outputPath: voiceCheckpoint.getRawChunkPath(checkpointKey),
               voice: voiceForGroup(batchIndex),
+              referenceAudioPath: batchReference.audioPath,
+              referenceText: batchReference.text,
+              instruct: !batchReference.audioPath
+                ? (voiceForGroup(batchIndex).includes(':male')
+                  ? 'male, young adult, moderate pitch'
+                  : 'female, young adult, moderate pitch')
+                : undefined,
+              steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
+              seed: resolveOmnivoiceSeed(body.omiSeed),
               sequenceIndex: batchIndex,
               lengthScale: 0.8
             });
@@ -1831,14 +1902,20 @@ async function executeRenderTask(task) {
             shared.updateStudioProgress(48, `Đang tạo trước ${pendingBatch.length} câu thoại theo lô...`);
             console.log(
               `[${voiceLogTag}] Tạo theo lô ${pendingBatch.length} cue,`
-              + ` song song=${voiceCapabilities.batchConcurrency || 1}.`
+              + (voiceCapabilities.nativeBatch
+                ? ` diffusion batch động tối đa=${voiceCapabilities.dynamicBatchSize || 8}.`
+                : ` song song=${voiceCapabilities.batchConcurrency || 1}.`)
             );
             const batchResults = await runVoiceEngineBatch(pendingBatch);
             for (const batchResult of batchResults) {
               const item = pendingBatch[batchResult.index];
               if (!batchResult.ok || !isUsableFile(item.outputPath, 44)) {
+                if (voiceEngine.id === 'current-omnivoice') batchFallbackKeys.add(String(item.key));
                 console.warn(
-                  `[Dubbing] Batch cue ${batchResult.index + 1} lỗi; sẽ retry riêng trong vòng chính:`
+                  `[Dubbing] Batch cue ${batchResult.index + 1} lỗi;`
+                  + (voiceEngine.id === 'current-omnivoice'
+                    ? ' sẽ chuyển thẳng sang engine dự phòng:'
+                    : ' sẽ retry riêng trong vòng chính:')
                   + ` ${batchResult.error?.message || 'audio rỗng'}`
                 );
                 continue;
@@ -1892,11 +1969,12 @@ async function executeRenderTask(task) {
           const progressPercent = 48 + Math.floor((idx / groups.length) * 30);
           const segment = group[0].segment || null;
           const checkpointKey = segment?.id || idx;
-          let segmentReferenceAudioPath = supportsVoiceCloning ? finalRefAudioPath : null;
-          let segmentReferenceText = supportsVoiceCloning ? refText : '';
-          let segmentReferenceIdentity = supportsVoiceCloning ? getFileIdentity(refAudioPath) : null;
+          const groupReference = referenceForGroup(idx);
+          let segmentReferenceAudioPath = groupReference.audioPath;
+          let segmentReferenceText = groupReference.text;
+          let segmentReferenceIdentity = groupReference.sourceIdentity;
           let legacyReferenceAudioPath = defaultPreviewReference?.audioPath || finalRefAudioPath;
-          const segmentVoiceFile = segment?.voiceFile || body.savedVoiceFile || '';
+          const segmentVoiceFile = segment?.voiceFile || groupReference.voiceFile || body.savedVoiceFile || '';
           if (supportsVoiceCloning && segment && segmentVoiceFile && segmentVoiceFile !== body.savedVoiceFile) {
             const segmentReference = await resolveVoiceReference({
               voiceFile: segmentVoiceFile,
@@ -2043,12 +2121,30 @@ async function executeRenderTask(task) {
                       positionTemperature: 1,
                       referenceAudioPath: segmentReferenceAudioPath,
                       referenceText: segmentReferenceText,
-                      instruct: 'female'
+                      instruct: !segmentReferenceAudioPath && voiceForGroup(idx).includes(':male')
+                        ? 'male, young adult, moderate pitch'
+                        : 'female, young adult, moderate pitch'
                     };
                     if (!adaptiveNarrationEnabled) {
                       fs.rmSync(rawChunkPath, { force: true });
                       await runVoiceEngine(synthesisOptions);
                     } else {
+                      if (
+                        voiceEngine.id === 'current-omnivoice'
+                        && batchFallbackKeys.has(String(checkpointKey))
+                        && fallbackVoiceEngine
+                      ) {
+                        await fallbackVoiceEngine.loadModel();
+                        fs.rmSync(rawChunkPath, { force: true });
+                        await runVoiceEngine(synthesisOptions, fallbackVoiceEngine);
+                        if (!isNarrationAudioUsable(rawChunkPath)) {
+                          throw new Error('Engine dự phòng không tạo được audio hợp lệ');
+                        }
+                        console.log(
+                          `[Dubbing] Cue ${idx + 1} đã được chuyển thẳng sang ${fallbackVoiceEngine.name}`
+                          + ' sau chuỗi OmniVoice daemon → one-shot.'
+                        );
+                      } else {
                       const synthesis = await synthesizeWithFallback({
                         primary: voiceEngine,
                         fallback: fallbackVoiceEngine,
@@ -2066,6 +2162,7 @@ async function executeRenderTask(task) {
                       });
                       if (synthesis.fallback) {
                         console.log(`[Dubbing] Cue ${idx + 1} đã được cứu bằng ${synthesis.engine.name}.`);
+                      }
                       }
                     }
                     if (!isUsableFile(rawChunkPath, 44)) {
@@ -3519,7 +3616,7 @@ module.exports = {
 
   getStudioAssets: async (req, res) => {
     const voiceEngines = await voiceEngineRegistry.describeAll();
-    const defaultVoiceEngine = voiceEngines.find((engine) => engine.id === DEFAULT_VOICE_ENGINE_ID);
+    const omnivoiceEngine = voiceEngines.find((engine) => engine.id === 'current-omnivoice');
     res.json({
       videos: shared.listVideoFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       renders: shared.listFiles(shared.RENDERS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
@@ -3527,15 +3624,15 @@ module.exports = {
       music: shared.listFiles(shared.MUSIC_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       logos: shared.listFiles(shared.LOGOS_DIR, ['.png', '.jpg', '.jpeg', '.webp']),
       subtitles: shared.listFiles(shared.SUBTITLES_DIR, ['.srt', '.vtt', '.ass']),
-      omiConfigured: defaultVoiceEngine?.status?.ready === true,
+      omiConfigured: omnivoiceEngine?.status?.ready === true,
       defaultVoiceEngineId: DEFAULT_VOICE_ENGINE_ID,
       outputLanguages: OUTPUT_LANGUAGES,
       voiceEngines,
       omnivoice: {
-        cliExists: fs.existsSync(shared.OMNIVOICE_CLI_PATH),
-        modelExists: fs.existsSync(shared.OMNIVOICE_MODEL_PATH),
-        cliPath: shared.OMNIVOICE_CLI_PATH,
-        modelPath: shared.OMNIVOICE_MODEL_PATH
+        ready: omnivoiceEngine?.status?.ready === true,
+        runtimeRoot: omnivoiceEngine?.status?.runtimeRoot || null,
+        modelId: omnivoiceEngine?.status?.modelId || 'k2-fsa/OmniVoice',
+        cudaInferenceVerified: omnivoiceEngine?.status?.cudaInferenceVerified === true
       }
     });
   },

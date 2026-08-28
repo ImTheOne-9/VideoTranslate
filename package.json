@@ -99,6 +99,7 @@
           "install-ocr-gpu.py",
           "install-whisper-gpu.py",
           "setup-runtime.ps1",
+          "setup-omnivoice-runtime.ps1",
           "setup-piper-runtime.ps1",
           "runtime/**/*"
         ]
@@ -113,10 +114,7 @@
           "uv.exe",
           "node/node.exe",
           "nllb_translate.exe",
-          "silero-vad/silero_vad.onnx",
-          "omnivoice/omnivoice-cli.exe",
-          "omnivoice/omnivoice-server-*.exe",
-          "omnivoice/*.dll"
+          "silero-vad/silero_vad.onnx"
         ]
       }
     ],

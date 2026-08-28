@@ -54,9 +54,11 @@ test('studio UI exposes engine selection, capabilities, and CPU fallback control
   assert.match(app, /Voice engine đã chọn chưa sẵn sàng/);
 });
 
-test('packaging includes persistent OmniVoice server variants', () => {
+test('packaging uses the on-demand Python OmniVoice runtime and excludes legacy GGUF servers', () => {
   const filters = packageJson.build.extraResources.flatMap((resource) => resource.filter || []);
-  assert.ok(filters.includes('omnivoice/omnivoice-server-*.exe'));
+  assert.ok(filters.includes('setup-omnivoice-runtime.ps1'));
+  assert.ok(!filters.includes('omnivoice/omnivoice-server-*.exe'));
+  assert.ok(!filters.includes('omnivoice/omnivoice-cli.exe'));
 });
 
 test('Edge TTS is independent from OmniVoice model, reference audio, and GPU controls', () => {

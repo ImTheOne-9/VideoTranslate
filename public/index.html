@@ -1965,7 +1965,7 @@
                           <label>Engine giọng nói</label>
                           <select id="voice-engine-select" name="voiceEngine" class="premium-select">
                             <option value="piper">Piper (Offline)</option>
-                            <option value="current-omnivoice">OmniVoice Clone</option>
+                            <option value="current-omnivoice">OmniVoice Clone (Python Batch)</option>
                             <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
                             <option value="capcut-tts">CapCut TTS (Online - không cần tài khoản)</option>
                           </select>
@@ -2073,17 +2073,24 @@
                               <option value="vi-VN-HoaiMyNeural">Nữ: Hoài My</option>
                             </select>
                           </div>
+                          <div id="omnivoice-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="omnivoiceMaleVoice" class="premium-select" aria-label="Giọng mẫu OmniVoice nam">
+                              <option value="">Nam: dùng giọng mẫu chính</option>
+                            </select>
+                            <select name="omnivoiceFemaleVoice" class="premium-select" aria-label="Giọng mẫu OmniVoice nữ">
+                              <option value="">Nữ: dùng giọng mẫu chính</option>
+                            </select>
+                          </div>
                         </div>
                         <div class="form-group" id="voice-device-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
-                            <option value="cpu">CPU</option>
-                            <option value="vulkan:0" selected>Card đồ họa GPU (Vulkan)</option>
+                            <option value="cuda:0" selected>NVIDIA GPU (CUDA)</option>
                           </select>
                         </div>
                       </div>
 
-                      <label class="premium-switch" id="voice-cpu-fallback-group" style="margin-top: 8px;">
+                      <label class="premium-switch hidden" id="voice-cpu-fallback-group" style="margin-top: 8px;">
                         <input type="checkbox" id="voice-allow-cpu-fallback" name="voiceAllowCpuFallback" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
@@ -3004,8 +3011,8 @@
             <div id="cloner-ref-preview" class="hidden" style="margin-top: 6px;">
               <audio id="cloner-ref-audio-player" controls style="width: 100%; height: 36px;"></audio>
             </div>
-            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Chọn file ghi âm ngắn (5-30 giây) làm
-              chất liệu clone giọng.</p>
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Mẫu quá 12 giây sẽ được rút về khoảng 10 giây tại chỗ lặng gần nhất
+              để clone ổn định và nhanh hơn.</p>
           </div>
           <div class="form-group" id="cloner-reference-text-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">Nội dung trong file ghi âm (kịch bản mẫu)</label>
@@ -3016,7 +3023,7 @@
             <label for="cloner-voice-engine-select" style="margin: 0 0 6px 0;">Engine giọng nói</label>
             <select id="cloner-voice-engine-select" class="premium-select" style="margin: 0 0 8px 0;"
               aria-label="Engine giọng nói">
-              <option value="current-omnivoice">OmniVoice hiện tại</option>
+              <option value="current-omnivoice">OmniVoice Clone (Python Batch)</option>
               <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
             </select>
             <div id="cloner-edge-settings" class="hidden">
@@ -3036,8 +3043,7 @@
             <div id="cloner-device-group">
               <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
               <select id="cloner-device" class="premium-select" style="margin: 0;">
-                <option value="cpu">CPU (Mặc định)</option>
-                <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
+                <option value="cuda:0">NVIDIA GPU (CUDA)</option>
               </select>
             </div>
           </div>
@@ -3290,8 +3296,8 @@
       </div>
       <div class="fb-modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
         <p style="margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5;">
-          Hệ thống sẽ tải xuống bộ xử lý giọng nói <strong>omnivoice-q8_0.gguf</strong> (~1.4GB) từ HuggingFace trực
-          tiếp vào thư mục lưu trữ của phần mềm.
+          Hệ thống sẽ tạo môi trường Python riêng, cài PyTorch CUDA và tải model
+          <strong>k2-fsa/OmniVoice</strong>. Runtime được lưu trong dữ liệu người dùng và không bị mất khi cập nhật ứng dụng.
         </p>
 
         <div
@@ -3308,13 +3314,13 @@
           </div>
 
           <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);">
-            <span>Kích thước: ~1.40 GB</span>
-            <span id="model-download-bytes-label">0 MB / 1400 MB</span>
+            <span>Kích thước dự kiến: 3–6 GB</span>
+            <span id="model-download-bytes-label">Theo tiến trình cài đặt</span>
           </div>
         </div>
 
         <p style="margin: 0; color: var(--danger); font-size: 11px; font-weight: 500; text-align: center;">
-          ⚠️ Vui lòng không tắt phần mềm hoặc ngắt kết nối internet trong lúc tải.
+          ⚠️ Yêu cầu GPU NVIDIA và driver hoạt động. Không tắt phần mềm hoặc ngắt mạng trong lúc cài.
         </p>
 
         <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">

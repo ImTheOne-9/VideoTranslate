@@ -246,6 +246,24 @@ function fillSelect(id, items, placeholder) {
   if (prevValue) select.value = prevValue;
 }
 
+function populateOmnivoiceDualVoiceOptions(voices = []) {
+  const populate = (name, label) => {
+    const select = document.querySelector(`select[name="${name}"]`);
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = `<option value="">${label}: dùng giọng mẫu chính</option>`;
+    for (const item of voices) {
+      const option = document.createElement('option');
+      option.value = item.filename;
+      option.textContent = `${label}: ${item.filename.replace(/\.[^.]+$/, '')}`;
+      select.appendChild(option);
+    }
+    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+  };
+  populate('omnivoiceMaleVoice', 'Nam');
+  populate('omnivoiceFemaleVoice', 'Nữ');
+}
+
 function renderAssetList(id, items) {
   const list = $(id);
   if (!list) return;
@@ -343,7 +361,7 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const option = document.createElement('option');
     option.value = engine.id;
     option.textContent = engine.id === 'current-omnivoice'
-      ? 'OmniVoice Clone'
+      ? 'OmniVoice Clone (Python Batch)'
       : engine.name;
     option.disabled = engine.status?.ready !== true;
     if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
@@ -382,8 +400,8 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
       if (engine.id === 'current-omnivoice') {
         badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng AI</span>');
         badges.push('<span class="engine-badge badge-blue">🌍 70+ ngôn ngữ</span>');
-        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • Vulkan • CPU</span>');
-        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz GGUF</span>');
+        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • diffusion batch theo VRAM</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz k2-fsa</span>');
       } else if (engine.id === 'piper') {
         badges.push('<span class="engine-badge badge-green">⚡ Offline 100% (Siêu nhanh)</span>');
         badges.push('<span class="engine-badge badge-blue">🇻🇳 16 giọng Việt + Quốc tế</span>');
@@ -430,13 +448,16 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const capcutVoiceGroup = $('capcut-voice-group');
     if (capcutVoiceGroup) capcutVoiceGroup.style.display = isCapCut ? 'block' : 'none';
     const dualVoiceGroup = $('dual-voice-group');
-    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper ? 'block' : 'none';
+    const isOmnivoice = select.value === 'current-omnivoice';
+    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper || isOmnivoice ? 'block' : 'none';
     const piperDualVoices = $('piper-dual-voices');
     if (piperDualVoices) piperDualVoices.style.display = isPiper ? 'grid' : 'none';
     const edgeDualVoices = $('edge-dual-voices');
     if (edgeDualVoices) edgeDualVoices.style.display = isEdge ? 'grid' : 'none';
+    const omnivoiceDualVoices = $('omnivoice-dual-voices');
+    if (omnivoiceDualVoices) omnivoiceDualVoices.style.display = isOmnivoice ? 'grid' : 'none';
     $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut);
-    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut || isOmnivoice);
     if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
     if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
@@ -480,6 +501,7 @@ async function loadAssets() {
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
   renderVoiceEngineOptions(assets.voiceEngines || [], assets.defaultVoiceEngineId);
+  populateOmnivoiceDualVoiceOptions(assets.voices || []);
   await refreshPiperRuntimeStatusForUi();
   const omiStatusEl = $('omi-status');
   if (omiStatusEl) {
@@ -488,7 +510,7 @@ async function loadAssets() {
       omiStatusEl.style.cursor = 'default';
       omiStatusEl.onclick = null;
     } else {
-      omiStatusEl.innerHTML = '<span class="dot warn"></span> Thiếu OmniVoice CLI/model (Bấm để tải)';
+      omiStatusEl.innerHTML = '<span class="dot warn"></span> Thiếu OmniVoice Python/CUDA (Bấm để cài)';
       omiStatusEl.style.cursor = 'pointer';
       omiStatusEl.onclick = () => openModelDownloadModal();
     }
@@ -1719,7 +1741,6 @@ async function renderStudio(event) {
 
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
-  const omiDevice = data.get('omiDevice');
   const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
   const whisperOnnxVariant = 'medium-q8'; // lớp cứu cuối nội bộ, không còn cho người dùng chọn
   const whisperBackend = 'faster-whisper';
@@ -1799,16 +1820,8 @@ async function renderStudio(event) {
     data.set('voiceEngine', voiceEngineId);
   }
 
-  if (voiceMode === 'omi'
-    && data.get('voiceEngine') === 'current-omnivoice'
-    && omiDevice === 'cuda:0'
-    && !dependencyStatus.cuda) {
-    showDependencyModal('cuda', () => {
-      const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-      form.dispatchEvent(submitEvent);
-    });
-    return;
-  }
+  // OmniVoice Python dùng PyTorch CUDA nằm trong runtime riêng. Trạng thái
+  // engine đã bao gồm phép thử CUDA inference thật từ bước cài đặt.
 
   if (!$('video-upload').files.length && !data.get('mainVideoFile')) {
     toast('Chọn video nguồn hoặc upload video mới.', 'error');
@@ -8728,7 +8741,7 @@ function resetStudioConfig() {
   if (globalLangSel) globalLangSel.value = 'vi';
 
   const omiDevice = document.querySelector('select[name="omiDevice"]');
-  if (omiDevice) omiDevice.value = 'vulkan:0';
+  if (omiDevice) omiDevice.value = 'cuda:0';
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
@@ -9032,11 +9045,7 @@ function updateDependencyUI() {
   if (omiDeviceSelect) {
     const cudaOption = omiDeviceSelect.querySelector('option[value="cuda:0"]');
     if (cudaOption) {
-      if (!dependencyStatus.cuda) {
-        cudaOption.textContent = 'Card đồ họa GPU (CUDA) (⚠️ Chưa tải)';
-      } else {
-        cudaOption.textContent = 'Card đồ họa GPU (CUDA)';
-      }
+      cudaOption.textContent = 'NVIDIA GPU (CUDA runtime riêng)';
     }
     bindDeviceChangeCheck();
   }
@@ -9139,10 +9148,7 @@ function bindDeviceChangeCheck() {
     omiDeviceSelect.dataset.dependencyBound = 'true';
 
     omiDeviceSelect.addEventListener('change', (e) => {
-      if (e.target.value === 'cuda:0' && !dependencyStatus.cuda) {
-        e.target.value = 'cpu';
-        showDependencyModal('cuda');
-      }
+      if (e.target.value !== 'cuda:0') e.target.value = 'cuda:0';
     });
   }
 }

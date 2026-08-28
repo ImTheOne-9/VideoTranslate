@@ -12,6 +12,7 @@ const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
 const { createMdxSeparatorManager } = require('../lib/mdx-separator-manager');
 const { systemRuntimeManager } = require('../lib/system-runtime-manager');
+const { omnivoiceRuntimeManager } = require('../lib/omnivoice-runtime-manager');
 
 const mdxSeparatorManager = createMdxSeparatorManager({
   fs,
@@ -33,7 +34,6 @@ try {
   electronDialog = electron.dialog;
 } catch (e) {}
 
-let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
 let whisperDownloadStatus = { downloading: false, phase: 'idle', percent: 0, error: null, downloadedBytes: 0, totalBytes: 0, message: '' };
 
 function getFasterWhisperReadiness() {
@@ -549,8 +549,7 @@ module.exports = {
     const whisperVariants = { 'large-v3-turbo': whisperModelOk };
     const downloadedWhisperModels = whisperModelOk ? ['large-v3-turbo'] : [];
 
-    const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
-    const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
+    const omnivoiceRuntime = omnivoiceRuntimeManager.inspect();
 
     const mdxRuntime = mdxSeparatorManager.inspectRuntime();
     const separatorCliOk = mdxRuntime.cpu.ready && mdxRuntime.model.ready;
@@ -576,9 +575,10 @@ module.exports = {
       whisperRuntime,
       whisperVariants,
       downloadedWhisperModels: downloadedWhisperModels,
-      omnivoice: omnivoiceCliOk && omnivoiceModelOk,
-      omnivoiceCli: omnivoiceCliOk,
-      omnivoiceModel: omnivoiceModelOk,
+      omnivoice: omnivoiceRuntime.ready,
+      omnivoiceCli: omnivoiceRuntime.python,
+      omnivoiceModel: omnivoiceRuntime.marker,
+      omnivoiceRuntime,
       separator: separatorCliOk,
       separatorCli: separatorCliOk,
       mdx: publicMdxRuntime,
@@ -644,35 +644,29 @@ module.exports = {
   },
 
   downloadModel: async (req, res) => {
-    if (modelDownloadStatus.downloading) {
-      return res.json({ success: true, message: 'Đang tải rồi' });
-    }
-    const { ensureModelsExist } = require('../lib/model-downloader');
-    modelDownloadStatus = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
-    res.json({ success: true, message: 'Bắt đầu tải model' });
-
     try {
-      await ensureModelsExist(shared.MODELS_DIR, (progress) => {
-        modelDownloadStatus.percent = progress.percent;
-        modelDownloadStatus.downloadedBytes = progress.downloadedBytes;
-        modelDownloadStatus.totalBytes = progress.totalBytes;
+      const result = omnivoiceRuntimeManager.install((message, level) => {
+        const fn = level === 'error' ? console.warn : console.log;
+        fn(`[OmniVoice Install] ${message}`);
       });
-      modelDownloadStatus.downloading = false;
-      modelDownloadStatus.percent = 100;
+      return res.status(result.started ? 202 : 200).json({ success: true, ...result });
     } catch (err) {
-      console.error('Lỗi tải model qua API:', err.message);
-      modelDownloadStatus.downloading = false;
-      modelDownloadStatus.error = err.message;
+      console.error('Lỗi cài OmniVoice Python:', err.message);
+      return res.status(500).json({ success: false, error: err.message });
     }
   },
 
   getModelStatus: async (req, res) => {
-    const cliExists = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
-    const modelExists = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
-    const checkConfigured = cliExists && modelExists;
+    const runtime = omnivoiceRuntimeManager.inspect();
     res.json({
-      ...modelDownloadStatus,
-      omiConfigured: checkConfigured
+      downloading: runtime.status === 'installing',
+      percent: runtime.ready ? 100 : (runtime.percent || 0),
+      error: runtime.error,
+      message: runtime.message,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      omiConfigured: runtime.ready,
+      runtime
     });
   },
 

@@ -112,6 +112,22 @@ test('packaging includes the dedicated Piper installer and bridge', () => {
   assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'piper_tts_bridge.py')), true);
 });
 
+test('packaging includes the Python OmniVoice batch worker and on-demand installer', () => {
+  const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
+  const tools = packageJson.build.extraResources.find((entry) => entry.from === 'tools/');
+  assert.ok(crawler.filter.includes('setup-omnivoice-runtime.ps1'));
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'setup-omnivoice-runtime.ps1')), true);
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'omnivoice_batch_worker.py')), true);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'default_voices', 'Giọng Nữ miền Bắc.wav')), true);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'default_voices', 'Giọng Nam miền Bắc.wav')), true);
+  const installer = fs.readFileSync(path.join(root, 'tools', 'crawler', 'setup-omnivoice-runtime.ps1'), 'utf8');
+  assert.match(installer, /torch\.nn/u);
+  assert.match(installer, /cu126[\s\S]*cu128/u);
+  assert.match(installer, /dllPathSanitized/u);
+  assert.ok(!tools.filter.includes('omnivoice/omnivoice-cli.exe'));
+  assert.ok(!tools.filter.includes('omnivoice/omnivoice-server-*.exe'));
+});
+
 test('packaging includes the CapCut TTS worker and complete voice catalog', () => {
   const appRoot = path.join(root, 'tools', 'crawler', 'app');
   assert.equal(fs.existsSync(path.join(appRoot, 'capcut_tts_worker.py')), true);

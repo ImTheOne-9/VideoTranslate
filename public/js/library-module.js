@@ -354,7 +354,7 @@ function updateClonerEngineUi() {
   $('cloner-reference-audio-group')?.classList.toggle('hidden', isEdge);
   $('cloner-reference-text-group')?.classList.toggle('hidden', isEdge);
   $('cloner-device-group')?.classList.toggle('hidden', isEdge);
-  $('cloner-cpu-fallback-group')?.classList.toggle('hidden', isEdge);
+  $('cloner-cpu-fallback-group')?.classList.add('hidden');
   $('cloner-edge-settings')?.classList.toggle('hidden', !isEdge);
   if (refAudio) refAudio.required = !isEdge;
   if (refText) refText.required = !isEdge;
@@ -421,7 +421,7 @@ function closeOmniClonerModal() {
   const form = $('omni-cloner-form');
   if (form) form.reset();
   const deviceSelect = $('cloner-device');
-  if (deviceSelect) deviceSelect.value = 'cpu';
+  if (deviceSelect) deviceSelect.value = 'cuda:0';
   $('cloner-progress-area').classList.add('hidden');
   $('cloner-error').classList.add('hidden');
   $('cloner-result-area').classList.add('hidden');
@@ -1019,9 +1019,7 @@ function updateModelDownloadUI(status) {
     if (percentLabel) percentLabel.textContent = `${status.percent}%`;
     if (progressBar) progressBar.style.width = `${status.percent}%`;
     
-    const mbDownloaded = (status.downloadedBytes / (1024 * 1024)).toFixed(1);
-    const mbTotal = (status.totalBytes / (1024 * 1024)).toFixed(1);
-    if (bytesLabel) bytesLabel.textContent = `${mbDownloaded} MB / ${mbTotal} MB`;
+    if (bytesLabel) bytesLabel.textContent = status.message || 'Đang cài runtime/model…';
     
     if (actionBtn) {
       actionBtn.disabled = true;
@@ -1039,7 +1037,7 @@ function updateModelDownloadUI(status) {
       if (statusLabel) statusLabel.textContent = 'Tải thành công! Đã lưu vào thư mục cài đặt.';
       if (percentLabel) percentLabel.textContent = '100%';
       if (progressBar) progressBar.style.width = '100%';
-      if (bytesLabel) bytesLabel.textContent = '1400 MB / 1400 MB';
+      if (bytesLabel) bytesLabel.textContent = 'CUDA inference đã được xác minh';
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Hoàn tất';
@@ -1076,7 +1074,7 @@ function updateModelDownloadUI(status) {
       if (statusLabel) statusLabel.textContent = 'Sẵn sàng tải xuống';
       if (percentLabel) percentLabel.textContent = '0%';
       if (progressBar) progressBar.style.width = '0%';
-      if (bytesLabel) bytesLabel.textContent = '0 MB / 1400 MB';
+      if (bytesLabel) bytesLabel.textContent = 'Theo tiến trình cài đặt';
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Bắt đầu tải';
@@ -1098,12 +1096,16 @@ function updateModelDownloadUI(status) {
 
 function startModelDownload() {
   fetch('/api/download-model', { method: 'POST' })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        toast('🚀 Bắt đầu tải bộ xử lý giọng nói...', 'info');
-        startStatusPolling();
+    .then(async res => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || data.message || `HTTP ${res.status}`);
       }
+      return data;
+    })
+    .then(data => {
+      toast('🚀 Bắt đầu cài OmniVoice Python/CUDA...', 'info');
+      startStatusPolling();
     })
     .catch(err => {
       toast('❌ Không khởi động được download: ' + err.message, 'error');
@@ -1121,7 +1123,7 @@ function startStatusPolling() {
         if (!status.downloading) {
           clearInterval(modelDownloadInterval);
           if (status.percent === 100) {
-            toast('🎉 Tải xuống model OmniVoice thành công!', 'success');
+            toast('🎉 OmniVoice đã cài xong và vượt qua inference CUDA thật!', 'success');
             loadAssets();
           } else if (status.error) {
             toast('❌ Lỗi khi tải model: ' + status.error, 'error');

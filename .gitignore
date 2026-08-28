@@ -18,6 +18,7 @@ tools/crawler/*
 !tools/crawler/requirements-ocr.txt
 !tools/crawler/setup-runtime.ps1
 !tools/crawler/setup-piper-runtime.ps1
+!tools/crawler/setup-omnivoice-runtime.ps1
 !tools/crawler/install-ocr-gpu.py
 !tools/crawler/install-whisper-gpu.py
 !tools/crawler/app/
@@ -28,6 +29,7 @@ tools/crawler/app/*
 !tools/crawler/app/faster_whisper_asr.py
 !tools/crawler/app/capcut_asr.py
 !tools/crawler/app/capcut_tts_worker.py
+!tools/crawler/app/omnivoice_batch_worker.py
 !tools/crawler/app/capcut_voice_catalog.json
 !tools/crawler/app/whisper_cuda_runtime.py
 !tools/crawler/app/viral_ocr/
