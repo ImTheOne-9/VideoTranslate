@@ -33,7 +33,7 @@ test('Studio video library recursively classifies local and crawler videos', () 
   }
 });
 
-test('Studio video library marks sources and generated clip_nho files', () => {
+test('Studio video library groups generated clip_nho files below their source', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-video-chopped-'));
   try {
     const folder = path.join(root, 'douyin', 'videos', 'kenh', 'demo');
@@ -42,11 +42,26 @@ test('Studio video library marks sources and generated clip_nho files', () => {
     fs.writeFileSync(path.join(folder, 'clip_nho', '动漫_clip_01.mp4'), 'clip');
     const videos = shared.listVideoFiles(root);
     const source = videos.find((item) => item.name === '动漫.mp4');
-    const clip = videos.find((item) => item.name === '动漫_clip_01.mp4');
     assert.equal(source.chopped, true);
     assert.equal(source.isSplitClip, false);
-    assert.equal(clip.isSplitClip, true);
-    assert.equal(clip.chopped, false);
+    assert.equal(source.splitClipCount, 1);
+    assert.equal(source.splitClips[0].name, '动漫_clip_01.mp4');
+    assert.equal(source.splitClips[0].isSplitClip, true);
+    assert.equal(videos.some((item) => item.name === '动漫_clip_01.mp4'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Studio video library keeps orphan split clips visible', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-video-orphan-'));
+  try {
+    const folder = path.join(root, 'clip_nho');
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, 'missing_clip_01.mp4'), 'clip');
+    const videos = shared.listVideoFiles(root);
+    assert.equal(videos.length, 1);
+    assert.equal(videos[0].isSplitClip, true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

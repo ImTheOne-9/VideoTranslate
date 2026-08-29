@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
 const { prepareOmnivoiceReference } = require('../lib/omnivoice-reference-preprocessor');
 const { applyVoiceSpeedToFile } = require('../lib/voice-audio-fit');
@@ -73,7 +74,8 @@ module.exports = {
 
       const safeVoice = shared.safeFileName(voice || 'default') || 'default';
       const ext = engine.id === 'edge-tts' ? 'mp3' : 'wav';
-      const previewFileName = `${engine.id}_${safeVoice}_${resolvedVoiceSpeed.toFixed(2)}x.${ext}`;
+      const previewTextHash = crypto.createHash('sha256').update(String(text || '').trim()).digest('hex').slice(0, 10);
+      const previewFileName = `${engine.id}_${safeVoice}_${resolvedVoiceSpeed.toFixed(2)}x_${previewTextHash}.${ext}`;
 
       const previewDir = shared.VOICE_PREVIEWS_DIR;
       fs.mkdirSync(previewDir, { recursive: true });

@@ -105,6 +105,10 @@
             </svg></span>
           <strong>Băm cảnh</strong>
         </button>
+        <button class="nav-btn" data-view="tts" title="Tạo Voice (TTS)">
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></span>
+          <strong>Tạo Voice (TTS)</strong>
+        </button>
         <div class="nav-section-label" style="margin-top: 8px;">Mạng xã hội</div>
         <button class="nav-btn" data-view="pages" title="Quản lý Page">
           <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -2479,6 +2483,44 @@
         </div>
       </section>
 
+      <section class="view" id="view-tts">
+        <div class="tts-page-head">
+          <div><h2>Tạo Voice (TTS)</h2><p>Nhập mỗi câu trên một dòng. Hệ thống tạo một file WAV và giữ khoảng nghỉ tự nhiên giữa các dòng.</p></div>
+          <span class="tts-limit">Tối đa 500 dòng · 20.000 ký tự</span>
+        </div>
+        <div class="tts-layout">
+          <div class="tts-main-column">
+            <div class="panel">
+              <div class="panel-head"><h3>Nội dung cần đọc</h3><span id="tts-text-counter" class="badge">0 dòng · 0 ký tự</span></div>
+              <textarea id="tts-text" class="premium-textarea tts-textarea" placeholder="Xin chào, đây là câu thứ nhất.&#10;Mỗi dòng sẽ được ngắt bằng một khoảng nghỉ ngắn."></textarea>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>Chọn model giọng đọc</h3><span id="tts-engine-status" class="badge">Đang kiểm tra...</span></div>
+              <div id="tts-engine-grid" class="tts-engine-grid"></div>
+              <div class="tts-settings-grid">
+                <div class="form-group"><label>Ngôn ngữ</label><select id="tts-language" class="premium-select"><option value="vi">Tiếng Việt</option><option value="zh">Tiếng Trung</option><option value="en">Tiếng Anh</option><option value="ja">Tiếng Nhật</option><option value="ko">Tiếng Hàn</option></select></div>
+                <div class="form-group"><label>Giới tính</label><select id="tts-gender" class="premium-select"><option value="female">Nữ</option><option value="male">Nam</option></select></div>
+                <div class="form-group"><label>Giọng đọc</label><select id="tts-voice" class="premium-select"></select></div>
+                <div class="form-group"><label>Tốc độ <span id="tts-speed-value">1.00x</span></label><input id="tts-speed" type="range" min="0.5" max="2" step="0.05" value="1"></div>
+              </div>
+              <div id="tts-clone-box" class="tts-clone-box hidden">
+                <div class="tts-clone-title">Giọng mẫu OmniVoice</div>
+                <div class="tts-settings-grid">
+                  <div class="form-group"><label>Giọng đã lưu</label><select id="tts-reference-voice" class="premium-select"><option value="">Tải file mới bên dưới</option></select></div>
+                  <div class="form-group"><label>Tải giọng mẫu 20–30 giây</label><input id="tts-reference-audio" type="file" accept="audio/*,video/*" class="premium-input"></div>
+                </div>
+                <div class="form-group"><label>Nội dung chính xác trong giọng mẫu</label><textarea id="tts-reference-text" class="premium-textarea" rows="2" placeholder="Nhập đúng nguyên văn câu đã đọc trong file mẫu..."></textarea></div>
+              </div>
+              <div class="tts-action-row"><button type="button" id="tts-preview-btn" class="ghost-btn">▶ Nghe thử</button><button type="button" id="tts-generate-btn" class="premium-render-btn">TẠO FILE VOICE</button></div>
+            </div>
+          </div>
+          <aside class="tts-side-column">
+            <div class="panel"><div class="panel-head"><h3>Tiến trình</h3><span id="tts-progress-pct">0%</span></div><div class="tts-progress-track"><div id="tts-progress-bar"></div></div><div id="tts-progress-step">Chưa có tác vụ.</div><button type="button" id="tts-cancel-btn" class="ghost-btn hidden">Dừng tạo Voice</button></div>
+            <div class="panel"><div class="panel-head"><h3>Voice đã tạo</h3><button type="button" id="tts-refresh-output" class="ghost-btn">Làm mới</button></div><div id="tts-output-list" class="tts-output-list"><div class="ad-empty">Chưa có file Voice.</div></div></div>
+          </aside>
+        </div>
+      </section>
+
       <section class="view" id="view-antidupe">
         <div class="ad-page-head">
           <div><h2>Băm nhỏ video</h2><p>Chia chính xác theo số phần, theo thời lượng hoặc tự đặt mốc như CapCut.</p></div>
@@ -4416,6 +4458,7 @@
   <script src="js/drag-drop-module.js"></script>
   <script src="js/ui-utils.js"></script>
   <script src="js/anti-dupe-module.js"></script>
+  <script src="js/tts-standalone-module.js"></script>
   <script src="js/ocr-ui.js"></script>
   <script src="app.js"></script>
   <script src="js/segment-editor.js"></script>

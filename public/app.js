@@ -116,6 +116,8 @@ function executeSwitchView(name) {
     if (homeView) homeView.classList.remove('hidden');
     if (editorView) editorView.classList.add('hidden');
     renderProjectsList();
+  } else if (name === 'tts') {
+    window.loadStandaloneTts?.();
   }
 }
 
@@ -3530,10 +3532,9 @@ function renderVideoGrid(videos) {
   }
 
   const selectedFileVal = $('selected-video-file').value;
-
-  for (const item of videos) {
+  const createCard = (item, nested = false) => {
     const card = document.createElement('div');
-    card.className = 'video-card-item';
+    card.className = `video-card-item${nested ? ' video-card-child' : ''}`;
     if (selectedFileVal === item.filename) {
       card.classList.add('selected');
     }
@@ -3555,6 +3556,7 @@ function renderVideoGrid(videos) {
         <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
         <div class="video-card-meta">${crawlEscape(platformLabel)}${modeLabel ? ` · ${crawlEscape(modeLabel)}` : ''}${item.source ? ` · ${crawlEscape(item.source)}` : ''}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
+        ${!nested && item.splitClipCount ? `<button type="button" class="video-split-toggle">▸ ${item.splitClipCount} clip</button>` : ''}
       </div>
     `;
 
@@ -3576,7 +3578,8 @@ function renderVideoGrid(videos) {
       videoEl.currentTime = 0;
     });
 
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('.video-split-toggle')) return;
       document.querySelectorAll('#studio-video-grid .video-card-item').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       $('selected-video-file').value = item.filename;
@@ -3584,8 +3587,26 @@ function renderVideoGrid(videos) {
       if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
       updateConditionalFields();
     });
+    return card;
+  };
 
-    grid.appendChild(card);
+  for (const item of videos) {
+    const group = document.createElement('div');
+    group.className = 'video-card-group';
+    const card = createCard(item);
+    group.appendChild(card);
+    if (Array.isArray(item.splitClips) && item.splitClips.length) {
+      const children = document.createElement('div');
+      children.className = 'video-split-children hidden';
+      item.splitClips.forEach((clip) => children.appendChild(createCard(clip, true)));
+      card.querySelector('.video-split-toggle')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const open = children.classList.toggle('hidden') === false;
+        event.currentTarget.textContent = `${open ? '▾' : '▸'} ${item.splitClipCount} clip`;
+      });
+      group.appendChild(children);
+    }
+    grid.appendChild(group);
   }
 }
 

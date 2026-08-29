@@ -24,7 +24,7 @@ test('previewEngineVoice serves cached preview audio when already generated', as
   const previewDir = shared.VOICE_PREVIEWS_DIR;
   fs.mkdirSync(previewDir, { recursive: true });
   const voice = `testmockvoice_${process.pid}_${Date.now()}`;
-  const previewFileName = `piper_${voice}_1.00x.wav`;
+  const previewFileName = `piper_${voice}_1.00x_e3b0c44298.wav`;
   const testFile = path.join(previewDir, previewFileName);
   fs.writeFileSync(testFile, Buffer.alloc(2048));
 

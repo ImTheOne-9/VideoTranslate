@@ -26,6 +26,11 @@ views.antidupe = {
   desc: 'Cắt video dài thành các clip ngắn theo cảnh cho Reels/Shorts.'
 };
 
+views.tts = {
+  title: 'Tạo Voice (TTS)',
+  desc: 'Biến văn bản thành WAV bằng Piper, Edge, OmniVoice hoặc CapCut TTS.'
+};
+
 let currentUrl = '';
 let currentHistoryPage = 1;
 const historyPerPage = 5;
