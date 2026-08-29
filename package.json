@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.45",
+  "version": "1.0.48",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -81,6 +81,7 @@
         "to": "tools/crawler/",
         "filter": [
           "app/**/*",
+          "!app/models/**/*",
           "!app/**/browser_data/**/*",
           "!app/**/__pycache__/**/*",
           "!app/**/*.pyc",
@@ -92,9 +93,14 @@
           "!app/**/data/**/*",
           "!app/**/media_data/**/*",
           "requirements-crawler.txt",
+          "requirements-asr.txt",
+          "requirements-ocr.txt",
           "README.md",
           "install-ocr-gpu.py",
+          "install-whisper-gpu.py",
           "setup-runtime.ps1",
+          "setup-omnivoice-runtime.ps1",
+          "setup-piper-runtime.ps1",
           "runtime/**/*"
         ]
       },
@@ -108,10 +114,7 @@
           "uv.exe",
           "node/node.exe",
           "nllb_translate.exe",
-          "silero-vad/silero_vad.onnx",
-          "omnivoice/omnivoice-cli.exe",
-          "omnivoice/omnivoice-server-*.exe",
-          "omnivoice/*.dll"
+          "silero-vad/silero_vad.onnx"
         ]
       }
     ],

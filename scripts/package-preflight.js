@@ -21,6 +21,10 @@ const requiredFiles = [
   'index.js',
   'logo.ico',
   'changelog.json',
+  'public/default_voices/Giọng Nữ miền Bắc.wav',
+  'public/default_voices/Giọng Nữ miền Bắc.txt',
+  'public/default_voices/Giọng Nam miền Bắc.wav',
+  'public/default_voices/Giọng Nam miền Bắc.txt',
   'tools/ffmpeg.exe',
   'tools/ffprobe.exe',
   'tools/yt-dlp.exe',
@@ -28,13 +32,14 @@ const requiredFiles = [
   'tools/node/node.exe',
   'tools/nllb_translate.exe',
   'tools/silero-vad/silero_vad.onnx',
-  'tools/omnivoice/omnivoice-cli.exe',
-  'tools/omnivoice/omnivoice-server-cpu.exe',
-  'tools/omnivoice/omnivoice-server-cuda.exe',
-  'tools/omnivoice/omnivoice-server-vulkan.exe',
   'tools/crawler/requirements-crawler.txt',
+  'tools/crawler/requirements-asr.txt',
+  'tools/crawler/requirements-ocr.txt',
   'tools/crawler/install-ocr-gpu.py',
+  'tools/crawler/install-whisper-gpu.py',
   'tools/crawler/setup-runtime.ps1',
+  'tools/crawler/setup-omnivoice-runtime.ps1',
+  'tools/crawler/setup-piper-runtime.ps1',
   'tools/crawler/app/tai_ytdlp.py',
   'tools/crawler/app/tim_anh.py',
   'tools/crawler/app/mo_dang_nhap.py',
@@ -44,6 +49,12 @@ const requiredFiles = [
   'tools/crawler/app/index_metadata.py',
   'tools/crawler/app/piper_tts_bridge.py',
   'tools/crawler/app/audio_stretch_bridge.py',
+  'tools/crawler/app/faster_whisper_asr.py',
+  'tools/crawler/app/capcut_asr.py',
+  'tools/crawler/app/capcut_tts_worker.py',
+  'tools/crawler/app/capcut_voice_catalog.json',
+  'tools/crawler/app/omnivoice_batch_worker.py',
+  'tools/crawler/app/whisper_cuda_runtime.py',
   'tools/crawler/app/viral_ocr/viral_ocr_cli.py',
   'tools/crawler/app/viral_ocr/ocr_text.py',
   'tools/crawler/app/viral_ocr/dai_sub_rapid.py',
@@ -52,27 +63,27 @@ const requiredFiles = [
   'tools/crawler/app/viral_ocr/chan_doan_loi.py',
   'tools/crawler/app/viral_ocr/phu_de.py',
   'tools/crawler/app/viral_ocr/cai_gpu.py',
-  'tools/crawler/app/MediaCrawler/main.py'
+  'tools/crawler/app/MediaCrawler/main.py',
+  'tools/crawler/app/MediaCrawler/tools/tien_do_tai.py',
+  'tools/crawler/app/MediaCrawler/media_platform/douyin/client.py',
+  'tools/crawler/app/MediaCrawler/media_platform/bilibili/client.py',
+  'tools/crawler/app/MediaCrawler/media_platform/xhs/client.py',
+  'tools/crawler/app/MediaCrawler/media_platform/xhs/core.py'
 ];
 
 for (const relativePath of requiredFiles) {
   check(exists(relativePath), `Thiếu tài nguyên bắt buộc: ${relativePath}`);
 }
 
-const omniDir = path.join(root, 'tools', 'omnivoice');
-const omniDlls = exists('tools/omnivoice')
-  ? fs.readdirSync(omniDir).filter((name) => name.toLowerCase().endsWith('.dll'))
-  : [];
-check(omniDlls.length > 0, 'Thiếu DLL runtime OmniVoice.');
-
 const crawlerResource = (packageJson.build?.extraResources || [])
   .find((entry) => entry.from === 'tools/crawler/');
 check(Boolean(crawlerResource), 'Thiếu extraResources cho tools/crawler/.');
 const crawlerFilters = crawlerResource?.filter || [];
-for (const filename of ['requirements-crawler.txt', 'install-ocr-gpu.py', 'setup-runtime.ps1']) {
+for (const filename of ['requirements-crawler.txt', 'requirements-asr.txt', 'requirements-ocr.txt', 'install-ocr-gpu.py', 'install-whisper-gpu.py', 'setup-runtime.ps1', 'setup-omnivoice-runtime.ps1', 'setup-piper-runtime.ps1']) {
   check(crawlerFilters.includes(filename), `extraResources chưa chứa tools/crawler/${filename}`);
 }
 for (const pattern of [
+  '!app/models/**/*',
   '!app/**/browser_data/**/*',
   '!app/**/__pycache__/**/*',
   '!app/**/*.pyc',

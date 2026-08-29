@@ -262,8 +262,11 @@ test('generate resolver wires coordinator options and returns result.path downst
       durationMs: 12500,
       whisperModel: 'small',
       whisperOnnxVariant: 'fp32',
+      sourceLanguage: 'zh',
+      whisperLanguage: 'zh',
       whisperTimestampLevel: 'segment',
-      whisperDevice: 'cpu',
+      whisperDevice: 'auto',
+      whisperBackend: 'faster-whisper',
       ocrLanguage: 'zh',
       ocrMode: 'accurate',
       ocrRegion: '0.6,0.95,0.1,0.9',
@@ -271,6 +274,8 @@ test('generate resolver wires coordinator options and returns result.path downst
       ocrPipeline: 'auto',
       forceWhisper: false,
       ocrOnly: false,
+      hybridWhisperFill: false,
+      capcutAsrEnabled: true,
       onProgress: 'function'
     }
   );
@@ -446,6 +451,55 @@ test('coordinator progress stays below translation and callback failures are obs
     throw new Error('UI disconnected');
   });
   assert.doesNotThrow(() => throwingProgress({ phase: 'ocr_starting' }));
+});
+
+test('OCR gap filling is enabled only after real Whisper CUDA inference', async () => {
+  requireFunction(createAutomaticSubtitleResolver, 'createAutomaticSubtitleResolver');
+  for (const [gpuStatus, expected] of [
+    [{ gpuReady: true, actualInference: true }, true],
+    [{ gpuReady: true, actualInference: false }, false],
+    [{ gpuReady: false, actualInference: false }, false]
+  ]) {
+    let receivedOptions;
+    const resolveSubtitle = createAutomaticSubtitleResolver({
+      resolveAutomaticSubtitle: async (options) => {
+        receivedOptions = options;
+        return { path: 'work/subtitles.srt' };
+      },
+      getWhisperGpuStatus: () => gpuStatus,
+      updateStudioProgress: () => {},
+      logger: { log() {} }
+    });
+    await resolveSubtitle({
+      body: { subtitleEngine: 'auto', sourceLanguage: 'auto', whisperHybridFill: 'true' },
+      sourceVideo: 'downloads/source.mp4',
+      workDir: 'uploads/render-hybrid',
+      totalDuration: 60,
+      ffmpegPath: 'tools/ffmpeg.exe'
+    });
+    assert.equal(receivedOptions.hybridWhisperFill, expected);
+  }
+});
+
+test('automatic subtitles enable CapCut by default and honor the local-only switch', async () => {
+  requireFunction(createAutomaticSubtitleResolver, 'createAutomaticSubtitleResolver');
+  const received = [];
+  const resolveSubtitle = createAutomaticSubtitleResolver({
+    resolveAutomaticSubtitle: async (options) => {
+      received.push(options.capcutAsrEnabled);
+      return { path: 'work/subtitles.srt' };
+    },
+    updateStudioProgress: () => {},
+    logger: { log() {} }
+  });
+  const base = {
+    sourceVideo: 'downloads/source.mp4', workDir: 'work', totalDuration: 10,
+    ffmpegPath: 'tools/ffmpeg.exe'
+  };
+  await resolveSubtitle({ ...base, body: { subtitleEngine: 'auto' } });
+  await resolveSubtitle({ ...base, body: { subtitleEngine: 'auto', capcutAsrEnabled: 'false' } });
+  await resolveSubtitle({ ...base, body: { subtitleEngine: 'whisper', capcutAsrEnabled: 'true' } });
+  assert.deepEqual(received, [true, false, false]);
 });
 
 test('coordinator writes the real RapidOCR provider to the render log', () => {

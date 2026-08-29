@@ -246,6 +246,24 @@ function fillSelect(id, items, placeholder) {
   if (prevValue) select.value = prevValue;
 }
 
+function populateOmnivoiceDualVoiceOptions(voices = []) {
+  const populate = (name, label) => {
+    const select = document.querySelector(`select[name="${name}"]`);
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = `<option value="">${label}: dùng giọng mẫu chính</option>`;
+    for (const item of voices) {
+      const option = document.createElement('option');
+      option.value = item.filename;
+      option.textContent = `${label}: ${item.filename.replace(/\.[^.]+$/, '')}`;
+      select.appendChild(option);
+    }
+    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+  };
+  populate('omnivoiceMaleVoice', 'Nam');
+  populate('omnivoiceFemaleVoice', 'Nữ');
+}
+
 function renderAssetList(id, items) {
   const list = $(id);
   if (!list) return;
@@ -303,6 +321,7 @@ function refreshTtsVoiceCatalogs(voiceEngines = []) {
   };
   fillEngineVoiceSelect('edge-voice-select', 'edge-tts');
   fillEngineVoiceSelect('piper-voice-select', 'piper');
+  fillEngineVoiceSelect('capcut-voice-select', 'capcut-tts');
 
   const fillGenderSelect = (name, engineId, gender) => {
     const select = document.querySelector(`select[name="${name}"]`);
@@ -342,7 +361,7 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const option = document.createElement('option');
     option.value = engine.id;
     option.textContent = engine.id === 'current-omnivoice'
-      ? 'OmniVoice Clone'
+      ? 'OmniVoice Clone (Python Batch)'
       : engine.name;
     option.disabled = engine.status?.ready !== true;
     if (!engine.status?.ready) option.textContent += ' (chưa sẵn sàng)';
@@ -381,8 +400,8 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
       if (engine.id === 'current-omnivoice') {
         badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng AI</span>');
         badges.push('<span class="engine-badge badge-blue">🌍 70+ ngôn ngữ</span>');
-        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • Vulkan • CPU</span>');
-        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz GGUF</span>');
+        badges.push('<span class="engine-badge badge-purple">⚡ CUDA • diffusion batch theo VRAM</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz k2-fsa</span>');
       } else if (engine.id === 'piper') {
         badges.push('<span class="engine-badge badge-green">⚡ Offline 100% (Siêu nhanh)</span>');
         badges.push('<span class="engine-badge badge-blue">🇻🇳 16 giọng Việt + Quốc tế</span>');
@@ -394,6 +413,11 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
         badges.push('<span class="engine-badge badge-cyan">🌍 70+ ngôn ngữ Neural</span>');
         badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet</span>');
         badges.push('<span class="engine-badge badge-slate">🎧 24 kHz HQ</span>');
+      } else if (engine.id === 'capcut-tts') {
+        badges.push('<span class="engine-badge badge-blue">☁️ CapCut/ByteDance</span>');
+        badges.push('<span class="engine-badge badge-cyan">🎙️ Tạo giọng theo lô</span>');
+        badges.push('<span class="engine-badge badge-amber">🌐 Cần Internet • không cần tài khoản</span>');
+        badges.push('<span class="engine-badge badge-slate">🎧 24 kHz</span>');
       } else {
         if (capabilities.cloneVoice) badges.push('<span class="engine-badge badge-cyan">🎙️ Clone giọng</span>');
         const langCount = capabilities.languages?.length || 0;
@@ -415,19 +439,25 @@ function renderVoiceEngineOptions(voiceEngines = [], defaultEngineId = 'current-
     const edgeVoiceGroup = $('edge-voice-group');
     const isEdge = select.value === 'edge-tts';
     const isPiper = select.value === 'piper';
+    const isCapCut = select.value === 'capcut-tts';
     if (edgeVoiceGroup) {
       edgeVoiceGroup.style.display = isEdge ? 'block' : 'none';
     }
     const piperVoiceGroup = $('piper-voice-group');
     if (piperVoiceGroup) piperVoiceGroup.style.display = isPiper ? 'block' : 'none';
+    const capcutVoiceGroup = $('capcut-voice-group');
+    if (capcutVoiceGroup) capcutVoiceGroup.style.display = isCapCut ? 'block' : 'none';
     const dualVoiceGroup = $('dual-voice-group');
-    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper ? 'block' : 'none';
+    const isOmnivoice = select.value === 'current-omnivoice';
+    if (dualVoiceGroup) dualVoiceGroup.style.display = isEdge || isPiper || isOmnivoice ? 'block' : 'none';
     const piperDualVoices = $('piper-dual-voices');
     if (piperDualVoices) piperDualVoices.style.display = isPiper ? 'grid' : 'none';
     const edgeDualVoices = $('edge-dual-voices');
     if (edgeDualVoices) edgeDualVoices.style.display = isEdge ? 'grid' : 'none';
-    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper);
-    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper);
+    const omnivoiceDualVoices = $('omnivoice-dual-voices');
+    if (omnivoiceDualVoices) omnivoiceDualVoices.style.display = isOmnivoice ? 'grid' : 'none';
+    $('voice-device-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut);
+    $('voice-cpu-fallback-group')?.classList.toggle('hidden', isEdge || isPiper || isCapCut || isOmnivoice);
     if (typeof updateClonerEngineUi === 'function') updateClonerEngineUi();
     if (typeof updateConditionalFields === 'function') updateConditionalFields();
   };
@@ -451,7 +481,7 @@ async function loadAssets() {
   } catch (e) {
     console.error('Lỗi check local dependencies:', e);
   }
-  // Mở modal thiết lập nếu thiếu Whisper ONNX hoặc MDX ONNX Separator (chỉ 1 lần)
+  // Mở modal thiết lập nếu thiếu Faster-Whisper hoặc MDX ONNX Separator (chỉ 1 lần)
   if (!window._setupModalShown && (!dependencyStatus.whisper || !dependencyStatus.separator)) {
     window._setupModalShown = true;
     setTimeout(() => openSetupModal(), 500);
@@ -471,6 +501,8 @@ async function loadAssets() {
   renderAssetList('asset-music', assets.music);
   renderAssetList('asset-subtitles', assets.subtitles);
   renderVoiceEngineOptions(assets.voiceEngines || [], assets.defaultVoiceEngineId);
+  populateOmnivoiceDualVoiceOptions(assets.voices || []);
+  await refreshPiperRuntimeStatusForUi();
   const omiStatusEl = $('omi-status');
   if (omiStatusEl) {
     if (assets.omiConfigured) {
@@ -478,7 +510,7 @@ async function loadAssets() {
       omiStatusEl.style.cursor = 'default';
       omiStatusEl.onclick = null;
     } else {
-      omiStatusEl.innerHTML = '<span class="dot warn"></span> Thiếu OmniVoice CLI/model (Bấm để tải)';
+      omiStatusEl.innerHTML = '<span class="dot warn"></span> Thiếu OmniVoice Python/CUDA (Bấm để cài)';
       omiStatusEl.style.cursor = 'pointer';
       omiStatusEl.onclick = () => openModelDownloadModal();
     }
@@ -1038,19 +1070,9 @@ const ocrComponentFlow = window.OcrUi?.createOcrComponentFlow({
 });
 
 function updateOcrLanguages(languages) {
-  const select = $('ocr-language-select');
-  if (!select || !languages?.length) return;
-  const previous = select.value;
+  if (!languages?.length) return;
   const normalized = window.OcrUi.normalizeSupportedLanguages(languages);
   currentOcrSupportedLanguages = normalized.map(language => language.id);
-  select.innerHTML = '<option value="">Chọn ngôn ngữ...</option>';
-  normalized.forEach(language => {
-    const option = document.createElement('option');
-    option.value = language.id;
-    option.textContent = language.label;
-    select.appendChild(option);
-  });
-  if (normalized.some(language => language.id === previous)) select.value = previous;
   updateOcrPipelineUi();
 }
 
@@ -1148,14 +1170,10 @@ window.openOcrDownloadModal = openOcrDownloadModal;
 const OCR_MODES = new Set(['fast', 'auto', 'accurate']);
 const SUBTITLE_ENGINES = new Set(['auto', 'ocr', 'whisper']);
 const OCR_PIPELINES = new Set(['auto', 'viral', 'vse']);
-const WHISPER_ONNX_VARIANTS = new Set(['q8', 'fp32', 'medium-q8']);
 const WHISPER_TIMESTAMP_LEVELS = new Set(['segment', 'word']);
-const WHISPER_DEVICES = new Set(['auto', 'cpu', 'dml']);
+const WHISPER_DEVICES = new Set(['auto', 'cpu', 'cuda']);
+const WHISPER_BACKENDS = new Set(['faster-whisper']);
 
-function getWhisperOnnxVariantLabel(variant) {
-  if (variant === 'medium-q8') return 'Medium Q8';
-  return `Small ${String(variant || 'q8').toUpperCase()}`;
-}
 const OCR_REGION_INPUT_IDS = ['ocr-region-top', 'ocr-region-bottom', 'ocr-region-left', 'ocr-region-right'];
 
 function updateOcrModeButtons() {
@@ -1194,9 +1212,21 @@ function isChineseOcrLanguage() {
   return ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String($('ocr-language-select')?.value || '').toLowerCase());
 }
 
+function isAutomaticSourceLanguage() {
+  return String($('source-language-select')?.value || 'auto').toLowerCase() === 'auto';
+}
+
+function syncSourceLanguage() {
+  const source = String($('source-language-select')?.value || 'auto').toLowerCase();
+  if ($('ocr-language-select')) $('ocr-language-select').value = source;
+  if ($('whisper-language-select')) $('whisper-language-select').value = source;
+  updateOcrPipelineUi();
+  return source;
+}
+
 function usesRapidOcrUi() {
   const pipeline = $('ocr-pipeline-value')?.value;
-  return pipeline === 'viral' || (pipeline === 'auto' && isChineseOcrLanguage());
+  return pipeline === 'viral' || (pipeline === 'auto' && (isChineseOcrLanguage() || isAutomaticSourceLanguage()));
 }
 
 function updateOcrPipelineUi() {
@@ -1204,12 +1234,19 @@ function updateOcrPipelineUi() {
   if (!input) return 'auto';
   let pipeline = OCR_PIPELINES.has(input.value) ? input.value : 'auto';
   const chinese = isChineseOcrLanguage();
-  if (pipeline === 'viral' && !chinese) {
+  const automatic = isAutomaticSourceLanguage();
+  if (pipeline === 'vse' && automatic) {
+    pipeline = 'auto';
+    input.value = pipeline;
+  }
+  if (pipeline === 'viral' && !chinese && !automatic) {
     pipeline = 'auto';
     input.value = pipeline;
   }
   const rapidOption = input.querySelector('option[value="viral"]');
-  if (rapidOption) rapidOption.disabled = !chinese;
+  if (rapidOption) rapidOption.disabled = !chinese && !automatic;
+  const vseOption = input.querySelector('option[value="vse"]');
+  if (vseOption) vseOption.disabled = automatic;
   const usesRapid = usesRapidOcrUi();
   const shouldHideRegion = $('subtitle-engine-value')?.value === 'whisper' || usesRapid;
   document.querySelectorAll('.ocr-region-settings').forEach(element => {
@@ -1218,7 +1255,9 @@ function updateOcrPipelineUi() {
   const hint = $('ocr-pipeline-hint');
   if (hint) {
     hint.textContent = usesRapid
-      ? 'RapidOCR tự quét & tracking chữ toàn khung hình.'
+      ? (automatic
+        ? 'Tự dò: RapidOCR kiểm tra hardsub Trung; không thấy sẽ chuyển Faster Whisper.'
+        : 'RapidOCR tự quét & tracking chữ toàn khung hình.')
       : 'VSE dùng vùng OCR bạn đã chọn trên màn hình xem trước.';
   }
   updateOcrRegionOverlay();
@@ -1226,19 +1265,6 @@ function updateOcrPipelineUi() {
   updateRapidOcrRuntimeUi({ visible: showRapidRuntime });
   if (showRapidRuntime) void refreshRapidOcrRuntimeStatusForUi();
   return pipeline;
-}
-
-function updateWhisperOnnxVariantButtons() {
-  const input = $('whisper-onnx-variant-value');
-  if (!input) return 'medium-q8';
-  const variant = WHISPER_ONNX_VARIANTS.has(input.value) ? input.value : 'medium-q8';
-  input.value = variant;
-  document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
-    const active = button.dataset.whisperOnnxVariant === variant;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
-  return variant;
 }
 
 function getOcrRegionValues() {
@@ -1378,27 +1404,24 @@ document.querySelectorAll('.subtitle-engine-btn').forEach(button => {
     if (!input || !SUBTITLE_ENGINES.has(button.dataset.subtitleEngine)) return;
     input.value = button.dataset.subtitleEngine;
     const engine = updateSubtitleEngineUi();
-    if (engine !== 'whisper' && !usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
+    if (engine === 'whisper') {
+      checkWhisperModelStatus();
+      checkWhisperDeviceStatus();
+    } else if (!usesRapidOcrUi() && $('subtitle-mode')?.value === 'generate') {
       refreshOcrComponentStatusForUi();
     }
   });
 });
 $('ocr-pipeline-value')?.addEventListener('change', updateOcrPipelineUi);
 $('ocr-language-select')?.addEventListener('change', updateOcrPipelineUi);
+$('source-language-select')?.addEventListener('change', syncSourceLanguage);
+syncSourceLanguage();
 document.querySelectorAll('.ocr-mode-btn').forEach(button => {
   button.addEventListener('click', () => {
     const input = $('ocr-mode-value');
     if (!input || !OCR_MODES.has(button.dataset.ocrMode)) return;
     input.value = button.dataset.ocrMode;
     updateOcrModeButtons();
-  });
-});
-document.querySelectorAll('.whisper-onnx-variant-btn').forEach(button => {
-  button.addEventListener('click', () => {
-    const input = $('whisper-onnx-variant-value');
-    if (!input || !WHISPER_ONNX_VARIANTS.has(button.dataset.whisperOnnxVariant)) return;
-    input.value = button.dataset.whisperOnnxVariant;
-    updateWhisperOnnxVariantButtons();
   });
 });
 $('ocr-region-reset-btn')?.addEventListener('click', () => {
@@ -1411,6 +1434,7 @@ $('ocr-region-reset-btn')?.addEventListener('click', () => {
 initOcrRegionOverlay();
 
 let rapidOcrRuntimeInstallPromise = null;
+let piperRuntimeInstallPromise = null;
 let rapidOcrGpuInstallPromise = null;
 
 function updateRapidOcrGpuUi(status = {}) {
@@ -1452,23 +1476,85 @@ function updateRapidOcrGpuUi(status = {}) {
   button.disabled = false;
 }
 
-$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+function updatePiperRuntimeUi(status = {}) {
   const button = $('voice-runtime-install-btn');
+  if (!button) return;
+  const ready = status.ready === true;
+  const installing = status.installing === true || status.status === 'installing';
+  button.classList.toggle('hidden', ready);
+  button.disabled = installing;
+  if (installing) button.textContent = `Đang cài Piper… ${Math.max(0, Number(status.percent) || 0)}%`;
+  else if (status.pythonExists || status.markerExists || status.status === 'error') button.textContent = 'Sửa Piper offline';
+  else button.textContent = 'Cài Piper offline';
+  button.title = ready
+    ? 'Piper đã sẵn sàng.'
+    : (status.error || status.message || 'Cài riêng runtime Piper offline.');
+}
+
+async function readPiperRuntimeStatus() {
+  const response = await fetch('/api/piper-runtime/status');
+  const status = await response.json();
+  if (!response.ok) throw new Error(status.error || 'Không kiểm tra được Piper.');
+  return status;
+}
+
+async function refreshPiperRuntimeStatusForUi() {
   try {
-    if (button) {
-      button.disabled = true;
-      button.textContent = 'Đang cài runtime…';
-    }
-    await installRapidOcrRuntime('Piper');
-    await loadAssets();
-    toast('Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+    const status = await readPiperRuntimeStatus();
+    updatePiperRuntimeUi(status);
+    return status;
   } catch (error) {
-    toast(error.message, 'error');
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Cài Piper offline';
+    updatePiperRuntimeUi({ status: 'error', error: error.message });
+    return null;
+  }
+}
+
+async function installPiperRuntime() {
+  if (piperRuntimeInstallPromise) return piperRuntimeInstallPromise;
+  piperRuntimeInstallPromise = (async () => {
+    let status = await readPiperRuntimeStatus();
+    updatePiperRuntimeUi(status);
+    if (status.ready) return status;
+    const force = status.pythonExists === true || status.markerExists === true;
+    const response = await fetch('/api/piper-runtime/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không thể cài hoặc sửa Piper.');
+    updatePiperRuntimeUi(result);
+    toast(force ? 'Đang kiểm tra và sửa Piper offline…' : 'Đang cài Piper offline…', 'info');
+
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      status = await readPiperRuntimeStatus();
+      updatePiperRuntimeUi(status);
+      if ($('render-status') && status.message) $('render-status').textContent = status.message;
+      if (status.ready) return status;
+      if (!status.installing && status.status === 'error') {
+        throw new Error(status.error || status.message || 'Cài Piper thất bại.');
+      }
     }
+    throw new Error('Cài Piper quá thời gian chờ.');
+  })();
+  try {
+    return await piperRuntimeInstallPromise;
+  } finally {
+    piperRuntimeInstallPromise = null;
+  }
+}
+
+$('voice-runtime-install-btn')?.addEventListener('click', async () => {
+  try {
+    const status = await installPiperRuntime();
+    await loadAssets();
+    toast(status.defaultModel?.ready
+      ? 'Piper offline và giọng mặc định đã sẵn sàng.'
+      : 'Piper offline đã sẵn sàng. Model giọng sẽ tải ở lần dùng đầu tiên.', 'success');
+  } catch (error) {
+    updatePiperRuntimeUi({ status: 'error', error: error.message });
+    toast(error.message, 'error');
   }
 });
 
@@ -1523,7 +1609,7 @@ function updateRapidOcrRuntimeUi({ visible, status } = {}) {
 }
 
 async function readRapidOcrRuntimeStatus() {
-  const response = await fetch('/api/download-crawl/runtime-status');
+  const response = await fetch('/api/system-runtime/status?capability=ocr');
   const status = await response.json();
   if (!response.ok) throw new Error(status.error || 'Không kiểm tra được runtime RapidOCR.');
   return status;
@@ -1551,7 +1637,11 @@ async function installRapidOcrRuntime(purpose = 'RapidOCR') {
       updateRapidOcrRuntimeUi({ visible: true, status });
       return true;
     }
-    const installResponse = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
+    const installResponse = await fetch('/api/system-runtime/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ capability: 'ocr' })
+    });
     const installResult = await installResponse.json();
     if (!installResponse.ok) throw new Error(installResult.error || 'Không thể cài runtime RapidOCR.');
     toast(`Đang cài/cập nhật runtime ${purpose}. Chỉ cần thực hiện một lần.`, 'info');
@@ -1640,7 +1730,10 @@ async function renderStudio(event) {
   const btn = $('render-btn');
   const status = $('render-status');
   const data = new FormData(form);
-  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+  for (const name of [
+    'audioNoiseGate', 'audioDucking', 'audioExportTracks',
+    'whisperHybridFill', 'capcutAsrEnabled'
+  ]) {
     const input = form.elements[name];
     data.set(name, input?.checked ? 'true' : 'false');
   }
@@ -1648,39 +1741,40 @@ async function renderStudio(event) {
 
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
-  const omiDevice = data.get('omiDevice');
   const subtitleEngine = SUBTITLE_ENGINES.has(data.get('subtitleEngine')) ? data.get('subtitleEngine') : 'auto';
-  const globalWhisperVal = $('whisper-model-select')?.value;
-  const whisperOnnxVariant = WHISPER_ONNX_VARIANTS.has(globalWhisperVal) ? globalWhisperVal : 'medium-q8';
+  const whisperOnnxVariant = 'medium-q8'; // lớp cứu cuối nội bộ, không còn cho người dùng chọn
+  const whisperBackend = 'faster-whisper';
   const whisperTimestampLevel = WHISPER_TIMESTAMP_LEVELS.has(data.get('whisperTimestampLevel'))
     ? data.get('whisperTimestampLevel')
     : 'segment';
   const whisperDevice = WHISPER_DEVICES.has(data.get('whisperDevice'))
     ? data.get('whisperDevice')
-    : 'cpu';
+    : 'auto';
   const globalOcrModeVal = $('global-ocr-mode-select')?.value || localStorage.getItem('global_ocr_mode') || 'auto';
   const ocrMode = OCR_MODES.has(globalOcrModeVal) ? globalOcrModeVal : 'auto';
+  const sourceLanguage = syncSourceLanguage();
   data.set('subtitleEngine', subtitleEngine);
+  data.set('sourceLanguage', sourceLanguage);
+  data.set('ocrLanguage', sourceLanguage);
+  data.set('whisperLanguage', sourceLanguage);
   data.set('whisperOnnxVariant', whisperOnnxVariant);
+  data.set('whisperBackend', whisperBackend);
   data.set('whisperTimestampLevel', whisperTimestampLevel);
   data.set('whisperDevice', whisperDevice);
   data.set('ocrMode', ocrMode);
 
   if (subMode === 'generate') {
-    if (subtitleEngine !== 'whisper' && !data.get('ocrLanguage')) {
-      toast('Chọn ngôn ngữ chữ gốc để nhận dạng phụ đề.', 'error');
-      return;
-    }
     if (subtitleEngine !== 'whisper') {
       try {
         data.set('ocrRegion', syncOcrRegion());
         const ocrPipeline = OCR_PIPELINES.has(data.get('ocrPipeline')) ? data.get('ocrPipeline') : 'auto';
         const isChinese = ['ch', 'zh', 'zh-cn', 'zh-tw'].includes(String(data.get('ocrLanguage') || '').toLowerCase());
-        if (ocrPipeline === 'viral' && !isChinese) {
+        const isAutomatic = sourceLanguage === 'auto';
+        if (ocrPipeline === 'viral' && !isChinese && !isAutomatic) {
           toast('RapidOCR hiện chỉ hỗ trợ tiếng Trung. Hãy chọn VSE hoặc đổi ngôn ngữ chữ gốc thành Trung.', 'error');
           return;
         }
-        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && isChinese);
+        const usesViralOcr = ocrPipeline === 'viral' || (ocrPipeline === 'auto' && (isChinese || isAutomatic));
         const ready = usesViralOcr
           ? await ensureViralOcrRuntimeReady()
           : await ensureOcrComponentReady();
@@ -1696,13 +1790,17 @@ async function renderStudio(event) {
     }
     if (subtitleEngine !== 'ocr') {
       try {
-        const checkRes = await fetch(`/api/whisper-model/status?variant=${whisperOnnxVariant}`);
+        const checkRes = await fetch('/api/whisper-model/status');
         const checkStatus = await checkRes.json();
         if (!checkRes.ok) throw new Error(checkStatus.error || 'Không thể kiểm tra model Whisper');
-        if (!checkStatus.exists) {
-          toast(`Thiếu model Whisper ${getWhisperOnnxVariantLabel(whisperOnnxVariant)}. Hãy tải model trước khi render.`, 'warn');
-          if (typeof openWhisperDownloadModal === 'function') openWhisperDownloadModal(whisperOnnxVariant);
-          return;
+        if (!checkStatus.ready) {
+          toast('Faster-Whisper chưa đầy đủ. Đang tự cài runtime và model cần thiết…', 'info');
+          if (typeof window.ensureFasterWhisperReady !== 'function') {
+            throw new Error('Thiếu trình quản lý tài nguyên Faster-Whisper.');
+          }
+          await window.ensureFasterWhisperReady({ openModal: true });
+          if (typeof closeWhisperDownloadModal === 'function') closeWhisperDownloadModal();
+          toast('Faster-Whisper đã sẵn sàng, đang tiếp tục render.', 'success');
         }
       } catch (error) {
         toast(error.message, 'error');
@@ -1722,16 +1820,8 @@ async function renderStudio(event) {
     data.set('voiceEngine', voiceEngineId);
   }
 
-  if (voiceMode === 'omi'
-    && data.get('voiceEngine') === 'current-omnivoice'
-    && omiDevice === 'cuda:0'
-    && !dependencyStatus.cuda) {
-    showDependencyModal('cuda', () => {
-      const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-      form.dispatchEvent(submitEvent);
-    });
-    return;
-  }
+  // OmniVoice Python dùng PyTorch CUDA nằm trong runtime riêng. Trạng thái
+  // engine đã bao gồm phép thử CUDA inference thật từ bước cài đặt.
 
   if (!$('video-upload').files.length && !data.get('mainVideoFile')) {
     toast('Chọn video nguồn hoặc upload video mới.', 'error');
@@ -3281,14 +3371,13 @@ function updateConditionalFields() {
   $('sub-saved-wrapper').classList.toggle('hidden', subMode !== 'saved');
   updateOcrModeButtons();
   updateSubtitleEngineUi();
-  updateWhisperOnnxVariantButtons();
-
   const whisperModelWrapper = $('whisper-model-wrapper');
   if (whisperModelWrapper) {
     const isGenerate = (subMode === 'generate');
     whisperModelWrapper.classList.toggle('hidden', !isGenerate);
     if (isGenerate) {
       checkWhisperModelStatus();
+      checkWhisperDeviceStatus();
     }
   }
 
@@ -3830,6 +3919,8 @@ function submitSaveTemplate(event) {
     voiceEngine: $('voice-engine-select')?.value || 'current-omnivoice',
     edgeVoice: $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural',
     piperVoice: $('piper-voice-select')?.value || 'ngochuyen',
+    capcutVoice: $('capcut-voice-select')?.value || 'BV074_streaming',
+    voiceSpeed: $('voice-speed-select')?.value || '1',
     piperDevice: $('piper-device-select')?.value || 'auto',
     edgeRate: $('edge-rate-select')?.value || '+0%',
     edgePitch: $('edge-pitch-select')?.value || '+0Hz',
@@ -4078,6 +4169,16 @@ function loadStudioTemplate(templateName) {
   }
   if ($('edge-voice-select') && template.edgeVoice) $('edge-voice-select').value = template.edgeVoice;
   if ($('piper-voice-select') && template.piperVoice) $('piper-voice-select').value = template.piperVoice;
+  if ($('capcut-voice-select') && template.capcutVoice) $('capcut-voice-select').value = template.capcutVoice;
+  if ($('voice-speed-select') && template.voiceSpeed) $('voice-speed-select').value = String(template.voiceSpeed);
+  if ($('voice-speed-select') && !template.voiceSpeed && template.edgeRate) {
+    const legacyRate = String(template.edgeRate).match(/^([+-]?)(\d+)%$/);
+    if (legacyRate) {
+      const percent = Number(legacyRate[2]) * (legacyRate[1] === '-' ? -1 : 1);
+      const migratedSpeed = Math.max(0.85, Math.min(1.15, 1 + percent / 100));
+      $('voice-speed-select').value = String(Number(migratedSpeed.toFixed(2)));
+    }
+  }
   if ($('piper-device-select') && template.piperDevice) $('piper-device-select').value = template.piperDevice;
   if ($('edge-rate-select') && template.edgeRate) $('edge-rate-select').value = template.edgeRate;
   if ($('edge-pitch-select') && template.edgePitch) $('edge-pitch-select').value = template.edgePitch;
@@ -6006,22 +6107,42 @@ function renderSavedLinks() {
   });
 }
 
-function loadSavedChannels() {
+async function loadSavedChannels() {
   try {
-    const data = localStorage.getItem('savedChannels');
-    savedChannels = data ? JSON.parse(data) : [];
+    const response = await fetch('/api/source-channels');
+    if (!response.ok) throw new Error('Không đọc được Kênh nguồn.');
+    const data = await response.json();
+    savedChannels = Array.isArray(data.channels) ? data.channels : [];
+    // Nhập bookmark cũ đúng một lần để người dùng không mất dữ liệu khi nâng cấp.
+    const legacy = JSON.parse(localStorage.getItem('savedChannels') || '[]');
+    if (!savedChannels.length && Array.isArray(legacy) && legacy.length) {
+      for (const item of legacy) {
+        await fetch('/api/source-channels', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: item.url, name: item.name })
+        });
+      }
+      localStorage.removeItem('savedChannels');
+      return loadSavedChannels();
+    }
   } catch (e) {
-    console.error('Lỗi khi đọc savedChannels:', e);
+    console.error('Lỗi khi đọc Kênh nguồn:', e);
     savedChannels = [];
   }
   renderSavedChannels();
 }
 
 function saveSavedChannels() {
-  localStorage.setItem('savedChannels', JSON.stringify(savedChannels));
+  // Kênh nguồn được lưu phía ứng dụng, không còn phụ thuộc localStorage của Chromium.
 }
 
-function saveCurrentChannel() {
+function escapeSavedChannelHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+async function saveCurrentChannel() {
   const urlInput = $('bulk-url-input');
   if (!urlInput) return;
   const rawText = urlInput.value.trim();
@@ -6045,29 +6166,64 @@ function saveCurrentChannel() {
 
   const displayName = extractTitleFromPastedText(rawText) || getFriendlyNameFromUrl(url);
 
-  const newItem = {
-    id: Date.now().toString(),
-    url: url,
-    name: displayName,
-    timestamp: Date.now()
-  };
-
-  savedChannels.unshift(newItem);
-  saveSavedChannels();
-  currentSavedChannelPage = 1;
-  renderSavedChannels();
-  toast('Đã lưu kênh thành công', 'success');
+  try {
+    const response = await fetch('/api/source-channels', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, name: displayName })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Không lưu được Kênh nguồn.');
+    currentSavedChannelPage = 1;
+    await loadSavedChannels();
+    toast('Đã lưu Kênh nguồn thành công', 'success');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
 }
 
-function deleteSavedChannel(id) {
+async function deleteSavedChannel(id) {
+  await fetch(`/api/source-channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
   savedChannels = savedChannels.filter(item => item.id !== id);
-  saveSavedChannels();
   const totalPages = Math.ceil(savedChannels.length / savedChannelsPerPage) || 1;
   if (currentSavedChannelPage > totalPages) {
     currentSavedChannelPage = totalPages;
   }
   renderSavedChannels();
   toast('Đã xóa kênh đã lưu', 'info');
+}
+
+async function updateSavedChannelSchedule(id, enabled) {
+  const count = Number($(`source-count-${id}`)?.value || 3);
+  const time = $(`source-time-${id}`)?.value || '02:00';
+  const response = await fetch(`/api/source-channels/${encodeURIComponent(id)}/schedule`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, dailyCount: count, time })
+  });
+  const data = await response.json();
+  if (!response.ok) return toast(data.error || 'Không lưu được lịch Kênh nguồn.', 'error');
+  await loadSavedChannels();
+  toast(enabled ? 'Đã bật lịch cào kênh.' : 'Đã tắt lịch cào kênh.', 'success');
+}
+
+async function refreshSavedChannel(id) {
+  toast('Đang quét metadata mới của kênh…', 'info');
+  const response = await fetch(`/api/source-channels/${encodeURIComponent(id)}/refresh`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 100 })
+  });
+  const data = await response.json();
+  if (!response.ok) return toast(data.error || 'Không quét được kênh.', 'error');
+  await loadSavedChannels();
+  toast(`Đã cập nhật ${data.channel?.discoveredCount || 0} video trong kênh.`, 'success');
+}
+
+async function runSavedChannelNow(id) {
+  const count = Number($(`source-count-${id}`)?.value || 3);
+  const response = await fetch(`/api/source-channels/${encodeURIComponent(id)}/run`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count })
+  });
+  const data = await response.json();
+  if (!response.ok) return toast(data.error || 'Không tạo được job cào.', 'error');
+  toast('Đã thêm job Kênh nguồn vào hàng đợi cào.', 'success');
 }
 
 function loadSavedChannel(url) {
@@ -6109,16 +6265,27 @@ function renderSavedChannels() {
   paginatedItems.forEach(item => {
     const card = document.createElement('div');
     card.className = 'saved-item';
-    card.style = 'display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; gap: 10px; transition: all 0.15s;';
+    card.style = 'display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; gap: 8px 10px; transition: all 0.15s;';
+    const schedule = item.schedule || { enabled: false, dailyCount: 3, time: '02:00' };
+    const safeName = escapeSavedChannelHtml(item.name);
+    const safePlatform = escapeSavedChannelHtml(item.platform);
     card.innerHTML = `
-      <div style="flex: 1; min-width: 0; cursor: pointer;" onclick="loadSavedChannel('${item.url}')" title="Nhấn để nạp link kênh">
-        <div style="font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</div>
-        <div style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">${item.url}</div>
+      <div class="source-channel-open" style="flex: 1; min-width: 0; cursor: pointer;" title="Nhấn để nạp link kênh">
+        <div style="font-size: 12.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeName}</div>
+        <div style="font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">${safePlatform} · ${item.discoveredCount || 0} video · ${item.downloadedCount || 0} đã tải</div>
       </div>
       <button type="button" class="ghost-btn rendered-btn-delete" style="padding: 4px 8px; font-size: 11px; height: 26px; min-height: 26px; display: inline-flex; align-items: center; margin: 0; border-color: rgba(239, 68, 68, 0.2);" onclick="deleteSavedChannel('${item.id}'); event.stopPropagation();">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>
+      <div style="grid-column:1/-1;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted)">
+        <button type="button" class="crawl-link-btn" onclick="refreshSavedChannel('${item.id}')">↻ Quét kênh</button>
+        <button type="button" class="crawl-link-btn" onclick="runSavedChannelNow('${item.id}')">⬇ Cào ngay</button>
+        <label>Mỗi ngày <input id="source-count-${item.id}" type="number" min="1" max="100" value="${schedule.dailyCount || 3}" style="width:54px"></label>
+        <label>lúc <input id="source-time-${item.id}" type="time" value="${schedule.time || '02:00'}"></label>
+        <label><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSavedChannelSchedule('${item.id}', this.checked)"> Bật lịch</label>
+      </div>
     `;
+    card.querySelector('.source-channel-open')?.addEventListener('click', () => loadSavedChannel(item.url));
     list.appendChild(card);
   });
 
@@ -6292,7 +6459,7 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
-  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili');
+  $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili' && crawlNowState.platform !== 'bilitv');
   const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
     button.disabled = caps[button.dataset.mode] === false;
@@ -6326,7 +6493,7 @@ async function crawlLoadCapabilities() {
     engineBadge.classList.toggle('unavailable', !ready && !projectReady);
     engineBadge.textContent = ready && projectReady
       ? 'MediaCrawler + Video Studio yt-dlp sẵn sàng'
-      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Crawler chưa sẵn sàng · hãy cài runtime';
+      : ready ? 'MediaCrawler sẵn sàng' : projectReady ? 'Video Studio yt-dlp sẵn sàng' : 'Chưa có công cụ cào nâng cao · hãy thiết lập hệ thống';
     installButton?.classList.toggle('hidden', ready || projectReady);
   }
   crawlUpdateCapabilities();
@@ -6339,8 +6506,8 @@ async function crawlInstallRuntime() {
   try {
     const response = await fetch('/api/download-crawl/runtime-install', { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu cài bộ cào.');
-    toast(data.alreadyReady ? 'Bộ cào đã sẵn sàng.' : 'Đang cài bộ cào. Có thể theo dõi trong nhật ký.', 'success');
+    if (!response.ok) throw new Error(data.error || 'Không thể bắt đầu thiết lập bộ công cụ hệ thống.');
+    toast(data.alreadyReady ? 'Bộ công cụ hệ thống đã sẵn sàng.' : 'Đang thiết lập công cụ cào nâng cao. Có thể theo dõi trong nhật ký.', 'success');
     while (true) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const statusResponse = await fetch('/api/download-crawl/runtime-status');
@@ -6349,11 +6516,11 @@ async function crawlInstallRuntime() {
         ? `Đang cài crawler ${Number(status.percent || 0)}% · ${status.message || 'vui lòng chờ'}`
         : status.message || 'Đang kiểm tra crawler…';
       if (status.ready) {
-        toast('Đã cài xong bộ cào video.', 'success');
+        toast('Đã thiết lập xong công cụ cào video.', 'success');
         await crawlLoadCapabilities();
         break;
       }
-      if (status.status === 'error') throw new Error(status.message || 'Cài bộ cào thất bại.');
+      if (status.status === 'error') throw new Error(status.message || 'Thiết lập công cụ cào thất bại.');
     }
   } catch (error) {
     toast(error.message, 'error');
@@ -6368,6 +6535,13 @@ async function crawlLoadLoginStatus() {
     const response = await fetch('/api/download-crawl/login-status');
     const data = await response.json();
     const platforms = data.platforms || {};
+    for (const [platform, status] of Object.entries(platforms)) {
+      if (status === 'in') {
+        fetch('/api/download-crawl/resume-login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+        }).catch(() => {});
+      }
+    }
     const labels = {
       douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
       xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],
@@ -7204,7 +7378,7 @@ function getGlobalAiSettings() {
     openaiModel: localStorage.getItem('global_openai_model') || 'gpt-4o-mini',
     translationStyles,
     whisperModel: 'medium',
-    whisperOnnxVariant: localStorage.getItem('global_whisper_onnx_variant') || 'medium-q8',
+    whisperOnnxVariant: 'medium-q8', // chỉ dùng cho lớp ONNX dự phòng nội bộ
     ocrMode: localStorage.getItem('global_ocr_mode') || 'auto'
   };
 }
@@ -7593,7 +7767,7 @@ function openGlobalSettingsModal() {
     loadNineRouterModels(settings.ninerouterApiKey, settings.ninerouterBaseUrl);
   }
   if (whisperModelSelect) {
-    whisperModelSelect.value = settings.whisperOnnxVariant;
+    whisperModelSelect.value = 'large-v3-turbo';
     checkWhisperModelStatus();
   }
   const globalOcrSelect = $('global-ocr-mode-select');
@@ -7725,7 +7899,7 @@ function saveGlobalSettings() {
   if (ninerouterInput) localStorage.setItem('global_ninerouter_key', ninerouterInput.value);
   if (ninerouterModelSelect) localStorage.setItem('global_ninerouter_model', ninerouterModelSelect.value);
   if (ninerouterBaseUrlInput) localStorage.setItem('global_ninerouter_base_url', ninerouterBaseUrlInput.value);
-  if (whisperModelSelect) localStorage.setItem('global_whisper_onnx_variant', whisperModelSelect.value);
+  localStorage.removeItem('global_whisper_onnx_variant');
   localStorage.setItem('global_translation_styles', JSON.stringify(translationStyles));
   const globalOcrSelect = $('global-ocr-mode-select');
   if (globalOcrSelect) localStorage.setItem('global_ocr_mode', globalOcrSelect.value);
@@ -7975,14 +8149,19 @@ async function checkSystemConnections() {
       whisperDot.className = 'dot ok';
       whisperDot.style.background = 'var(--success)';
       whisperDot.style.boxShadow = '0 0 8px var(--success)';
-      whisperDesc.textContent = 'Đã sẵn sàng';
+      whisperDesc.textContent = 'Large V3 Turbo + runtime hệ thống đã sẵn sàng';
     } else {
       whisperDot.className = 'dot warn';
       whisperDot.style.background = 'var(--warn)';
       whisperDot.style.boxShadow = '0 0 8px var(--warn)';
-      whisperDesc.textContent = 'Thiếu model Whisper ONNX Medium Q8 (~944MB)';
+      const runtimeReady = data.whisperRuntime?.ready === true;
+      whisperDesc.textContent = runtimeReady
+        ? 'Thiếu model Faster-Whisper Large V3 Turbo (~1,51 GB)'
+        : data.whisperModel
+          ? 'Thiếu runtime Python/Faster-Whisper'
+          : 'Thiếu runtime và model Faster-Whisper';
       if (whisperAction) {
-        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal('medium-q8');">Tải</button>`;
+        whisperAction.innerHTML = `<button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; height: 26px; margin: 0; width: auto; background: var(--accent);" onclick="closeConnectionStatusModal(); openWhisperDownloadModal();">Tải</button>`;
       }
     }
 
@@ -8066,7 +8245,7 @@ async function checkSystemConnections() {
 
     // Tính toán danh sách các tài nguyên còn thiếu
     let missingList = [];
-    if (!data.whisper) missingList.push({ type: 'whisper', label: 'Whisper ONNX Medium Q8' });
+    if (!data.whisper) missingList.push({ type: 'whisper', label: 'Faster-Whisper Large V3 Turbo' });
     if (!data.separator) missingList.push({ type: 'separator', label: 'MDX ONNX Audio Separator' });
     if (!data.omnivoice) missingList.push({ type: 'omnivoice', label: 'Mẫu giọng thuyết minh OmniVoice' });
     if (!data.ocr) missingList.push({ type: 'ocr', label: 'Bộ công cụ OCR phụ đề' });
@@ -8156,9 +8335,9 @@ async function downloadAllMissingDependencies() {
         await fetch('/api/download-whisper-model', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variant: 'medium-q8' })
+          body: JSON.stringify({ model: 'large-v3-turbo' })
         });
-        await pollProgress('/api/whisper-model/status?variant=medium-q8', updateProgress, (d) => d.exists || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
+        await pollProgress('/api/whisper-model/status', updateProgress, (d) => d.ready || d.status === 'success' || d.status === 'completed', (d) => d.percent || 0);
       } else if (item.type === 'separator') {
         await fetch('/api/download-dependency', {
           method: 'POST',
@@ -8386,6 +8565,9 @@ async function previewEngineVoice(engineId) {
   } else if (engineId === 'edge-tts') {
     voice = $('edge-voice-select')?.value || 'vi-VN-HoaiMyNeural';
     btnId = 'preview-edge-voice-btn';
+  } else if (engineId === 'capcut-tts') {
+    voice = $('capcut-voice-select')?.value || 'BV074_streaming';
+    btnId = 'preview-capcut-voice-btn';
   }
   const btn = $(btnId);
   if (!btn) return;
@@ -8406,7 +8588,11 @@ async function previewEngineVoice(engineId) {
     const res = await fetch('/api/preview-engine-voice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ engine: engineId, voice })
+      body: JSON.stringify({
+        engine: engineId,
+        voice,
+        voiceSpeed: $('voice-speed-select')?.value || '1'
+      })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Không thể tạo giọng mẫu.');
@@ -8642,7 +8828,7 @@ function resetStudioConfig() {
   if (globalLangSel) globalLangSel.value = 'vi';
 
   const omiDevice = document.querySelector('select[name="omiDevice"]');
-  if (omiDevice) omiDevice.value = 'vulkan:0';
+  if (omiDevice) omiDevice.value = 'cuda:0';
 
   const stepsSlider = document.querySelector('input[name="omiSteps"]');
   if (stepsSlider) {
@@ -8946,11 +9132,7 @@ function updateDependencyUI() {
   if (omiDeviceSelect) {
     const cudaOption = omiDeviceSelect.querySelector('option[value="cuda:0"]');
     if (cudaOption) {
-      if (!dependencyStatus.cuda) {
-        cudaOption.textContent = 'Card đồ họa GPU (CUDA) (⚠️ Chưa tải)';
-      } else {
-        cudaOption.textContent = 'Card đồ họa GPU (CUDA)';
-      }
+      cudaOption.textContent = 'NVIDIA GPU (CUDA runtime riêng)';
     }
     bindDeviceChangeCheck();
   }
@@ -9053,10 +9235,7 @@ function bindDeviceChangeCheck() {
     omiDeviceSelect.dataset.dependencyBound = 'true';
 
     omiDeviceSelect.addEventListener('change', (e) => {
-      if (e.target.value === 'cuda:0' && !dependencyStatus.cuda) {
-        e.target.value = 'cpu';
-        showDependencyModal('cuda');
-      }
+      if (e.target.value !== 'cuda:0') e.target.value = 'cuda:0';
     });
   }
 }
@@ -9098,11 +9277,11 @@ function showDependencyModal(type, callback) {
     desc.textContent = 'Hệ thống cần tải thêm các thư viện CUDA (cublas, cudart...) để kích hoạt tăng tốc GPU, giúp render/thuyết minh nhanh gấp 5-10 lần. Dung lượng tải khoảng ~480MB.';
     sizeText.textContent = 'Dung lượng: ~480 MB';
   } else if (type === 'whisper') {
-    title.textContent = '📥 Tải xuống công cụ Whisper';
+    title.textContent = '📥 Tải Faster-Whisper';
     icon.textContent = '🎙️';
-    name.textContent = 'Công cụ nhận diện giọng nói Whisper';
-    desc.textContent = 'Hệ thống cần tải công cụ Whisper ONNX Runtime (whisper_onnx.exe) để thực hiện nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng tải khoảng ~90MB.';
-    sizeText.textContent = 'Dung lượng: ~90 MB';
+    name.textContent = 'Faster-Whisper Large V3 Turbo';
+    desc.textContent = 'Model nhận diện giọng nói chính của phần mềm, chạy CUDA khi có GPU NVIDIA và tự tiếp tục bằng CPU int8 khi cần.';
+    sizeText.textContent = 'Dung lượng: ~1,51 GB';
   } else if (type === 'separator') {
     title.textContent = '📥 Tải xuống MDX ONNX';
     icon.textContent = '🎵';
@@ -9289,7 +9468,7 @@ async function startSetupDownload(type) {
 
   try {
     const downloadUrl = type === 'whisper' ? '/api/download-whisper-model' : '/api/download-dependency';
-    const requestBody = type === 'whisper' ? { variant: 'q8' } : { type };
+    const requestBody = type === 'whisper' ? { model: 'large-v3-turbo' } : { type };
     const res = await fetch(downloadUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -9331,7 +9510,7 @@ function pollSetupDownload(type) {
     const interval = setInterval(async () => {
       try {
         const progressUrl = type === 'whisper'
-          ? '/api/whisper-model/status?variant=q8'
+          ? '/api/whisper-model/status'
           : '/api/download-dependency-progress';
         const pRes = await fetch(progressUrl);
         if (!pRes.ok) return;
@@ -9341,7 +9520,7 @@ function pollSetupDownload(type) {
               ...rawProgress,
               status: rawProgress.downloading
                 ? 'downloading'
-                : rawProgress.exists
+                : rawProgress.ready
                   ? 'success'
                   : rawProgress.error
                     ? 'error'
@@ -9632,7 +9811,10 @@ function serializeStudioForm() {
       obj[key] = value;
     }
   }
-  for (const name of ['audioNoiseGate', 'audioDucking', 'audioExportTracks']) {
+  for (const name of [
+    'audioNoiseGate', 'audioDucking', 'audioExportTracks',
+    'whisperHybridFill', 'capcutAsrEnabled'
+  ]) {
     const input = form.elements[name];
     obj[name] = input?.checked ? 'true' : 'false';
   }
@@ -9733,6 +9915,12 @@ function deserializeStudioForm(obj) {
   }
 
   // Cập nhật lại các trường phụ đề
+  const restoredSourceLanguage = obj.sourceLanguage
+    || (obj.subtitleEngine === 'whisper' ? obj.whisperLanguage : obj.ocrLanguage)
+    || obj.whisperLanguage
+    || 'auto';
+  if ($('source-language-select')) $('source-language-select').value = restoredSourceLanguage;
+  syncSourceLanguage();
   updateConditionalFields();
   updateLogoUi();
   // Kích hoạt lại giao diện toggle switches cho cắt đầu cuối & watermark

@@ -3,8 +3,14 @@ const assert = require('node:assert/strict');
 
 const {
   AsrEngineRegistry,
-  WhisperOnnxAsrEngine
+  WhisperOnnxAsrEngine,
+  createDefaultAsrEngineRegistry
 } = require('../lib/asr-engines/index');
+
+test('default ASR registry includes Faster Whisper and ONNX fallback', () => {
+  const ids = createDefaultAsrEngineRegistry().list().map((engine) => engine.id);
+  assert.deepEqual(ids, ['faster-whisper', 'whisper-onnx']);
+});
 
 test('ASR registry resolves adapters and rejects unknown engines', () => {
   const registry = new AsrEngineRegistry();

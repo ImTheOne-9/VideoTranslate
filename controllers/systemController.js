@@ -11,6 +11,8 @@ const mdxCudaComponentManager = require('../lib/mdx-cuda-component-manager');
 const FacebookApiService = require('../lib/facebookApi');
 const { validate, validators } = require('../lib/validate');
 const { createMdxSeparatorManager } = require('../lib/mdx-separator-manager');
+const { systemRuntimeManager } = require('../lib/system-runtime-manager');
+const { omnivoiceRuntimeManager } = require('../lib/omnivoice-runtime-manager');
 
 const mdxSeparatorManager = createMdxSeparatorManager({
   fs,
@@ -32,23 +34,10 @@ try {
   electronDialog = electron.dialog;
 } catch (e) {}
 
-let modelDownloadStatus = { downloading: false, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
-let whisperDownloadStatus = {};
+let whisperDownloadStatus = { downloading: false, phase: 'idle', percent: 0, error: null, downloadedBytes: 0, totalBytes: 0, message: '' };
 
-function normalizeWhisperOnnxVariant(value) {
-  const variant = String(value || 'medium-q8').trim().toLowerCase();
-  if (variant === 'medium') return 'medium-q8';
-  if (!['q8', 'fp32', 'medium-q8'].includes(variant)) {
-    throw new Error(`Biến thể Whisper ONNX không hợp lệ: ${value}`);
-  }
-  return variant;
-}
-
-function getWhisperOnnxReadiness(variant) {
-  const { getWhisperOnnxConfig, validateWhisperOnnxModel } = require('../lib/model-downloader');
-  const config = getWhisperOnnxConfig(variant);
-  const modelDir = path.join(shared.MODELS_DIR, 'whisper', config.folder);
-  return validateWhisperOnnxModel(modelDir, variant);
+function getFasterWhisperReadiness() {
+  return require('../lib/model-downloader').getFasterWhisperReadiness(shared.MODELS_DIR);
 }
 let activeDependencyDownload = null;
 
@@ -553,16 +542,14 @@ module.exports = {
     const ytdlpOk = fs.existsSync(shared.YTDLP_PATH);
     const dependencyDir = fs.existsSync(shared.DATA_TOOLS_DIR) ? shared.DATA_TOOLS_DIR : shared.TOOLS_DIR;
     const runtimeDependencies = checkDependencyStatus(dependencyDir);
-    const whisperVariants = {
-      q8: getWhisperOnnxReadiness('q8').exists,
-      fp32: getWhisperOnnxReadiness('fp32').exists,
-      'medium-q8': getWhisperOnnxReadiness('medium-q8').exists
-    };
-    const whisperModelOk = whisperVariants['medium-q8'];
-    const downloadedWhisperModels = whisperModelOk ? ['medium'] : [];
+    const fasterWhisperReadiness = getFasterWhisperReadiness();
+    const whisperRuntime = systemRuntimeManager.status('asr');
+    const whisperModelOk = fasterWhisperReadiness.exists;
+    const whisperReady = whisperModelOk && whisperRuntime.ready;
+    const whisperVariants = { 'large-v3-turbo': whisperModelOk };
+    const downloadedWhisperModels = whisperModelOk ? ['large-v3-turbo'] : [];
 
-    const omnivoiceCliOk = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
-    const omnivoiceModelOk = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
+    const omnivoiceRuntime = omnivoiceRuntimeManager.inspect();
 
     const mdxRuntime = mdxSeparatorManager.inspectRuntime();
     const separatorCliOk = mdxRuntime.cpu.ready && mdxRuntime.model.ready;
@@ -583,13 +570,15 @@ module.exports = {
       cuda: runtimeDependencies.cuda,
       ffmpeg: ffmpegOk,
       ytdlp: ytdlpOk,
-      whisper: whisperModelOk,
+      whisper: whisperReady,
       whisperModel: whisperModelOk,
+      whisperRuntime,
       whisperVariants,
       downloadedWhisperModels: downloadedWhisperModels,
-      omnivoice: omnivoiceCliOk && omnivoiceModelOk,
-      omnivoiceCli: omnivoiceCliOk,
-      omnivoiceModel: omnivoiceModelOk,
+      omnivoice: omnivoiceRuntime.ready,
+      omnivoiceCli: omnivoiceRuntime.python,
+      omnivoiceModel: omnivoiceRuntime.marker,
+      omnivoiceRuntime,
       separator: separatorCliOk,
       separatorCli: separatorCliOk,
       mdx: publicMdxRuntime,
@@ -655,59 +644,56 @@ module.exports = {
   },
 
   downloadModel: async (req, res) => {
-    if (modelDownloadStatus.downloading) {
-      return res.json({ success: true, message: 'Đang tải rồi' });
-    }
-    const { ensureModelsExist } = require('../lib/model-downloader');
-    modelDownloadStatus = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
-    res.json({ success: true, message: 'Bắt đầu tải model' });
-
     try {
-      await ensureModelsExist(shared.MODELS_DIR, (progress) => {
-        modelDownloadStatus.percent = progress.percent;
-        modelDownloadStatus.downloadedBytes = progress.downloadedBytes;
-        modelDownloadStatus.totalBytes = progress.totalBytes;
+      const result = omnivoiceRuntimeManager.install((message, level) => {
+        const fn = level === 'error' ? console.warn : console.log;
+        fn(`[OmniVoice Install] ${message}`);
       });
-      modelDownloadStatus.downloading = false;
-      modelDownloadStatus.percent = 100;
+      return res.status(result.started ? 202 : 200).json({ success: true, ...result });
     } catch (err) {
-      console.error('Lỗi tải model qua API:', err.message);
-      modelDownloadStatus.downloading = false;
-      modelDownloadStatus.error = err.message;
+      console.error('Lỗi cài OmniVoice Python:', err.message);
+      return res.status(500).json({ success: false, error: err.message });
     }
   },
 
   getModelStatus: async (req, res) => {
-    const cliExists = fs.existsSync(shared.OMNIVOICE_CLI_PATH);
-    const modelExists = fs.existsSync(shared.OMNIVOICE_MODEL_PATH);
-    const checkConfigured = cliExists && modelExists;
+    const runtime = omnivoiceRuntimeManager.inspect();
     res.json({
-      ...modelDownloadStatus,
-      omiConfigured: checkConfigured
+      downloading: runtime.status === 'installing',
+      percent: runtime.ready ? 100 : (runtime.percent || 0),
+      error: runtime.error,
+      message: runtime.message,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      omiConfigured: runtime.ready,
+      runtime
     });
   },
 
   getWhisperModelStatus: async (req, res) => {
-    let variant;
-    try {
-      variant = normalizeWhisperOnnxVariant(req.query?.variant || req.query?.model);
-    } catch (error) {
-      return res.status(400).json({ error: error.message });
-    }
-    const readiness = getWhisperOnnxReadiness(variant);
+    const readiness = getFasterWhisperReadiness();
     const { config, exists } = readiness;
     const totalBytes = config.files.reduce((sum, file) => sum + file.size, 0);
-
-    const status = whisperDownloadStatus[variant] || { downloading: false, percent: 0, error: null };
+    const runtime = systemRuntimeManager.status('asr');
+    const status = { ...whisperDownloadStatus };
+    if (status.downloading && status.phase === 'runtime') {
+      status.percent = Math.max(status.percent, Math.round((Number(runtime.percent) || 0) * 0.35));
+      status.message = runtime.message || 'Đang cài Faster-Whisper runtime…';
+    }
     res.json({
-      variant,
+      engine: 'faster-whisper',
+      model: config.model,
       exists,
-      state: readiness.state,
+      ready: exists && runtime.ready,
+      state: exists && runtime.ready ? 'ready' : !runtime.ready ? 'runtime_missing' : readiness.state,
+      runtime,
       repairable: readiness.state === 'corrupt',
       missingFiles: readiness.missingFiles,
       invalidFiles: readiness.invalidFiles,
       downloading: status.downloading,
       percent: status.percent,
+      phase: status.phase,
+      message: status.message,
       error: status.error,
       downloadedBytes: status.downloadedBytes,
       totalBytes: status.totalBytes || totalBytes
@@ -720,32 +706,36 @@ module.exports = {
   },
 
   downloadWhisperModel: async (req, res) => {
-    let variant;
-    try {
-      variant = normalizeWhisperOnnxVariant(req.body?.variant || req.body?.model);
-    } catch (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    if (whisperDownloadStatus[variant] && whisperDownloadStatus[variant].downloading) {
+    if (whisperDownloadStatus.downloading) {
       return res.json({ success: true, message: 'Đang tải rồi' });
     }
-    const { ensureWhisperOnnxModelExist } = require('../lib/model-downloader');
-    whisperDownloadStatus[variant] = { downloading: true, percent: 0, error: null, downloadedBytes: 0, totalBytes: 0 };
-    res.json({ success: true, message: 'Bắt đầu tải model Whisper' });
+    const { ensureFasterWhisperModelExist } = require('../lib/model-downloader');
+    whisperDownloadStatus = { downloading: true, phase: 'runtime', percent: 1, error: null, downloadedBytes: 0, totalBytes: 0, message: 'Đang kiểm tra bộ công cụ Faster-Whisper…' };
+    res.json({ success: true, message: 'Bắt đầu chuẩn bị Faster-Whisper Large V3 Turbo' });
 
     try {
-      await ensureWhisperOnnxModelExist(shared.MODELS_DIR, variant, (progress) => {
-        whisperDownloadStatus[variant].percent = progress.percent;
-        whisperDownloadStatus[variant].downloadedBytes = progress.downloadedBytes;
-        whisperDownloadStatus[variant].totalBytes = progress.totalBytes;
+      await systemRuntimeManager.ensure('asr', (message) => {
+        whisperDownloadStatus.message = message;
       });
-      whisperDownloadStatus[variant].downloading = false;
-      whisperDownloadStatus[variant].percent = 100;
+      whisperDownloadStatus.phase = 'model';
+      whisperDownloadStatus.percent = Math.max(35, whisperDownloadStatus.percent);
+      whisperDownloadStatus.message = 'Đang tải model Large V3 Turbo…';
+      await ensureFasterWhisperModelExist(shared.MODELS_DIR, (progress) => {
+        whisperDownloadStatus.percent = 35 + Math.round((Number(progress.percent) || 0) * 0.65);
+        whisperDownloadStatus.downloadedBytes = progress.downloadedBytes;
+        whisperDownloadStatus.totalBytes = progress.totalBytes;
+        whisperDownloadStatus.message = `Đang tải ${progress.file || 'Large V3 Turbo'}…`;
+      });
+      whisperDownloadStatus.downloading = false;
+      whisperDownloadStatus.phase = 'complete';
+      whisperDownloadStatus.percent = 100;
+      whisperDownloadStatus.message = 'Faster-Whisper Large V3 Turbo đã sẵn sàng.';
     } catch (err) {
-      console.error(`Lỗi tải model Whisper ${variant} qua API:`, err.message);
-      whisperDownloadStatus[variant].downloading = false;
-      whisperDownloadStatus[variant].error = err.message;
+      console.error('Lỗi tải Faster-Whisper Large V3 Turbo qua API:', err.message);
+      whisperDownloadStatus.downloading = false;
+      whisperDownloadStatus.phase = 'error';
+      whisperDownloadStatus.error = err.message;
+      whisperDownloadStatus.message = err.message;
     }
   },
 

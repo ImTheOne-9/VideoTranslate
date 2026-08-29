@@ -3255,8 +3255,7 @@ select option {
 }
 
 .ocr-mode-btn,
-.subtitle-engine-btn,
-.whisper-onnx-variant-btn {
+.subtitle-engine-btn {
   min-width: 0;
   height: 32px;
   padding: 0 6px;
@@ -3270,15 +3269,13 @@ select option {
 }
 
 .ocr-mode-btn:hover,
-.subtitle-engine-btn:hover,
-.whisper-onnx-variant-btn:hover {
+.subtitle-engine-btn:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.05);
 }
 
 .ocr-mode-btn.active,
-.subtitle-engine-btn.active,
-.whisper-onnx-variant-btn.active {
+.subtitle-engine-btn.active {
   color: #fff;
   background: var(--accent);
 }
@@ -5633,6 +5630,22 @@ select option {
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 6px;
   background: rgba(11, 16, 24, 0.45);
+}
+
+.whisper-compact-hint {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.whisper-gap-fill-option {
+  cursor: pointer;
+}
+
+.whisper-gap-fill-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .rapidocr-mini-row {

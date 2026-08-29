@@ -36,6 +36,30 @@ test('preview calls tai_ytdlp metadata-only and maps its JSON contract', async (
   assert.equal(items[0].duration, 87);
 });
 
+test('BiliTV detail preview is routed through the generic video parser', async () => {
+  const adapter = new ProjectYtDlpAdapter();
+  let call = null;
+  adapter._run = async (script, args) => {
+    call = { script, args };
+    return { stdout: '{"ok":true,"items":[{"id":"2049633062","title":"Anime","url":"https://www.bilibili.tv/en/video/2049633062","duration":60}]}' };
+  };
+  const items = await adapter.preview({
+    platform: 'bilitv', mode: 'detail', input: 'https://www.bilibili.tv/en/video/2049633062', count: 1
+  });
+  assert.equal(call.args[call.args.indexOf('--platform') + 1], 'bilitv');
+  assert.equal(items[0].sourceUrl, 'https://www.bilibili.tv/en/video/2049633062');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
+  assert.match(source, /plat not in \("yt", "tt", "fb", "ig", "bilitv"\)/);
+  assert.match(source, /def _item_video_generic\(e\):/);
+});
+
+test('yt-dlp ledger is written only after final media validation', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
+  assert.match(source, /_cho_kiem_tra\[str\(vid\)\] = dict\(info\)/);
+  assert.match(source, /if _tim_media_theo_id\(_vid\):\s+_ghi_lich_su\(_info\)/);
+  assert.match(source, /_xoa_archive_id\(_vid\)/);
+});
+
 test('Facebook preview source enriches sparse DOM cards with yt-dlp metadata', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'tools', 'crawler', 'app', 'tai_ytdlp.py'), 'utf8');
   assert.match(source, /def _fb_bo_sung_metadata\(items, log=print\)/);

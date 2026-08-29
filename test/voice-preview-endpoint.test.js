@@ -23,14 +23,16 @@ test('voice preview endpoint is registered in server and exposed in UI', () => {
 test('previewEngineVoice serves cached preview audio when already generated', async () => {
   const previewDir = shared.VOICE_PREVIEWS_DIR;
   fs.mkdirSync(previewDir, { recursive: true });
-  const testFile = path.join(previewDir, 'piper_testmockvoice999.wav');
+  const voice = `testmockvoice_${process.pid}_${Date.now()}`;
+  const previewFileName = `piper_${voice}_1.00x.wav`;
+  const testFile = path.join(previewDir, previewFileName);
   fs.writeFileSync(testFile, Buffer.alloc(2048));
 
   try {
     const req = {
       body: {
         engine: 'piper',
-        voice: 'testmockvoice999'
+        voice
       }
     };
 
@@ -47,7 +49,7 @@ test('previewEngineVoice serves cached preview audio when already generated', as
     assert.ok(responseData);
     assert.equal(responseData.success, true);
     assert.equal(responseData.cached, true);
-    assert.equal(responseData.audioUrl, '/voice-previews/piper_testmockvoice999.wav');
+    assert.equal(responseData.audioUrl, `/voice-previews/${previewFileName}`);
   } finally {
     try { fs.unlinkSync(testFile); } catch (_) {}
   }

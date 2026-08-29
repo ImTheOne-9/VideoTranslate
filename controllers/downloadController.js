@@ -6,6 +6,7 @@ const { translateSubtitles } = require('../lib/translate-sub');
 const { validate, validators } = require('../lib/validate');
 const douyinExtractor = require('../lib/douyin-extractor');
 const axios = require('axios');
+const { validateMediaFile } = require('../lib/media-file-validator');
 
 module.exports = {
   // === DOUYIN: lấy danh sách chất lượng qua BrowserWindow ẩn ===
@@ -92,6 +93,12 @@ module.exports = {
         writer.on('error', reject);
         response.data.on('error', reject);
       });
+
+      const verified = validateMediaFile(outPath);
+      if (!verified.valid) {
+        try { fs.unlinkSync(outPath); } catch (_) {}
+        throw new Error(`CDN không trả về video MP4 hợp lệ (${verified.reason})`);
+      }
 
       console.log(`[Douyin] Tải xong: ${outPath}`);
       res.json({ success: true, filename: `${safeName}.mp4`, path: outPath });

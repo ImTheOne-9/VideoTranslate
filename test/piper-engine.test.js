@@ -38,6 +38,8 @@ test('Piper exposes real offline voices and an auto-selecting persistent runtime
   assert.equal(capabilities.persistentRuntime, true);
   assert.deepEqual(capabilities.devices, ['auto', 'cpu', 'cuda']);
   assert.ok(capabilities.voices.some((voice) => voice.id === 'ngochuyen'));
+  assert.ok(capabilities.voices.some((voice) => voice.id === 'banmai'));
+  assert.ok(capabilities.voices.some((voice) => voice.id === 'vi_VN-vais1000-medium'));
   assert.ok(capabilities.voices.some((voice) => voice.gender === 'male'));
   assert.ok(capabilities.voices.some((voice) => voice.id === 'en_US-ryan-high'));
   assert.ok(capabilities.languages.includes('de'));

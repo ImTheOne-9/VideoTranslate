@@ -9,7 +9,11 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 test('packaging excludes crawler profiles, cache, docs and test fixtures', () => {
   const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
   assert.ok(crawler);
+  assert.ok(crawler.filter.includes('requirements-asr.txt'));
+  assert.ok(crawler.filter.includes('requirements-ocr.txt'));
+  assert.ok(crawler.filter.includes('install-whisper-gpu.py'));
   for (const pattern of [
+    '!app/models/**/*',
     '!app/**/browser_data/**/*',
     '!app/**/__pycache__/**/*',
     '!app/**/*.pyc',
@@ -72,4 +76,63 @@ test('packaging keeps the complete RapidOCR source and runtime dependencies', ()
   ]) {
     assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'viral_ocr', filename)), true);
   }
+});
+
+test('lightweight ASR and OCR installs preserve an existing ONNX GPU backend', () => {
+  const setup = fs.readFileSync(path.join(root, 'tools', 'crawler', 'setup-runtime.ps1'), 'utf8');
+  const asr = fs.readFileSync(path.join(root, 'tools', 'crawler', 'requirements-asr.txt'), 'utf8');
+  const ocr = fs.readFileSync(path.join(root, 'tools', 'crawler', 'requirements-ocr.txt'), 'utf8');
+
+  assert.doesNotMatch(asr, /^onnxruntime(?:==|\s)/mu);
+  assert.doesNotMatch(ocr, /^onnxruntime(?:==|\s)/mu);
+  assert.match(setup, /--no-deps "faster-whisper==1\.2\.1"/u);
+  assert.match(setup, /--no-deps "rapidocr-onnxruntime==1\.4\.4"/u);
+  assert.match(asr, /^requests>=/mu);
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'capcut_asr.py')), true);
+});
+
+test('Whisper GPU installer performs real inference, runtime repair and deterministic DLL setup', () => {
+  const installer = fs.readFileSync(path.join(root, 'tools', 'crawler', 'install-whisper-gpu.py'), 'utf8');
+  const dllRuntime = fs.readFileSync(path.join(root, 'tools', 'crawler', 'app', 'whisper_cuda_runtime.py'), 'utf8');
+  const worker = fs.readFileSync(path.join(root, 'tools', 'crawler', 'app', 'faster_whisper_asr.py'), 'utf8');
+  for (const dependency of ['nvidia-cuda-runtime-cu12', 'nvidia-cublas-cu12', 'nvidia-cudnn-cu12']) {
+    assert.match(installer, new RegExp(dependency));
+  }
+  assert.match(installer, /WhisperModel\([\s\S]*device="cuda"/u);
+  assert.match(installer, /list\(segments\)/u);
+  assert.match(installer, /def repair_runtime/u);
+  assert.match(dllRuntime, /cudnnPolicy/u);
+  assert.match(worker, /whisper-gpu-status\.json/u);
+});
+
+test('packaging includes the dedicated Piper installer and bridge', () => {
+  const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
+  assert.ok(crawler.filter.includes('setup-piper-runtime.ps1'));
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'setup-piper-runtime.ps1')), true);
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'piper_tts_bridge.py')), true);
+});
+
+test('packaging includes the Python OmniVoice batch worker and on-demand installer', () => {
+  const crawler = packageJson.build.extraResources.find((entry) => entry.from === 'tools/crawler/');
+  const tools = packageJson.build.extraResources.find((entry) => entry.from === 'tools/');
+  assert.ok(crawler.filter.includes('setup-omnivoice-runtime.ps1'));
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'setup-omnivoice-runtime.ps1')), true);
+  assert.equal(fs.existsSync(path.join(root, 'tools', 'crawler', 'app', 'omnivoice_batch_worker.py')), true);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'default_voices', 'Giọng Nữ miền Bắc.wav')), true);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'default_voices', 'Giọng Nam miền Bắc.wav')), true);
+  const installer = fs.readFileSync(path.join(root, 'tools', 'crawler', 'setup-omnivoice-runtime.ps1'), 'utf8');
+  assert.match(installer, /torch\.nn/u);
+  assert.match(installer, /cu126[\s\S]*cu128/u);
+  assert.match(installer, /dllPathSanitized/u);
+  assert.ok(!tools.filter.includes('omnivoice/omnivoice-cli.exe'));
+  assert.ok(!tools.filter.includes('omnivoice/omnivoice-server-*.exe'));
+});
+
+test('packaging includes the CapCut TTS worker and complete voice catalog', () => {
+  const appRoot = path.join(root, 'tools', 'crawler', 'app');
+  assert.equal(fs.existsSync(path.join(appRoot, 'capcut_tts_worker.py')), true);
+  const catalog = JSON.parse(fs.readFileSync(path.join(appRoot, 'capcut_voice_catalog.json'), 'utf8'));
+  assert.equal(catalog.voiceCount, 459);
+  assert.equal(catalog.voices.length, 459);
+  assert.ok(catalog.voices.some((voice) => voice.provider === '11labs'));
 });

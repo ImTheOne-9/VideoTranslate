@@ -386,6 +386,28 @@ class _HybridDo:
         return []
 
 
+def _ty_vung_duoi():
+    """Tỉ lệ CHIỀU CAO tính từ ĐÁY khung mà tool coi là "vùng có thể có phụ đề".
+
+    🔴 NGUỒN DUY NHẤT — trước 22/08/2026 khái niệm này nằm ở HAI chỗ với HAI con số:
+        · pha 1 CẮT ảnh để quét     → 0.34
+        · lúc CHỌN dải thì ưu tiên  → hardcode `2.0/3.0` (= 0.333 tính từ đáy)
+      Hai số tình cờ gần bằng nhau nên không ai thấy lệch. Nhưng nới MỘT chỗ lên 0.50 mà quên chỗ
+      kia thì dải vừa quét thấy ở y≈0.55 **KHÔNG được ưu tiên** ⇒ thua nhiễu ⇒ triệu chứng sẽ là
+      "đã nới vùng dò mà vẫn sót sub". Đúng lớp bài học `CHE_DONG`. Nay cả hai đọc CHUNG hàm này.
+
+    0.34 → 0.50 (22/08/2026, chủ dự án: "tăng vùng tool tự dò sub lên 50%").
+    Cái giá: pha 1 quét 50% diện tích khung thay vì 34% ⇒ chặng dò-dải tốn thêm ~47%. Đây là pha
+    THĂM DÒ trên vài chục khung, KHÔNG phải vòng OCR chính, nên ảnh hưởng tổng render nhỏ.
+    Ép: CHE_DONG_P1_DUOI_TY.
+    """
+    try:
+        _t = float(os.environ.get("CHE_DONG_P1_DUOI_TY", "") or 0.50)
+    except ValueError:
+        _t = 0.50
+    return min(1.0, max(0.05, _t))
+
+
 def _fps_ocr_adaptive(dur_s):
     """FPS lấy mẫu OCR TỰ GIÃN theo độ dài video. QUAN TRỌNG: 'đè' (dải che phình ở chuyển câu) ≈ 1/fps vì để
     ĐẢM BẢO 0-lộ, biên phải phủ 1 khoảng-mẫu (chữ hiện sớm tối đa 1 khoảng-mẫu giữa 2 mẫu).
@@ -465,11 +487,7 @@ def _hoc_dai_sub_thua(video, eng, conf_min, han_min, log_fn=print, n_probe=12, s
         # Tắt (về quét cả khung): CHE_DONG_P1_DUOI=0. Đổi tỉ lệ: CHE_DONG_P1_DUOI_TY (mặc định 0.34).
         _off_y = 0
         if os.environ.get("CHE_DONG_P1_DUOI", "1") != "0":
-            try:
-                _ty_duoi = float(os.environ.get("CHE_DONG_P1_DUOI_TY", "") or 0.34)
-            except ValueError:
-                _ty_duoi = 0.34
-            _ty_duoi = min(1.0, max(0.05, _ty_duoi))
+            _ty_duoi = _ty_vung_duoi()          # NGUỒN DUY NHẤT — xem docstring hàm
             _off_y = int(H * (1.0 - _ty_duoi))
             if _off_y > 0:
                 fr = fr[_off_y:, :]
@@ -706,7 +724,8 @@ def _hoc_dai_sub_thua(video, eng, conf_min, han_min, log_fn=print, n_probe=12, s
             # chỉ khi KHÔNG dải nào ở 1/3 dưới mới xét tới dải trên (video đặt sub ở trên vẫn chạy được).
             _ycb = sum(_ys3 for _b in (_bins or []) for _ys3 in dai.get(_b, {"ys": []})["ys"])
             _ycb = _ycb / max(1, _n)
-            if _ycb >= (2.0 / 3.0):
+            # ngưỡng ƯU TIÊN phải KHỚP vùng đã quét ở pha 1 — cùng đọc `_ty_vung_duoi()`.
+            if _ycb >= (1.0 - _ty_vung_duoi()):
                 _sc *= 1000.0
             if _sc > _sc_best:
                 _sc_best, _bi_best = _sc, _i
@@ -969,7 +988,21 @@ def phat_hien_sub_ocr(video, log_fn=print, fps_sample=None, n_max=1500, y_gate=N
             # 5p trở lên, vì đôi lúc khung không thấy sub làm tool không nhận diện được sub/ngôn ngữ").
             # Càng đúng khi Pha 2 đã bỏ: Pha 1 là tầng DUY NHẤT xác định dải — 12 khung rơi trúng đoạn không có
             # sub là hỏng cả video. 30 khung dùng engine tiny nên chỉ tốn thêm vài giây. Ép cứng: CHE_DONG_PROBE.
-            _np = 30 if (nfr / (fps or 25.0)) >= 300 else 12
+            # 🔴 18/08/2026 — BỎ nhánh 12 khung cho video NGẮN (khách báo "che chữ không hiện", nhiều người).
+            # Video <5 phút (đúng cỡ clip Douyin reup) chỉ được 12 khung ⇒ ĐO THẬT trên clip 60s có hardsub
+            # rõ (55% khung có chữ Hán), cùng file, chỉ đổi n_probe:
+            #     12 khung -> dải y 0.862-0.863  (cao 0,1% khung ~ 0,7 PIXEL — dải RÁC)
+            #     20 khung -> dải y 0.783-0.785  (0,2% — vẫn rác)
+            #     30 khung -> dải y 0.783-0.865  (8,2% — ĐÚNG)
+            #     45 khung -> dải y 0.783-0.862  (7,9% — ĐÚNG)
+            # Dải rác đắp lên video = nhìn y hệt KHÔNG CHE. Tệ hơn: nó KHÔNG phải None nên lưới cứu
+            # CHE_OCR_BOX_FALLBACK (đòi `blur_band is None`) không bao giờ bung ⇒ chính dải rác vô hiệu hoá
+            # đúng cơ chế sinh ra để thay nó.
+            # Vì sao 12 khung sống được tới giờ: hồi còn Pha 2, Pha 1 chỉ định vị THÔ. Đợt tăng tốc OCR bỏ
+            # Pha 2 ⇒ Pha 1 thành tầng DUY NHẤT chốt dải, mà số khung giữ nguyên — comment ngay dưới đã
+            # cảnh báo "12 khung rơi trúng đoạn không có sub là hỏng cả video", nay đúng là hỏng thật.
+            # Ép cứng: CHE_DONG_PROBE (env, vẫn đọc ở dòng dưới).
+            _np = 30
             n_probe_used = _np
             _p1 = _hoc_dai_sub_thua(video, _eng_dv, conf_min, han_min, log_fn=log_fn, n_probe=_np,
                                     src_lang=src_lang)

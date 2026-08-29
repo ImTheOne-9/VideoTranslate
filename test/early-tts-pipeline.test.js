@@ -43,3 +43,23 @@ test('early Piper TTS drops untranslated Han text before synthesis', async () =>
   assert.equal(await pipeline.drain(), 0);
   assert.equal(calls, 0);
 });
+
+test('early TTS includes unified speed in its signature and native Piper request', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'early-piper-speed-'));
+  let request = null;
+  const pipeline = new EarlyTtsPipeline({
+    engine: {
+      id: 'piper',
+      async synthesize(options) {
+        request = options;
+        fs.writeFileSync(options.outputPath, Buffer.alloc(64));
+      }
+    },
+    workDir: root,
+    language: 'vi',
+    voiceSpeed: 1.15
+  });
+  pipeline.enqueue([{ id: '1', text: 'Xin chào.', startMs: 0, endMs: 1000 }]);
+  assert.equal(await pipeline.drain(), 1);
+  assert.equal(request.lengthScale, 0.6957);
+});

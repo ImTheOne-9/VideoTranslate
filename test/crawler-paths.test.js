@@ -81,6 +81,8 @@ test('project contains every crawler entrypoint required by both adapters', () =
     'xhs_browser.py',
     'cookie_decrypt.py',
     'index_metadata.py',
+    'faster_whisper_asr.py',
+    'capcut_asr.py',
     path.join('MediaCrawler', 'main.py')
   ]) {
     assert.equal(fs.existsSync(path.join(root, relative)), true, `missing ${relative}`);

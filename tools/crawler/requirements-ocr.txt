@@ -1,0 +1,5 @@
+# Capability RapidOCR tối thiểu dùng chung với runtime hệ thống.
+numpy>=1.26,<3
+opencv-python==4.11.0.86
+rapidocr==3.9.1
+zhconv==1.4.3

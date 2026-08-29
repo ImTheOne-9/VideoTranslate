@@ -354,7 +354,7 @@ function updateClonerEngineUi() {
   $('cloner-reference-audio-group')?.classList.toggle('hidden', isEdge);
   $('cloner-reference-text-group')?.classList.toggle('hidden', isEdge);
   $('cloner-device-group')?.classList.toggle('hidden', isEdge);
-  $('cloner-cpu-fallback-group')?.classList.toggle('hidden', isEdge);
+  $('cloner-cpu-fallback-group')?.classList.add('hidden');
   $('cloner-edge-settings')?.classList.toggle('hidden', !isEdge);
   if (refAudio) refAudio.required = !isEdge;
   if (refText) refText.required = !isEdge;
@@ -421,7 +421,7 @@ function closeOmniClonerModal() {
   const form = $('omni-cloner-form');
   if (form) form.reset();
   const deviceSelect = $('cloner-device');
-  if (deviceSelect) deviceSelect.value = 'cpu';
+  if (deviceSelect) deviceSelect.value = 'cuda:0';
   $('cloner-progress-area').classList.add('hidden');
   $('cloner-error').classList.add('hidden');
   $('cloner-result-area').classList.add('hidden');
@@ -1019,9 +1019,7 @@ function updateModelDownloadUI(status) {
     if (percentLabel) percentLabel.textContent = `${status.percent}%`;
     if (progressBar) progressBar.style.width = `${status.percent}%`;
     
-    const mbDownloaded = (status.downloadedBytes / (1024 * 1024)).toFixed(1);
-    const mbTotal = (status.totalBytes / (1024 * 1024)).toFixed(1);
-    if (bytesLabel) bytesLabel.textContent = `${mbDownloaded} MB / ${mbTotal} MB`;
+    if (bytesLabel) bytesLabel.textContent = status.message || 'Đang cài runtime/model…';
     
     if (actionBtn) {
       actionBtn.disabled = true;
@@ -1039,7 +1037,7 @@ function updateModelDownloadUI(status) {
       if (statusLabel) statusLabel.textContent = 'Tải thành công! Đã lưu vào thư mục cài đặt.';
       if (percentLabel) percentLabel.textContent = '100%';
       if (progressBar) progressBar.style.width = '100%';
-      if (bytesLabel) bytesLabel.textContent = '1400 MB / 1400 MB';
+      if (bytesLabel) bytesLabel.textContent = 'CUDA inference đã được xác minh';
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Hoàn tất';
@@ -1076,7 +1074,7 @@ function updateModelDownloadUI(status) {
       if (statusLabel) statusLabel.textContent = 'Sẵn sàng tải xuống';
       if (percentLabel) percentLabel.textContent = '0%';
       if (progressBar) progressBar.style.width = '0%';
-      if (bytesLabel) bytesLabel.textContent = '0 MB / 1400 MB';
+      if (bytesLabel) bytesLabel.textContent = 'Theo tiến trình cài đặt';
       if (actionBtn) {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Bắt đầu tải';
@@ -1098,12 +1096,16 @@ function updateModelDownloadUI(status) {
 
 function startModelDownload() {
   fetch('/api/download-model', { method: 'POST' })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        toast('🚀 Bắt đầu tải bộ xử lý giọng nói...', 'info');
-        startStatusPolling();
+    .then(async res => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || data.message || `HTTP ${res.status}`);
       }
+      return data;
+    })
+    .then(data => {
+      toast('🚀 Bắt đầu cài OmniVoice Python/CUDA...', 'info');
+      startStatusPolling();
     })
     .catch(err => {
       toast('❌ Không khởi động được download: ' + err.message, 'error');
@@ -1121,7 +1123,7 @@ function startStatusPolling() {
         if (!status.downloading) {
           clearInterval(modelDownloadInterval);
           if (status.percent === 100) {
-            toast('🎉 Tải xuống model OmniVoice thành công!', 'success');
+            toast('🎉 OmniVoice đã cài xong và vượt qua inference CUDA thật!', 'success');
             loadAssets();
           } else if (status.error) {
             toast('❌ Lỗi khi tải model: ' + status.error, 'error');
@@ -1138,36 +1140,25 @@ function startStatusPolling() {
 // Whisper Model Management & Downloading
 let whisperDownloadInterval = null;
 let isDownloadingWhisper = false;
-let activeWhisperOnnxVariant = 'medium-q8';
+let whisperEnsurePromise = null;
+const FASTER_WHISPER_MODEL_ID = 'large-v3-turbo';
+const FASTER_WHISPER_MODEL_LABEL = 'FASTER-WHISPER LARGE V3 TURBO';
 
-function normalizeWhisperOnnxVariant(value) {
-  const variant = String(value || '').trim().toLowerCase();
-  return ['q8', 'fp32', 'medium-q8'].includes(variant) ? variant : 'medium-q8';
-}
-
-function getWhisperOnnxVariantLabel(value) {
-  const variant = normalizeWhisperOnnxVariant(value);
-  return variant === 'medium-q8' ? 'MEDIUM Q8' : `SMALL ${variant.toUpperCase()}`;
-}
-
-function openWhisperDownloadModal(requestedVariant) {
+function openWhisperDownloadModal() {
   const modal = $('whisper-download-modal');
   if (modal) modal.classList.remove('hidden');
-  
-  const modelSelect = $('whisper-model-select');
-  activeWhisperOnnxVariant = normalizeWhisperOnnxVariant(requestedVariant || modelSelect?.value);
-  
+
   const modelNameEl = $('whisper-download-model-name');
   if (modelNameEl) {
-    modelNameEl.textContent = getWhisperOnnxVariantLabel(activeWhisperOnnxVariant);
+    modelNameEl.textContent = FASTER_WHISPER_MODEL_LABEL;
   }
-  
-  fetch(`/api/whisper-model/status?variant=${activeWhisperOnnxVariant}`)
+
+  fetch('/api/whisper-model/status')
     .then(res => res.json())
     .then(status => {
-      updateWhisperDownloadUI(status, activeWhisperOnnxVariant);
+      updateWhisperDownloadUI(status);
       if (status.downloading) {
-        startWhisperStatusPolling(activeWhisperOnnxVariant);
+        startWhisperStatusPolling();
       }
     })
     .catch(err => console.error(err));
@@ -1182,7 +1173,8 @@ function closeWhisperDownloadModal() {
   if (modal) modal.classList.add('hidden');
 }
 
-function updateWhisperDownloadUI(status, variant) {
+function updateWhisperDownloadUI(status) {
+  updateWhisperRuntimeUi(status);
   const statusLabel = $('whisper-download-status-label');
   const percentLabel = $('whisper-download-percent-label');
   const progressBar = $('whisper-download-progress-bar');
@@ -1192,23 +1184,22 @@ function updateWhisperDownloadUI(status, variant) {
   const cancelBtn = $('whisper-download-cancel-btn');
   const closeBtn = $('whisper-download-close');
 
-  const whisperSizes = {
-    q8: '252 MB',
-    fp32: '971 MB',
-    'medium-q8': '944 MB'
-  };
-  const targetSize = whisperSizes[variant] || '...';
+  const targetSize = '1.51 GB';
   if (sizeLabel) sizeLabel.textContent = `Kích thước: ~${targetSize}`;
 
   if (status.downloading) {
     isDownloadingWhisper = true;
-    if (statusLabel) statusLabel.textContent = 'Đang tải model từ máy chủ...';
+    if (statusLabel) statusLabel.textContent = status.message || (status.phase === 'runtime'
+      ? 'Đang cài bộ công cụ Faster-Whisper...'
+      : 'Đang tải model từ máy chủ...');
     if (percentLabel) percentLabel.textContent = `${status.percent}%`;
     if (progressBar) progressBar.style.width = `${status.percent}%`;
     
-    const mbDownloaded = (status.downloadedBytes / (1024 * 1024)).toFixed(1);
-    const mbTotal = (status.totalBytes / (1024 * 1024)).toFixed(1);
-    if (bytesLabel) bytesLabel.textContent = `${mbDownloaded} MB / ${mbTotal} MB`;
+    const mbDownloaded = (Number(status.downloadedBytes || 0) / (1024 * 1024)).toFixed(1);
+    const mbTotal = (Number(status.totalBytes || 0) / (1024 * 1024)).toFixed(1);
+    if (bytesLabel) bytesLabel.textContent = status.phase === 'runtime'
+      ? 'Đang chuẩn bị Python và thư viện ASR'
+      : `${mbDownloaded} MB / ${mbTotal} MB`;
     
     if (actionBtn) {
       actionBtn.disabled = true;
@@ -1222,8 +1213,8 @@ function updateWhisperDownloadUI(status, variant) {
     if (closeBtn) closeBtn.style.display = 'none';
   } else {
     isDownloadingWhisper = false;
-    if (status.exists) {
-      if (statusLabel) statusLabel.textContent = 'Tải thành công! Đã lưu vào thư mục cài đặt.';
+    if (status.ready) {
+      if (statusLabel) statusLabel.textContent = 'Faster-Whisper đã sẵn sàng bằng runtime hệ thống.';
       if (percentLabel) percentLabel.textContent = '100%';
       if (progressBar) progressBar.style.width = '100%';
       const mbTotal = status.totalBytes ? (status.totalBytes / (1024 * 1024)).toFixed(1) : targetSize.split(' ')[0];
@@ -1261,13 +1252,17 @@ function updateWhisperDownloadUI(status, variant) {
       }
       if (closeBtn) closeBtn.style.display = 'block';
     } else {
-      if (statusLabel) statusLabel.textContent = 'Sẵn sàng tải xuống';
+      if (statusLabel) statusLabel.textContent = status.state === 'runtime_missing'
+        ? 'Thiếu bộ công cụ Python/Faster-Whisper'
+        : 'Sẵn sàng tải xuống';
       if (percentLabel) percentLabel.textContent = '0%';
       if (progressBar) progressBar.style.width = '0%';
       if (bytesLabel) bytesLabel.textContent = `0 MB / ${targetSize}`;
       if (actionBtn) {
         actionBtn.disabled = false;
-        actionBtn.textContent = 'Bắt đầu tải';
+        actionBtn.textContent = status.state === 'runtime_missing' && status.exists
+          ? 'Cài bộ công cụ'
+          : 'Cài đặt và tải';
         actionBtn.style.display = '';
         actionBtn.onclick = startWhisperDownload;
       }
@@ -1285,37 +1280,66 @@ function updateWhisperDownloadUI(status, variant) {
 }
 
 function startWhisperDownload() {
-  const variant = activeWhisperOnnxVariant;
-  
-  fetch('/api/download-whisper-model', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ variant })
-  })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        toast('🚀 Bắt đầu tải bộ nhận diện giọng nói AI...', 'info');
-        startWhisperStatusPolling(variant);
-      }
-    })
-    .catch(err => {
-      toast('❌ Không khởi động được download: ' + err.message, 'error');
-    });
+  ensureFasterWhisperReady({ openModal: true }).catch(err => {
+    toast('❌ Không chuẩn bị được Faster-Whisper: ' + err.message, 'error');
+  });
 }
 
-function startWhisperStatusPolling(variant) {
+async function ensureFasterWhisperReady({ openModal = false } = {}) {
+  if (whisperEnsurePromise) return whisperEnsurePromise;
+  whisperEnsurePromise = (async () => {
+    let response = await fetch('/api/whisper-model/status');
+    let status = await response.json();
+    if (!response.ok) throw new Error(status.error || 'Không kiểm tra được Faster-Whisper.');
+    if (status.ready) return true;
+    if (openModal) openWhisperDownloadModal();
+
+    response = await fetch('/api/download-whisper-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: FASTER_WHISPER_MODEL_ID })
+    });
+    const start = await response.json();
+    if (!response.ok) throw new Error(start.error || 'Không bắt đầu được quá trình cài Faster-Whisper.');
+    toast('Đang chuẩn bị runtime và model Faster-Whisper. Chỉ cần thực hiện một lần.', 'info');
+
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      response = await fetch('/api/whisper-model/status');
+      status = await response.json();
+      if (!response.ok) throw new Error(status.error || 'Không đọc được tiến trình Faster-Whisper.');
+      updateWhisperDownloadUI(status);
+      if ($('render-status') && status.message) $('render-status').textContent = status.message;
+      if (status.ready) {
+        toast('Faster-Whisper Large V3 Turbo đã sẵn sàng.', 'success');
+        checkWhisperModelStatus();
+        checkWhisperDeviceStatus();
+        return true;
+      }
+      if (!status.downloading && status.error) throw new Error(status.error);
+    }
+    throw new Error('Cài Faster-Whisper quá thời gian chờ.');
+  })();
+  try {
+    return await whisperEnsurePromise;
+  } finally {
+    whisperEnsurePromise = null;
+  }
+}
+window.ensureFasterWhisperReady = ensureFasterWhisperReady;
+
+function startWhisperStatusPolling() {
   if (whisperDownloadInterval) clearInterval(whisperDownloadInterval);
   
   whisperDownloadInterval = setInterval(() => {
-    fetch(`/api/whisper-model/status?variant=${variant}`)
+    fetch('/api/whisper-model/status')
       .then(res => res.json())
       .then(status => {
-        updateWhisperDownloadUI(status, variant);
+        updateWhisperDownloadUI(status);
         if (!status.downloading) {
           clearInterval(whisperDownloadInterval);
-          if (status.exists) {
-            toast(`🎉 Tải xuống model AI ${getWhisperOnnxVariantLabel(variant)} thành công!`, 'success');
+          if (status.ready) {
+            toast(`🎉 Tải ${FASTER_WHISPER_MODEL_LABEL} thành công!`, 'success');
             checkWhisperModelStatus();
           } else if (status.error) {
             toast('❌ Lỗi khi tải model AI: ' + status.error, 'error');
@@ -1329,19 +1353,63 @@ function startWhisperStatusPolling(variant) {
   }, 1000);
 }
 
+function updateWhisperRuntimeUi(status = {}) {
+  const label = $('whisper-runtime-status');
+  const button = $('whisper-runtime-install-btn');
+  if (!label || !button) return;
+
+  if (status.ready) {
+    label.textContent = 'Faster Whisper đã sẵn sàng';
+    button.textContent = 'Đã sẵn sàng';
+    button.disabled = true;
+    return;
+  }
+  if (status.downloading || status.status === 'installing') {
+    const percent = Math.max(0, Math.round(Number(status.percent) || 0));
+    label.textContent = status.message || `Đang cài Faster Whisper ${percent}%…`;
+    button.textContent = `Đang tải ${percent}%`;
+    button.disabled = true;
+    return;
+  }
+  if (status.error || status.status === 'error') {
+    label.textContent = status.error || status.message || 'Faster Whisper đang gặp lỗi';
+    button.textContent = 'Thử sửa';
+    button.disabled = false;
+    return;
+  }
+
+  const runtimeMissing = status.state === 'runtime_missing';
+  const corrupt = status.state === 'corrupt';
+  label.textContent = corrupt
+    ? 'Model Whisper bị lỗi'
+    : runtimeMissing && status.exists
+      ? 'Thiếu runtime Faster Whisper'
+      : 'Chưa cài Faster Whisper';
+  button.textContent = corrupt || (runtimeMissing && status.exists) ? 'Cài/sửa Whisper' : 'Tải Whisper';
+  button.disabled = false;
+}
+
 async function checkWhisperModelStatus() {
   const modelSelect = $('whisper-model-select');
   if (!modelSelect) return;
-  const variant = normalizeWhisperOnnxVariant(modelSelect.value);
   const statusLabel = $('whisper-model-status');
   const downloadBtn = $('whisper-model-download-btn');
+  const runtimeDetail = $('whisper-runtime-detail');
 
   try {
-    const res = await fetch(`/api/whisper-model/status?variant=${variant}`);
+    const res = await fetch('/api/whisper-model/status');
     if (!res.ok) throw new Error('Không thể kiểm tra trạng thái model');
     const status = await res.json();
+    updateWhisperRuntimeUi(status);
+    if (runtimeDetail) {
+      runtimeDetail.textContent = status.runtime?.ready
+        ? 'Runtime hệ thống: sẵn sàng · Model: Large V3 Turbo'
+        : status.exists
+          ? 'Model đã có · Thiếu runtime Python/Faster-Whisper'
+          : 'Thiếu runtime và model; nút Cài đặt sẽ tự chuẩn bị cả hai.';
+    }
     
-    if (status.exists) {
+    if (status.ready) {
       if (statusLabel) {
         statusLabel.textContent = 'Đã có sẵn';
         statusLabel.style.color = '#25D366';
@@ -1360,21 +1428,24 @@ async function checkWhisperModelStatus() {
           downloadBtn.textContent = '⏳ Đang tải...';
           downloadBtn.disabled = true;
         }
-        startWhisperStatusPolling(variant);
+        startWhisperStatusPolling();
       } else {
         if (statusLabel) {
-          statusLabel.textContent = status.state === 'corrupt' ? 'Model bị lỗi — cần sửa' : 'Chưa tải';
+          statusLabel.textContent = status.state === 'runtime_missing'
+            ? (status.exists ? 'Thiếu runtime hệ thống' : 'Thiếu runtime và model')
+            : status.state === 'corrupt' ? 'Model bị lỗi — cần sửa' : 'Chưa tải';
           statusLabel.style.color = status.state === 'corrupt' ? '#FF3B30' : '#FFA500';
         }
         if (downloadBtn) {
           downloadBtn.style.display = 'inline-block';
-          downloadBtn.textContent = status.state === 'corrupt' ? '🛠 Sửa model' : '📥 Tải';
+          downloadBtn.textContent = status.state === 'corrupt' ? '🛠 Sửa model' : '📥 Cài đặt';
           downloadBtn.disabled = false;
         }
       }
     }
   } catch (error) {
     console.error('Lỗi checkWhisperModelStatus:', error);
+    updateWhisperRuntimeUi({ status: 'error', error: error.message });
     if (statusLabel) {
       statusLabel.textContent = 'Lỗi kết nối';
       statusLabel.style.color = '#FF3B30';
@@ -1382,28 +1453,104 @@ async function checkWhisperModelStatus() {
   }
 }
 
-async function checkWhisperDeviceStatus() {
+let whisperGpuInstallPromise = null;
+
+function updateWhisperGpuUi(status = {}) {
   const select = $('whisper-device-select');
-  const dmlOption = $('whisper-device-dml-option');
+  const cudaOption = select?.querySelector('option[value="cuda"]');
   const hint = $('whisper-device-hint');
-  if (!select || !dmlOption) return;
-  try {
-    const response = await fetch('/api/whisper-device/status');
-    if (!response.ok) throw new Error('Không thể kiểm tra DirectML');
-    const status = await response.json();
-    dmlOption.disabled = !status.dml;
-    if (!status.dml && select.value === 'dml') select.value = 'cpu';
-    if (hint) {
-      hint.textContent = status.dml
-        ? 'DirectML khả dụng; nếu inference GPU lỗi, Whisper tự chuyển về CPU.'
-        : 'Máy này chỉ dùng CPU cho Whisper.';
-    }
-  } catch (error) {
-    dmlOption.disabled = true;
-    if (select.value === 'dml') select.value = 'cpu';
-    if (hint) hint.textContent = 'Không xác minh được DirectML; đang dùng CPU.';
+  const label = $('whisper-gpu-status');
+  const button = $('whisper-gpu-install-btn');
+  const hybridFill = $('whisper-hybrid-fill');
+  const ready = status.gpuReady === true && status.actualInference === true;
+  const unsupported = status.supported === false;
+  if (cudaOption) cudaOption.disabled = !ready;
+  if (select?.value === 'cuda' && !ready) select.value = 'auto';
+  if (label) label.textContent = status.message || (ready
+    ? 'Large V3 Turbo CUDA đã chạy thật'
+    : 'Whisper đang dùng CPU; có thể cài tăng tốc GPU.');
+  if (hint) hint.textContent = ready
+    ? `${status.gpuName || 'NVIDIA GPU'} · CUDA int8_float16 đã được xác minh bằng inference thật.`
+    : 'Tự động sẽ dùng CPU int8 cho đến khi kiểm thử CUDA thành công.';
+  if (hybridFill) {
+    hybridFill.disabled = !ready;
+    if (!ready) hybridFill.checked = false;
+    hybridFill.title = ready
+      ? 'Chỉ chạy Whisper khi RapidOCR có khoảng trống lớn bất thường.'
+      : 'Cần xác minh Faster Whisper CUDA trước khi bật bù OCR.';
+  }
+  if (button) {
+    button.disabled = status.installing || status.runtimeReady === false || status.modelReady === false || unsupported;
+    button.textContent = status.installing
+      ? `Đang cài ${Math.round(Number(status.percent) || 0)}%`
+      : ready ? 'Kiểm tra lại'
+        : unsupported ? (status.reason === 'driver_too_old' ? 'Driver quá cũ' : 'GPU không hỗ trợ')
+          : status.runtimeReady === false || status.modelReady === false
+            ? 'Cài Whisper trước' : 'Cài/sửa GPU';
   }
 }
+
+async function checkWhisperDeviceStatus() {
+  try {
+    const response = await fetch('/api/whisper-gpu/status');
+    const status = await response.json();
+    if (!response.ok) throw new Error(status.error || 'Không thể kiểm tra Whisper GPU');
+    updateWhisperGpuUi(status);
+    return status;
+  } catch (error) {
+    updateWhisperGpuUi({ status: 'error', message: error.message, gpuReady: false });
+    return null;
+  }
+}
+
+async function installWhisperGpu() {
+  if (whisperGpuInstallPromise) return whisperGpuInstallPromise;
+  whisperGpuInstallPromise = (async () => {
+    const response = await fetch('/api/whisper-gpu/install', { method: 'POST' });
+    const started = await response.json();
+    if (!response.ok) throw new Error(started.error || 'Không bắt đầu được cài Whisper GPU.');
+    updateWhisperGpuUi(started);
+    toast('Đang cài/sửa CUDA cho Whisper. CPU vẫn được giữ làm đường dự phòng.', 'info');
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const poll = await fetch('/api/whisper-gpu/status');
+      const status = await poll.json();
+      if (!poll.ok) throw new Error(status.error || 'Không đọc được tiến trình Whisper GPU.');
+      updateWhisperGpuUi(status);
+      if (!status.installing) {
+        if (status.gpuReady && status.actualInference) {
+          toast('Whisper GPU đã sẵn sàng và Large V3 Turbo đã chạy CUDA thật.', 'success');
+          return status;
+        }
+        if (status.status === 'error') throw new Error(status.error || status.message || 'Cài Whisper GPU thất bại.');
+        toast(status.message || 'Không bật được GPU; Whisper tiếp tục chạy CPU.', 'warn');
+        return status;
+      }
+    }
+    throw new Error('Cài Whisper GPU quá thời gian chờ.');
+  })();
+  try {
+    return await whisperGpuInstallPromise;
+  } finally {
+    whisperGpuInstallPromise = null;
+  }
+}
+
+$('whisper-gpu-install-btn')?.addEventListener('click', () => {
+  installWhisperGpu().catch(error => toast(error.message, 'error'));
+});
+
+$('whisper-runtime-install-btn')?.addEventListener('click', () => {
+  ensureFasterWhisperReady({ openModal: true })
+    .then(async () => {
+      await checkWhisperModelStatus();
+      await checkWhisperDeviceStatus();
+    })
+    .catch(error => {
+      updateWhisperRuntimeUi({ status: 'error', error: error.message });
+      toast(error.message, 'error');
+    });
+});
 
 checkWhisperDeviceStatus();
 

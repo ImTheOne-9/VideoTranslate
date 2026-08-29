@@ -10,12 +10,15 @@ const axios = require('axios');
 
 const shared = require('./lib/shared-state');
 const { DownloadCrawlManager } = require('./lib/download-crawl-manager');
+const { SourceChannelManager } = require('./lib/source-channel-manager');
 const douyinExtractor = require('./lib/douyin-extractor');
 const platformBrowserExtractor = require('./lib/platform-browser-extractor');
 const { MediaCrawlerAdapter } = require('./lib/mediacrawler-adapter');
 const { ProjectYtDlpAdapter } = require('./lib/project-ytdlp-adapter');
-const { CrawlerRuntimeManager } = require('./lib/crawler-runtime-manager');
+const { systemRuntimeManager: crawlerRuntimeManager } = require('./lib/system-runtime-manager');
+const { PiperRuntimeManager } = require('./lib/piper-runtime-manager');
 const { OcrGpuManager } = require('./lib/ocr-gpu-manager');
+const { WhisperGpuManager } = require('./lib/whisper-gpu-manager');
 const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
 
@@ -41,9 +44,15 @@ function createCookieSyncResolver(platform) {
 
 const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
-const crawlerRuntimeManager = new CrawlerRuntimeManager();
+const piperRuntimeManager = new PiperRuntimeManager();
 const ocrGpuManager = new OcrGpuManager({
-  runtimeReady: () => crawlerRuntimeManager.ready(),
+  runtimeReady: () => crawlerRuntimeManager.ready('ocr'),
+  isBusy: () => shared.state.isStudioRendering === true
+});
+const whisperGpuManager = new WhisperGpuManager({
+  modelsDir: shared.MODELS_DIR,
+  runtimeReady: () => crawlerRuntimeManager.ready('asr'),
+  modelReady: () => require('./lib/model-downloader').getFasterWhisperReadiness(shared.MODELS_DIR).exists,
   isBusy: () => shared.state.isStudioRendering === true
 });
 
@@ -58,6 +67,26 @@ function createProjectYtDlpPreviewResolver(platform) {
   return ({ input, count, mode, sort, timeDays, onLog }) => projectYtDlp.preview({
     platform, input, count, mode, sort, timeDays, onLog
   });
+}
+
+async function previewDouyinDetail({ input, onLog }) {
+  const sourceUrl = String(input || '').split(/[\n,]+/).map((value) => value.trim()).find(Boolean) || '';
+  const info = await douyinExtractor.getDouyinVideoInfo(sourceUrl, onLog || (() => {}));
+  const best = (info.formats || [])
+    .filter((format) => format.format === 'mp4' && format.src)
+    .sort((a, b) => Number(b.height || 0) - Number(a.height || 0))[0];
+  if (!best) throw new Error('Không tìm thấy luồng MP4 Douyin.');
+  return [{
+    id: sourceUrl.match(/\/video\/(\d+)/i)?.[1] || '',
+    title: info.title || 'Douyin Video',
+    uploader: info.author || '',
+    thumbnail: info.thumbnail || '',
+    duration: Number(info.duration) || 0,
+    sourceUrl,
+    url: best.src,
+    resolvedDownload: true,
+    engine: 'Douyin BrowserWindow'
+  }];
 }
 
 const downloadCrawlManager = new DownloadCrawlManager({
@@ -79,11 +108,16 @@ const downloadCrawlManager = new DownloadCrawlManager({
     'bilibili:detail': createMediaCrawlerPreviewResolver('bilibili'),
     'xiaohongshu:search': createMediaCrawlerPreviewResolver('xiaohongshu'),
     'xiaohongshu:creator': createMediaCrawlerPreviewResolver('xiaohongshu'),
+    'xiaohongshu:detail': createMediaCrawlerPreviewResolver('xiaohongshu'),
     'rednote:search': createMediaCrawlerPreviewResolver('rednote'),
     'rednote:creator': createMediaCrawlerPreviewResolver('rednote'),
+    'rednote:detail': createMediaCrawlerPreviewResolver('rednote'),
     'weibo:search': createMediaCrawlerPreviewResolver('weibo'),
     'weibo:creator': createMediaCrawlerPreviewResolver('weibo'),
     'weibo:detail': createMediaCrawlerPreviewResolver('weibo')
+  },
+  anonymousPreviewResolvers: {
+    'douyin:detail': previewDouyinDetail
   },
   downloadResolvers: {
     douyin: async (task) => {
@@ -104,7 +138,7 @@ const downloadCrawlManager = new DownloadCrawlManager({
         .map((platform) => [platform, (config, hooks) => mediaCrawler.crawl(config, hooks)]))
       : {}),
     ...(projectYtDlp.status().available
-      ? Object.fromEntries(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit']
+      ? Object.fromEntries(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'bilitv']
         .map((platform) => [platform, (config, hooks) => projectYtDlp.crawl(config, hooks)]))
       : {})
   },
@@ -130,6 +164,7 @@ const RATE_LIMIT_EXEMPT_PATHS = new Set([
   '/api/mdx-cuda-component/download-status',
   '/api/download-crawl/status',
   '/api/rapidocr-gpu/status',
+  '/api/whisper-gpu/status',
   '/api/proxy-image',
   '/api/update-status'
 ]);
@@ -390,15 +425,51 @@ app.get('/api/download-crawl/capabilities', (req, res) => {
   res.json({ platforms: downloadCrawlManager.capabilities(), engine: mediaCrawler.status(), engines: [mediaCrawler.status(), projectYtDlp.status()] });
 });
 app.get('/api/download-crawl/engine-status', (req, res) => res.json({ mediaCrawler: mediaCrawler.status(), projectYtDlp: projectYtDlp.status() }));
-app.get('/api/download-crawl/runtime-status', (req, res) => res.json(crawlerRuntimeManager.status()));
+app.get('/api/system-runtime/status', (req, res) => {
+  res.json(crawlerRuntimeManager.status(String(req.query.capability || 'crawler')));
+});
+const sourceChannelManager = new SourceChannelManager({
+  crawlManager: downloadCrawlManager,
+  storePath: path.join(shared.DOWNLOADS_DIR, '.source-channels.json')
+});
+sourceChannelManager.start();
+app.post('/api/system-runtime/install', (req, res) => {
+  try {
+    const capability = String(req.body?.capability || 'crawler');
+    const result = crawlerRuntimeManager.install(capability, (message, level) => {
+      downloadCrawlManager._log(`[System Runtime] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không thể cài bộ công cụ hệ thống.' });
+  }
+});
+app.get('/api/download-crawl/runtime-status', (req, res) => res.json(crawlerRuntimeManager.status('crawler')));
 app.post('/api/download-crawl/runtime-install', (req, res) => {
   try {
-    const result = crawlerRuntimeManager.install((message, level) => {
+    const result = crawlerRuntimeManager.install('crawler', (message, level) => {
       downloadCrawlManager._log(`[Runtime] ${message}`, level);
     });
     res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Không thể cài runtime crawler.' });
+    res.status(500).json({ error: error.message || 'Không thể thiết lập công cụ cào nâng cao.' });
+  }
+});
+app.get('/api/piper-runtime/status', (req, res) => {
+  try {
+    res.json(piperRuntimeManager.status());
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không kiểm tra được Piper.' });
+  }
+});
+app.post('/api/piper-runtime/install', (req, res) => {
+  try {
+    const result = piperRuntimeManager.install({ force: req.body?.force === true }, (message, level) => {
+      downloadCrawlManager._log(`[Piper Runtime] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyReady || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không thể cài hoặc sửa Piper.' });
   }
 });
 app.get('/api/rapidocr-gpu/status', async (req, res) => {
@@ -418,9 +489,28 @@ app.post('/api/rapidocr-gpu/install', (req, res) => {
     res.status(error.code === 'OCR_GPU_BUSY' ? 409 : 400).json({ error: error.message });
   }
 });
+app.get('/api/whisper-gpu/status', async (req, res) => {
+  try {
+    res.json(await whisperGpuManager.refresh());
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Không kiểm tra được Whisper GPU.' });
+  }
+});
+app.post('/api/whisper-gpu/install', (req, res) => {
+  try {
+    const result = whisperGpuManager.install((message, level) => {
+      downloadCrawlManager._log(`[Whisper GPU] ${message}`, level);
+    });
+    res.status(result.started || result.alreadyRunning ? 202 : 200).json(result);
+  } catch (error) {
+    res.status(error.code === 'WHISPER_GPU_BUSY' ? 409 : 400).json({ error: error.message });
+  }
+});
 app.post('/api/download-crawl/preview', async (req, res) => {
   try {
-    res.json(await downloadCrawlManager.preview(req.body || {}));
+    const result = await downloadCrawlManager.preview(req.body || {});
+    sourceChannelManager.discoverFromItems(result.items);
+    res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Không lấy được danh sách video.' });
   }
@@ -438,6 +528,7 @@ app.post('/api/download-crawl/preview-stream', async (req, res) => {
     const result = await downloadCrawlManager.preview(req.body || {}, {
       onItem: (item) => write({ type: 'item', item })
     });
+    sourceChannelManager.discoverFromItems(result.items);
     write({ type: 'result', data: result });
   } catch (error) {
     write({ type: 'error', error: error.message || 'Không lấy được danh sách video.' });
@@ -458,6 +549,26 @@ app.post('/api/download-crawl/enqueue-job', (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error.message || 'Không thêm được job cào.' });
   }
+});
+app.get('/api/source-channels', (req, res) => res.json({ channels: sourceChannelManager.list() }));
+app.post('/api/source-channels', (req, res) => {
+  try { res.json({ success: true, channel: sourceChannelManager.add(req.body || {}) }); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.delete('/api/source-channels/:id', (req, res) => {
+  res.json({ success: sourceChannelManager.remove(String(req.params.id || '')) });
+});
+app.post('/api/source-channels/:id/schedule', (req, res) => {
+  try { res.json({ success: true, channel: sourceChannelManager.updateSchedule(String(req.params.id), req.body || {}) }); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.post('/api/source-channels/:id/refresh', async (req, res) => {
+  try { res.json({ success: true, channel: await sourceChannelManager.refresh(String(req.params.id), req.body?.count) }); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.post('/api/source-channels/:id/run', (req, res) => {
+  try { res.json({ success: true, ...sourceChannelManager.runNow(String(req.params.id), req.body?.count) }); }
+  catch (error) { res.status(400).json({ error: error.message }); }
 });
 app.get('/api/download-crawl/status', (req, res) => {
   res.json(downloadCrawlManager.snapshot());
@@ -494,7 +605,7 @@ app.get('/api/download-crawl/login-status', async (req, res) => {
     ? await mediaCrawler.checkLogins(browserPlatforms)
     : Object.fromEntries(await Promise.all(browserPlatforms.map(async (platform) => [platform, await platformBrowserExtractor.loginStatus(platform)])));
   const projectStates = projectYtDlp.status().available
-    ? await projectYtDlp.checkLogins(['tiktok', 'facebook', 'instagram', 'twitter'])
+    ? await projectYtDlp.checkLogins(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter'])
     : {};
   const loginState = (platform, hasCookie = false) => browserStates[platform] === 'in'
     ? 'in'
@@ -506,7 +617,7 @@ app.get('/api/download-crawl/login-status', async (req, res) => {
       xiaohongshu: loginState('xiaohongshu', cookies.xiaohongshu),
       rednote: loginState('rednote', cookies.rednote),
       weibo: loginState('weibo', cookies.weibo),
-      youtube: 'na',
+      youtube: projectStates.youtube === 'in' ? 'in' : 'out',
       tiktok: projectStates.tiktok || 'out',
       facebook: projectStates.facebook === 'in' ? 'in' : 'na',
       instagram: projectStates.instagram === 'in' ? 'in' : 'out',
@@ -520,13 +631,17 @@ app.post('/api/download-crawl/login', async (req, res) => {
     const platform = String(req.body?.platform || '');
     const result = mediaCrawler.supports(platform) && mediaCrawler.status().available
       ? mediaCrawler.openLogin(platform)
-      : projectYtDlp.needsLogin(platform) && projectYtDlp.status().available
+      : projectYtDlp.supportsLogin(platform) && projectYtDlp.status().available
         ? projectYtDlp.openLogin(platform)
       : await platformBrowserExtractor.openLogin(platform);
     res.json({ success: true, engine: result?.engine || 'browser', message: `Đã mở cửa sổ đăng nhập ${platform}. Đăng nhập xong có thể đóng cửa sổ.` });
   } catch (error) {
     res.status(503).json({ error: error.message || 'Không mở được cửa sổ đăng nhập.' });
   }
+});
+app.post('/api/download-crawl/resume-login', (req, res) => {
+  const platform = String(req.body?.platform || '').toLowerCase();
+  res.json({ success: true, count: downloadCrawlManager.resumeAfterLogin(platform) });
 });
 app.post('/api/download-crawl/translate-keywords', async (req, res) => {
   try {

@@ -254,7 +254,7 @@
               <div class="panel-head crawl-now-heading">
                 <div>
                   <h3>⚡ Cào ngay — tải video về máy</h3>
-                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Cài bộ cào</button></span>
+                  <span>Chọn nền tảng, cách cào và xem trước video trước khi tải. <b id="crawl-engine-badge" class="crawl-engine-badge">Đang kiểm tra engine…</b> <button type="button" id="crawl-runtime-install-btn" class="crawl-link-btn hidden" onclick="crawlInstallRuntime()">Thiết lập công cụ hệ thống</button></span>
                 </div>
                 <span class="crawl-now-status-pill" id="crawl-now-ready">Sẵn sàng</span>
               </div>
@@ -279,6 +279,7 @@
                 <button type="button" class="crawl-platform" data-platform="tiktok"><b>♪</b><span>TikTok</span><small id="crawl-count-tiktok">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="douyin"><b>抖</b><span>Douyin</span><small id="crawl-count-douyin">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="bilibili"><b>哔</b><span>Bilibili</span><small id="crawl-count-bilibili">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="bilitv"><b>TV</b><span>BiliTV</span><small id="crawl-count-bilitv">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="xiaohongshu"><b>小</b><span>Xiaohongshu</span><small id="crawl-count-xiaohongshu">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="rednote"><b>小</b><span>RedNote</span><small id="crawl-count-rednote">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="facebook"><b>f</b><span>Facebook</span><small id="crawl-count-facebook">0 đã cào</small></button>
@@ -1329,17 +1330,28 @@
                       </div>
 
 
-                      <div class="form-group ocr-engine-settings">
-                        <label for="ocr-language-select">Ngôn ngữ chữ gốc</label>
-                        <select id="ocr-language-select" name="ocrLanguage" class="premium-select">
-                          <option value="">Chọn ngôn ngữ...</option>
+                      <div class="form-group">
+                        <label for="source-language-select">Ngôn ngữ nguồn</label>
+                        <select id="source-language-select" name="sourceLanguage" class="premium-select">
+                          <option value="auto" selected>Tự động phát hiện — âm thanh + chữ trên hình</option>
                           <option value="ch">Trung</option>
                           <option value="vi">Việt</option>
                           <option value="en">Anh</option>
                           <option value="japan">Nhật</option>
                           <option value="korean">Hàn</option>
+                          <option value="th">Thái</option>
+                          <option value="id">Indonesia</option>
+                          <option value="es">Tây Ban Nha</option>
+                          <option value="fr">Pháp</option>
+                          <option value="de">Đức</option>
+                          <option value="ru">Nga</option>
+                          <option value="pt">Bồ Đào Nha</option>
+                          <option value="it">Ý</option>
                         </select>
+                        <span class="form-hint whisper-compact-hint">Tự động kiểm tra hardsub Trung bằng RapidOCR, ưu tiên CapCut ASR online và lùi Faster Whisper local khi cần.</span>
                       </div>
+                      <input type="hidden" id="ocr-language-select" name="ocrLanguage" value="auto">
+                      <input type="hidden" id="whisper-language-select" name="whisperLanguage" value="auto">
                       <div class="form-group ocr-engine-settings">
                         <label for="ocr-pipeline-value">Bộ OCR</label>
                         <select id="ocr-pipeline-value" name="ocrPipeline" class="premium-select">
@@ -1365,18 +1377,6 @@
                           </div>
                         </div>
                       </div>
-                      <div class="form-group whisper-engine-settings">
-                        <label for="whisper-language-select">Ngôn ngữ lời nói Whisper</label>
-                        <select id="whisper-language-select" name="whisperLanguage" class="premium-select">
-                          <option value="auto">Tự động phát hiện</option>
-                          <option value="ch">Trung</option>
-                          <option value="vi">Việt</option>
-                          <option value="en">Anh</option>
-                          <option value="japan">Nhật</option>
-                          <option value="korean">Hàn</option>
-                        </select>
-                        <span class="form-hint">Chọn thủ công khi bạn biết chắc ngôn ngữ để tăng độ ổn định.</span>
-                      </div>
                       <div class="form-group whisper-engine-settings" style="display: none !important;">
                         <label for="whisper-timestamp-level">Độ chi tiết timestamp</label>
                         <select id="whisper-timestamp-level" name="whisperTimestampLevel" class="premium-select">
@@ -1386,13 +1386,43 @@
                         <span class="form-hint">Chế độ theo từ lưu timing từng từ trong file metadata nhưng vẫn tạo SRT dễ đọc.</span>
                       </div>
                       <div class="form-group whisper-engine-settings" style="display: none !important;">
+                        <label for="whisper-backend-select">Bộ máy Whisper</label>
+                        <select id="whisper-backend-select" name="whisperBackend" class="premium-select">
+                          <option value="faster-whisper" selected>Faster Whisper Large V3 Turbo</option>
+                        </select>
+                      </div>
+                      <div class="form-group whisper-engine-settings">
                         <label for="whisper-device-select">Thiết bị Whisper</label>
                         <select id="whisper-device-select" name="whisperDevice" class="premium-select">
-                          <option value="cpu" selected>CPU — ổn định</option>
-                          <option value="auto">Tự động — ưu tiên DirectML</option>
-                          <option value="dml" id="whisper-device-dml-option">DirectML GPU</option>
+                          <option value="auto" selected>Tự động — ưu tiên CUDA</option>
+                          <option value="cuda">CUDA GPU</option>
+                          <option value="cpu">CPU — Large V3 Turbo int8</option>
                         </select>
-                        <span id="whisper-device-hint" class="form-hint">Đang kiểm tra DirectML...</span>
+                        <span id="whisper-device-hint" class="form-hint whisper-compact-hint">Đang kiểm tra CUDA bằng inference thật...</span>
+                        <div id="whisper-runtime-row" class="rapidocr-mini-card">
+                          <div class="rapidocr-mini-row">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-status-dot"></span>
+                              <span id="whisper-runtime-status" class="rapidocr-status-text">Đang kiểm tra Faster Whisper...</span>
+                            </div>
+                            <button type="button" id="whisper-runtime-install-btn" class="mini-pill-btn">Tải Whisper</button>
+                          </div>
+                          <div id="whisper-gpu-row" class="rapidocr-mini-row rapidocr-gpu-divider">
+                            <div class="rapidocr-status-wrap">
+                              <span class="rapidocr-gpu-dot"></span>
+                              <span id="whisper-gpu-status" class="rapidocr-status-text">Đang kiểm tra Whisper GPU...</span>
+                            </div>
+                            <button type="button" id="whisper-gpu-install-btn" class="mini-pill-btn">Cài/sửa GPU</button>
+                          </div>
+                          <label class="rapidocr-mini-row rapidocr-gpu-divider whisper-gap-fill-option">
+                            <span class="rapidocr-status-text">Whisper bù đoạn OCR thiếu (chỉ khi GPU sẵn sàng)</span>
+                            <input type="checkbox" id="whisper-hybrid-fill" name="whisperHybridFill" value="true">
+                          </label>
+                          <label class="rapidocr-mini-row rapidocr-gpu-divider whisper-gap-fill-option">
+                            <span class="rapidocr-status-text">Ưu tiên CapCut ASR online <small>(audio được tải lên CapCut)</small></span>
+                            <input type="checkbox" id="capcut-asr-enabled" name="capcutAsrEnabled" value="true" checked>
+                          </label>
+                        </div>
                       </div>
                       <details class="ocr-region-details ocr-engine-settings ocr-region-settings">
                         <summary>Vùng nhận dạng nâng cao</summary>
@@ -1936,8 +1966,9 @@
                           <label>Engine giọng nói</label>
                           <select id="voice-engine-select" name="voiceEngine" class="premium-select">
                             <option value="piper">Piper (Offline)</option>
-                            <option value="current-omnivoice">OmniVoice Clone</option>
+                            <option value="current-omnivoice">OmniVoice Clone (Python Batch)</option>
                             <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
+                            <option value="capcut-tts">CapCut TTS (Online - không cần tài khoản)</option>
                           </select>
                           <div id="voice-engine-capabilities"
                             style="font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45;">
@@ -1945,6 +1976,20 @@
                           </div>
                           <button type="button" id="voice-runtime-install-btn" class="secondary-btn hidden"
                             style="margin-top: 8px; width: 100%;">Cài Piper offline</button>
+                        </div>
+                        <div class="form-group">
+                          <label for="voice-speed-select">Tốc độ giọng chung</label>
+                          <select id="voice-speed-select" name="voiceSpeed" class="premium-select">
+                            <option value="0.85">0.85× · Chậm</option>
+                            <option value="0.90">0.90×</option>
+                            <option value="1" selected>1.00× · Tự nhiên</option>
+                            <option value="1.05">1.05×</option>
+                            <option value="1.10">1.10×</option>
+                            <option value="1.15">1.15× · Nhanh tối đa an toàn</option>
+                          </select>
+                          <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
+                            Áp dụng thống nhất cho Edge, Piper, CapCut và OmniVoice trước Smart Fit.
+                          </p>
                         </div>
                         <div class="form-group" id="edge-voice-group" style="display: none;">
                           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
@@ -1965,16 +2010,8 @@
                             <option value="es-ES-ElviraNeural">Elvira (Nữ - Tiếng Tây Ban Nha)</option>
                             <option value="ru-RU-SvetlanaNeural">Svetlana (Nữ - Tiếng Nga)</option>
                           </select>
-                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-                            <div>
-                              <label for="edge-rate-select">Tốc độ đọc</label>
-                              <select id="edge-rate-select" name="edgeRate" class="premium-select">
-                                <option value="-25%">Chậm</option>
-                                <option value="+0%" selected>Bình thường</option>
-                                <option value="+25%">Nhanh</option>
-                                <option value="+50%">Rất nhanh</option>
-                              </select>
-                            </div>
+                          <input type="hidden" id="edge-rate-select" name="edgeRate" value="+0%">
+                          <div style="margin-top: 8px;">
                             <div>
                               <label for="edge-pitch-select">Cao độ</label>
                               <select id="edge-pitch-select" name="edgePitch" class="premium-select">
@@ -1984,6 +2021,19 @@
                               </select>
                             </div>
                           </div>
+                        </div>
+                        <div class="form-group" id="capcut-voice-group" style="display: none;">
+                          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Chọn giọng CapCut</label>
+                            <button type="button" id="preview-capcut-voice-btn" class="voice-item-play-btn" onclick="previewEngineVoice('capcut-tts')" style="padding: 2px 10px; font-size: 11px; height: 26px; border-radius: 6px;">🔊 Nghe thử</button>
+                          </div>
+                          <select id="capcut-voice-select" name="capcutVoice" class="premium-select">
+                            <option value="BV074_streaming">Cô Gái Hoạt Ngôn</option>
+                            <option value="BV075_streaming">Thanh Niên Tự Tin</option>
+                          </select>
+                          <p style="font-size: 11px; color: var(--muted); margin: 5px 0 0;">
+                            Giọng online theo lô; cue lỗi được cứu lần lượt bằng Piper rồi Edge cùng giới tính.
+                          </p>
                         </div>
                         <div class="form-group" id="piper-voice-group" style="display: none;">
                           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
@@ -2030,17 +2080,24 @@
                               <option value="vi-VN-HoaiMyNeural">Nữ: Hoài My</option>
                             </select>
                           </div>
+                          <div id="omnivoice-dual-voices" style="display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                            <select name="omnivoiceMaleVoice" class="premium-select" aria-label="Giọng mẫu OmniVoice nam">
+                              <option value="">Nam: dùng giọng mẫu chính</option>
+                            </select>
+                            <select name="omnivoiceFemaleVoice" class="premium-select" aria-label="Giọng mẫu OmniVoice nữ">
+                              <option value="">Nữ: dùng giọng mẫu chính</option>
+                            </select>
+                          </div>
                         </div>
                         <div class="form-group" id="voice-device-group">
                           <label>Thiết bị xử lý</label>
                           <select name="omiDevice" class="premium-select">
-                            <option value="cpu">CPU</option>
-                            <option value="vulkan:0" selected>Card đồ họa GPU (Vulkan)</option>
+                            <option value="cuda:0" selected>NVIDIA GPU (CUDA)</option>
                           </select>
                         </div>
                       </div>
 
-                      <label class="premium-switch" id="voice-cpu-fallback-group" style="margin-top: 8px;">
+                      <label class="premium-switch hidden" id="voice-cpu-fallback-group" style="margin-top: 8px;">
                         <input type="checkbox" id="voice-allow-cpu-fallback" name="voiceAllowCpuFallback" value="true">
                         <span class="switch-slider"></span>
                         <span class="switch-label">Cho phép chuyển sang CPU nếu GPU lỗi</span>
@@ -2961,8 +3018,8 @@
             <div id="cloner-ref-preview" class="hidden" style="margin-top: 6px;">
               <audio id="cloner-ref-audio-player" controls style="width: 100%; height: 36px;"></audio>
             </div>
-            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Chọn file ghi âm ngắn (5-30 giây) làm
-              chất liệu clone giọng.</p>
+            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Mẫu quá 12 giây sẽ được rút về khoảng 10 giây tại chỗ lặng gần nhất
+              để clone ổn định và nhanh hơn.</p>
           </div>
           <div class="form-group" id="cloner-reference-text-group" style="margin-bottom: 10px;">
             <label style="margin: 0 0 6px 0;">Nội dung trong file ghi âm (kịch bản mẫu)</label>
@@ -2973,7 +3030,7 @@
             <label for="cloner-voice-engine-select" style="margin: 0 0 6px 0;">Engine giọng nói</label>
             <select id="cloner-voice-engine-select" class="premium-select" style="margin: 0 0 8px 0;"
               aria-label="Engine giọng nói">
-              <option value="current-omnivoice">OmniVoice hiện tại</option>
+              <option value="current-omnivoice">OmniVoice Clone (Python Batch)</option>
               <option value="edge-tts">Edge TTS (Microsoft Cloud - Siêu nhẹ)</option>
             </select>
             <div id="cloner-edge-settings" class="hidden">
@@ -2993,8 +3050,7 @@
             <div id="cloner-device-group">
               <label for="cloner-device" style="margin: 0 0 6px 0;">Thiết bị xử lý</label>
               <select id="cloner-device" class="premium-select" style="margin: 0;">
-                <option value="cpu">CPU (Mặc định)</option>
-                <option value="vulkan:0">Card đồ họa GPU (Vulkan)</option>
+                <option value="cuda:0">NVIDIA GPU (CUDA)</option>
               </select>
             </div>
           </div>
@@ -3247,8 +3303,8 @@
       </div>
       <div class="fb-modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
         <p style="margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5;">
-          Hệ thống sẽ tải xuống bộ xử lý giọng nói <strong>omnivoice-q8_0.gguf</strong> (~1.4GB) từ HuggingFace trực
-          tiếp vào thư mục lưu trữ của phần mềm.
+          Hệ thống sẽ tạo môi trường Python riêng, cài PyTorch CUDA và tải model
+          <strong>k2-fsa/OmniVoice</strong>. Runtime được lưu trong dữ liệu người dùng và không bị mất khi cập nhật ứng dụng.
         </p>
 
         <div
@@ -3265,13 +3321,13 @@
           </div>
 
           <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);">
-            <span>Kích thước: ~1.40 GB</span>
-            <span id="model-download-bytes-label">0 MB / 1400 MB</span>
+            <span>Kích thước dự kiến: 3–6 GB</span>
+            <span id="model-download-bytes-label">Theo tiến trình cài đặt</span>
           </div>
         </div>
 
         <p style="margin: 0; color: var(--danger); font-size: 11px; font-weight: 500; text-align: center;">
-          ⚠️ Vui lòng không tắt phần mềm hoặc ngắt kết nối internet trong lúc tải.
+          ⚠️ Yêu cầu GPU NVIDIA và driver hoạt động. Không tắt phần mềm hoặc ngắt mạng trong lúc cài.
         </p>
 
         <div style="display: flex; gap: 10px; width: 100%; margin-top: 10px;">
@@ -3297,8 +3353,8 @@
       </div>
       <div class="fb-modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
         <p style="margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5;">
-          Đang chuẩn bị tải xuống model phụ đề AI <strong id="whisper-download-model-name"></strong> từ máy chủ lưu vào
-          máy tính của bạn.
+          Tải model nhận diện giọng nói <strong id="whisper-download-model-name">FASTER-WHISPER LARGE V3 TURBO</strong>
+          từ Hugging Face và lưu vào thư mục model của phần mềm.
         </p>
 
         <div
@@ -3624,14 +3680,13 @@
             </label>
             <div style="display: flex; gap: 8px;">
               <select id="whisper-model-select" class="premium-select" style="flex: 1; margin: 0; height: 38px;">
-                <option value="medium-q8" selected>Whisper Medium Q8 (ONNX - 944 MB - Mặc định)</option>
+                <option value="large-v3-turbo" selected>Faster-Whisper Large V3 Turbo (1,51 GB)</option>
               </select>
               <button type="button" id="whisper-model-download-btn" class="premium-render-btn"
                 style="width: auto; margin: 0; padding: 0 16px; font-size: 12px; height: 38px; display: none;"
                 onclick="openWhisperDownloadModal()">📥 Tải</button>
             </div>
-            <p style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Dùng để tự động nhận diện và trích xuất
-              phụ đề từ âm thanh video.</p>
+            <p id="whisper-runtime-detail" style="font-size: 11px; color: var(--muted); margin: 4px 0 0 0;">Hệ thống tự kiểm tra Python runtime, Faster-Whisper và model trước khi render.</p>
           </div>
 
           <!-- OCR Mode Configuration -->
@@ -4029,7 +4084,7 @@
               <div style="font-size: 14px; font-weight: 700; color: var(--text);">🎙️ Công cụ nhận diện giọng nói
                 Whisper</div>
               <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0; line-height: 1.4;">
-                Nhận diện giọng nói và tự động tạo phụ đề từ video. Dung lượng ~944MB (Whisper Medium Q8).
+                Faster-Whisper Large V3 Turbo nhận diện chính xác bằng CUDA hoặc CPU. Dung lượng khoảng 1,51 GB.
               </p>
             </div>
             <button type="button" id="setup-whisper-btn" class="premium-render-btn"

@@ -1,0 +1,3696 @@
+{
+  "schemaVersion": 1,
+  "source": "ViralCrawl curated CapCut catalog 2026-08-22",
+  "voiceCount": 459,
+  "defaultsByLanguage": {
+    "vi": "BV074_streaming",
+    "en": "pNInz6obpgDQGcFmaJgB",
+    "ja": "ICL_ja_female_zhiyu",
+    "zh": "BV452_streaming",
+    "es": "sKgg4MPUDBy69X7iv3fA",
+    "id": "id_female_icha_uranus_bigtts",
+    "th": "BV421_thth_streaming_vibrato_dsp",
+    "pt": "DiT_pt_male_wenrou",
+    "fr": "j9RedbMRSNQ74PyikQwD",
+    "de": "DiT_de_male_koubo",
+    "ar": "BV570_streaming",
+    "it": "BV087_streaming",
+    "ko": "kr_004",
+    "ru": "BV068_streaming",
+    "tr": "BV083_streaming"
+  },
+  "voices": [
+    {
+      "id": "BV074_streaming",
+      "name": "Cô Gái Hoạt Ngôn",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7102355709945188865",
+      "provider": "sami"
+    },
+    {
+      "id": "BV075_streaming",
+      "name": "Thanh Niên Tự Tin",
+      "lang": "vi",
+      "gender": "male",
+      "resourceId": "7102355803792740865",
+      "provider": "sami"
+    },
+    {
+      "id": "BV421_vivn_streaming",
+      "name": "Nhỏ Ngọt Ngào",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7252594014782755330",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_richgirl_uranus_bigtts",
+      "name": "Review Phim new",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637460351541447956",
+      "provider": "sami"
+    },
+    {
+      "id": "vi_female_huong",
+      "name": "Giọng Nữ Phổ Thông",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7264854897953083905",
+      "provider": "sami"
+    },
+    {
+      "id": "BV074_streaming_dsp",
+      "name": "Giọng Bé",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7550087831092251920",
+      "provider": "sami"
+    },
+    {
+      "id": "BV075_streaming_vibrato_dsp",
+      "name": "Việt Méo",
+      "lang": "vi",
+      "gender": "male",
+      "resourceId": "7569450639810465040",
+      "provider": "sami"
+    },
+    {
+      "id": "BV562_streaming",
+      "name": "Mai",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7483736254694035984",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_yangguangnv_uranus_bigtts",
+      "name": "Ban Mai",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637456432522218773",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_quanweinv_uranus_bigtts",
+      "name": "Bản Tin 1",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637458743197732117",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_stokie_uranus_bigtts",
+      "name": "Review Phim 4",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637456729696996628",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_sisi_uranus_bigtts",
+      "name": "Bản Tin nữ",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637455857285860629",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_daqi_uranus_bigtts",
+      "name": "Review Phim 3",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637451983389019409",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_xyf04auto_uranus_bigtts",
+      "name": "Review Phim 2",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637458743197732117",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_kiwi_uranus_bigtts",
+      "name": "Sunny Idol",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637457995882089749",
+      "provider": "sami"
+    },
+    {
+      "id": "BV075_streaming_demon_dsp",
+      "name": "Kenny Đại Đế",
+      "lang": "vi",
+      "gender": "male",
+      "resourceId": "7569442422665661712",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_male_felipe_uranus_bigtts",
+      "name": "Felipe (nữ)",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637456729696996628",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_peiqi_uranus_bigtts",
+      "name": "Giọng Gái Mới Lớn",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637458789033151751",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_xinwenjieshuo_uranus_bigtts",
+      "name": "Bản Tin 2",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637455039719640327",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_tianmeijieshuo_uranus_bigtts",
+      "name": "Thuyết Minh Ngọt",
+      "lang": "vi",
+      "gender": "female",
+      "resourceId": "7637460417295469832",
+      "provider": "sami"
+    },
+    {
+      "id": "BV560_streaming",
+      "name": "Alex Đại Đế",
+      "lang": "vi",
+      "gender": "male",
+      "resourceId": "7483736167565758992",
+      "provider": "sami"
+    },
+    {
+      "id": "BV075_streaming_robot_dsp",
+      "name": "Robot VN",
+      "lang": "vi",
+      "gender": "male",
+      "resourceId": "7538698409633516816",
+      "provider": "sami"
+    },
+    {
+      "id": "pNInz6obpgDQGcFmaJgB",
+      "name": "Adam (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7369525170723099153",
+      "provider": "11labs"
+    },
+    {
+      "id": "FMvgzHAu8dL0gUSU3TMn",
+      "name": "Academic Male (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374671750266622481",
+      "provider": "11labs"
+    },
+    {
+      "id": "yl2ZDV1MzN4HbQJbMihG",
+      "name": "Alex 1 (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7435916195250835985",
+      "provider": "11labs"
+    },
+    {
+      "id": "iDJbhuGTR9N7lXjELodg",
+      "name": "Alex 2 (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374727433896858128",
+      "provider": "11labs"
+    },
+    {
+      "id": "nBoLwpO4PAjQaQwVKPI1",
+      "name": "Amelia (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7407658215795593729",
+      "provider": "11labs"
+    },
+    {
+      "id": "SF9uvIlY93SJRMdV5jeP",
+      "name": "Andrew II (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7435916300951491073",
+      "provider": "11labs"
+    },
+    {
+      "id": "pqHfZKP75CvOlQylNhV4",
+      "name": "Bill (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7373887313652224513",
+      "provider": "11labs"
+    },
+    {
+      "id": "kPzsL2i3teMYv0FxEYQ6",
+      "name": "Blake (ElevenLabs)",
+      "lang": "en",
+      "gender": "unknown",
+      "resourceId": "7407657878057652752",
+      "provider": "11labs"
+    },
+    {
+      "id": "Zlb1dXrM653N07WRdFW3",
+      "name": "British Reporter (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374727749061054992",
+      "provider": "11labs"
+    },
+    {
+      "id": "9F4C8ztpNUmXkdDDbz3J",
+      "name": "Dan Dan (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374727002261033473",
+      "provider": "11labs"
+    },
+    {
+      "id": "YcDRT2356gbExn8cPFdF",
+      "name": "Dave (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374672109911413249",
+      "provider": "11labs"
+    },
+    {
+      "id": "kwajW3Xh5svCeKU5ky2S",
+      "name": "Dmitry (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7407657748470436369",
+      "provider": "11labs"
+    },
+    {
+      "id": "XMWzAzwYm487GEok2uG2",
+      "name": "Joanne (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7374727186323870209",
+      "provider": "11labs"
+    },
+    {
+      "id": "TxGEqnHWrfWFTfGW9XjX",
+      "name": "Josh (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7375867555405107713",
+      "provider": "11labs"
+    },
+    {
+      "id": "oxcpUoZsixp23oWJaFgp",
+      "name": "Knightley (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374670931064525313",
+      "provider": "11labs"
+    },
+    {
+      "id": "NFG5qt843uXKj4pFvR7C",
+      "name": "Late Night Radio (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7404749710004589072",
+      "provider": "11labs"
+    },
+    {
+      "id": "SaqYcK3ZpDKBAImA8AdW",
+      "name": "Liane (ElevenLabs)",
+      "lang": "en",
+      "gender": "unknown",
+      "resourceId": "7407658007888138769",
+      "provider": "11labs"
+    },
+    {
+      "id": "5Q0t7uMcjvnagumLfvZi",
+      "name": "Live Reporter (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374727687337677329",
+      "provider": "11labs"
+    },
+    {
+      "id": "7FjPCAaLTVw3SR8UoLK9",
+      "name": "Maggie (ElevenLabs)",
+      "lang": "en",
+      "gender": "unknown",
+      "resourceId": "7398107763483611649",
+      "provider": "11labs"
+    },
+    {
+      "id": "EiNlNiXeDU1pqqOPrYMO",
+      "name": "Malcolm (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7407658338650952208",
+      "provider": "11labs"
+    },
+    {
+      "id": "WGOZZ50ZyX8GWtwZGVDW",
+      "name": "Marcus (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7373896904729432577",
+      "provider": "11labs"
+    },
+    {
+      "id": "XZq0uRgnKv2uOpky5Fbk",
+      "name": "Michael 2 (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374671961181393424",
+      "provider": "11labs"
+    },
+    {
+      "id": "dfZGXKiIzjizWtJ0NgPy",
+      "name": "Michael Mouse (ElevenLabs)",
+      "lang": "en",
+      "gender": "unknown",
+      "resourceId": "7407658082601275920",
+      "provider": "11labs"
+    },
+    {
+      "id": "VRzR10DWf2jP2ieNulzS",
+      "name": "Musing Female (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7374672411964215825",
+      "provider": "11labs"
+    },
+    {
+      "id": "InSLKyTvFCIeQZ0a0eES",
+      "name": "Myra (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7374727348349833729",
+      "provider": "11labs"
+    },
+    {
+      "id": "s73DTGwP2RrOFSydhplL",
+      "name": "Natasha (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7374726937425482256",
+      "provider": "11labs"
+    },
+    {
+      "id": "j9jfwdrw7BRfcR43Qohk",
+      "name": "Noel (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7435916394450915841",
+      "provider": "11labs"
+    },
+    {
+      "id": "2gPFXx8pN3Avh27Dw5Ma",
+      "name": "Oxley (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7424031714290176513",
+      "provider": "11labs"
+    },
+    {
+      "id": "4t4yjZnWy0xg0b2BEGWq",
+      "name": "Ronald (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7398107606914437633",
+      "provider": "11labs"
+    },
+    {
+      "id": "VdfT7kt8i1G1JqBvSlst",
+      "name": "Scarlett (ElevenLabs)",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7376485202538795537",
+      "provider": "11labs"
+    },
+    {
+      "id": "XjLkpWUlnhS8i7gGz3lZ",
+      "name": "Serious Male III (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7407658157813535248",
+      "provider": "11labs"
+    },
+    {
+      "id": "apqgWHkh7foVKMqZECss",
+      "name": "Soothing Narrator (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7411410162231022097",
+      "provider": "11labs"
+    },
+    {
+      "id": "dNloUnB04rqaaSAj1WDd",
+      "name": "Sophisticated Male (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374672034262946321",
+      "provider": "11labs"
+    },
+    {
+      "id": "xAVsdcJvD1uegu8lFEE2",
+      "name": "TV Host (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374727598296797712",
+      "provider": "11labs"
+    },
+    {
+      "id": "bVMeCyTHy58xNoL34h3p",
+      "name": "Thrilled Male (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7375867921932751377",
+      "provider": "11labs"
+    },
+    {
+      "id": "gOkFV1JMCt0G0n9xmBwV",
+      "name": "Tim (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7407657799632556561",
+      "provider": "11labs"
+    },
+    {
+      "id": "153KLsX4S9dcU9E750gG",
+      "name": "Valentino💌 (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374727502712803841",
+      "provider": "11labs"
+    },
+    {
+      "id": "rKZCRTvCRsUjB3zmsrOY",
+      "name": "Vibrant Baritone (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374726854718001665",
+      "provider": "11labs"
+    },
+    {
+      "id": "g5CIjZEefAph4nQFvHAz",
+      "name": "ASMR by Ethan (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7374671839127147025",
+      "provider": "11labs"
+    },
+    {
+      "id": "KTPVrSVAEUSJRClDzBw7",
+      "name": "Cowboy Bob (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7441518244600484353",
+      "provider": "11labs"
+    },
+    {
+      "id": "3SF4rB1fGBMXU9xRM7pz",
+      "name": "Evil Guy (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7424031662037537281",
+      "provider": "11labs"
+    },
+    {
+      "id": "1wg2wOjdEWKA7yQD8Kca",
+      "name": "Father Christmas (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7436270124526473744",
+      "provider": "11labs"
+    },
+    {
+      "id": "GBv7mTt0atIp3Br8iCZE",
+      "name": "Meditative Male (ElevenLabs)",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7375867686565188112",
+      "provider": "11labs"
+    },
+    {
+      "id": "en_us_006",
+      "name": "EN US 2",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7114563482518819329",
+      "provider": "sami"
+    },
+    {
+      "id": "en_us_002",
+      "name": "EN US",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7130515992936976897",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_janeamber_mars_bigtts",
+      "name": "Janeamber",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7538652405005700369",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_emotional_moon_bigtts",
+      "name": "Emotional",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7114563483257016833",
+      "provider": "sami"
+    },
+    {
+      "id": "BV510_streaming",
+      "name": "English",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7081169180120060418",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_sherry",
+      "name": "Sherry",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7278146554844680706",
+      "provider": "sami"
+    },
+    {
+      "id": "en_us_010",
+      "name": "Chrming Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114563482359435778",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_deadpool",
+      "name": "Deadpool",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7231025912261644802",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_m03_classical",
+      "name": "Classical Music",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7245192458206712322",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_dramaqueen_zachk",
+      "name": "Dramaaa",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7337195243810329089",
+      "provider": "sami"
+    },
+    {
+      "id": "BV503_streaming",
+      "name": "Energetic Famale",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7081168775646548482",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_nail_artist",
+      "name": "Artist",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7393228944540963344",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_little_cute_dsp",
+      "name": "Cute Girl",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7605129105306111233",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_trickster_stream",
+      "name": "Trickster",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7189462618589893121",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_artistic_layne",
+      "name": "Mentor",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7337195454980952577",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_death_rock",
+      "name": "Grim Rock",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7372472588859085313",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_philosopher_dsp",
+      "name": "Narrator",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7525722920161725712",
+      "provider": "sami"
+    },
+    {
+      "id": "en_us_007",
+      "name": "Male Profess",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114563482472681986",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_ditie_dsp",
+      "name": "Creepy female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7572089965652315393",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_soothing_mars_bigtts",
+      "name": "Female Teacher",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7526754143369760016",
+      "provider": "sami"
+    },
+    {
+      "id": "BV072_streaming",
+      "name": "Suaraaa",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7028847457089884674",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_en_female_jessie",
+      "name": "Jessie",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7564325260414160129",
+      "provider": "sami"
+    },
+    {
+      "id": "BV540_streaming",
+      "name": "Desti",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7477925128651674113",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_loba_apex",
+      "name": "Robaa",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7360986396594541057",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_en_male_trickster",
+      "name": "Trickster",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7564317234814848273",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_caroline_clone2",
+      "name": "Excited",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7232136837861478913",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_305M_JamieTr",
+      "name": "Tinn",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7501615071068426768",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_kevin2",
+      "name": "Mischief",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7438551246824280592",
+      "provider": "sami"
+    },
+    {
+      "id": "en_us_002_dsp",
+      "name": "Dolly famle",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7519722328935140624",
+      "provider": "sami"
+    },
+    {
+      "id": "BV507_streaming",
+      "name": "Cute Boy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7081168994673103362",
+      "provider": "sami"
+    },
+    {
+      "id": "BV029_streaming",
+      "name": "American Female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "6898240012404396546",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_cc_bluetooth",
+      "name": "Bluetooth",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7427072447129588225",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_lisa",
+      "name": "Lisa",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7491194157852004881",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_317M_BrianJW",
+      "name": "BrianJW",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7501615796456526352",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_310M_CoreyK",
+      "name": "Kai",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7501615396093432337",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_captain",
+      "name": "Captain",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7510080106199665937",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_wenjingmaomao_moon_bigtts_cc",
+      "name": "Daiana",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7489010644025348624",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_oogie2",
+      "name": "Oogie",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7438551608746578449",
+      "provider": "sami"
+    },
+    {
+      "id": "BV506_streaming",
+      "name": "Adorable Girl",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7102354325850034689",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_alastor",
+      "name": "Alastorr",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7441487821946229265",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_game_narration",
+      "name": "Alexstrasza",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7351731040093737473",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_charlie_conversation_wvae_bigtts_cc",
+      "name": "Alvin",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7371352611217216017",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_positiveboy_duncan",
+      "name": "Ambitious Guy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7337194306685374978",
+      "provider": "sami"
+    },
+    {
+      "id": "BV028_TOBI_streaming",
+      "name": "American Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "6898239746565214722",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_dave_moon_bigtts",
+      "name": "Andre",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7398059458733019665",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_dryw",
+      "name": "Announcer",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7377654843256607248",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_benjamin1",
+      "name": "Benjamin I",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7441488473686544897",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_benjamin2",
+      "name": "Benjamin II",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7441488683091366417",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cumberbatch1",
+      "name": "Benny Cumbers",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7444495363311931920",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_richgirl_stream",
+      "name": "Bestie",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7189462696201294338",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_betty_boop",
+      "name": "Betty Boop",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7393229135348240913",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_product_leah",
+      "name": "Bianca",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195678558327297",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_cartoon_bibble",
+      "name": "Bibble",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7379873499717833233",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_dracula",
+      "name": "Blood Lord",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7427044330260402705",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_bojack_horseman",
+      "name": "Boman H",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7372472892174373377",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_gebralter_apex",
+      "name": "Bouncer",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7379905121657819664",
+      "provider": "sami"
+    },
+    {
+      "id": "en_uk_003",
+      "name": "British Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114563482363630082",
+      "provider": "sami"
+    },
+    {
+      "id": "BV031_streaming",
+      "name": "British Woman",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "6898240156344521218",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_vernacular_plinio",
+      "name": "Caleb",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7393232053258424848",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_callum",
+      "name": "Callum",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7377653510566842881",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_kourtney_kardashian",
+      "name": "Camile",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7372473107635769872",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_candice_emo_v2_mars_bigtts",
+      "name": "Candice",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7417662874270568961",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_jeremy_emo_v2_mars_bigtts",
+      "name": "Caspian",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7430714636921475601",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_cm",
+      "name": "Charlie M",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7441487929823728129",
+      "provider": "sami"
+    },
+    {
+      "id": "BV027_streaming",
+      "name": "Charming Female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7081169503626727937",
+      "provider": "sami"
+    },
+    {
+      "id": "BV511_streaming",
+      "name": "Chill Girl",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7129448542808052225",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_tina",
+      "name": "Cold Female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7278146377178157570",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_fortune_feimster",
+      "name": "Comedy Gil",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7360987978455323137",
+      "provider": "sami"
+    },
+    {
+      "id": "BV516_streaming",
+      "name": "Confident Guy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7129448697229742593",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_corey_emo_v2_mars_bigtts",
+      "name": "Corey",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7417663340761059856",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_f08_salut_damour",
+      "name": "Cottagecore",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7245192978749198849",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_m2_xhxs_m03_christmas",
+      "name": "Cozy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7245192557322310145",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_irritable_kitten",
+      "name": "Cranky Kitten",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7379873622745158161",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_kid_eddie",
+      "name": "Cub",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195145680392706",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_amie",
+      "name": "Cute Boy 2",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7306800306921148929",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_xudong_conversation_wvae_bigtts_cc",
+      "name": "Daniel",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7371352319541121553",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_british_narrator",
+      "name": "David",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360987855176339984",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_daisy_moon_bigtts",
+      "name": "Delicate Girl",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7278146659211547138",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_elsa_amanda_crystal",
+      "name": "Demure",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7328236234780709377",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_doll",
+      "name": "Doll",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7293115626711683585",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_cs_emo_v2_mars_bigtts",
+      "name": "Dorian",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7430714574728335888",
+      "provider": "sami"
+    },
+    {
+      "id": "BV519_streaming",
+      "name": "Drag Boy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7277818037556744706",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_drag_voice",
+      "name": "Drag Voice",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7355036740215640593",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_britishgamer",
+      "name": "Drama Boy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7249264251536151042",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_aussie",
+      "name": "Edward",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7426305396572164625",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_adam_elf",
+      "name": "Elfy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7309753082638766593",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_chamberlain",
+      "name": "Emma Chamberlain",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7444914314399453697",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_samc",
+      "name": "Empathetic Female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7176107981098979841",
+      "provider": "sami"
+    },
+    {
+      "id": "BV504_streaming",
+      "name": "Energetic Guy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7081168903811895809",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_campaign_jamal_moon_bigtts",
+      "name": "Energetic Male II",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7337194574688817666",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_lich",
+      "name": "Epic Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7437470599682724369",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_lowpitched_shouting",
+      "name": "Ethereal Voice",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7393228776978518529",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_will_clone2",
+      "name": "Excited Man",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7232136973664653825",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_penny",
+      "name": "Fear Clown",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7427044180876071425",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_product_elise",
+      "name": "Female Sales",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195523163558401",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_makeup",
+      "name": "Female Vloger",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7256999130084413954",
+      "provider": "sami"
+    },
+    {
+      "id": "VOV301_bytesing3_aidelizan",
+      "name": "Female Vocalist",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7129449750037795329",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_bender_futurama",
+      "name": "Fender",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360986724681388560",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_gloria",
+      "name": "Fiesta",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195915368731138",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_product_darcie_moon_bigtts",
+      "name": "Flirty Female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195598900105729",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_hoarse_mattmc",
+      "name": "Flirty Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7338752878611272194",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_bumbling_idiot",
+      "name": "Fussy male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7337195992237740546",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_david_gingerman",
+      "name": "GingerChime",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7309752196122284545",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_glen_emo_v2_mars_bigtts",
+      "name": "Glen",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7417662783333863953",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_dwarf_karen",
+      "name": "Gnome",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7393231992759783953",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_golden_monkey",
+      "name": "Golden Monkey",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7351730917590700545",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_grandma_amy",
+      "name": "Granny",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195773446066690",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_greek_accent",
+      "name": "Greek Guy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7351730796933157377",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_grinch2",
+      "name": "Grinchy Cheer",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7438551356283032081",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_forrest_gump",
+      "name": "Gump",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7372473041797779969",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_severus",
+      "name": "Half-Blood Prince",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7441487635048043009",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_hades_moon_bigtts",
+      "name": "Hayden",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7398059512415916561",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_homer_simpson",
+      "name": "Homer",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360987557812769296",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_john_mulaney",
+      "name": "John",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360987403995058689",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_blanchett",
+      "name": "Katie White",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7444495548188463633",
+      "provider": "sami"
+    },
+    {
+      "id": "VOV208_bytesing3_littlelamb",
+      "name": "Kawaii Vocalist",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7144984711960465921",
+      "provider": "sami"
+    },
+    {
+      "id": "VOV301_bytesing3_wanglaoxiansheng",
+      "name": "Kids Vocalist",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7129449871223820802",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_cc_megan",
+      "name": "Killer Droid",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7427044231073501712",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_guanggao",
+      "name": "Lady Holiday",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7530107275239869713",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_leonardo_decaprio",
+      "name": "Leo",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360987035974242833",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_scott_emo_v2_mars_bigtts",
+      "name": "Leo Emotions",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7457793197306024449",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_skye_emo_v2_mars_bigtts",
+      "name": "Lizzie",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7430714795206119937",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_lois_familyguy",
+      "name": "Lois",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7355036507519848961",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_ukneighbor",
+      "name": "Lord Cringe",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7256999312872182274",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_grumpy_penguin",
+      "name": "Mad Penguin",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360987676440269328",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_commentary_moon_bigtts",
+      "name": "Male Commentator",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7277818843358040578",
+      "provider": "sami"
+    },
+    {
+      "id": "en_us_009",
+      "name": "Male Scientist",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114563482418156033",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_mary_emo_v2_mars_bigtts",
+      "name": "Mary",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7430714470969643521",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_jigsaw",
+      "name": "Master Trap",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7427044277407978000",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_matthew",
+      "name": "Matthew",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7377654737400762881",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_michael_moon_bigtts",
+      "name": "Michael 1",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7398059563758391825",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_kevin_minion",
+      "name": "Minion",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7393228840861962769",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_naive_youngwoman",
+      "name": "Miss Naive",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7372472718723125761",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_authoritative_marcus",
+      "name": "Movie Trailer Announcer",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7393232129296962049",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_jiaoao",
+      "name": "Ms. Labebe",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7530105822785899777",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_narration_moon_bigtts",
+      "name": "Narrative Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114563483210879490",
+      "provider": "sami"
+    },
+    {
+      "id": "BV502_streaming",
+      "name": "Narrative Woman",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7081169098796700161",
+      "provider": "sami"
+    },
+    {
+      "id": "en_au_001",
+      "name": "Neutral Woman",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7114563482472698370",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_2206985c8bf6",
+      "name": "Nigel",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7382469229917770257",
+      "provider": "sami"
+    },
+    {
+      "id": "BV518_streaming",
+      "name": "Noble Woman",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7277818172416201218",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_onez_moon_bigtts",
+      "name": "Onez",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7402094869667123729",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_f08_warmy_breeze",
+      "name": "Open Mic",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7245192865905644033",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_ht_f08_halloween",
+      "name": "Opera",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7245192656358216193",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_food_amy",
+      "name": "Pam",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195373867307522",
+      "provider": "sami"
+    },
+    {
+      "id": "en_au_002",
+      "name": "Peaceful Man",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114564716881515010",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_bruce_moon_bigtts",
+      "name": "Peter",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7398059612643004945",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_peter_griffin",
+      "name": "Pierce G",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7372472973485150721",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_poetry",
+      "name": "Poetic male voice II",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7413601846863860225",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_conductor1",
+      "name": "Polar Guide",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7438551500021830161",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_irritable_police_officer",
+      "name": "Police officer",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7355036625488843280",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_f08_twinkle",
+      "name": "Pop Lullaby",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7245192372613550594",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_positive_british",
+      "name": "Postive Guy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7355036978116563473",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_british_queen",
+      "name": "Queen",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7337195844971532801",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_m2_xhxs_m03_silly",
+      "name": "Quirky Time",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7245192771231814145",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_rafael",
+      "name": "Rafayell",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7437470496397988369",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_female_erica",
+      "name": "Rebecca",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7444495148345463312",
+      "provider": "sami"
+    },
+    {
+      "id": "BR002_streaming",
+      "name": "Rhythmic Voice",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7164264995545420289",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_henry2",
+      "name": "Richard",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7444495042649002513",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_rick_sanchez",
+      "name": "Rick",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7379873380536685072",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_ukbutler",
+      "name": "Rigorous Man",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7256999218185769473",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_george",
+      "name": "Sensitive male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7377653399552004624",
+      "provider": "sami"
+    },
+    {
+      "id": "BV505_streaming",
+      "name": "Serious Female",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7102354167598944769",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_cody",
+      "name": "Serious Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7176107532534944258",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_stewie_familyguy",
+      "name": "Simon",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7360987300609659393",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_attenborough",
+      "name": "Sir British Narrator",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7444495251286266385",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_nara_moon_bigtts",
+      "name": "Siren",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7402094928337048065",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_sinong_conversation_wvae_bigtts",
+      "name": "Skye",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7372472342494056976",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_chucky",
+      "name": "Slash Doll",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7427044129604899345",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_frosty1",
+      "name": "Snowday Hero",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7438551726942065169",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_story_time",
+      "name": "Spill the Tea",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7372472502842298897",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_sports_jomboy",
+      "name": "Sports Anchor",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7337195054290702850",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_ted_lasso",
+      "name": "Sports Commentator",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7379873236122604033",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cc_ghostface4",
+      "name": "Stalker Crep",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7427044378666865153",
+      "provider": "sami"
+    },
+    {
+      "id": "BV127_streaming",
+      "name": "Storyteller Man",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7102354086866981378",
+      "provider": "sami"
+    },
+    {
+      "id": "BV138_streaming",
+      "name": "Storyteller Woman",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7102353961276936706",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_cumberbatch2",
+      "name": "Strong British Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7444495463908119056",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_jarvis",
+      "name": "Sturdy Male",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7249264092781744641",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_sylus",
+      "name": "Syluss",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7403211571293327873",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_tech_blogger",
+      "name": "Tech Blogger",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7372473177747755537",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_terrell",
+      "name": "Terrell",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7441488151983428097",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_henry1",
+      "name": "Timothy",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7444494768240857616",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_weak_child",
+      "name": "Tiny Teena",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7393229078951629313",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_drunk_bumpkin",
+      "name": "Tipsy Lady",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7360987195986940432",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_johnny_emo_v2_mars_bigtts",
+      "name": "Uncle J",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7430714522609914384",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_meangirl",
+      "name": "Valley Girl II",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7351730508037886481",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_funny",
+      "name": "Wacky",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7114563483378651650",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_werewolf",
+      "name": "Werewolf",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7293115150263915009",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_witch",
+      "name": "Witch",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7293115285471498754",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_xavier1",
+      "name": "Xavierr",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7424050549269467649",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_en_male_zayne",
+      "name": "Zaynee",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7424050504138756624",
+      "provider": "sami"
+    },
+    {
+      "id": "en_female_zombie",
+      "name": "Zombie",
+      "lang": "en",
+      "gender": "female",
+      "resourceId": "7293115536584479233",
+      "provider": "sami"
+    },
+    {
+      "id": "en_male_whispering_voice",
+      "name": "ASMR",
+      "lang": "en",
+      "gender": "male",
+      "resourceId": "7355037095066341904",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_female_zhiyu",
+      "name": "Lovely Idol",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7579078759446285584",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_xinggan",
+      "name": "Xinggan",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7522965008020540688",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_rap",
+      "name": "Rap",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7573959040657591553",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_male_wutiaowu",
+      "name": "クールな青年",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7527837025815334161",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_female_hatunemiku",
+      "name": "Hatunemiku",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "749455601346334",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_paoxiao",
+      "name": "Ơaoxiao",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7584702432115019009",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_female_tanhua",
+      "name": "Tanhua",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7522976550736760065",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_bobao2",
+      "name": "穏やかな声優",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7579090923636755729",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_male_yangguang",
+      "name": "Yangguang",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "752572180004351515",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_female_lengjingnv",
+      "name": "女性AI",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7571602819283701009",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_female_kuaizui02",
+      "name": "マネージャー",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7522976550736678145",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_male_zhenfennan",
+      "name": "少年ヒーロー",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7538698409633516816",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_female_araisan",
+      "name": "天真爛漫な娘",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7527796800649055489",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_male_dashu",
+      "name": "Dashu",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7527814111502077201",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_reborn",
+      "name": "厳しい先生",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7573954050379566337",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_huolinan2",
+      "name": "爽やかメンズ",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7510072022672624913",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_female_narrator",
+      "name": "narrator",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7573956962279361809",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_gaoxiao",
+      "name": "gaoxiao",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7522976550736661761",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_cute",
+      "name": "cute",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7573955139086667009",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_male_gaoxiao02",
+      "name": "Cheeky Commentator",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7522987643752271121",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_female_shuanglang",
+      "name": "Chill Babe",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7522987643752303889",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_male_kenan",
+      "name": "Detective",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7469005666833666576",
+      "provider": "sami"
+    },
+    {
+      "id": "jp_003",
+      "name": "Keiko",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7114563481315070465",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_ja_female_laopopo",
+      "name": "Nice Witch",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7522976550736710913",
+      "provider": "sami"
+    },
+    {
+      "id": "BV016_streaming",
+      "name": "Young Japanese Woman",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "6919013937493053953",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_female_tt_you",
+      "name": "Yukiko",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7469006346122170896",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_jp_female_jidongshaonv",
+      "name": "Yumi",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7522965008020475152",
+      "provider": "sami"
+    },
+    {
+      "id": "BV018_streaming",
+      "name": "アナウンサー",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "6943534535413862913",
+      "provider": "sami"
+    },
+    {
+      "id": "VOV402_bytesing3_oh",
+      "name": "優しいレ デイー",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7102358797254922754",
+      "provider": "sami"
+    },
+    {
+      "id": "BV520_streaming",
+      "name": "元気ロリ",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7081169599378493954",
+      "provider": "sami"
+    },
+    {
+      "id": "BV017_streaming",
+      "name": "可愛い精霊",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "6919013093829775874",
+      "provider": "sami"
+    },
+    {
+      "id": "BV523_streaming",
+      "name": "坊ちゃん",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7081169700947759618",
+      "provider": "sami"
+    },
+    {
+      "id": "BV522_streaming",
+      "name": "女性アナ",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7081169838864863746",
+      "provider": "sami"
+    },
+    {
+      "id": "BV024_streaming",
+      "name": "成熟な姉御",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "6943534423778267650",
+      "provider": "sami"
+    },
+    {
+      "id": "jp_006",
+      "name": "成熟な男性",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7114563481319297538",
+      "provider": "sami"
+    },
+    {
+      "id": "VOV401_bytesing3_kangkangwuqu",
+      "name": "明るいハ ニー",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7102358746235408898",
+      "provider": "sami"
+    },
+    {
+      "id": "jp_005",
+      "name": "活力少女",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7114563481319264770",
+      "provider": "sami"
+    },
+    {
+      "id": "BV524_streaming",
+      "name": "男性アナ",
+      "lang": "ja",
+      "gender": "male",
+      "resourceId": "7081169917248016898",
+      "provider": "sami"
+    },
+    {
+      "id": "BV521_streaming",
+      "name": "癒し系女子",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7081169770329936386",
+      "provider": "sami"
+    },
+    {
+      "id": "jp_001",
+      "name": "美女キャスター",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7114563481319281154",
+      "provider": "sami"
+    },
+    {
+      "id": "VOV402_bytesing3_aidelizan",
+      "name": "陽気な音色",
+      "lang": "ja",
+      "gender": "female",
+      "resourceId": "7102358863017415170",
+      "provider": "sami"
+    },
+    {
+      "id": "BV452_streaming",
+      "name": "Vũ hán",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7543766515837848833",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_xiaonan_lv_clone2",
+      "name": "旅遊主播",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7554226531451833617",
+      "provider": "sami"
+    },
+    {
+      "id": "BV433_streaming",
+      "name": "電視廣告",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7436608032152228353",
+      "provider": "sami"
+    },
+    {
+      "id": "BV213_streaming",
+      "name": "Dramaaa",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372474337594446337",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_guaiqiaogirl",
+      "name": "Guaiqiaogirl",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7473014336223449616",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_tangsengdsp",
+      "name": "Tangsengdsp",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7520150587619478801",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_naying",
+      "name": "Naying",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7436607833887478289",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_male_M092_conversation_wvae_bigtts_cc",
+      "name": "conversation",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7483453668117713425",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_xiaoyue",
+      "name": "Xiaoyue",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7543792542727425281",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_angela",
+      "name": "暗夜蘿莉",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7473014770862395905",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_zh_male_youyoujunzi_moon_bigtts_cc",
+      "name": "Rizki",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7489010721259262465",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_zh_male_xionger",
+      "name": "XiaoChao",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7564318793716059409",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_inspirational",
+      "name": "溫柔姐姐",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7473013595417088528",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_sistermango",
+      "name": "語音助理",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7588056140685036817",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_zh_male_paoxiaoge",
+      "name": "paoxiaoge",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7564296190074948865",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_vopguanggao",
+      "name": "Alluring Male Voice",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7436607339689415169",
+      "provider": "sami"
+    },
+    {
+      "id": "BV050_streaming",
+      "name": "Anime Youth",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382469691106660865",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_zhubajie_clone2",
+      "name": "Bajie",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7436607630379848209",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_xionger_stream_gpu",
+      "name": "Bramble",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7382469522113958416",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_rulaifo",
+      "name": "Buddha",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7436607104976163345",
+      "provider": "sami"
+    },
+    {
+      "id": "BV007_streaming",
+      "name": "Charm",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372474136372711937",
+      "provider": "sami"
+    },
+    {
+      "id": "BV701_streaming",
+      "name": "Cool Thinker",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7372473606908940801",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_yingtiannini",
+      "name": "Crayon Xiaoni",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7436607246919799313",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_jiazi",
+      "name": "Dainty",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382469794945044993",
+      "provider": "sami"
+    },
+    {
+      "id": "BV425_streaming",
+      "name": "Daiyu",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7436607444421186064",
+      "provider": "sami"
+    },
+    {
+      "id": "BV409_streaming",
+      "name": "Drama",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382469578682536464",
+      "provider": "sami"
+    },
+    {
+      "id": "BV426_streaming",
+      "name": "Elementary Student",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382469958619370001",
+      "provider": "sami"
+    },
+    {
+      "id": "BV145_streaming",
+      "name": "Emotional Quote",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7436607923695915537",
+      "provider": "sami"
+    },
+    {
+      "id": "BV005_streaming",
+      "name": "Gossip",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372473942046413313",
+      "provider": "sami"
+    },
+    {
+      "id": "BV430_streaming",
+      "name": "Grandma Rong",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7436607533080384016",
+      "provider": "sami"
+    },
+    {
+      "id": "BV063_streaming",
+      "name": "High-Pitch Bob",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382469911257289217",
+      "provider": "sami"
+    },
+    {
+      "id": "BV001_fast_streaming",
+      "name": "Lady",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372473772730749457",
+      "provider": "sami"
+    },
+    {
+      "id": "BV064_streaming",
+      "name": "Lolita",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372474220892131857",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_guli_stream_gpu",
+      "name": "Ms. Gu",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7436607747929412097",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_hougedaiyu",
+      "name": "Mumble",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7382469847881355793",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_sunwukong_rap",
+      "name": "Nasally",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7382469739395682832",
+      "provider": "sami"
+    },
+    {
+      "id": "BV011_streaming",
+      "name": "Radiant",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372474285018845712",
+      "provider": "sami"
+    },
+    {
+      "id": "BV144_streaming",
+      "name": "Roar",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7372473660856078849",
+      "provider": "sami"
+    },
+    {
+      "id": "BV021_streaming",
+      "name": "Slurred",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7372473998958924305",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_female_ziwei",
+      "name": "Sorrow",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382469632570954256",
+      "provider": "sami"
+    },
+    {
+      "id": "BV405_streaming",
+      "name": "Storyteller 1",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7372474073286185489",
+      "provider": "sami"
+    },
+    {
+      "id": "BV411_streaming",
+      "name": "Storyteller 2",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7372473844725977601",
+      "provider": "sami"
+    },
+    {
+      "id": "BV408_streaming",
+      "name": "Trance",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7372473718963966465",
+      "provider": "sami"
+    },
+    {
+      "id": "BV428_streaming",
+      "name": "Verse",
+      "lang": "zh",
+      "gender": "female",
+      "resourceId": "7382470008628056593",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_sunwukong_clone2",
+      "name": "Wukong",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7382469399745139201",
+      "provider": "sami"
+    },
+    {
+      "id": "zh_male_silang_stream_gpu",
+      "name": "Yonrou",
+      "lang": "zh",
+      "gender": "male",
+      "resourceId": "7382469459639800321",
+      "provider": "sami"
+    },
+    {
+      "id": "sKgg4MPUDBy69X7iv3fA",
+      "name": "Alejandro Durán (ElevenLabs)",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7441518733278843409",
+      "provider": "11labs"
+    },
+    {
+      "id": "KHCvMklQZZo0O30ERnVn",
+      "name": "Sara Martin I (ElevenLabs)",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7441518624847696400",
+      "provider": "11labs"
+    },
+    {
+      "id": "2rigMbVWLdqtBSCahJFX",
+      "name": "Tatiana Martin (ElevenLabs)",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7441519043623784976",
+      "provider": "11labs"
+    },
+    {
+      "id": "DiT_es_male_bilunan",
+      "name": "Señor entusiasta",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7597943534309690641",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_es_male_agenting",
+      "name": "Agenting",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7597890302053010704",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_es_female_bilunv",
+      "name": "Female Bilunv",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7598080655146192144",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_emo",
+      "name": "Diablomalo",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7568807675337723137",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_jiqiren",
+      "name": "Male Jiqiren ",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7568807473923099920",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_female_tt_Vivi",
+      "name": "Lía",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7501616990008644113",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_EdgarRu",
+      "name": "EdgarRu",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501616889173381633",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_female_tt_RosaW",
+      "name": "Lina",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7501617149903901185",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_shenchen",
+      "name": "Lavana",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7568807534438468865",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_female_dianyingpeiyin",
+      "name": "Calm Dubing",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7527793325328452881",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_dorado",
+      "name": "Game Host",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7527778973296774416",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_barney",
+      "name": "Happy Dino",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7527795878967446801",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_cixing",
+      "name": "Ladies’ Man",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7527779392769002769",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_female_dianpo",
+      "name": "Sassy Witch",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7527846655475928336",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_elmo",
+      "name": "Wacky Puppet",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7527814111502044433",
+      "provider": "sami"
+    },
+    {
+      "id": "es_mx_002",
+      "name": "Warm",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7114563481319248385",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_mx_female_tt_carola",
+      "name": "Carola",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7469007204322906625",
+      "provider": "sami"
+    },
+    {
+      "id": "es_female_f6",
+      "name": "Chica Joven",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7176108614086562306",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_DiegoAT",
+      "name": "Chispa",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501616577528205841",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_female_tt_AzulB",
+      "name": "Dulce",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7501616784588411409",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_GerardoFCP",
+      "name": "Galo",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501617041686663681",
+      "provider": "sami"
+    },
+    {
+      "id": "es_male_m3",
+      "name": "Julio",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7176108454489100802",
+      "provider": "sami"
+    },
+    {
+      "id": "BV065_streaming",
+      "name": "Mexican Female Voice",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7028847590758158849",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_GerardoQ",
+      "name": "Rayo",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501616683509879313",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_female_tt_MarianaF",
+      "name": "Reina",
+      "lang": "es",
+      "gender": "female",
+      "resourceId": "7501616941291803152",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_JuanZ",
+      "name": "Ruge",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501617094782358033",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_JuanJ",
+      "name": "Seba",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501616838455857681",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_JonnieVv",
+      "name": "Tiqui",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501616630540014081",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_taici",
+      "name": "Tío Gordito",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7522965008020507920",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_es_male_tt_EmanuelA",
+      "name": "Vivo",
+      "lang": "es",
+      "gender": "male",
+      "resourceId": "7501616736198726145",
+      "provider": "sami"
+    },
+    {
+      "id": "id_female_icha_uranus_bigtts",
+      "name": "Icathian",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7587328219989249296",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_female_hantuperempuan",
+      "name": "Hantuperempuan",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7469006620379320848",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_male_deep_god_dsp",
+      "name": "Deep God",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7605123605034208513",
+      "provider": "sami"
+    },
+    {
+      "id": "id_male_putra_uranus_bigtts",
+      "name": "Uranus",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7587328479071309073",
+      "provider": "sami"
+    },
+    {
+      "id": "BV192_streaming",
+      "name": "Air stewardess",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7259666935858598402",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_male_sad",
+      "name": "Arfan",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7469006805000000016",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_male_scared",
+      "name": "Bayu",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7469006859328819729",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_male_boy_budi",
+      "name": "Budi",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7469007055915848193",
+      "provider": "sami"
+    },
+    {
+      "id": "BV191_streaming",
+      "name": "Cheryl",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7477925477823287824",
+      "provider": "sami"
+    },
+    {
+      "id": "id_male_darma",
+      "name": "Darma",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7231026125424562690",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_female_girl_dewi",
+      "name": "Dewi",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7469006906690900496",
+      "provider": "sami"
+    },
+    {
+      "id": "BV190_streaming",
+      "name": "Dilan",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7477924518036509201",
+      "provider": "sami"
+    },
+    {
+      "id": "BV164_streaming",
+      "name": "Ervan",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7477924448243290640",
+      "provider": "sami"
+    },
+    {
+      "id": "id_female_icha_dsp",
+      "name": "Gadis Berisik",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7519726998973910288",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_male_uncle_hendra",
+      "name": "Hendra",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7469007007702323729",
+      "provider": "sami"
+    },
+    {
+      "id": "id_female_icha",
+      "name": "Icha",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7242142150333305346",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_female_jannah_happy",
+      "name": "Jannah",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7469006689715360273",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_female_icecold_kartika",
+      "name": "Kartika",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7469007109456138768",
+      "provider": "sami"
+    },
+    {
+      "id": "BV162_streaming",
+      "name": "Kayla",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7477925404439745040",
+      "provider": "sami"
+    },
+    {
+      "id": "BV161_streaming",
+      "name": "Puspita",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7477925333035913745",
+      "provider": "sami"
+    },
+    {
+      "id": "id_male_putra",
+      "name": "Putra",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7231026032986296833",
+      "provider": "sami"
+    },
+    {
+      "id": "BV160_streaming",
+      "name": "Reza",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7477925268112282113",
+      "provider": "sami"
+    },
+    {
+      "id": "BV541_streaming",
+      "name": "Rini",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7477925200252637712",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_female_sickweak",
+      "name": "Sari",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7469006746007114241",
+      "provider": "sami"
+    },
+    {
+      "id": "id_female_noor",
+      "name": "Shinta",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7242142046587195906",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_female_grandma_siti",
+      "name": "Siti",
+      "lang": "id",
+      "gender": "female",
+      "resourceId": "7469007155627037200",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_id_male_grandpa_sumarno",
+      "name": "Sumarno",
+      "lang": "id",
+      "gender": "male",
+      "resourceId": "7469006956112384513",
+      "provider": "sami"
+    },
+    {
+      "id": "BV421_thth_streaming_vibrato_dsp",
+      "name": "ThaiLand 2",
+      "lang": "th",
+      "gender": "female",
+      "resourceId": "7569439521352338689",
+      "provider": "sami"
+    },
+    {
+      "id": "BV567_streaming_dsp",
+      "name": "เด็กเสียง",
+      "lang": "th",
+      "gender": "female",
+      "resourceId": "7550069260152818960",
+      "provider": "sami"
+    },
+    {
+      "id": "BV567_streaming_demon_dsp",
+      "name": "Thailand",
+      "lang": "th",
+      "gender": "male",
+      "resourceId": "7569443462295178512",
+      "provider": "sami"
+    },
+    {
+      "id": "BV568_streaming",
+      "name": "นภา",
+      "lang": "th",
+      "gender": "female",
+      "resourceId": "7483736089434264065",
+      "provider": "sami"
+    },
+    {
+      "id": "multi_female_zendaya_uranus_bigtts",
+      "name": "สุนิสา",
+      "lang": "th",
+      "gender": "female",
+      "resourceId": "7569443462295178512",
+      "provider": "sami"
+    },
+    {
+      "id": "BV421_thth_streaming",
+      "name": "Sweet Little Girl",
+      "lang": "th",
+      "gender": "female",
+      "resourceId": "7268502477702435330",
+      "provider": "sami"
+    },
+    {
+      "id": "BV567_streaming",
+      "name": "สุนิสา 1",
+      "lang": "th",
+      "gender": "female",
+      "resourceId": "7483736024871342608",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_pt_male_wenrou",
+      "name": "Wenrou",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7576131428711255297",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_pt_male_shangren",
+      "name": "Empresário Frio",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7576131970103643408",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_212M_LuizS",
+      "name": "Contra",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501618011829178896",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_pt_female_youya",
+      "name": "Youya",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7576144104547945729",
+      "provider": "sami"
+    },
+    {
+      "id": "br_004",
+      "name": "Ana",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7114563482304909826",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_female_216F_YamaH",
+      "name": "Bold Comedian",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7501617910826144257",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_201M_CaioS",
+      "name": "Carnival Master",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617445619110401",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_211M_RodrigoA3",
+      "name": "Chaotic Friend",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617856287609345",
+      "provider": "sami"
+    },
+    {
+      "id": "BV565_streaming",
+      "name": "Criança Fofa（BR）",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7129449072330543618",
+      "provider": "sami"
+    },
+    {
+      "id": "BV067_streaming",
+      "name": "Feminine",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7009155604027544066",
+      "provider": "sami"
+    },
+    {
+      "id": "br_003",
+      "name": "Júlia",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7114563482564956673",
+      "provider": "sami"
+    },
+    {
+      "id": "BV531_streaming",
+      "name": "Lively Man (Portuguese)",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7074794519954199042",
+      "provider": "sami"
+    },
+    {
+      "id": "br_005",
+      "name": "Lucas",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7114563482594316801",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_206M_VitorC1",
+      "name": "Lucca",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617596857324049",
+      "provider": "sami"
+    },
+    {
+      "id": "BV071_streaming",
+      "name": "Masculina 2",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7009155700278432258",
+      "provider": "sami"
+    },
+    {
+      "id": "BV060_streaming",
+      "name": "Masculino",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "6938347573295976962",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_210M_AlexN",
+      "name": "Mischievous",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617755846611472",
+      "provider": "sami"
+    },
+    {
+      "id": "BV530_streaming",
+      "name": "Mulher Dinâmica",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7102354497619366402",
+      "provider": "sami"
+    },
+    {
+      "id": "BV566_streaming",
+      "name": "Mulher Doce（BR）",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7129449556973982209",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_female_218F_GracianaC",
+      "name": "Over Dramatic",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7501617960562201105",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_202M_EduardoS",
+      "name": "Playful Boy",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617496764453377",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_female_215M_LabrieG",
+      "name": "Powerful Charisma",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7501617805490393616",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_204M_RodrigoA1",
+      "name": "Rafa",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617546089468432",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_208M_VitorC2",
+      "name": "Tavinho",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617701647815184",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_male_207M_RodrigoA2",
+      "name": "Zeca",
+      "lang": "pt",
+      "gender": "male",
+      "resourceId": "7501617653128106497",
+      "provider": "sami"
+    },
+    {
+      "id": "ICL_br_female_217V_MichelleM",
+      "name": "Zumba Coach",
+      "lang": "pt",
+      "gender": "female",
+      "resourceId": "7501618063540752913",
+      "provider": "sami"
+    },
+    {
+      "id": "j9RedbMRSNQ74PyikQwD",
+      "name": "Louis Boutin (ElevenLabs)",
+      "lang": "fr",
+      "gender": "male",
+      "resourceId": "7441518438326997520",
+      "provider": "11labs"
+    },
+    {
+      "id": "b6nVfb3l2zshrLZTvqbs",
+      "name": "Miss Radio (ElevenLabs)",
+      "lang": "fr",
+      "gender": "female",
+      "resourceId": "7441518516341051921",
+      "provider": "11labs"
+    },
+    {
+      "id": "aQROLel5sQbj1vuIVi6B",
+      "name": "Nicolas II (ElevenLabs)",
+      "lang": "fr",
+      "gender": "male",
+      "resourceId": "7441518351764951553",
+      "provider": "11labs"
+    },
+    {
+      "id": "DiT_fr_male_wit",
+      "name": "Wit",
+      "lang": "fr",
+      "gender": "male",
+      "resourceId": "7573964692587023617",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_fr_female_soothing",
+      "name": "Douce",
+      "lang": "fr",
+      "gender": "female",
+      "resourceId": "7573961077009042689",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_fr_female_sharp",
+      "name": "sharp",
+      "lang": "fr",
+      "gender": "female",
+      "resourceId": "7573963007588371728",
+      "provider": "sami"
+    },
+    {
+      "id": "fr_002",
+      "name": "French Male",
+      "lang": "fr",
+      "gender": "male",
+      "resourceId": "7114563481315054081",
+      "provider": "sami"
+    },
+    {
+      "id": "BV078_streaming",
+      "name": "Voix féminine",
+      "lang": "fr",
+      "gender": "male",
+      "resourceId": "7049979316616040961",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_de_male_koubo",
+      "name": "Koubo",
+      "lang": "de",
+      "gender": "male",
+      "resourceId": "7584344912276114704",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_de_female_jiangshi",
+      "name": "TieFE Dozen",
+      "lang": "de",
+      "gender": "female",
+      "resourceId": "7584344912292777232",
+      "provider": "sami"
+    },
+    {
+      "id": "DiT_de_female_qingsong",
+      "name": "Sanfte Führerin",
+      "lang": "de",
+      "gender": "female",
+      "resourceId": "7584344912292760848",
+      "provider": "sami"
+    },
+    {
+      "id": "BV080_streaming",
+      "name": "Female Voice (German)",
+      "lang": "de",
+      "gender": "female",
+      "resourceId": "7028847688217006593",
+      "provider": "sami"
+    },
+    {
+      "id": "de_001",
+      "name": "German Female",
+      "lang": "de",
+      "gender": "female",
+      "resourceId": "7114563481336025602",
+      "provider": "sami"
+    },
+    {
+      "id": "BV570_streaming",
+      "name": "Man (Arabic)",
+      "lang": "ar",
+      "gender": "male",
+      "resourceId": "7074797219278230018",
+      "provider": "sami"
+    },
+    {
+      "id": "BV087_streaming",
+      "name": "Male Voice",
+      "lang": "it",
+      "gender": "male",
+      "resourceId": "7049980340806357506",
+      "provider": "sami"
+    },
+    {
+      "id": "kr_004",
+      "name": "Korean Male",
+      "lang": "ko",
+      "gender": "male",
+      "resourceId": "7114563481315054082",
+      "provider": "sami"
+    },
+    {
+      "id": "BV546_streaming",
+      "name": "Cute Woman (Korean)",
+      "lang": "ko",
+      "gender": "female",
+      "resourceId": "7074796070328340994",
+      "provider": "sami"
+    },
+    {
+      "id": "BV545_streaming",
+      "name": "Lively Man (Korean)",
+      "lang": "ko",
+      "gender": "male",
+      "resourceId": "7074798164355584513",
+      "provider": "sami"
+    },
+    {
+      "id": "BV066_streaming",
+      "name": "Young Korean Man",
+      "lang": "ko",
+      "gender": "male",
+      "resourceId": "6998450433492521474",
+      "provider": "sami"
+    },
+    {
+      "id": "BV059_streaming",
+      "name": "Young Korean Woman",
+      "lang": "ko",
+      "gender": "female",
+      "resourceId": "6938347657224000002",
+      "provider": "sami"
+    },
+    {
+      "id": "BV068_streaming",
+      "name": "Female Voice (Russian)",
+      "lang": "ru",
+      "gender": "female",
+      "resourceId": "7028847532939678209",
+      "provider": "sami"
+    },
+    {
+      "id": "BV083_streaming",
+      "name": "Deep Male Voice",
+      "lang": "tr",
+      "gender": "male",
+      "resourceId": "7049979944004227586",
+      "provider": "sami"
+    }
+  ]
+}

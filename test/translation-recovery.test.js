@@ -8,6 +8,7 @@ const {
   createTranslationCheckpoint,
   createTranslationIncompleteError,
   fallbackFailedItemsWithNllb,
+  getTranslationPrompt,
   resolveGlobalTranslationContext,
   translateJsonBatchesWithCheckpoint,
   validateTranslationCandidate,
@@ -54,6 +55,30 @@ test('translation validation rejects missing, unchanged and source-language outp
     true,
     'a proper name may legitimately remain unchanged'
   );
+});
+
+test('translation validation rescues a few residual Han characters before checkpointing', () => {
+  const result = validateTranslationCandidate(
+    '这是一种剑技',
+    'Đây là một 技 kiếm thuật mạnh.',
+    { srcLang: 'zho_Hans', targetLang: 'vi' }
+  );
+  assert.equal(result.valid, true);
+  assert.equal(result.text, 'Đây là một kiếm thuật mạnh.');
+  assert.equal(validateTranslationCandidate(
+    '这是一种剑技',
+    '这是剑技 tuyệt đỉnh',
+    { srcLang: 'zho_Hans', targetLang: 'vi' }
+  ).reason, 'source_language_remaining');
+});
+
+test('Vietnamese JSON translation prompt has Chinese proper-name rules without leaking them to other targets', () => {
+  const map = { 1: { text: '王明去了北京', durationSec: 2 } };
+  const vietnamese = getTranslationPrompt(map, 'Tiếng Việt');
+  const english = getTranslationPrompt(map, 'Tiếng Anh');
+  assert.match(vietnamese, /王明 → Vương Minh/);
+  assert.match(vietnamese, /北京 → Bắc Kinh/);
+  assert.doesNotMatch(english, /王明 → Vương Minh/);
 });
 
 test('translation checkpoint resumes only failed cues and never stores API keys', async (t) => {
@@ -174,6 +199,24 @@ test('changing source invalidates a stale translation checkpoint', async (t) => 
   const changed = createTranslationCheckpoint(outputPath, {
     sourceText: 'new source',
     targetLang: 'vi'
+  });
+  assert.deepEqual(changed.checkpoint.entries, {});
+});
+
+test('changing Gemini prompt policy invalidates cached translations', async (t) => {
+  const outputPath = await tempOutput(t);
+  const first = createTranslationCheckpoint(outputPath, {
+    sourceText: 'same source',
+    targetLang: 'vi',
+    pipeline: 'gemini-web-v5:id-lock:tm-a'
+  });
+  first.success({ id: 1, text: 'same source' }, 'bản dịch cũ', 'Gemini Web');
+  first.save();
+
+  const changed = createTranslationCheckpoint(outputPath, {
+    sourceText: 'same source',
+    targetLang: 'vi',
+    pipeline: 'gemini-web-v5:id-lock:tm-b'
   });
   assert.deepEqual(changed.checkpoint.entries, {});
 });

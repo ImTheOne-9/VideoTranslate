@@ -1,6 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const { resolveOmnivoiceSeed } = require('../lib/voice-defaults');
+const { prepareOmnivoiceReference } = require('../lib/omnivoice-reference-preprocessor');
+const { applyVoiceSpeedToFile } = require('../lib/voice-audio-fit');
+const {
+  engineUsesNativeVoiceSpeed,
+  resolveVoiceSpeed,
+  voiceSpeedToEdgeRate,
+  voiceSpeedToPiperLengthScale
+} = require('../lib/voice-speed-policy');
 const shared = require('../lib/shared-state');
 const {
   DEFAULT_VOICE_ENGINE_ID,
@@ -56,12 +64,16 @@ module.exports = {
 
   previewEngineVoice: async (req, res) => {
     try {
-      const { engine: engineId = 'piper', voice = '', text = '' } = req.body || {};
+      const { engine: engineId = 'piper', voice = '', text = '', voiceSpeed } = req.body || {};
       const engine = voiceEngineRegistry.resolve(engineId, 'piper');
+      const resolvedVoiceSpeed = resolveVoiceSpeed(voiceSpeed, {
+        environmentSpeed: process.env.DUB_TOC,
+        maxSpeed: process.env.DUB_TOC_MAX || 1.15
+      });
 
       const safeVoice = shared.safeFileName(voice || 'default') || 'default';
       const ext = engine.id === 'edge-tts' ? 'mp3' : 'wav';
-      const previewFileName = `${engine.id}_${safeVoice}.${ext}`;
+      const previewFileName = `${engine.id}_${safeVoice}_${resolvedVoiceSpeed.toFixed(2)}x.${ext}`;
 
       const previewDir = shared.VOICE_PREVIEWS_DIR;
       fs.mkdirSync(previewDir, { recursive: true });
@@ -90,6 +102,8 @@ module.exports = {
         };
         const matched = Object.entries(piperLangVoices).find(([l, v]) => v === voice);
         if (matched) lang = matched[0];
+      } else if (engine.id === 'capcut-tts') {
+        lang = engine.getCapabilities().voices.find((item) => item.id === voice)?.lang || 'vi';
       }
 
       let sampleText = String(text || '').trim();
@@ -108,9 +122,20 @@ module.exports = {
       await engine.synthesize({
         text: sampleText,
         voice,
+        rate: voiceSpeedToEdgeRate(resolvedVoiceSpeed),
+        lengthScale: voiceSpeedToPiperLengthScale(resolvedVoiceSpeed),
+        speechRate: resolvedVoiceSpeed,
         language: lang,
         outputPath: previewPath
       });
+      if (!engineUsesNativeVoiceSpeed(engine.id)) {
+        await applyVoiceSpeedToFile({
+          inputPath: previewPath,
+          speed: resolvedVoiceSpeed,
+          ffmpegPath: shared.FFMPEG_PATH,
+          runExecFile: shared.runExecFile
+        });
+      }
 
       return res.json({
         success: true,
@@ -176,18 +201,13 @@ module.exports = {
         refWavPath = refOrigPath + '_converted.wav';
         tempFiles.push(refWavPath);
 
-        clonerState.stage = 'Đang chuyển đổi file âm thanh (FFmpeg)...';
-        await new Promise((resolve, reject) => {
-          shared.execFile(shared.FFMPEG_PATH, [
-            '-i', refOrigPath,
-            '-acodec', 'pcm_s16le',
-            '-ar', '16000',
-            '-ac', '1',
-            '-y', refWavPath
-          ], (err, stdout, stderr) => {
-            if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
-            else resolve();
-          });
+        clonerState.stage = 'Đang cắt giọng mẫu theo khoảng lặng...';
+        await prepareOmnivoiceReference({
+          inputPath: refOrigPath,
+          outputPath: refWavPath,
+          ffmpegPath: shared.FFMPEG_PATH,
+          ffprobePath: shared.FFPROBE_PATH,
+          runExecFile: shared.runExecFile
         });
       }
 

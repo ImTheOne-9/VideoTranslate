@@ -110,3 +110,13 @@ test('automatic graph masters an original-only soundtrack', () => {
   assert.match(graph.filter, /loudnorm=I=-14/);
   assert.match(graph.filter, /\[aout\]$/);
 });
+
+test('audio mixer accepts a Video Assist label for extracted source music', () => {
+  const graph = buildAudioMixGraph({
+    originalInputLabel: 'a_assist',
+    inputs: [{ index: 2, inputLabel: 'music_assist_2', type: 'music', volume: 0.2 }],
+    config: normalizeAudioMasteringConfig({ audioMasteringMode: 'auto' })
+  });
+  assert.match(graph.filter, /\[a_assist\]volume=/);
+  assert.match(graph.filter, /\[music_assist_2\]volume=0\.2/);
+});

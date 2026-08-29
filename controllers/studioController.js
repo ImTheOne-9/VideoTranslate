@@ -11,6 +11,7 @@ const {
 } = require('../lib/subtitle-display-layout');
 const { createSubtitleFontMeasurer } = require('../lib/subtitle-font-measurer');
 const { resolveAutomaticSubtitle } = require('../lib/subtitle-source-helper');
+const { getCrawlerPaths } = require('../lib/crawler-paths');
 const {
   createSubtitlePostprocessSignature,
   normalizeSubtitleTimelineFile,
@@ -26,7 +27,9 @@ const {
   createVoiceAudioSignature,
   resolveVoiceReference
 } = require('../lib/voice-reference-helper');
+const { prepareOmnivoiceReference } = require('../lib/omnivoice-reference-preprocessor');
 const {
+  applyVoiceSpeedToFile,
   createFittedVoiceChunk,
   isNarrationAudioUsable,
   readWavDurationMs,
@@ -42,15 +45,31 @@ const {
   evaluateCoverage,
   evaluateOnsetAlignment,
   planAdaptiveCue,
+  planAdaptiveTimeline,
   preparePiperCueText,
-  synthesizeWithFallback
+  resolveSafeNarrationPlacement,
+  synthesizeWithFallback,
+  warpTimeMs
 } = require('../lib/adaptive-dubbing-pipeline');
+const {
+  activeWarp,
+  buildVideoAssistAudioFilters,
+  buildVideoAssistVideoFilters,
+  warpTimedBoxes
+} = require('../lib/video-assist');
 const { analyzeWavFile, readPcm16WavFile } = require('../lib/audio-quality');
 const { classifyCueSpeakers } = require('../lib/voice-speaker-classifier');
 const { EarlyTtsPipeline } = require('../lib/early-tts-pipeline');
 const { normalizePiperTtsText, normalizeTtsText } = require('../lib/tts-text-normalizer');
 const { resolvePiperVoice } = require('../lib/voice-engines/piper-engine');
-const { OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_BY_CODE } = require('../lib/voice-language-catalog');
+const { EDGE_LANGUAGE_VOICES, OUTPUT_LANGUAGES, OUTPUT_LANGUAGE_BY_CODE } = require('../lib/voice-language-catalog');
+const {
+  engineUsesNativeVoiceSpeed,
+  resolveVoiceSpeed,
+  voiceSpeedToEdgeRate,
+  voiceSpeedToPiperLengthScale
+} = require('../lib/voice-speed-policy');
+const { measuredVoiceWordsPerSecond } = require('../lib/voice-translation-rate');
 const { restoreVoiceCache, saveVoiceCache } = require('../lib/voice-content-cache');
 const {
   buildAudioMixGraph,
@@ -428,6 +447,18 @@ const resolveRenderSource = createRenderSourceResolver();
 
 function mapAutomaticSubtitleProgress(event = {}) {
   switch (event.phase) {
+    case 'language_detecting':
+      return { percent: 13, step: 'Đang nghe 25 giây đầu để xác định ngôn ngữ nguồn...' };
+    case 'language_detected':
+      return { percent: 15, step: `Đã nhận diện ngôn ngữ nguồn: ${String(event.detail?.language || 'auto').toUpperCase()}.` };
+    case 'language_detection_fallback':
+      return { percent: 15, step: 'Không dò được ngôn ngữ audio, đang kiểm tra chữ trên hình...' };
+    case 'ocr_hardsub_probe':
+      return { percent: 16, step: 'Đang thăm dò nhanh phụ đề cứng trên hình...' };
+    case 'ocr_hardsub_detected':
+      return { percent: 18, step: 'Đã thấy hardsub Trung; thử CapCut trước khi quét RapidOCR toàn video...' };
+    case 'ocr_hardsub_probe_fallback':
+      return { percent: 18, step: 'Không kết luận được từ thăm dò, sẽ dùng luồng nhận dạng đầy đủ...' };
     case 'ocr_starting':
       return { percent: 12, step: 'Đang khởi động OCR...' };
     case 'ocr_processing': {
@@ -449,6 +480,14 @@ function mapAutomaticSubtitleProgress(event = {}) {
       return { percent: 32, step: 'Đang kiểm tra phụ đề OCR...' };
     case 'whisper_fallback':
       return { percent: 33, step: 'Đang tạo phụ đề bằng Whisper...' };
+    case 'whisper_gap_fill':
+      return { percent: 33, step: 'OCR có khoảng trống lớn, Whisper đang bù phần thiếu...' };
+    case 'capcut_asr':
+      return { percent: 33, step: 'Đang nhận dạng lời thoại bằng CapCut ASR online...' };
+    case 'capcut_asr_fallback':
+      return { percent: 33, step: 'CapCut ASR không khả dụng, đang chuyển sang Faster Whisper local...' };
+    case 'capcut_asr_no_speech':
+      return { percent: 34, step: 'CapCut xác nhận video không có lời thoại; bỏ qua phụ đề và lồng tiếng.' };
     default:
       return null;
   }
@@ -493,6 +532,8 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
   const resolveSubtitle = dependencies.resolveAutomaticSubtitle || resolveAutomaticSubtitle;
   const updateStudioProgress = dependencies.updateStudioProgress || shared.updateStudioProgress;
   const logger = dependencies.logger || console;
+  const getWhisperGpuStatus = dependencies.getWhisperGpuStatus
+    || (() => readJsonFile(getCrawlerPaths().whisperGpuStatusPath));
 
   return async function resolveRenderAutomaticSubtitle(options) {
     const body = options.body || {};
@@ -501,12 +542,33 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       : 'auto';
     const forceWhisper = options.forceWhisper === true || subtitleEngine === 'whisper';
     const ocrOnly = subtitleEngine === 'ocr';
+    const requestedSourceLanguage = String(
+      body.sourceLanguage || (forceWhisper ? body.whisperLanguage : body.ocrLanguage) || 'auto'
+    ).trim().toLowerCase();
+    const sourceLanguage = [
+      'auto', 'ch', 'zh', 'zh-cn', 'zh-tw', 'cmn', 'yue', 'wuu', 'nan', 'hak', 'gan',
+      'vi', 'en', 'japan', 'ja', 'korean', 'ko', 'th', 'es', 'fr', 'de', 'ru', 'id',
+      'pt', 'it', 'nl', 'ms', 'tr', 'pl', 'ro', 'sv', 'da', 'fi', 'cs', 'hu', 'tl'
+    ]
+      .includes(requestedSourceLanguage) ? requestedSourceLanguage : 'auto';
     const whisperOnnxVariant = ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant)
       ? body.whisperOnnxVariant
       : 'q8';
+    const hybridRequested = subtitleEngine === 'auto'
+      && [true, 'true', 'on', '1'].includes(body.whisperHybridFill);
+    const gpuStatus = hybridRequested ? getWhisperGpuStatus() : null;
+    const hybridWhisperFill = hybridRequested
+      && gpuStatus?.gpuReady === true
+      && gpuStatus?.actualInference === true;
+    const capcutAsrEnabled = subtitleEngine === 'auto'
+      && (body.capcutAsrEnabled === undefined
+        || [true, 'true', 'on', '1'].includes(body.capcutAsrEnabled));
+    if (hybridRequested && !hybridWhisperFill) {
+      logger.log('[Auto Subtitle] Bỏ Whisper bù OCR vì CUDA chưa được xác minh bằng inference thật.');
+    }
     logger.log(
       `[Auto Subtitle] route=${forceWhisper ? 'whisper_manual_fallback' : 'ocr_first'} `
-      + `language=${body.ocrLanguage || 'unset'} voiceOnly=${options.isVoiceOnlySub === true}`
+      + `sourceLanguage=${sourceLanguage} voiceOnly=${options.isVoiceOnlySub === true}`
     );
     const result = await resolveSubtitle({
       videoPath: options.sourceVideo,
@@ -515,27 +577,38 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
       durationMs: options.totalDuration * 1000,
       whisperModel: body.whisperModel || 'small',
       whisperOnnxVariant,
-      ...(body.whisperLanguage ? { whisperLanguage: body.whisperLanguage } : {}),
+      sourceLanguage,
+      whisperLanguage: sourceLanguage,
       whisperTimestampLevel: body.whisperTimestampLevel === 'word' ? 'word' : 'segment',
-      whisperDevice: ['auto', 'cpu', 'dml'].includes(body.whisperDevice) ? body.whisperDevice : 'cpu',
-      ocrLanguage: body.ocrLanguage,
+      whisperDevice: ['auto', 'cpu', 'cuda', 'dml'].includes(body.whisperDevice) ? body.whisperDevice : 'auto',
+      whisperBackend: 'faster-whisper',
+      ocrLanguage: sourceLanguage,
       ocrMode: body.ocrMode,
       ocrRegion: body.ocrRegion,
       ocrRegionStrategy: body.ocrRegionStrategy === 'manual' ? 'manual' : 'auto',
       ocrPipeline: ['auto', 'viral', 'vse'].includes(body.ocrPipeline) ? body.ocrPipeline : 'auto',
       forceWhisper,
       ocrOnly,
+      hybridWhisperFill,
+      capcutAsrEnabled,
       onProgress: createAutomaticSubtitleProgressHandler(updateStudioProgress, logger)
     });
-    logger.log(`[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'}`);
+    logger.log(
+      `[Auto Subtitle] source=${result.source || 'unknown'} reason=${result.reason || 'none'} `
+      + `detectedLanguage=${result.language || sourceLanguage} evidence=${result.languageEvidence || 'requested'}`
+    );
     try {
       const metadataPath = path.join(options.workDir, 'subtitle-source.json');
       const temporaryPath = `${metadataPath}.tmp-${process.pid}`;
       fs.writeFileSync(temporaryPath, JSON.stringify({
         source: result.source || 'unknown',
         reason: result.reason || null,
-        language: result.language || body.ocrLanguage || null,
-        cueCount: Number(result.cueCount) || 0
+        language: result.language || sourceLanguage || null,
+        languageConfidence: result.languageConfidence ?? null,
+        languageEvidence: result.languageEvidence || null,
+        cueCount: Number(result.cueCount) || 0,
+        online: result.online === true,
+        uploadedAudio: result.uploadedAudio === true
       }, null, 2), 'utf8');
       fs.renameSync(temporaryPath, metadataPath);
     } catch {}
@@ -810,6 +883,9 @@ function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new D
 async function executeRenderTask(task) {
   const tempFiles = [];
   const voiceChunks = [];
+  const adaptiveCueRecords = [];
+  let dubbingTimeWarp = [];
+  let subtitleAlignedToVoice = false;
   const renderId = task.id;
   let workDir = null;
 
@@ -1128,33 +1204,54 @@ async function executeRenderTask(task) {
     );
     const requestedTargetLang = String(body.translateTargetLang || 'vi').toLowerCase().split(/[-_]/)[0];
     const targetLang = OUTPUT_LANGUAGE_BY_CODE[requestedTargetLang] ? requestedTargetLang : 'vi';
+    const requestedVoiceSpeed = resolveVoiceSpeed(body.voiceSpeed, {
+      environmentSpeed: process.env.DUB_TOC,
+      legacyEdgeRate: body.edgeRate,
+      maxSpeed: process.env.DUB_TOC_MAX || 1.15
+    });
     const charWidthRatio = targetLang === 'zh' ? 1.0 : 0.5;
     const studioMaxChars = Math.max(10, Math.floor(studioBoxWidth / (studioFontSize * charWidthRatio)));
 
     let earlyTtsPipeline = null;
     const earlyPiperVoice = resolvePiperVoice(targetLang, body.piperVoice);
+    const earlyTtsEngineId = body.voiceEngine || DEFAULT_VOICE_ENGINE_ID;
+    const earlyTtsVoice = earlyTtsEngineId === 'capcut-tts'
+      ? String(body.capcutVoice || 'BV074_streaming')
+      : earlyPiperVoice;
     const earlyTtsRequested = !segmentReviewEnabled
       && adaptiveNarrationEnabled
       && voiceMode === 'omi'
-      && (body.voiceEngine || DEFAULT_VOICE_ENGINE_ID) === 'piper'
+      && ['piper', 'capcut-tts'].includes(earlyTtsEngineId)
       && body.aiProvider === 'gemini-web'
       && body.translateVi === 'true'
-      && Boolean(earlyPiperVoice)
+      && Boolean(earlyTtsVoice)
       && !(body.dualVoiceEnabled === true || body.dualVoiceEnabled === 'true' || body.dualVoiceEnabled === 'on')
       && process.env.TTS_SOM !== '0';
     if (earlyTtsRequested) {
       try {
-        const earlyEngine = voiceEngineRegistry.get('piper');
+        const earlyEngine = voiceEngineRegistry.get(earlyTtsEngineId);
         await earlyEngine.loadModel();
         earlyTtsPipeline = new EarlyTtsPipeline({
           engine: earlyEngine,
           workDir: path.join(workDir, 'early-tts'),
-          voice: earlyPiperVoice,
+          voice: earlyTtsVoice,
           language: targetLang,
-          device: ['auto', 'cpu', 'cuda'].includes(body.piperDevice) ? body.piperDevice : 'auto',
+          device: earlyTtsEngineId === 'piper'
+            ? (['auto', 'cpu', 'cuda'].includes(body.piperDevice) ? body.piperDevice : 'auto')
+            : 'online',
+          voiceSpeed: requestedVoiceSpeed,
+          postProcessAudio: async (outputPath, engineId) => {
+            if (engineUsesNativeVoiceSpeed(engineId)) return;
+            await applyVoiceSpeedToFile({
+              inputPath: outputPath,
+              speed: requestedVoiceSpeed,
+              ffmpegPath: shared.FFMPEG_PATH,
+              runExecFile: shared.runExecFile
+            });
+          },
           logger: console
         });
-        console.log('[TTS đọc sớm] Piper đã sẵn sàng; mỗi lô Gemini hoàn tất sẽ được tạo giọng ngay.');
+        console.log(`[TTS đọc sớm] ${earlyEngine.name} đã sẵn sàng; mỗi lô Gemini hoàn tất sẽ được tạo giọng ngay.`);
       } catch (error) {
         console.warn(`[TTS đọc sớm] Không khởi động được Piper, đường TTS chính vẫn tiếp tục: ${error.message}`);
       }
@@ -1183,8 +1280,13 @@ async function executeRenderTask(task) {
           targetLang,
           srcLang: originalIsChinese
             ? 'zho_Hans'
-            : (body.whisperLanguage || body.ocrLanguage || 'auto'),
+            : (subtitleSource?.language || body.sourceLanguage || body.whisperLanguage || body.ocrLanguage || 'auto'),
           translationStyles: body.translationStyles,
+          dubbingEnabled: voiceMode === 'omi',
+          voiceSpeed: requestedVoiceSpeed,
+          voiceWordsPerSecond: earlyTtsEngineId === 'capcut-tts'
+            ? measuredVoiceWordsPerSecond(earlyTtsVoice)
+            : null,
           onTranslationBatch: earlyTtsPipeline ? (translatedItems) => {
             earlyTtsPipeline.enqueue(translatedItems.map(item => ({
               ...item,
@@ -1271,9 +1373,22 @@ async function executeRenderTask(task) {
         await voiceEngine.loadModel();
       } catch (error) {
         if (adaptiveNarrationEnabled && voiceEngineId !== 'edge-tts') {
-          console.warn(`[Dubbing] ${voiceEngineId} chưa sẵn sàng: ${error.message}. Chuyển sang Edge TTS.`);
-          voiceEngine = voiceEngineRegistry.get('edge-tts');
-          await voiceEngine.loadModel();
+          const startupFallbackIds = voiceEngineId === 'capcut-tts' && resolvePiperVoice(targetLang, body.piperVoice)
+            ? ['piper', 'edge-tts'] : ['edge-tts'];
+          let recovered = false;
+          let lastStartupError = error;
+          for (const fallbackId of startupFallbackIds) {
+            try {
+              console.warn(`[Dubbing] ${voiceEngineId} chưa sẵn sàng: ${error.message}. Thử ${fallbackId}.`);
+              voiceEngine = voiceEngineRegistry.get(fallbackId);
+              await voiceEngine.loadModel();
+              recovered = true;
+              break;
+            } catch (fallbackError) {
+              lastStartupError = fallbackError;
+            }
+          }
+          if (!recovered) throw lastStartupError;
         } else {
           if (error instanceof VoiceEngineError) throw error;
           throw new VoiceEngineError(`Không thể khởi động voice engine: ${error.message}`, {
@@ -1285,25 +1400,57 @@ async function executeRenderTask(task) {
       }
       const voiceCapabilities = voiceEngine.getCapabilities();
       const supportsVoiceCloning = voiceCapabilities.cloneVoice === true;
-      const edgeVoice = voiceEngine.id === 'edge-tts' ? String(body.edgeVoice || '') : '';
-      const edgeRate = voiceEngine.id === 'edge-tts' ? String(body.edgeRate || '+0%') : '+0%';
-      const edgePitch = voiceEngine.id === 'edge-tts' ? String(body.edgePitch || '+0Hz') : '+0Hz';
-      const voiceLogTag = voiceEngine.id === 'edge-tts'
+      const edgePair = EDGE_LANGUAGE_VOICES[targetLang] || EDGE_LANGUAGE_VOICES.vi;
+      const edgeVoiceMatchesTarget = (candidate) => String(candidate || '').toLowerCase().startsWith(`${targetLang}-`);
+      const edgeVoice = edgeVoiceMatchesTarget(body.edgeVoice) ? String(body.edgeVoice) : edgePair[0];
+      const edgeRate = voiceSpeedToEdgeRate(requestedVoiceSpeed);
+      const edgePitch = String(body.edgePitch || '+0Hz');
+      const capcutVoice = String(body.capcutVoice || 'BV074_streaming');
+      const baseVoiceLogTag = voiceEngine.id === 'edge-tts'
         ? 'EdgeTTS'
         : (voiceEngine.id === 'piper' ? 'Piper' : 'OmniVoice');
-      const piperVoice = voiceEngine.id === 'piper'
-        ? resolvePiperVoice(targetLang, body.piperVoice)
-        : '';
-      const piperDevice = voiceEngine.id === 'piper'
-        ? (['auto', 'cpu', 'cuda'].includes(body.piperDevice) ? body.piperDevice : 'auto')
-        : '';
+      const voiceLogTag = voiceEngine.id === 'capcut-tts' ? 'CapCutTTS' : baseVoiceLogTag;
+      const piperVoice = resolvePiperVoice(targetLang, body.piperVoice);
+      const piperDevice = ['auto', 'cpu', 'cuda'].includes(body.piperDevice) ? body.piperDevice : 'auto';
+      const piperLengthScale = voiceSpeedToPiperLengthScale(requestedVoiceSpeed);
       const requestedLanguage = String(targetLang || body.omiLanguage || 'vi')
         .toLowerCase().split(/[-_]/)[0];
-      const requestedVoiceDevice = voiceEngine.id === 'edge-tts'
-        ? 'cpu'
+      const requestedVoiceDevice = voiceEngine.id === 'current-omnivoice'
+        ? 'cuda:0'
+        : voiceEngine.id === 'capcut-tts'
+        ? 'online'
+        : voiceEngine.id === 'edge-tts'
+          ? 'cpu'
         : voiceEngine.id === 'piper'
           ? piperDevice
         : (body.omiDevice || process.env.OMNIVOICE_DEVICE || 'cpu');
+      const resolveEdgeVoice = (speaker) => {
+        if (speaker === 'male') {
+          return edgeVoiceMatchesTarget(body.edgeMaleVoice) ? String(body.edgeMaleVoice) : edgePair[1];
+        }
+        if (speaker === 'female') {
+          return edgeVoiceMatchesTarget(body.edgeFemaleVoice) ? String(body.edgeFemaleVoice) : edgePair[0];
+        }
+        return edgeVoice;
+      };
+      const resolvePiperFallbackVoice = (speaker) => {
+        if (targetLang !== 'vi') return piperVoice;
+        if (speaker === 'male') return String(body.piperMaleVoice || 'manhdung');
+        if (speaker === 'female') return String(body.piperFemaleVoice || 'ngochuyen');
+        return piperVoice;
+      };
+      const deviceForEngine = (engineId) => {
+        if (engineId === 'edge-tts') return 'cpu';
+        if (engineId === 'piper') return piperDevice;
+        if (engineId === 'capcut-tts') return 'online';
+        if (engineId === 'current-omnivoice') return 'cuda:0';
+        return requestedVoiceDevice;
+      };
+      const voiceForEngine = (engineId, options = {}) => {
+        if (engineId === 'edge-tts') return resolveEdgeVoice(options.speaker);
+        if (engineId === 'piper') return resolvePiperFallbackVoice(options.speaker);
+        return options.voice;
+      };
       const onVoiceFallback = (detail) => {
         task.voiceExecution = {
           engineId: voiceEngine.id,
@@ -1332,19 +1479,26 @@ async function executeRenderTask(task) {
           const selectedIsPiper = selectedEngine.id === 'piper';
           const result = await selectedEngine[method]({
             ...options,
-            voice: selectedIsEdge
-              ? (selectedEngine.id === voiceEngine.id && String(options.voice || '').includes('-')
-                ? options.voice : edgeVoice)
-              : (selectedIsPiper ? (options.voice || piperVoice) : options.voice),
+            voice: voiceForEngine(selectedEngine.id, options),
             rate: selectedIsEdge ? edgeRate : options.rate,
             pitch: selectedIsEdge ? edgePitch : options.pitch,
+            lengthScale: selectedIsPiper ? piperLengthScale : options.lengthScale,
+            speechRate: requestedVoiceSpeed,
             language: requestedLanguage,
-            device: selectedIsEdge ? 'cpu' : requestedVoiceDevice,
+            device: deviceForEngine(selectedEngine.id),
             steps: options.steps || body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
             seed: resolveOmnivoiceSeed(options.seed ?? body.omiSeed),
             allowCpuFallback,
             onFallback: onVoiceFallback
           });
+          if (!engineUsesNativeVoiceSpeed(selectedEngine.id)) {
+            await applyVoiceSpeedToFile({
+              inputPath: options.outputPath,
+              speed: requestedVoiceSpeed,
+              ffmpegPath: shared.FFMPEG_PATH,
+              runExecFile: shared.runExecFile
+            });
+          }
           task.voiceExecution = {
             engineId: result.engineId,
             requestedDevice: result.requestedDevice,
@@ -1369,21 +1523,46 @@ async function executeRenderTask(task) {
           const selectedIsPiper = selectedEngine.id === 'piper';
           const preparedItems = items.map((item) => ({
             ...item,
-            voice: selectedIsEdge
-              ? (selectedEngine.id === voiceEngine.id && String(item.voice || '').includes('-')
-                ? item.voice : edgeVoice)
-              : (selectedIsPiper ? (item.voice || piperVoice) : item.voice),
+            voice: voiceForEngine(selectedEngine.id, item),
             rate: selectedIsEdge ? edgeRate : item.rate,
             pitch: selectedIsEdge ? edgePitch : item.pitch,
+            lengthScale: selectedIsPiper ? piperLengthScale : item.lengthScale,
+            speechRate: requestedVoiceSpeed,
             language: requestedLanguage,
-            device: selectedIsEdge ? 'cpu' : requestedVoiceDevice
+            device: deviceForEngine(selectedEngine.id)
           }));
           const results = await selectedEngine.synthesizeBatch({
             items: preparedItems,
             concurrency: selectedEngine.getCapabilities().batchConcurrency || 1
           });
           const successfulResults = results.filter((item) => item.ok);
-          const actualDevice = successfulResults.find((item) => item.result?.usedDevice)?.result?.usedDevice
+          if (!engineUsesNativeVoiceSpeed(selectedEngine.id)) {
+            for (const success of successfulResults) {
+              const sourceItem = preparedItems[success.index];
+              try {
+                await applyVoiceSpeedToFile({
+                  inputPath: sourceItem.outputPath,
+                  speed: requestedVoiceSpeed,
+                  ffmpegPath: shared.FFMPEG_PATH,
+                  runExecFile: shared.runExecFile
+                });
+              } catch (error) {
+                success.ok = false;
+                success.error = error;
+                try { fs.rmSync(sourceItem.outputPath, { force: true }); } catch (_) {}
+              }
+            }
+          }
+          const validResults = successfulResults.filter((item) => item.ok);
+          const recoveredMergedCues = validResults.filter(
+            (item) => item.result?.fallbackFromMerged === true
+          ).length;
+          if (recoveredMergedCues > 0) {
+            console.log(
+              `[CapCutTTS] Đã tháo nhóm timestamp không khớp và đọc lại ${recoveredMergedCues} cue theo lô cùng giọng.`
+            );
+          }
+          const actualDevice = validResults.find((item) => item.result?.usedDevice)?.result?.usedDevice
             || (selectedIsEdge ? 'cpu' : requestedVoiceDevice);
           task.voiceExecution = {
             engineId: selectedEngine.id,
@@ -1391,10 +1570,13 @@ async function executeRenderTask(task) {
             usedDevice: actualDevice,
             fallback: false,
             language: requestedLanguage,
-            persistentRuntime: selectedEngine.getCapabilities().persistentRuntime === true,
+            persistentRuntime: validResults.some((item) => item.result?.persistentRuntime === true),
+            referencePromptCache: validResults.some((item) => item.result?.referencePromptCache === true),
             batch: {
               total: results.length,
-              successful: successfulResults.length
+              successful: validResults.length,
+              native: validResults.some((item) => item.result?.nativeBatch === true),
+              size: validResults.find((item) => item.result?.batchSize)?.result?.batchSize || 1
             }
           };
           renderJobStore.saveTask(task);
@@ -1404,14 +1586,20 @@ async function executeRenderTask(task) {
         }
       };
 
-      let fallbackVoiceEngine = null;
+      const fallbackVoiceEngines = [];
       if (adaptiveNarrationEnabled && voiceEngine.id !== 'edge-tts') {
-        try {
-          fallbackVoiceEngine = voiceEngineRegistry.get('edge-tts');
-        } catch (_) {
-          fallbackVoiceEngine = null;
+        const fallbackIds = voiceEngine.id === 'capcut-tts' && piperVoice
+          ? ['piper', 'edge-tts'] : ['edge-tts'];
+        for (const fallbackId of fallbackIds) {
+          try { fallbackVoiceEngines.push(voiceEngineRegistry.get(fallbackId)); } catch (_) {}
         }
       }
+      const loadedFallbackEngineIds = new Set();
+      const ensureFallbackEngine = async (engine) => {
+        if (!engine || engine.id === voiceEngine.id || loadedFallbackEngineIds.has(engine.id)) return;
+        await engine.loadModel();
+        loadedFallbackEngineIds.add(engine.id);
+      };
 
       if (earlyTtsPipeline) {
         const earlyCount = await earlyTtsPipeline.drain();
@@ -1422,17 +1610,18 @@ async function executeRenderTask(task) {
       if (supportsVoiceCloning && refAudioPath) {
         const refCheckpointPath = path.join(workDir, 'ref-voice-checkpoint.json');
         const refCheckpointKey = createCheckpointSignature({
-          version: 1,
+          version: 4,
+          referenceMaxSeconds: 10,
           referenceAudio: getFileIdentity(refAudioPath),
           whisperModel: body.whisperModel || 'small',
           whisperVariant: ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant)
             ? body.whisperOnnxVariant
             : 'q8',
-          language: body.ocrLanguage || ''
+          language: body.sourceLanguage || body.ocrLanguage || ''
         });
         let refCheckpoint = readJsonFile(refCheckpointPath);
         if (refCheckpoint?.checkpointKey !== refCheckpointKey) {
-          refCheckpoint = { version: 1, checkpointKey: refCheckpointKey };
+          refCheckpoint = { version: 4, checkpointKey: refCheckpointKey };
         }
 
         if (!refText && refAudioPath) {
@@ -1462,7 +1651,7 @@ async function executeRenderTask(task) {
               workDir,
               shared.FFMPEG_PATH,
               body.whisperModel || 'small',
-              body.ocrLanguage,
+              body.sourceLanguage || body.ocrLanguage,
               ['q8', 'fp32', 'medium-q8'].includes(body.whisperOnnxVariant) ? body.whisperOnnxVariant : 'q8'
             );
             console.log('Đã tự động trích xuất Ref-text:', refText);
@@ -1487,19 +1676,21 @@ async function executeRenderTask(task) {
             shared.updateStudioProgress(45, 'Đang dùng lại giọng mẫu đã chuẩn hóa...');
           } else {
             shared.updateStudioProgress(45, 'Đang chuẩn bị giọng mẫu (FFmpeg)...');
-            console.log('Đang chuyển đổi giọng mẫu sang định dạng WAV chuẩn 16kHz cho OmniVoice...');
-            await new Promise((resolve, reject) => {
-              shared.execFile(shared.FFMPEG_PATH, [
-                '-i', refAudioPath,
-                '-acodec', 'pcm_s16le',
-                '-ar', '16000',
-                '-ac', '1',
-                '-y', refWavPath
-              ], (err, stdout, stderr) => {
-                if (err) reject(new Error('Lỗi FFmpeg: ' + stderr));
-                else resolve();
-              });
+            console.log('Đang chuẩn hóa giọng mẫu 24kHz và cắt tại khoảng lặng cho OmniVoice...');
+            const preparedReference = await prepareOmnivoiceReference({
+              inputPath: refAudioPath,
+              outputPath: refWavPath,
+              ffmpegPath: shared.FFMPEG_PATH,
+              ffprobePath: shared.FFPROBE_PATH,
+              runExecFile: shared.runExecFile
             });
+            if (preparedReference.trimmed) {
+              console.log(
+                `[OmniVoice] Mẫu dài ${preparedReference.sourceDuration.toFixed(1)}s đã cắt còn`
+                + ` ${preparedReference.duration.toFixed(1)}s`
+                + (preparedReference.silenceAware ? ' tại khoảng lặng gần nhất.' : '.')
+              );
+            }
             refCheckpoint.convertedPath = refWavPath;
             refCheckpoint.refText = refText;
             writeJsonAtomic(refCheckpointPath, refCheckpoint);
@@ -1577,7 +1768,7 @@ async function executeRenderTask(task) {
 
         const dualVoiceEnabled = adaptiveNarrationEnabled
           && (body.dualVoiceEnabled === true || body.dualVoiceEnabled === 'true' || body.dualVoiceEnabled === 'on')
-          && ['piper', 'edge-tts'].includes(voiceEngine.id);
+          && ['piper', 'edge-tts', 'current-omnivoice'].includes(voiceEngine.id);
         let dualVoiceSpeakers = null;
         if (dualVoiceEnabled) {
           const analysisPath = path.join(workDir, 'speaker-analysis-16k.wav');
@@ -1611,6 +1802,51 @@ async function executeRenderTask(task) {
             console.warn(`[Dubbing] Phân hai giọng lỗi, dùng một giọng: ${error.message}`);
           }
         }
+        let omnivoiceDualReferences = null;
+        if (voiceEngine.id === 'current-omnivoice' && dualVoiceSpeakers) {
+          const primaryReference = {
+            audioPath: finalRefAudioPath,
+            text: refText,
+            sourceIdentity: getFileIdentity(refAudioPath),
+            voiceFile: body.savedVoiceFile || ''
+          };
+          const resolveGenderReference = async (voiceFile) => {
+            if (!voiceFile || voiceFile === body.savedVoiceFile) return primaryReference;
+            const resolved = await resolveVoiceReference({
+              voiceFile,
+              defaultVoiceFile: body.savedVoiceFile || '',
+              providedText: '',
+              workDir,
+              whisperModel: body.whisperModel || 'small',
+              whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
+              language: body.sourceLanguage || body.ocrLanguage || ''
+            });
+            return { ...resolved, voiceFile };
+          };
+          try {
+            const [male, female] = await Promise.all([
+              resolveGenderReference(body.omnivoiceMaleVoice),
+              resolveGenderReference(body.omnivoiceFemaleVoice)
+            ]);
+            omnivoiceDualReferences = { male, female, primary: primaryReference };
+            console.log('[OmniVoice] Đã chuẩn bị riêng mẫu giọng nam/nữ cho diffusion batch.');
+          } catch (error) {
+            console.warn(`[OmniVoice] Không chuẩn bị được hai mẫu clone; dùng mẫu chính: ${error.message}`);
+            omnivoiceDualReferences = { male: primaryReference, female: primaryReference, primary: primaryReference };
+          }
+        }
+        const referenceForGroup = (groupIndex) => {
+          if (!omnivoiceDualReferences) {
+            return {
+              audioPath: supportsVoiceCloning ? finalRefAudioPath : null,
+              text: supportsVoiceCloning ? refText : '',
+              sourceIdentity: supportsVoiceCloning ? getFileIdentity(refAudioPath) : null,
+              voiceFile: body.savedVoiceFile || ''
+            };
+          }
+          const speaker = dualVoiceSpeakers?.[groupIndex];
+          return omnivoiceDualReferences[speaker] || omnivoiceDualReferences.primary;
+        };
         const voiceForGroup = (groupIndex) => {
           const speaker = dualVoiceSpeakers?.[groupIndex];
           if (voiceEngine.id === 'edge-tts') {
@@ -1623,26 +1859,43 @@ async function executeRenderTask(task) {
             if (speaker === 'female') return String(body.piperFemaleVoice || 'ngochuyen');
             return piperVoice;
           }
+          if (voiceEngine.id === 'capcut-tts') return capcutVoice;
+          if (voiceEngine.id === 'current-omnivoice') {
+            if (speaker === 'male') return 'omnivoice:male-default-v1';
+            return 'omnivoice:female-default-v1';
+          }
           return '';
         };
+        const primaryVoiceId = voiceEngine.id === 'edge-tts'
+          ? edgeVoice
+          : voiceEngine.id === 'piper'
+            ? piperVoice
+            : voiceEngine.id === 'capcut-tts' ? capcutVoice : '';
+        const primaryVoiceGender = voiceCapabilities.voices?.find(
+          (voice) => voice.id === primaryVoiceId
+        )?.gender || null;
+        const speakerForGroup = (groupIndex) => dualVoiceSpeakers?.[groupIndex] || primaryVoiceGender;
 
         const voiceCheckpointSignature = createCheckpointSignature({
-          version: adaptiveNarrationEnabled ? 5 : 3,
+          version: adaptiveNarrationEnabled ? 6 : 3,
           narrationPipeline: adaptiveNarrationEnabled ? 'adaptive-cue' : 'legacy-grouped',
           referenceAudio: supportsVoiceCloning ? getFileIdentity(refAudioPath) : null,
           refText: supportsVoiceCloning ? refText : '',
           engineId: voiceEngine.id,
-          voice: edgeVoice || piperVoice,
+          voice: edgeVoice || piperVoice || capcutVoice,
           dualVoice: dualVoiceSpeakers ? {
             speakers: dualVoiceSpeakers,
-            male: voiceEngine.id === 'edge-tts' ? body.edgeMaleVoice : body.piperMaleVoice,
-            female: voiceEngine.id === 'edge-tts' ? body.edgeFemaleVoice : body.piperFemaleVoice
+            male: voiceEngine.id === 'edge-tts'
+              ? body.edgeMaleVoice
+              : voiceEngine.id === 'piper' ? body.piperMaleVoice : body.omnivoiceMaleVoice,
+            female: voiceEngine.id === 'edge-tts'
+              ? body.edgeFemaleVoice
+              : voiceEngine.id === 'piper' ? body.piperFemaleVoice : body.omnivoiceFemaleVoice
           } : null,
           rate: edgeRate,
+          voiceSpeed: requestedVoiceSpeed,
           pitch: edgePitch,
-          model: voiceEngine.id === DEFAULT_VOICE_ENGINE_ID
-            ? getFileIdentity(shared.OMNIVOICE_MODEL_PATH)
-            : voiceEngine.getCapabilities(),
+          model: voiceEngine.getCapabilities(),
           language: requestedLanguage,
           steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
           seed: resolveOmnivoiceSeed(body.omiSeed),
@@ -1673,6 +1926,8 @@ async function executeRenderTask(task) {
           });
         };
 
+        const batchAttemptedKeys = new Set();
+        const batchFallbackKeys = new Set();
         if (adaptiveNarrationEnabled && voiceCapabilities.batchSynthesis === true) {
           const pendingBatch = [];
           for (let batchIndex = 0; batchIndex < groups.length; batchIndex++) {
@@ -1680,14 +1935,16 @@ async function executeRenderTask(task) {
             const text = narrationTextForGroup(batchIndex);
             if (!text) continue;
             const checkpointKey = group[0]?.segment?.id || batchIndex;
+            const batchReference = referenceForGroup(batchIndex);
             const signature = createVoiceAudioSignature({
               text,
-              voiceFile: '',
-              referenceIdentity: null,
-              referenceText: '',
+              voiceFile: batchReference.voiceFile,
+              referenceIdentity: batchReference.sourceIdentity,
+              referenceText: batchReference.text,
               engineId: voiceEngine.id,
               voice: voiceForGroup(batchIndex),
               rate: edgeRate,
+              voiceSpeed: requestedVoiceSpeed,
               pitch: edgePitch,
               steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
               language: requestedLanguage,
@@ -1734,21 +1991,41 @@ async function executeRenderTask(task) {
               endMs: srtTimeToMs(group[group.length - 1].endTime),
               outputPath: voiceCheckpoint.getRawChunkPath(checkpointKey),
               voice: voiceForGroup(batchIndex),
-              lengthScale: 0.8
+              referenceAudioPath: batchReference.audioPath,
+              referenceText: batchReference.text,
+              instruct: !batchReference.audioPath
+                ? (voiceForGroup(batchIndex).includes(':male')
+                  ? 'male, young adult, moderate pitch'
+                  : 'female, young adult, moderate pitch')
+                : undefined,
+              steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
+              seed: resolveOmnivoiceSeed(body.omiSeed),
+              sequenceIndex: batchIndex,
+              speaker: speakerForGroup(batchIndex),
+              lengthScale: piperLengthScale
             });
+            batchAttemptedKeys.add(String(checkpointKey));
           }
           if (pendingBatch.length > 0) {
             shared.updateStudioProgress(48, `Đang tạo trước ${pendingBatch.length} câu thoại theo lô...`);
             console.log(
               `[${voiceLogTag}] Tạo theo lô ${pendingBatch.length} cue,`
-              + ` song song=${voiceCapabilities.batchConcurrency || 1}.`
+              + (voiceCapabilities.nativeBatch
+                ? ` diffusion batch động tối đa=${voiceCapabilities.dynamicBatchSize || 8}.`
+                : ` song song=${voiceCapabilities.batchConcurrency || 1}.`)
             );
             const batchResults = await runVoiceEngineBatch(pendingBatch);
             for (const batchResult of batchResults) {
               const item = pendingBatch[batchResult.index];
               if (!batchResult.ok || !isUsableFile(item.outputPath, 44)) {
+                if (voiceEngine.id === 'current-omnivoice') batchFallbackKeys.add(String(item.key));
                 console.warn(
-                  `[Dubbing] Batch cue ${batchResult.index + 1} lỗi; sẽ retry riêng trong vòng chính:`
+                  `[Dubbing] Batch cue ${batchResult.index + 1} lỗi;`
+                  + (voiceEngine.id === 'current-omnivoice'
+                    ? ' sẽ chuyển thẳng sang engine dự phòng:'
+                    : voiceEngine.id === 'capcut-tts'
+                      ? ' sẽ cứu bằng Piper/Edge trong vòng chính:'
+                      : ' sẽ retry riêng trong vòng chính:')
                   + ` ${batchResult.error?.message || 'audio rỗng'}`
                 );
                 continue;
@@ -1783,7 +2060,7 @@ async function executeRenderTask(task) {
             workDir,
             whisperModel: body.whisperModel || 'small',
             whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
-            language: body.ocrLanguage || ''
+            language: body.sourceLanguage || body.ocrLanguage || ''
           });
         }
 
@@ -1802,11 +2079,12 @@ async function executeRenderTask(task) {
           const progressPercent = 48 + Math.floor((idx / groups.length) * 30);
           const segment = group[0].segment || null;
           const checkpointKey = segment?.id || idx;
-          let segmentReferenceAudioPath = supportsVoiceCloning ? finalRefAudioPath : null;
-          let segmentReferenceText = supportsVoiceCloning ? refText : '';
-          let segmentReferenceIdentity = supportsVoiceCloning ? getFileIdentity(refAudioPath) : null;
+          const groupReference = referenceForGroup(idx);
+          let segmentReferenceAudioPath = groupReference.audioPath;
+          let segmentReferenceText = groupReference.text;
+          let segmentReferenceIdentity = groupReference.sourceIdentity;
           let legacyReferenceAudioPath = defaultPreviewReference?.audioPath || finalRefAudioPath;
-          const segmentVoiceFile = segment?.voiceFile || body.savedVoiceFile || '';
+          const segmentVoiceFile = segment?.voiceFile || groupReference.voiceFile || body.savedVoiceFile || '';
           if (supportsVoiceCloning && segment && segmentVoiceFile && segmentVoiceFile !== body.savedVoiceFile) {
             const segmentReference = await resolveVoiceReference({
               voiceFile: segmentVoiceFile,
@@ -1815,7 +2093,7 @@ async function executeRenderTask(task) {
               workDir,
               whisperModel: body.whisperModel || 'small',
               whisperOnnxVariant: body.whisperOnnxVariant || 'q8',
-              language: body.ocrLanguage || ''
+              language: body.sourceLanguage || body.ocrLanguage || ''
             });
             segmentReferenceAudioPath = segmentReference.audioPath;
             segmentReferenceText = segmentReference.text;
@@ -1830,6 +2108,7 @@ async function executeRenderTask(task) {
             engineId: voiceEngine.id,
             voice: voiceForGroup(idx),
             rate: edgeRate,
+            voiceSpeed: requestedVoiceSpeed,
             pitch: edgePitch,
             steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
             language: requestedLanguage,
@@ -1910,7 +2189,7 @@ async function executeRenderTask(task) {
             let fitPlan;
             let narration;
               try {
-                const narrationOptions = {
+                  const narrationOptions = {
                   initialText: lineText,
                   startMs,
                   endMs,
@@ -1934,26 +2213,55 @@ async function executeRenderTask(task) {
                     && hasRawChunk
                     && isUsableFile(rawChunkPath, 44)
                   ),
-                  synthesize: async (text) => {
-                    const synthesisOptions = {
+                    synthesize: async (text) => {
+                    if (
+                      voiceEngine.id === 'capcut-tts'
+                      && batchAttemptedKeys.has(String(checkpointKey))
+                    ) {
+                      const missingBatchError = new Error(
+                        'CapCut không trả audio sau các lượt đọc bù theo lô; không gọi lại tuần tự để tránh shark block'
+                      );
+                      missingBatchError.code = 'CAPCUT_BATCH_CUE_MISSING';
+                      throw missingBatchError;
+                    }
+                      const synthesisOptions = {
                       text,
                       outputPath: rawChunkPath,
                       voice: voiceForGroup(idx),
+                      speaker: speakerForGroup(idx),
                       steps: body.omiSteps || process.env.OMNIVOICE_STEPS || '8',
                       positionTemperature: 1,
                       referenceAudioPath: segmentReferenceAudioPath,
                       referenceText: segmentReferenceText,
-                      instruct: 'female'
+                      instruct: !segmentReferenceAudioPath && voiceForGroup(idx).includes(':male')
+                        ? 'male, young adult, moderate pitch'
+                        : 'female, young adult, moderate pitch'
                     };
                     if (!adaptiveNarrationEnabled) {
                       fs.rmSync(rawChunkPath, { force: true });
                       await runVoiceEngine(synthesisOptions);
                     } else {
+                      if (
+                        voiceEngine.id === 'current-omnivoice'
+                        && batchFallbackKeys.has(String(checkpointKey))
+                        && fallbackVoiceEngines[0]
+                      ) {
+                        await ensureFallbackEngine(fallbackVoiceEngines[0]);
+                        fs.rmSync(rawChunkPath, { force: true });
+                        await runVoiceEngine(synthesisOptions, fallbackVoiceEngines[0]);
+                        if (!isNarrationAudioUsable(rawChunkPath)) {
+                          throw new Error('Engine dự phòng không tạo được audio hợp lệ');
+                        }
+                        console.log(
+                          `[Dubbing] Cue ${idx + 1} đã được chuyển thẳng sang ${fallbackVoiceEngines[0].name}`
+                          + ' sau chuỗi OmniVoice daemon → one-shot.'
+                        );
+                      } else {
                       const synthesis = await synthesizeWithFallback({
                         primary: voiceEngine,
-                        fallback: fallbackVoiceEngine,
+                        fallbacks: fallbackVoiceEngines,
                         beforeAttempt: async (engine) => {
-                          if (engine.id !== voiceEngine.id) await engine.loadModel();
+                          await ensureFallbackEngine(engine);
                           fs.rmSync(rawChunkPath, { force: true });
                         },
                         synthesize: (engine) => runVoiceEngine(synthesisOptions, engine),
@@ -1966,6 +2274,7 @@ async function executeRenderTask(task) {
                       });
                       if (synthesis.fallback) {
                         console.log(`[Dubbing] Cue ${idx + 1} đã được cứu bằng ${synthesis.engine.name}.`);
+                      }
                       }
                     }
                     if (!isUsableFile(rawChunkPath, 44)) {
@@ -2077,6 +2386,16 @@ async function executeRenderTask(task) {
                   startMs: fitPlan.placementStartMs,
                   endMs: fitPlan.placementEndMs
                 });
+                adaptiveCueRecords.push({
+                  cueIndex: idx,
+                  startMs,
+                  endMs,
+                  rawDurationMs,
+                  rawPath: rawChunkPath,
+                  fittedPath: fittedChunkPath,
+                  checkpointKey,
+                  chunkSignature
+                });
               }
               const fittedQuality = analyzeWavFile(fittedChunkPath);
               voiceCheckpoint.markFittedChunk(checkpointKey, {
@@ -2119,17 +2438,119 @@ async function executeRenderTask(task) {
         }
 
         if (adaptiveNarrationEnabled) {
+          const timelinePlan = planAdaptiveTimeline(adaptiveCueRecords, totalDuration * 1000, {
+            videoAssistMaxSlow: process.env.DUB_VIDEO_MAXSLOW,
+            videoAssistVoiceCap: process.env.DUB_VOICE_CAP,
+            videoAssistMaxSegments: process.env.VC_WARP_MAX_DOAN,
+            redistributeClusters: process.env.DUB_CHIA_DEU === '1',
+            clusterGapMs: process.env.DUB_CHIA_DEU_GAP !== undefined
+              ? Number(process.env.DUB_CHIA_DEU_GAP) * 1000 : undefined,
+            redistributeThreshold: process.env.DUB_CHIA_DEU_NGUONG,
+            borrowLeadMs: process.env.DUB_LEAD !== undefined
+              ? Number(process.env.DUB_LEAD) * 1000 : undefined,
+            borrowTailMs: process.env.DUB_TAIL !== undefined
+              ? Number(process.env.DUB_TAIL) * 1000 : undefined,
+            maxOverflowMs: process.env.DUB_TRAN_MAX !== undefined
+              ? Number(process.env.DUB_TRAN_MAX) * 1000 : undefined
+          });
+          const recordByCue = new Map(adaptiveCueRecords.map((record) => [record.cueIndex, record]));
+          voiceChunks.length = 0;
+          narrationPlacements.length = 0;
+          let safeTimelineCursorMs = 0;
+          for (const placement of timelinePlan.placements) {
+            const record = recordByCue.get(placement.cueIndex);
+            if (!record) continue;
+            const plannedPath = `${record.fittedPath}.timeline.wav`;
+            const backupPath = `${record.fittedPath}.pre-timeline.bak`;
+            let timelineFitApplied = false;
+            try {
+              fs.rmSync(plannedPath, { force: true });
+              fs.rmSync(backupPath, { force: true });
+              await createFittedVoiceChunk({
+                rawPath: record.rawPath,
+                outputPath: plannedPath,
+                fitPlan: placement,
+                ffmpegPath: shared.FFMPEG_PATH,
+                runExecFile: shared.runExecFile,
+                normalizationOptions: {
+                  integratedLufs: audioMastering.voiceLufs,
+                  loudnessRange: audioMastering.loudnessRange,
+                  truePeakDb: audioMastering.truePeakDb,
+                  skipLoudness: true
+                },
+                audioStretchy: stretchVoiceWithAudioStretchy,
+                label: `Timeline cue ${placement.cueIndex + 1}`
+              });
+              if (!isNarrationAudioUsable(plannedPath, { minimumRmsDbfs: -45, minimumPeakDbfs: -36 })) {
+                throw new Error('Audio timeline bị câm hoặc quá yếu');
+              }
+              // Keep the known-good fit recoverable until the planned file is in place.
+              fs.renameSync(record.fittedPath, backupPath);
+              try {
+                fs.renameSync(plannedPath, record.fittedPath);
+                fs.rmSync(backupPath, { force: true });
+                timelineFitApplied = true;
+              } catch (replaceError) {
+                if (!fs.existsSync(record.fittedPath) && fs.existsSync(backupPath)) {
+                  fs.renameSync(backupPath, record.fittedPath);
+                }
+                throw replaceError;
+              }
+            } catch (error) {
+              try { fs.rmSync(plannedPath, { force: true }); } catch (_) {}
+              try {
+                if (!fs.existsSync(record.fittedPath) && fs.existsSync(backupPath)) {
+                  fs.renameSync(backupPath, record.fittedPath);
+                }
+              } catch (_) {}
+              console.warn(
+                `[Dubbing] Không áp được timeline mới cho cue ${placement.cueIndex + 1};`
+                + ` giữ WAV cũ và tính lại placement theo thời lượng thật: ${error.message}`
+              );
+            }
+            const actualPlacement = resolveSafeNarrationPlacement(
+              placement,
+              readWavDurationMs(record.fittedPath),
+              safeTimelineCursorMs
+            );
+            const safeStartMs = actualPlacement.startMs;
+            const safeEndMs = actualPlacement.endMs;
+            safeTimelineCursorMs = actualPlacement.endMs;
+            if (!timelineFitApplied || Math.abs(safeStartMs - placement.placementStartMs) > 1) {
+              console.warn(
+                `[Dubbing] Cue ${placement.cueIndex + 1} dùng placement an toàn `
+                + `${safeStartMs}-${safeEndMs}ms; không cho chồng cue kế tiếp.`
+              );
+            }
+            voiceChunks.push({ filePath: record.fittedPath, startMs: safeStartMs });
+            narrationPlacements.push({
+              cueIndex: placement.cueIndex,
+              startMs: safeStartMs,
+              endMs: safeEndMs
+            });
+          }
+          dubbingTimeWarp = timelinePlan.timeWarp;
+          const narrationTailPadMs = Math.max(0, safeTimelineCursorMs - timelinePlan.outputDurationMs);
+          task.videoAssist = {
+            enabled: activeWarp(dubbingTimeWarp) || narrationTailPadMs > 0,
+            maxSlow: timelinePlan.policy.videoAssistMaxSlow,
+            voiceCap: timelinePlan.policy.videoAssistVoiceCap,
+            outputDurationMs: Math.max(timelinePlan.outputDurationMs, safeTimelineCursorMs),
+            tailPadMs: narrationTailPadMs,
+            ...timelinePlan.stats
+          };
           const coverage = evaluateCoverage(groups.length, voiceChunks.length);
           task.voiceCoverage = {
             ...coverage,
             failed: narrationFailures,
-            timeline: { ...narrationTimeline }
+            timeline: { ...timelinePlan.stats }
           };
           renderJobStore.saveTask(task);
           console.log(
             `[Dubbing] Độ phủ ${coverage.successful}/${coverage.total}`
-            + ` (${Math.round(coverage.ratio * 100)}%), catch-up=${narrationTimeline.catchUps},`
-            + ` cap-hit=${narrationTimeline.capHits}.`
+            + ` (${Math.round(coverage.ratio * 100)}%), catch-up=${timelinePlan.stats.catchUps},`
+            + ` cap-hit=${timelinePlan.stats.capHits}, mượn=${timelinePlan.stats.borrowedMs}ms,`
+            + ` Video Assist=${timelinePlan.stats.slowedSegments} đoạn.`
           );
           if (!coverage.accepted) {
             const coverageError = new Error(
@@ -2149,6 +2570,7 @@ async function executeRenderTask(task) {
             const alignedCues = alignSubtitleCuesToNarration(srtArray, narrationPlacements);
             fs.writeFileSync(alignedSubtitlePath, parser.toSrt(alignedCues), 'utf8');
             subtitlePath = alignedSubtitlePath;
+            subtitleAlignedToVoice = true;
             console.log(
               `[Dubbing] Đã đồng bộ onset phụ đề theo ${narrationPlacements.length}`
               + ` cue giọng đọc: ${alignedSubtitlePath}`
@@ -2374,7 +2796,8 @@ async function executeRenderTask(task) {
       audioInputs.push({
         index: args.filter(v => v === '-i').length - 1,
         volume: bgmVolume,
-        type: 'music'
+        type: 'music',
+        extractedFromSource: Boolean(extractedBgmPath && path.resolve(musicPath) === path.resolve(extractedBgmPath))
       });
     }
 
@@ -2400,6 +2823,24 @@ async function executeRenderTask(task) {
     let renderSubtitlePath = null;
     let videoFilter = null;
     let hasVideoFilter = false;
+
+    if (activeWarp(dubbingTimeWarp) && subtitlePath && fs.existsSync(subtitlePath) && !subtitleAlignedToVoice) {
+      try {
+        const Parser = require('srt-parser-2').default;
+        const parser = new Parser();
+        const warpedCues = parser.fromSrt(fs.readFileSync(subtitlePath, 'utf8')).map((cue) => ({
+          ...cue,
+          startTime: msToSrtTime(warpTimeMs(srtTimeToMs(cue.startTime), dubbingTimeWarp)),
+          endTime: msToSrtTime(warpTimeMs(srtTimeToMs(cue.endTime), dubbingTimeWarp))
+        }));
+        const warpedSubtitlePath = path.join(workDir, 'video-assist-subtitles.srt');
+        fs.writeFileSync(warpedSubtitlePath, parser.toSrt(warpedCues), 'utf8');
+        subtitlePath = warpedSubtitlePath;
+        console.log(`[Video Assist] Đã ánh xạ ${warpedCues.length} cue phụ đề sang timeline sau warp.`);
+      } catch (error) {
+        console.warn(`[Video Assist] Không ánh xạ được phụ đề; giữ SRT gốc: ${error.message}`);
+      }
+    }
 
     if (subtitlePath && body.burnSub === 'true' && !isVoiceOnlySub) {
       const scaleFactor = resolveSubtitleScale(videoWidth, videoHeight);
@@ -2514,6 +2955,7 @@ async function executeRenderTask(task) {
       }
     }
     if (!Array.isArray(requestedBlurBoxes)) requestedBlurBoxes = [];
+    requestedBlurBoxes = warpTimedBoxes(requestedBlurBoxes, dubbingTimeWarp);
     const automaticOcrBlurBoxes = [];
     const useAutomaticOcrBlur = false;
     const shouldBlurOriginalSub = body.blurOriginalSub === 'true' || useAutomaticOcrBlur;
@@ -2619,20 +3061,31 @@ async function executeRenderTask(task) {
     }
 
     const filterComplex = [];
+    const videoAssistVideo = buildVideoAssistVideoFilters({
+      timeWarp: dubbingTimeWarp,
+      tailPadMs: task.videoAssist?.tailPadMs,
+      inputLabel: '0:v',
+      outputLabel: 'v_assist'
+    });
+    if (videoAssistVideo.active) {
+      filterComplex.push(...videoAssistVideo.segments);
+      if (videoFilter) videoFilter = videoFilter.replace(/\[0:v\]/g, '[v_assist]');
+    }
+    const sourceVideoLabel = videoAssistVideo.outputLabel;
     if (flipEnabled) {
       if (videoFilter) {
-        filterComplex.push('[0:v]hflip[v_flipped]');
+        filterComplex.push(`[${sourceVideoLabel}]hflip[v_flipped]`);
         filterComplex.push(videoFilter);
       } else {
         hasVideoFilter = true;
-        filterComplex.push('[0:v]hflip[vout]');
+        filterComplex.push(`[${sourceVideoLabel}]hflip[vout]`);
       }
     } else if (videoFilter) {
       filterComplex.push(videoFilter);
     }
 
     if (logoPath) {
-      const logoBaseLabel = hasVideoFilter ? 'v_logo_base' : '0:v';
+      const logoBaseLabel = hasVideoFilter ? 'v_logo_base' : sourceVideoLabel;
       if (hasVideoFilter && !renameVideoOutput(filterComplex, logoBaseLabel)) {
         throw new Error('Không thể nối logo vào filter video');
       }
@@ -2644,17 +3097,43 @@ async function executeRenderTask(task) {
       filterComplex.push(...logoOverlay.segments);
       hasVideoFilter = true;
     }
+    if (videoAssistVideo.active && !hasVideoFilter) {
+      filterComplex.push(`[${sourceVideoLabel}]null[vout]`);
+      hasVideoFilter = true;
+    }
 
     let hasAudioFilter = false;
     let originalVolume = Math.max(0, Number(body.originalVolume !== undefined ? body.originalVolume : 1.0));
     if ((body.keepOriginalBgmAI === true || body.keepOriginalBgmAI === 'true') && extractedBgmPath) {
       originalVolume = 0;
     }
+    const videoAssistAudio = buildVideoAssistAudioFilters({
+      timeWarp: dubbingTimeWarp,
+      tailPadMs: task.videoAssist?.tailPadMs,
+      inputLabel: '0:a',
+      outputLabel: 'a_assist'
+    });
+    if (videoAssistAudio.active) filterComplex.push(...videoAssistAudio.segments);
+    const sourceAudioLabel = videoAssistAudio.outputLabel;
+    if (videoAssistAudio.active) {
+      for (const input of audioInputs.filter((item) => item.type === 'music' && item.extractedFromSource)) {
+        const warpedMusic = buildVideoAssistAudioFilters({
+          timeWarp: dubbingTimeWarp,
+          tailPadMs: task.videoAssist?.tailPadMs,
+          inputLabel: `${input.index}:a`,
+          outputLabel: `music_assist_${input.index}`,
+          prefix: `va_music_${input.index}`
+        });
+        filterComplex.push(...warpedMusic.segments);
+        input.inputLabel = warpedMusic.outputLabel;
+      }
+    }
     if (audioInputs.length > 0 || audioMastering.enabled) {
       hasAudioFilter = true;
       const audioMix = buildAudioMixGraph({
         inputs: audioInputs,
         originalVolume,
+        originalInputLabel: sourceAudioLabel,
         config: audioMastering
       });
       task.audioMastering = {
@@ -2665,14 +3144,20 @@ async function executeRenderTask(task) {
       filterComplex.push(audioMix.filter);
     } else if (body.originalVolume !== undefined && originalVolume !== 1.0) {
       hasAudioFilter = true;
-      filterComplex.push(`[0:a]volume=${originalVolume}[aout]`);
+      filterComplex.push(`[${sourceAudioLabel}]volume=${originalVolume}[aout]`);
+    } else if (videoAssistAudio.active) {
+      hasAudioFilter = true;
+      filterComplex.push(`[${sourceAudioLabel}]anull[aout]`);
     }
 
     // ---- Anti-dupe filter (single pass) ----
     // Flip is already pre-applied at source level, skip it here
+    const renderDuration = task.videoAssist?.outputDurationMs > 0
+      ? task.videoAssist.outputDurationMs / 1000
+      : totalDuration;
     const antidupeEnabled = body.antidupeEnabled === 'true';
     if (antidupeEnabled) {
-      const trimWin = anti.resolveTrimWindow(body.antidupeStart, body.antidupeEnd, totalDuration);
+      const trimWin = anti.resolveTrimWindow(body.antidupeStart, body.antidupeEnd, renderDuration);
       const hasTrim = trimWin.start > 0 || trimWin.end !== null;
       const hasAdWm = (body.antidupeWatermark || '').toString().trim().length > 0;
       const hasAdVideo = hasTrim || hasAdWm;
@@ -2681,7 +3166,7 @@ async function executeRenderTask(task) {
       const needsAudioRename = hasTrim; // trim only
 
       if (needsVideoRename || needsAudioRename) {
-        console.log('[AntiDupe] Received:', JSON.stringify({ start: body.antidupeStart, end: body.antidupeEnd, totalDuration }));
+        console.log('[AntiDupe] Received:', JSON.stringify({ start: body.antidupeStart, end: body.antidupeEnd, totalDuration: renderDuration }));
         console.log('[AntiDupe] TrimWin:', JSON.stringify(trimWin));
         for (let i = 0; i < filterComplex.length; i++) {
           if (hasVideoFilter && needsVideoRename) filterComplex[i] = filterComplex[i].replace(/\[vout\]$/, '[v_ad_in]');
@@ -2743,13 +3228,13 @@ async function executeRenderTask(task) {
     shared.updateStudioProgress(83, 'Bắt đầu render video thành phẩm (FFmpeg)...');
     console.log('[FFmpeg Command Arguments]:', JSON.stringify(args));
     try {
-      await runFFmpegWithProgress(args, totalDuration);
+      await runFFmpegWithProgress(args, renderDuration);
     } catch (ffErr) {
       const stderrMsg = (ffErr.stderr || ffErr.message || '').toLowerCase();
       if (hasCUDA && stderrMsg.includes('nvenc')) {
         console.log('[FFmpeg] NVENC không khả dụng, fallback sang libx264...');
         const fallbackArgs = replaceVideoEncoderArgs(args, buildX264EncoderArgs());
-        await runFFmpegWithProgress(fallbackArgs, totalDuration);
+        await runFFmpegWithProgress(fallbackArgs, renderDuration);
       } else {
         throw ffErr;
       }
@@ -3265,7 +3750,7 @@ module.exports = {
 
   getStudioAssets: async (req, res) => {
     const voiceEngines = await voiceEngineRegistry.describeAll();
-    const defaultVoiceEngine = voiceEngines.find((engine) => engine.id === DEFAULT_VOICE_ENGINE_ID);
+    const omnivoiceEngine = voiceEngines.find((engine) => engine.id === 'current-omnivoice');
     res.json({
       videos: shared.listVideoFiles(shared.DOWNLOADS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
       renders: shared.listFiles(shared.RENDERS_DIR, ['.mp4', '.mov', '.mkv', '.webm']),
@@ -3273,15 +3758,15 @@ module.exports = {
       music: shared.listFiles(shared.MUSIC_DIR, ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.mp4']),
       logos: shared.listFiles(shared.LOGOS_DIR, ['.png', '.jpg', '.jpeg', '.webp']),
       subtitles: shared.listFiles(shared.SUBTITLES_DIR, ['.srt', '.vtt', '.ass']),
-      omiConfigured: defaultVoiceEngine?.status?.ready === true,
+      omiConfigured: omnivoiceEngine?.status?.ready === true,
       defaultVoiceEngineId: DEFAULT_VOICE_ENGINE_ID,
       outputLanguages: OUTPUT_LANGUAGES,
       voiceEngines,
       omnivoice: {
-        cliExists: fs.existsSync(shared.OMNIVOICE_CLI_PATH),
-        modelExists: fs.existsSync(shared.OMNIVOICE_MODEL_PATH),
-        cliPath: shared.OMNIVOICE_CLI_PATH,
-        modelPath: shared.OMNIVOICE_MODEL_PATH
+        ready: omnivoiceEngine?.status?.ready === true,
+        runtimeRoot: omnivoiceEngine?.status?.runtimeRoot || null,
+        modelId: omnivoiceEngine?.status?.modelId || 'k2-fsa/OmniVoice',
+        cudaInferenceVerified: omnivoiceEngine?.status?.cudaInferenceVerified === true
       }
     });
   },
