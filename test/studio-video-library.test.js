@@ -32,3 +32,22 @@ test('Studio video library recursively classifies local and crawler videos', () 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('Studio video library marks sources and generated clip_nho files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-video-chopped-'));
+  try {
+    const folder = path.join(root, 'douyin', 'videos', 'kenh', 'demo');
+    fs.mkdirSync(path.join(folder, 'clip_nho'), { recursive: true });
+    fs.writeFileSync(path.join(folder, '动漫.mp4'), 'source');
+    fs.writeFileSync(path.join(folder, 'clip_nho', '动漫_clip_01.mp4'), 'clip');
+    const videos = shared.listVideoFiles(root);
+    const source = videos.find((item) => item.name === '动漫.mp4');
+    const clip = videos.find((item) => item.name === '动漫_clip_01.mp4');
+    assert.equal(source.chopped, true);
+    assert.equal(source.isSplitClip, false);
+    assert.equal(clip.isSplitClip, true);
+    assert.equal(clip.chopped, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -765,9 +765,11 @@ app.post('/api/anti-dupe-render', studioUpload.fields([
   { name: 'videoUpload', maxCount: 1 },
   { name: 'logoUpload', maxCount: 1 }
 ]), antiDupeController.renderAntiDupe);
+app.post('/api/anti-dupe-scene-analyze', studioUpload.fields([
+  { name: 'videoUpload', maxCount: 1 }
+]), antiDupeController.analyzeSceneSplit);
 app.post('/api/anti-dupe-scene-split', studioUpload.fields([
-  { name: 'videoUpload', maxCount: 1 },
-  { name: 'logoUpload', maxCount: 1 }
+  { name: 'videoUpload', maxCount: 50 }
 ]), antiDupeController.renderSceneSplit);
 app.get('/api/anti-dupe-progress', antiDupeController.getProgress);
 app.post('/api/anti-dupe-cancel', antiDupeController.cancel);

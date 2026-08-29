@@ -3549,6 +3549,7 @@ function renderVideoGrid(videos) {
         <video src="${videoUrl}" preload="metadata" muted playsinline></video>
         <div class="video-card-play-icon">▶</div>
         <div class="video-card-duration">--:--</div>
+        ${item.isSplitClip ? '<div class="video-card-split-badge">CLIP BĂM</div>' : item.chopped ? '<div class="video-card-split-badge done">ĐÃ BĂM</div>' : ''}
       </div>
       <div class="video-card-info">
         <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
