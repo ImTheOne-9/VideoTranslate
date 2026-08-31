@@ -3532,10 +3532,12 @@ function renderVideoGrid(videos) {
   }
 
   const selectedFileVal = $('selected-video-file').value;
-  const createCard = (item, nested = false) => {
+  const createCard = (item) => {
     const card = document.createElement('div');
-    card.className = `video-card-item${nested ? ' video-card-child' : ''}`;
-    if (selectedFileVal === item.filename) {
+    card.className = 'video-card-item';
+    const selectedChild = Array.isArray(item.splitClips)
+      && item.splitClips.some((clip) => clip.filename === selectedFileVal);
+    if (selectedFileVal === item.filename || selectedChild) {
       card.classList.add('selected');
     }
     card.dataset.filename = item.filename;
@@ -3556,7 +3558,7 @@ function renderVideoGrid(videos) {
         <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
         <div class="video-card-meta">${crawlEscape(platformLabel)}${modeLabel ? ` · ${crawlEscape(modeLabel)}` : ''}${item.source ? ` · ${crawlEscape(item.source)}` : ''}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
-        ${!nested && item.splitClipCount ? `<button type="button" class="video-split-toggle">▸ ${item.splitClipCount} clip</button>` : ''}
+        ${item.splitClipCount ? `<button type="button" class="video-split-toggle">▸ ${item.splitClipCount} clip</button>` : ''}
       </div>
     `;
 
@@ -3594,16 +3596,48 @@ function renderVideoGrid(videos) {
     const group = document.createElement('div');
     group.className = 'video-card-group';
     const card = createCard(item);
+    const groupVideoEl = card.querySelector('video');
     group.appendChild(card);
     if (Array.isArray(item.splitClips) && item.splitClips.length) {
       const children = document.createElement('div');
       children.className = 'video-split-children hidden';
-      item.splitClips.forEach((clip) => children.appendChild(createCard(clip, true)));
+      children.innerHTML = item.splitClips.map((clip, index) => `
+        <button type="button" class="video-split-row" data-clip-index="${index}" title="${crawlEscape(clip.name)}">
+          <b>${index + 1}.</b><span>Clip ${index + 1} · ${(clip.size / (1024 * 1024)).toFixed(1)} MB</span><i>▶</i>
+        </button>`).join('');
       card.querySelector('.video-split-toggle')?.addEventListener('click', (event) => {
         event.stopPropagation();
         const open = children.classList.toggle('hidden') === false;
         event.currentTarget.textContent = `${open ? '▾' : '▸'} ${item.splitClipCount} clip`;
       });
+      children.querySelectorAll('.video-split-row').forEach((row) => row.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const clip = item.splitClips[Number(row.dataset.clipIndex)];
+        if (!clip) return;
+        if (!groupVideoEl) return;
+        const clipUrl = studioDownloadUrl(clip.filename);
+        document.querySelectorAll('#studio-video-grid .video-card-item').forEach((candidate) => candidate.classList.remove('selected'));
+        card.classList.add('selected');
+        $('selected-video-file').value = clip.filename;
+        setPreviewVideo(clipUrl);
+        if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
+        updateConditionalFields();
+        groupVideoEl.src = clipUrl;
+        groupVideoEl.muted = false;
+        groupVideoEl.load();
+        groupVideoEl.play().catch(() => {});
+        children.querySelectorAll('.video-split-row').forEach((candidate) => candidate.classList.remove('playing'));
+        row.classList.add('playing');
+        groupVideoEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }));
+      const selectedClipIndex = item.splitClips.findIndex((clip) => clip.filename === selectedFileVal);
+      if (selectedClipIndex >= 0) {
+        children.classList.remove('hidden');
+        const selectedRow = children.querySelector(`[data-clip-index="${selectedClipIndex}"]`);
+        selectedRow?.classList.add('playing');
+        const toggle = card.querySelector('.video-split-toggle');
+        if (toggle) toggle.textContent = `▾ ${item.splitClipCount} clip`;
+      }
       group.appendChild(children);
     }
     grid.appendChild(group);

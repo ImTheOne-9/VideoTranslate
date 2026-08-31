@@ -5759,9 +5759,12 @@ select option {
 /* Group scene-split clips below their original video. */
 .video-card-group { min-width:0; display:flex; flex-direction:column; gap:7px; }
 .video-split-toggle { width:100%; margin-top:6px; padding:5px 8px; border:1px solid color-mix(in srgb, var(--accent-2) 35%, var(--border)); border-radius:6px; background:color-mix(in srgb, var(--accent-2) 8%, transparent); color:var(--accent-2); font-size:10px; font-weight:800; cursor:pointer; }
-.video-split-children { display:grid; grid-template-columns:1fr; gap:7px; padding:7px; border-left:2px solid color-mix(in srgb, var(--accent-2) 40%, transparent); }
-.video-card-child { background:color-mix(in srgb, var(--bg-2) 92%, var(--accent-2)); }
-.video-card-child .video-card-thumb { aspect-ratio:16/7; }
+.video-split-children { display:flex; flex-direction:column; gap:2px; padding:7px 5px; border-top:1px solid var(--border); background:color-mix(in srgb, var(--bg-2) 94%, var(--accent-2)); border-radius:0 0 9px 9px; }
+.video-split-row { width:100%; display:flex; align-items:center; gap:6px; padding:6px 5px; border:0; border-radius:6px; background:transparent; color:var(--text); font-size:10px; text-align:left; cursor:pointer; }
+.video-split-row:hover, .video-split-row.playing { background:color-mix(in srgb, var(--accent) 13%, transparent); }
+.video-split-row b { flex:none; color:var(--accent-2); }
+.video-split-row span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.video-split-row i { flex:none; font-style:normal; color:var(--muted); }
 
 @media (max-width: 1180px) {
   .tts-layout { grid-template-columns:1fr; }

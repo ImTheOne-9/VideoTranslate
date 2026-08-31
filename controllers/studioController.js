@@ -1,7 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const shared = require('../lib/shared-state');
-const { translateSubtitles, formatSubtitleFile, srtTimeToMs, msToSrtTime } = require('../lib/translate-sub');
+const {
+  translateSubtitles,
+  formatSubtitleFile,
+  deduplicateTranslatedSubtitleFile,
+  srtTimeToMs,
+  msToSrtTime
+} = require('../lib/translate-sub');
 const {
   fitSubtitleCue,
   resolveDisplayMaxLines,
@@ -1319,6 +1325,22 @@ async function executeRenderTask(task) {
     }
     subtitlePath = translationStage.subtitlePath;
     task.translationReport = translationStage.translationReport || null;
+
+    // Chốt ngay trước segment/TTS để cả job khôi phục từ checkpoint dịch cũ
+    // cũng không đọc lặp các cue mà OCR đọc khác chữ nhưng Gemini dịch giống hệt.
+    if (body.translateVi === 'true' && subtitlePath && fs.existsSync(subtitlePath)) {
+      const configuredGapSeconds = Number(process.env.VI_TRUNG_MAX_GAP);
+      const maxGapMs = Number.isFinite(configuredGapSeconds) && configuredGapSeconds >= 0
+        ? configuredGapSeconds * 1000
+        : 2000;
+      const translatedDeduplication = deduplicateTranslatedSubtitleFile(subtitlePath, { maxGapMs });
+      if (translatedDeduplication.mergedCount > 0) {
+        console.log(
+          `[Dịch phụ đề] Gộp ${translatedDeduplication.mergedCount} cue dịch TRÙNG liên tiếp `
+          + `trước TTS → ${translatedDeduplication.cueCount} câu.`
+        );
+      }
+    }
 
     let segmentManifest = null;
     const shouldPrepareSegmentManifest = voiceMode === 'omi'

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const shared = require('../lib/shared-state');
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
 test('Studio video library recursively classifies local and crawler videos', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-video-library-'));
@@ -65,4 +66,31 @@ test('Studio video library keeps orphan split clips visible', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Studio video library groups ViralCrawl cảnh filenames and sorts clips numerically', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-video-viral-clips-'));
+  try {
+    const folder = path.join(root, 'bili', 'videos', 'link', 'demo');
+    fs.mkdirSync(path.join(folder, 'clip_nho'), { recursive: true });
+    fs.writeFileSync(path.join(folder, 'review.mp4'), 'source');
+    fs.writeFileSync(path.join(folder, 'clip_nho', 'review_cảnh10_9x16.mp4'), 'clip10');
+    fs.writeFileSync(path.join(folder, 'clip_nho', 'review_cảnh2_9x16.mp4'), 'clip2');
+    const videos = shared.listVideoFiles(root);
+    assert.equal(videos.length, 1);
+    assert.equal(videos[0].splitClipCount, 2);
+    assert.deepEqual(videos[0].splitClips.map((clip) => clip.name), [
+      'review_cảnh2_9x16.mp4',
+      'review_cảnh10_9x16.mp4'
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Studio grouped clip rows select the clip itself for rendering', () => {
+  assert.match(appSource, /const groupVideoEl = card\.querySelector\('video'\)/);
+  assert.match(appSource, /\$\('selected-video-file'\)\.value = clip\.filename/);
+  assert.match(appSource, /setPreviewVideo\(clipUrl\)/);
+  assert.doesNotMatch(appSource.slice(appSource.indexOf("children.querySelectorAll('.video-split-row')"), appSource.indexOf('group.appendChild(children)')), /\bvideoEl\b/);
 });
