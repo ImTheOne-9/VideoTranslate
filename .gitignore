@@ -96,6 +96,9 @@ release/mdx-onnx-cuda/*.zip
 .env
 .env.local
 license-server/.env
+.env.tmp
+license-server/.env.tmp
+facebook/
 license-server/database.json
 license.json
 *.jsc

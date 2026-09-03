@@ -21,6 +21,7 @@ const { OcrGpuManager } = require('./lib/ocr-gpu-manager');
 const { WhisperGpuManager } = require('./lib/whisper-gpu-manager');
 const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
+const facebookController = require('./controllers/facebookController');
 
 function createBrowserPreviewResolver(platform) {
   return async ({ input, count, mode, onLog }) => {
@@ -380,7 +381,11 @@ if (process.platform === 'win32') {
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => {
+    if (String(req.originalUrl || '').startsWith('/api/facebook/webhook')) req.rawBody = Buffer.from(buffer);
+  }
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/renders', express.static(shared.RENDERS_DIR));
 app.use('/downloads', express.static(shared.DOWNLOADS_DIR));
@@ -859,8 +864,12 @@ app.post('/api/douyin-download', downloadController.downloadDouyin);
 app.get('/api/open-file-folder', systemController.openFileFolder);
 app.get('/api/download-crawl/open-file-folder', systemController.openDownloadedFileFolder);
 app.get('/api/serve-file', systemController.serveFile);
-app.post('/api/publish-facebook', systemController.publishFacebook);
-app.post('/api/verify-facebook-page', systemController.verifyFacebookPage);
+// Facebook Page Manager: kho token mã hóa, hàng đợi bền vững, Post/Reel/Story,
+// hẹn giờ, retry, OAuth và API quản lý tương tác.
+facebookController.registerFacebookRoutes(app);
+// Giữ tương thích giao diện/bản dự án cũ; hai route này nay cũng đi qua queue mới.
+app.post('/api/publish-facebook', facebookController.legacyPublish);
+app.post('/api/verify-facebook-page', facebookController.legacyVerify);
 app.get('/api/check-dependencies', systemController.checkDependencies);
 app.get('/api/check-dependencies-status', systemController.checkDependenciesStatus);
 app.post('/api/download-dependency', systemController.downloadDependency);

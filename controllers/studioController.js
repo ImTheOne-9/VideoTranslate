@@ -638,6 +638,17 @@ function applyRenderTaskSuccess(task, data, state = shared.state) {
     error: null,
     result: data
   };
+  // Tự động đăng là một job độc lập: render vẫn thành công nếu Facebook lỗi.
+  // Chỉ bật khi snapshot của task có facebookPublish.enabled=true.
+  if (task?.body?.facebookPublish?.enabled === true) {
+    try {
+      const queued = require('./facebookController').enqueueRenderResult(task, data);
+      if (queued?.job) data.facebookPublishJobId = queued.job.id;
+    } catch (error) {
+      data.facebookPublishWarning = error.message;
+      console.error(`[Facebook Auto Publish] Không thể xếp hàng sau render: ${error.message}`);
+    }
+  }
 }
 
 function isRenderTaskCancellation(task, error) {
@@ -854,6 +865,10 @@ function findNextPendingRenderTask(queue) {
 
 function createRenderQueueTask({ taskId, body, files, taskDir, createdAt = new Date() }) {
   const taskBody = { ...(body || {}) };
+  if (typeof taskBody.facebookPublish === 'string') {
+    try { taskBody.facebookPublish = JSON.parse(taskBody.facebookPublish); }
+    catch { delete taskBody.facebookPublish; }
+  }
   const uiSnapshot = normalizeUiSnapshot(taskBody.uiSnapshot, taskBody);
   delete taskBody.uiSnapshot;
   return {

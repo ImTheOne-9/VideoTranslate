@@ -73,7 +73,13 @@
       "whisper-onnx-child-runtime.js",
       "logo.ico",
       "package.json",
-      "changelog.json"
+      "changelog.json",
+      "!license-server/**/*",
+      "!.env",
+      "!.env.*",
+      "!**/.env",
+      "!**/.env.*",
+      "!scripts/migrate-facebook-oauth-env.js"
     ],
     "extraResources": [
       {

@@ -7,6 +7,8 @@ const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 const { extractPaymentKeyRef, buildPaymentMemo } = require('./payment-utils');
 const { sendCapiEvent } = require('./lib/meta-capi');
+const { createFacebookOAuthStore } = require('./lib/facebook-oauth-store');
+const { createFacebookOAuthRouter } = require('./lib/facebook-oauth');
 
 async function triggerCapiEvent(params) {
   const pixelId = await DB.settings.get('metaPixelId', process.env.META_PIXEL_ID || '1048557318333738');
@@ -84,7 +86,9 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'my_super_secret_admin_token_2026
 const app = express();
 app.set('trust proxy', true);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb', verify: (req, _res, buffer) => {
+  if (req.originalUrl.split('?')[0] === '/api/facebook/webhook') req.rawBody = Buffer.from(buffer);
+} }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Serve static frontend files
@@ -1912,6 +1916,11 @@ async function sendResetPasswordEmail({ toEmail, fullName, token }) {
   
   await sendMailHelper({ toEmail, subject, bodyContent });
 }
+
+app.use('/api/facebook', createFacebookOAuthRouter({
+  store: createFacebookOAuthStore(mongoose),
+  findLicense: (key) => DB.licenses.findOne({ key })
+}));
 
 // 1. API Kích hoạt bản quyền từ Client
 app.post('/api/server/activate', async (req, res) => {
