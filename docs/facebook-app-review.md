@@ -31,6 +31,8 @@ Chọn **URL hướng dẫn xóa dữ liệu** nếu Dashboard cung cấp lựa 
 
 Tên người vận hành và email hỗ trợ đã được chủ sản phẩm cung cấp. Dùng **Đoàn Việt Hoàng** và **doanhoang1910@gmail.com** cho thông tin liên hệ tương ứng; không tự gán người vận hành làm Nhân viên bảo vệ dữ liệu (DPO). Trước khi công khai chính sách, chủ sản phẩm cần rà quy trình xác minh và xử lý yêu cầu xóa, bên xử lý dữ liệu và nội dung điều khoản. Các trang mô tả cách triển khai hiện tại; không hứa tự xóa lịch sử máy khách từ server.
 
+Chủ sản phẩm đã chấp thuận phản hồi yêu cầu xóa trong 5 ngày làm việc và xử lý trong 30 ngày sau khi xác minh đủ thông tin; thông báo lý do và thời gian dự kiến trước hạn nếu cần gia hạn. Đã đưa vào cả ba trang Việt/Anh. Quy trình vận hành nằm trong `docs/facebook-data-requests.md`; không có cơ chế tự gửi email hoặc tự xóa dữ liệu khách được bổ sung bởi thay đổi nội dung này. Tên nhà cung cấp hosting MongoDB, email giao dịch và chính sách backup vẫn cần xác minh từ hạ tầng thực tế khi khai Data Handling cho Meta.
+
 ## Quyền thực sự được code sử dụng
 
 Backend hiện khai báo `public_profile`, `pages_show_list`, `pages_manage_posts`, `pages_read_engagement`, `pages_read_user_content`, `pages_manage_engagement`, `read_insights` tại `license-server/lib/facebook-oauth.js`.
