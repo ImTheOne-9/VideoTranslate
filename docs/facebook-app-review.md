@@ -25,6 +25,8 @@ Cập nhật kiểm tra: 03/09/2026. Đây là hồ sơ chuẩn bị, không ph�
 | Data Deletion Instructions | https://editnhanh.com/data-deletion.html |
 | OAuth redirect URI | https://editnhanh.com/api/facebook/oauth/callback |
 
+Ba trang chính sách có nút **Tiếng Việt / English**, dùng liên kết HTML và hoạt động không cần JavaScript. Các URL ở bảng trên vẫn mở tiếng Việt mặc định. Bản tiếng Anh đầy đủ lần lượt ở `/privacy-en.html`, `/terms-en.html`, `/data-deletion-en.html`; có thể dùng trong hướng dẫn reviewer. Liên kết giữa các trang chính sách tiếng Anh giữ nguyên ngôn ngữ. Khi triển khai, cần đưa cả ba file tiếng Anh và `legal.css` mới lên cùng bản build; không cần đổi ba URL đã điền trong Meta.
+
 Chọn **URL hướng dẫn xóa dữ liệu** nếu Dashboard cung cấp lựa chọn này. Không điền trang HTML vào ô yêu cầu callback POST có chữ ký: đây chưa phải endpoint Data Deletion Callback tự động. Không dùng OAuth callback hoặc webhook nhận sự kiện làm callback xóa dữ liệu.
 
 Tên người vận hành và email hỗ trợ đã được chủ sản phẩm cung cấp. Dùng **Đoàn Việt Hoàng** và **doanhoang1910@gmail.com** cho thông tin liên hệ tương ứng; không tự gán người vận hành làm Nhân viên bảo vệ dữ liệu (DPO). Trước khi công khai chính sách, chủ sản phẩm cần rà quy trình xác minh và xử lý yêu cầu xóa, bên xử lý dữ liệu và nội dung điều khoản. Các trang mô tả cách triển khai hiện tại; không hứa tự xóa lịch sử máy khách từ server.
