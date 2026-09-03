@@ -365,6 +365,16 @@ function AppContent() {
                 </ul>
               </div>
 
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider font-display">Facebook & Chính sách</h4>
+                <ul className="space-y-2.5 text-xs font-medium text-zinc-400">
+                  <li><a href="/facebook.html" className="hover:text-white transition-colors">Quản lý Facebook Page</a></li>
+                  <li><a href="/privacy.html" className="hover:text-white transition-colors">Chính sách riêng tư</a></li>
+                  <li><a href="/terms.html" className="hover:text-white transition-colors">Điều khoản sử dụng</a></li>
+                  <li><a href="/data-deletion.html" className="hover:text-white transition-colors">Hướng dẫn xóa dữ liệu</a></li>
+                </ul>
+              </div>
+
               {/* Column 3: Contact Support */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider font-display">Hỗ trợ & Liên hệ</h4>

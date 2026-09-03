@@ -2586,12 +2586,29 @@
             <button type="button" id="facebook-oauth-btn" class="ghost-btn" onclick="connectFacebookOAuth()"
               style="white-space:nowrap;height:42px;border-color:rgba(24,119,242,.55);color:#60a5fa;">KẾT NỐI FACEBOOK</button>
           </div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:rgba(24,119,242,.035);">
-            <label style="display:flex;gap:7px;align-items:center;margin:0;font-size:12px;"><input type="checkbox" id="facebook-auto-publish-enabled" onchange="saveFacebookAutoPublishSettings()"> Tự động xếp hàng Facebook sau khi render xong</label>
-            <select id="facebook-auto-publish-page" class="premium-select" style="min-width:180px;max-width:280px;height:34px;" onchange="saveFacebookAutoPublishSettings()"><option value="">Chọn Page</option></select>
-            <select id="facebook-auto-publish-type" class="premium-select" style="width:140px;height:34px;" onchange="saveFacebookAutoPublishSettings()"><option value="reel">Reel</option><option value="post">Video Post</option><option value="story">Story</option></select>
-            <input id="facebook-auto-publish-caption" class="premium-input" style="min-width:220px;flex:1;height:34px;" placeholder="Caption mặc định sau render" oninput="saveFacebookAutoPublishSettings()">
-          </div>
+          <section class="facebook-auto-publish" aria-labelledby="facebook-auto-publish-title">
+            <label class="facebook-auto-publish-heading" for="facebook-auto-publish-enabled">
+              <span class="facebook-auto-publish-intro">
+                <strong id="facebook-auto-publish-title">Tự động đăng Facebook</strong>
+                <span id="facebook-auto-publish-help">Thêm video vào hàng đợi đăng sau khi render xong.</span>
+              </span>
+              <input type="checkbox" role="switch" class="facebook-auto-publish-switch" id="facebook-auto-publish-enabled" aria-labelledby="facebook-auto-publish-title" aria-describedby="facebook-auto-publish-help" onchange="saveFacebookAutoPublishSettings()">
+            </label>
+            <div class="facebook-auto-publish-fields">
+              <label class="facebook-auto-publish-field" for="facebook-auto-publish-page">
+                <span>Page đăng video</span>
+                <select id="facebook-auto-publish-page" class="premium-select" onchange="saveFacebookAutoPublishSettings()"><option value="">Chọn Page</option></select>
+              </label>
+              <label class="facebook-auto-publish-field" for="facebook-auto-publish-type">
+                <span>Loại bài đăng</span>
+                <select id="facebook-auto-publish-type" class="premium-select" onchange="saveFacebookAutoPublishSettings()"><option value="reel">Reel</option><option value="post">Video Post</option><option value="story">Story</option></select>
+              </label>
+              <label class="facebook-auto-publish-field facebook-auto-publish-caption" for="facebook-auto-publish-caption">
+                <span>Caption mặc định <small>Không bắt buộc</small></span>
+                <input id="facebook-auto-publish-caption" class="premium-input" placeholder="Nhập nội dung bài đăng..." oninput="saveFacebookAutoPublishSettings()">
+              </label>
+            </div>
+          </section>
         </div>
 
         <div class="panel">
@@ -2606,7 +2623,7 @@
           </div>
         </div>
         <div class="panel" style="margin-top:14px;">
-          <div class="panel-head"><div><h3>Lịch đăng và lịch sử Facebook</h3><small>Tác vụ được lưu trên máy và tự tiếp tục khi mở lại ứng dụng.</small></div><button type="button" class="ghost-btn" onclick="loadFacebookJobs()">Làm mới</button></div>
+          <div class="panel-head"><div><h3>Lịch đăng và lịch sử Facebook</h3><small>Lịch có trạng thái “Facebook đã nhận lịch” sẽ tự xuất bản dù máy tắt. Các tác vụ chưa gửi xong cần phần mềm chạy.</small></div><button type="button" class="ghost-btn" onclick="loadFacebookJobs()">Làm mới</button></div>
           <div id="facebook-jobs-list" class="facebook-jobs-list"><div class="empty-state-block"><p>Chưa có tác vụ đăng Facebook.</p></div></div>
         </div>
       </section>
@@ -2737,17 +2754,32 @@
           <textarea id="fb-description" class="premium-textarea" rows="2"
             placeholder="Nội dung mô tả video (Caption)..."></textarea>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div class="form-group" style="margin-bottom:8px;">
-            <label style="margin:0 0 6px 0;">Loại bài đăng</label>
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="fb-publish-type" style="margin:0 0 6px 0;">Loại bài đăng</label>
             <select id="fb-publish-type" class="premium-select"><option value="reel">Facebook Reel</option><option value="post">Video Post</option><option value="story">Video Story</option></select>
-          </div>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label style="margin:0 0 6px 0;">Thời gian đăng</label>
-            <input type="datetime-local" id="fb-scheduled-at" class="premium-input">
-          </div>
         </div>
-        <small style="color:var(--muted);margin-top:-8px;">Để trống thời gian để đăng ngay. Hẹn giờ cục bộ cần ứng dụng đang chạy.</small>
+        <fieldset class="fb-schedule">
+          <legend>Thời gian đăng</legend>
+          <div class="fb-schedule-modes">
+            <label><input type="radio" name="fb-schedule-mode" id="fb-schedule-now" checked onchange="setFacebookScheduleMode('now')"><span>Đăng ngay</span></label>
+            <label><input type="radio" name="fb-schedule-mode" id="fb-schedule-later" onchange="setFacebookScheduleMode('later')"><span>Hẹn giờ trên Facebook</span></label>
+          </div>
+          <div id="fb-schedule-details" class="fb-schedule-details hidden">
+            <div class="fb-schedule-fields">
+              <label for="fb-schedule-date">Ngày đăng<input type="date" id="fb-schedule-date" class="premium-input" oninput="updateFacebookSchedule()"></label>
+              <label for="fb-schedule-time">Giờ đăng<input type="time" id="fb-schedule-time" class="premium-input" step="60" oninput="updateFacebookSchedule()"></label>
+            </div>
+            <div class="fb-schedule-shortcuts" aria-label="Chọn nhanh thời gian đăng">
+              <button type="button" onclick="chooseFacebookSchedule('15m')">Sau 15 phút</button>
+              <button type="button" onclick="chooseFacebookSchedule('1h')">Sau 1 giờ</button>
+              <button type="button" onclick="chooseFacebookSchedule('tomorrow')">Mai, 09:00</button>
+            </div>
+            <small id="fb-schedule-timezone" class="fb-schedule-timezone"></small>
+          </div>
+          <input type="hidden" id="fb-scheduled-at">
+          <p id="fb-schedule-summary" class="fb-schedule-summary" aria-live="polite">Video sẽ được thêm vào hàng đợi đăng ngay.</p>
+          <p id="fb-schedule-note" class="fb-schedule-note hidden">Giữ phần mềm mở đến khi hiện “Facebook đã nhận lịch”. Sau đó Facebook tự xuất bản khi đến giờ, kể cả khi máy tắt. Bình luận tự động vẫn cần phần mềm chạy sau khi bài được đăng.</p>
+        </fieldset>
         <div class="form-group" style="margin-bottom: 8px;">
           <label style="margin: 0 0 6px 0;">Nội dung tự động bình luận</label>
           <textarea id="fb-comment" class="premium-textarea" rows="2"

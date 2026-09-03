@@ -342,6 +342,16 @@ test('Media requires ffprobe, a video stream and a known duration', async (t) =>
   options.runExecFile = async () => ({ stdout: JSON.stringify({ format: {}, streams: [{ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1920 }] }) });
   await assert.rejects(probeMedia(f.file, options), /thời lượng/);
   assert.doesNotThrow(() => validateForType({ size: 8, duration: 315 }, 'post'));
+  const previousReelLimit = process.env.FACEBOOK_REEL_MAX_SECONDS;
+  t.after(() => {
+    if (previousReelLimit === undefined) delete process.env.FACEBOOK_REEL_MAX_SECONDS;
+    else process.env.FACEBOOK_REEL_MAX_SECONDS = previousReelLimit;
+  });
+  delete process.env.FACEBOOK_REEL_MAX_SECONDS;
+  assert.doesNotThrow(() => validateForType({ size: 8, duration: 315 }, 'reel'));
+  process.env.FACEBOOK_REEL_MAX_SECONDS = '0';
+  assert.doesNotThrow(() => validateForType({ size: 8, duration: 315 }, 'reel'));
+  process.env.FACEBOOK_REEL_MAX_SECONDS = '90';
   assert.throws(() => validateForType({ size: 8, duration: 315 }, 'reel'), /cấu hình trong phần mềm/);
   assert.throws(() => validateForType({ size: 8, duration: 0 }, 'reel'), /thời lượng/);
   assert.throws(() => validateForType({ size: 8, duration: NaN }, 'story'), /thời lượng/);

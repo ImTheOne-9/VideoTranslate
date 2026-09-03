@@ -5,7 +5,7 @@ Phạm vi bản sửa upload: adapter, hàng đợi, kiểm tra media, trạng t
 ## Luồng xử lý
 
 - Post dùng `/videos` qua `graph-video.facebook.com`, tải từng chunk theo offset Facebook xác nhận. Reel và Story giữ endpoint riêng và dùng URL upload Facebook trả về.
-- Không dùng `content_category` để chọn Post/Reel/Story. Post gửi `published=true`; Reel gửi `video_state=PUBLISHED` khi finish.
+- Không dùng `content_category` để chọn Post/Reel/Story. Khi đăng ngay, Post gửi `published=true`; Reel gửi `video_state=PUBLISHED` khi finish. Khi hẹn giờ phía Facebook, dùng [luồng hẹn giờ mới](facebook-native-scheduling.md).
 - Lưu `upload` trong kho tác vụ: loại nội dung, phiên bản API, kích thước/mtime file, ID video, ID phiên hoặc URL upload, offset đã xác nhận và giai đoạn hiện tại.
 - Ghi checkpoint trước request tạo phiên/transfer/finish và sau phản hồi. Không phát request tiếp nếu lưu checkpoint thất bại.
 - Chỉ chấp nhận finish có `success: true`. Phản hồi không rõ hoặc mất mạng ở finish chuyển sang GET trạng thái ID cũ, không tự gửi finish hay tạo video mới.
@@ -36,12 +36,12 @@ Yêu cầu ffprobe đọc được luồng video, kích thước và thời lư�
 Các ngưỡng sau là cấu hình kiểm tra cục bộ, chưa phải tuyên bố giới hạn chung của Facebook:
 
 - `FACEBOOK_MAX_VIDEO_BYTES`: mặc định 4294967296.
-- `FACEBOOK_REEL_MAX_SECONDS`: mặc định 90.
+- `FACEBOOK_REEL_MAX_SECONDS`: mặc định `0`, không chặn thời lượng Reel trên máy. Có thể đặt số dương để bật lại ngưỡng cục bộ.
 - `FACEBOOK_STORY_MAX_SECONDS`: mặc định 60.
 - `FACEBOOK_STATUS_POLL_MS`: mặc định 10000.
 - `FACEBOOK_STATUS_POLL_ATTEMPTS`: mặc định 60.
 
-Video khoảng 315 giây: chọn **Post** để thử luồng video dài. Chỉ tăng ngưỡng Reel/Story khi đã xác minh khả năng API cho Page và phiên bản đang dùng. Bản sửa này không đổi mặc định phiên bản v25.0 và không tự đổi loại bài.
+Video khoảng 315 giây có thể đi tiếp qua kiểm tra thời lượng Reel khi cấu hình là `0`; Facebook sẽ quyết định chấp nhận hay trả lỗi. Việc bỏ chặn cục bộ chưa chứng minh API nhận mọi độ dài Reel. Luồng **Post** vẫn dùng được cho video dài. Bản sửa này không đổi mặc định phiên bản v25.0 và không tự đổi loại bài.
 
 ## Quản lý bài sau khi đăng
 

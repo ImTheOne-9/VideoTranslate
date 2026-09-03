@@ -8,6 +8,8 @@ const FacebookApiService = require('../lib/facebookApi');
 const { FacebookAccountStore } = require('../lib/facebook-account-store');
 const { FacebookPublishJobStore } = require('../lib/facebook-publish-job-store');
 const { FacebookPublishQueue } = require('../lib/facebook-publish-queue');
+const { publicationSchedule } = require('../lib/facebook-scheduling');
+const { resolveFacebookRenderPath } = require('../lib/facebook-render-path');
 const { managementId, resolveManagedObjectId, facebookPermalink } = require('../lib/facebook-object-identity');
 
 const dataDir = path.join(path.dirname(shared.RENDERS_DIR), 'facebook');
@@ -47,13 +49,7 @@ function graphError(error) {
 }
 
 function resolveRenderPath(value) {
-  if (!value) return null;
-  const decoded = decodeURIComponent(String(value)).split('?')[0];
-  const candidate = path.isAbsolute(decoded) ? path.resolve(decoded) : path.resolve(shared.RENDERS_DIR, path.basename(decoded));
-  const root = `${path.resolve(shared.RENDERS_DIR)}${path.sep}`.toLowerCase();
-  if (!`${candidate}${path.sep}`.toLowerCase().startsWith(root)) throw new Error('Chỉ được đăng video nằm trong thư mục renders');
-  if (!fs.existsSync(candidate)) throw new Error('Không tìm thấy file video đã render');
-  return candidate;
+  return resolveFacebookRenderPath(value, shared.RENDERS_DIR);
 }
 
 async function verifyAndSave(body) {
@@ -71,15 +67,14 @@ async function verifyAndSave(body) {
 function enqueueFromBody(body, account) {
   const type = ['post', 'reel', 'story', 'feed'].includes(body.type) ? body.type : 'reel';
   const videoPath = type === 'feed' ? null : resolveRenderPath(body.videoPath || body.videoUrl);
-  const scheduled = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
-  if (Number.isNaN(scheduled.getTime())) throw new Error('Thời gian hẹn đăng không hợp lệ');
+  const schedule = publicationSchedule(body, type);
   const idempotencyKey = body.idempotencyKey || crypto.createHash('sha256').update([
-    body.sourceRenderTaskId || videoPath || body.message || '', account.id, type, scheduled.toISOString()
+    body.sourceRenderTaskId || videoPath || body.message || '', account.id, type, schedule.scheduledAt
   ].join('|')).digest('hex');
   return publishQueue.enqueue({
     accountId: account.id, pageId: account.pageId, type, videoPath,
     message: String(body.description || body.message || ''), title: String(body.title || ''),
-    firstComment: String(body.comment || body.firstComment || ''), scheduledAt: scheduled.toISOString(),
+    firstComment: String(body.comment || body.firstComment || ''), ...schedule,
     sourceRenderTaskId: body.sourceRenderTaskId || null, idempotencyKey
   });
 }
@@ -90,7 +85,7 @@ function enqueueRenderResult(task, result) {
   const account = accountStore.get(config.accountId || config.pageId);
   if (!account) throw new Error('Page tự động đăng sau render không còn khả dụng');
   return enqueueFromBody({
-    ...config, videoPath: result?.url || result?.file,
+    ...config, videoPath: result?.file || result?.url,
     sourceRenderTaskId: task.id,
     idempotencyKey: `render:${task.id}:facebook:${account.id}:${config.type || 'reel'}`
   }, account);
@@ -171,7 +166,7 @@ const controller = {
   },
   cancelJob: (req, res) => {
     const job = publishQueue.cancel(req.params.id);
-    if (!job) return res.status(400).json({ error: 'Không thể hủy tác vụ này' });
+    if (!job) return res.status(400).json({ error: 'Không thể hủy tác vụ này trên máy. Nếu lịch đã gửi sang Facebook, hãy kiểm tra hoặc hủy lịch trong Meta Business Suite.' });
     res.json({ success: true, job });
   },
   deletePublishedPost: async (req, res) => {
