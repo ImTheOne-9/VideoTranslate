@@ -9,6 +9,7 @@ const { FacebookAccountStore } = require('../lib/facebook-account-store');
 const { FacebookPublishJobStore } = require('../lib/facebook-publish-job-store');
 const { FacebookPublishQueue } = require('../lib/facebook-publish-queue');
 const { publicationSchedule } = require('../lib/facebook-scheduling');
+const { resolveFacebookRenderPath } = require('../lib/facebook-render-path');
 const { managementId, resolveManagedObjectId, facebookPermalink } = require('../lib/facebook-object-identity');
 
 const dataDir = path.join(path.dirname(shared.RENDERS_DIR), 'facebook');
@@ -48,13 +49,7 @@ function graphError(error) {
 }
 
 function resolveRenderPath(value) {
-  if (!value) return null;
-  const decoded = decodeURIComponent(String(value)).split('?')[0];
-  const candidate = path.isAbsolute(decoded) ? path.resolve(decoded) : path.resolve(shared.RENDERS_DIR, path.basename(decoded));
-  const root = `${path.resolve(shared.RENDERS_DIR)}${path.sep}`.toLowerCase();
-  if (!`${candidate}${path.sep}`.toLowerCase().startsWith(root)) throw new Error('Chỉ được đăng video nằm trong thư mục renders');
-  if (!fs.existsSync(candidate)) throw new Error('Không tìm thấy file video đã render');
-  return candidate;
+  return resolveFacebookRenderPath(value, shared.RENDERS_DIR);
 }
 
 async function verifyAndSave(body) {
@@ -90,7 +85,7 @@ function enqueueRenderResult(task, result) {
   const account = accountStore.get(config.accountId || config.pageId);
   if (!account) throw new Error('Page tự động đăng sau render không còn khả dụng');
   return enqueueFromBody({
-    ...config, videoPath: result?.url || result?.file,
+    ...config, videoPath: result?.file || result?.url,
     sourceRenderTaskId: task.id,
     idempotencyKey: `render:${task.id}:facebook:${account.id}:${config.type || 'reel'}`
   }, account);

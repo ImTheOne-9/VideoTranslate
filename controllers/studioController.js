@@ -624,7 +624,7 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
 
 const resolveRenderAutomaticSubtitle = createAutomaticSubtitleResolver();
 
-function applyRenderTaskSuccess(task, data, state = shared.state) {
+function applyRenderTaskSuccess(task, data, state = shared.state, dependencies = {}) {
   task.status = 'success';
   task.percent = 100;
   task.step = 'Hoàn tất render!';
@@ -642,8 +642,12 @@ function applyRenderTaskSuccess(task, data, state = shared.state) {
   // Chỉ bật khi snapshot của task có facebookPublish.enabled=true.
   if (task?.body?.facebookPublish?.enabled === true) {
     try {
-      const queued = require('./facebookController').enqueueRenderResult(task, data);
-      if (queued?.job) data.facebookPublishJobId = queued.job.id;
+      const enqueue = dependencies.enqueueRenderResult || require('./facebookController').enqueueRenderResult;
+      const queued = enqueue(task, data);
+      if (queued?.job) {
+        data.facebookPublishJobId = queued.job.id;
+        delete data.facebookPublishWarning;
+      }
     } catch (error) {
       data.facebookPublishWarning = error.message;
       console.error(`[Facebook Auto Publish] Không thể xếp hàng sau render: ${error.message}`);

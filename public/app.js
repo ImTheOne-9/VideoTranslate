@@ -2124,6 +2124,16 @@ function toggleAudioResultTracks(button) {
   );
 }
 
+function renderFacebookAutoPublishSummary(result = {}) {
+  if (result.facebookPublishWarning) {
+    return `<div class="render-facebook-result warning" role="status"><strong>Chưa tạo được tác vụ tự đăng Facebook</strong><span>${fbEscape(result.facebookPublishWarning)}</span><small>Video đã render xong. Bạn có thể dùng nút Đăng lên Facebook bên dưới, không cần render lại.</small></div>`;
+  }
+  if (result.facebookPublishJobId) {
+    return '<div class="render-facebook-result" role="status"><strong>Đã tạo tác vụ tự đăng Facebook</strong><span>Xem tiến trình đăng hoặc lỗi trong mục Quản lý Page → Lịch đăng và lịch sử Facebook.</span></div>';
+  }
+  return '';
+}
+
 function updateMainResultUI(queue, currentActiveId) {
   const container = $('studio-render-result');
   const sidebar = $('render-result');
@@ -2257,6 +2267,7 @@ function updateMainResultUI(queue, currentActiveId) {
       </div>
       ${renderTranslationReportSummary(targetTask.translationReport || targetTask.result.translationReport)}
       ${renderAudioResultSummary(targetTask.result)}
+      ${renderFacebookAutoPublishSummary(targetTask.result)}
       <div style="display: flex; gap: 10px; justify-content: center; width: 100%; max-width: 400px; margin: 0 auto;">
         <button type="button" class="premium-render-btn" style="background: #1877F2; color: white; flex: 1;" onclick="openFbModal('${targetTask.result.url}')">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 5px; margin-top: -2px;">
@@ -6105,6 +6116,8 @@ const FACEBOOK_JOB_LABELS = {
 };
 let facebookLoadedJobs = [];
 let activeFacebookManageJob = null;
+let facebookManagerSession = 0;
+let facebookManagerComments = new Map();
 
 async function loadFacebookJobs() {
   const container = $('facebook-jobs-list');
@@ -6158,6 +6171,7 @@ async function cancelFacebookJob(id) {
 }
 
 function closeFacebookPostManager() {
+  facebookManagerSession += 1;
   $('facebook-post-manager-modal')?.classList.add('hidden');
   activeFacebookManageJob = null;
 }
@@ -6165,7 +6179,7 @@ function closeFacebookPostManager() {
 async function facebookManagerRequest(url, options) {
   const response = await fetch(url, options);
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Facebook API thất bại');
+  if (!response.ok || result.success === false) throw new Error(result.error || 'Facebook API thất bại');
   return result;
 }
 
@@ -6173,6 +6187,8 @@ async function openFacebookPostManager(jobId) {
   const job = facebookLoadedJobs.find((item) => item.id === jobId);
   if (!job?.platformWorkId) return toast('Tác vụ chưa có Facebook Post ID.', 'error');
   activeFacebookManageJob = job;
+  const session = ++facebookManagerSession;
+  facebookManagerComments = new Map();
   $('facebook-post-manager-modal')?.classList.remove('hidden');
   if ($('facebook-post-comments')) $('facebook-post-comments').innerHTML = '<p style="color:var(--muted);">Đang tải bình luận...</p>';
   if ($('facebook-post-insights')) $('facebook-post-insights').innerHTML = '<small style="color:var(--muted);grid-column:1/-1;">Đang tải thống kê...</small>';
@@ -6181,7 +6197,7 @@ async function openFacebookPostManager(jobId) {
     facebookManagerRequest(`/api/facebook/posts/${encodeURIComponent(job.platformWorkId)}/comments?${query}`),
     facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(job.platformWorkId)}/insights?${query}`)
   ]);
-  if (activeFacebookManageJob?.id !== job.id) return;
+  if (session !== facebookManagerSession) return;
   renderFacebookManagerComments(commentsResult.status === 'fulfilled' ? commentsResult.value.data || [] : [], commentsResult.status === 'rejected' ? commentsResult.reason.message : '');
   renderFacebookManagerInsights(insightsResult.status === 'fulfilled' ? insightsResult.value.data || [] : [], insightsResult.status === 'rejected' ? insightsResult.reason.message : '');
 }
@@ -6200,7 +6216,30 @@ function renderFacebookManagerComments(items, error = '') {
   if (!container) return;
   if (error) return void (container.innerHTML = `<p style="color:#fb7185;">${fbEscape(error)}</p>`);
   if (!items.length) return void (container.innerHTML = '<p style="color:var(--muted);">Bài viết chưa có bình luận.</p>');
-  container.innerHTML = items.map((comment) => `<article style="padding:10px;border:1px solid var(--border);border-radius:8px;"><b>${fbEscape(comment.from?.name || 'Người dùng Facebook')}</b><p style="margin:5px 0;white-space:pre-wrap;">${fbEscape(comment.message || '')}</p><small style="color:var(--muted);">${comment.created_time ? new Date(comment.created_time).toLocaleString('vi-VN') : ''} · ${Number(comment.like_count || 0)} lượt thích</small><div style="display:flex;gap:6px;margin-top:7px;"><button class="ghost-btn" style="height:28px;font-size:11px;" onclick="replyFacebookComment('${comment.id}')">Trả lời</button><button class="ghost-btn" style="height:28px;font-size:11px;" onclick="likeFacebookManagerObject('${comment.id}')">Thích</button><button class="ghost-btn" style="height:28px;font-size:11px;color:#fb7185;" onclick="deleteFacebookManagerComment('${comment.id}')">Xóa</button></div></article>`).join('');
+  facebookManagerComments = new Map(items.map((comment) => [String(comment.id), { ...comment }]));
+  container.innerHTML = items.map((comment) => {
+    const id = fbEscape(comment.id);
+    return `<article class="facebook-comment" data-comment-id="${id}">
+      <b>${fbEscape(comment.from?.name || 'Người dùng Facebook')}</b>
+      <p class="facebook-comment-message">${fbEscape(comment.message || '')}</p>
+      <small class="facebook-comment-meta">${comment.created_time ? new Date(comment.created_time).toLocaleString('vi-VN') : ''} · <span id="fb-comment-likes-${id}">${Number(comment.like_count || 0)}</span> lượt thích</small>
+      <div class="facebook-comment-actions">
+        <button class="ghost-btn" onclick="replyFacebookComment(this.closest('[data-comment-id]').dataset.commentId)">Trả lời</button>
+        <button id="fb-comment-like-${id}" class="ghost-btn" aria-pressed="${comment.user_likes === true}" onclick="likeFacebookManagerObject(this.closest('[data-comment-id]').dataset.commentId)">${comment.user_likes === true ? 'Bỏ thích' : 'Thích'}</button>
+        <button class="ghost-btn" style="color:#fb7185;" onclick="deleteFacebookManagerComment(this.closest('[data-comment-id]').dataset.commentId)">Xóa</button>
+      </div>
+      <div id="fb-comment-replies-${id}" class="facebook-comment-replies">${(comment.comments?.data || []).map(renderFacebookReply).join('')}</div>
+      <form id="fb-comment-editor-${id}" class="facebook-reply-editor" hidden onsubmit="event.preventDefault();sendFacebookReply(this.closest('[data-comment-id]').dataset.commentId)">
+        <label for="fb-comment-input-${id}">Trả lời ${fbEscape(comment.from?.name || 'bình luận')}</label>
+        <textarea id="fb-comment-input-${id}" class="premium-input" rows="2" placeholder="Nhập nội dung trả lời..." required></textarea>
+        <div class="facebook-comment-actions"><button class="ghost-btn" type="submit">Gửi trả lời</button><button class="ghost-btn" type="button" onclick="this.closest('form').hidden=true">Đóng</button></div>
+      </form>
+    </article>`;
+  }).join('');
+}
+
+function renderFacebookReply(reply) {
+  return `<div class="facebook-comment-reply"><b>${fbEscape(reply.from?.name || 'Page')}</b><p class="facebook-comment-message">${fbEscape(reply.message || '')}</p></div>`;
 }
 
 async function sendFacebookManagerComment(objectId, forcedMessage) {
@@ -6217,17 +6256,66 @@ async function sendFacebookManagerComment(objectId, forcedMessage) {
 }
 
 function replyFacebookComment(commentId) {
-  const message = window.prompt('Nội dung trả lời bình luận:');
-  if (message?.trim()) sendFacebookManagerComment(commentId, message.trim());
+  const editor = $(`fb-comment-editor-${commentId}`);
+  if (!editor) return;
+  editor.hidden = false;
+  $(`fb-comment-input-${commentId}`)?.focus();
+}
+
+async function sendFacebookReply(commentId) {
+  const job = activeFacebookManageJob;
+  const session = facebookManagerSession;
+  const editor = $(`fb-comment-editor-${commentId}`);
+  const input = $(`fb-comment-input-${commentId}`);
+  const message = input?.value.trim();
+  if (!job || !message || !editor || editor.dataset.sending === 'true') return;
+  editor.dataset.sending = 'true';
+  editor.querySelectorAll('button,textarea').forEach((element) => { element.disabled = true; });
+  try {
+    const result = await facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(commentId)}/comments`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accountId:job.accountId, message }) });
+    if (!result.id) throw new Error('Chưa xác nhận được bình luận. Hãy kiểm tra bài trước khi gửi lại.');
+    if (session !== facebookManagerSession) return;
+    const account = fbPages.find((page) => page.id === job.accountId);
+    $(`fb-comment-replies-${commentId}`)?.insertAdjacentHTML('beforeend', renderFacebookReply({ message, from: { name: account?.name || 'Page' } }));
+    input.value = '';
+    editor.hidden = true;
+    toast('Đã gửi trả lời bình luận.', 'success');
+  } catch (error) {
+    if (session === facebookManagerSession) toast(error.message, 'error');
+  } finally {
+    editor.dataset.sending = 'false';
+    editor.querySelectorAll('button,textarea').forEach((element) => { element.disabled = false; });
+  }
 }
 
 async function likeFacebookManagerObject(objectId) {
   const job = activeFacebookManageJob;
-  if (!job) return;
+  const session = facebookManagerSession;
+  const comment = facebookManagerComments.get(String(objectId));
+  const button = $(`fb-comment-like-${objectId}`);
+  if (!job || !comment || !button || button.disabled) return;
+  const liked = comment.user_likes !== true;
+  button.disabled = true;
   try {
-    await facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(objectId)}/like`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accountId:job.accountId, liked:true }) });
-    toast('Đã thích bình luận.', 'success');
-  } catch (error) { toast(error.message, 'error'); }
+    await facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(objectId)}/like`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accountId:job.accountId, liked }) });
+    if (session !== facebookManagerSession) return;
+    // Only adjust a known previous state; a missing user_likes must not invent a like.
+    if (typeof comment.user_likes === 'boolean') {
+      comment.like_count = Math.max(0, Number(comment.like_count || 0) + (liked ? 1 : -1));
+    } else {
+      const result = await facebookManagerRequest(`/api/facebook/posts/${encodeURIComponent(job.platformWorkId)}/comments?accountId=${encodeURIComponent(job.accountId)}`);
+      if (session !== facebookManagerSession) return;
+      const updated = result.data?.find((item) => String(item.id) === String(objectId));
+      if (updated) comment.like_count = updated.like_count;
+    }
+    comment.user_likes = liked;
+    $(`fb-comment-likes-${objectId}`).textContent = String(Number(comment.like_count || 0));
+    button.textContent = liked ? 'Bỏ thích' : 'Thích';
+    button.setAttribute('aria-pressed', String(liked));
+    toast(liked ? 'Đã thích bình luận.' : 'Đã bỏ thích bình luận.', 'success');
+  } catch (error) {
+    if (session === facebookManagerSession) toast(error.message, 'error');
+  } finally { button.disabled = false; }
 }
 
 async function deleteFacebookManagerComment(commentId) {

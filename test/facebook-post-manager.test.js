@@ -8,6 +8,27 @@ const account = { id: 'account', pageId: '123', accessToken: 'test-token' };
 const storedJob = { id: 'job', accountId: account.id, pageId: account.pageId, type: 'post', status: 'published',
   platformWorkId: '456', mediaId: '789', upload: { videoId: '789' }, facebookStatus: { postId: '456' } };
 
+test('Manager fetches like state and replies; rejects unconfirmed likes and comments', async () => {
+  let payload = { data: [] };
+  const calls = [];
+  const api = new FacebookApiService('123', 'test-token', { http: { request: async (config) => {
+    calls.push(config);
+    return { data: payload };
+  } } });
+  await api.listComments('456');
+  assert.match(calls[0].params.fields, /user_likes/);
+  assert.match(calls[0].params.fields, /comments\.limit/);
+  for (payload of [false, {success:false}, {}]) {
+    await assert.rejects(api.likeObject('456_789'), /chưa xác nhận/);
+    await assert.rejects(api.postComment('456_789', 'reply'), /chưa xác nhận/);
+  }
+  for (payload of [true, {success:true}]) assert.equal(await api.likeObject('456_789'), true);
+  await api.likeObject('456_789', false);
+  assert.equal(calls.at(-1).method, 'delete');
+  payload = { id: 'reply' };
+  assert.equal(await api.postComment('456_789', 'reply'), 'reply');
+});
+
 test('A bare Page post ID becomes PAGE_POST, without double prefixing', () => {
   assert.equal(pagePostId('123', '456'), '123_456');
   assert.equal(pagePostId('123', '123_456'), '123_456');
