@@ -5729,6 +5729,103 @@ select option {
 .ad-page-head,.ad-head-actions,.ad-action-row,.ad-editor-toolbar,.ad-editor-foot,.ad-picker-actions{display:flex;align-items:center;gap:10px}.ad-page-head{justify-content:space-between;margin-bottom:16px}.ad-page-head h2{margin:0 0 4px}.ad-page-head p{margin:0;color:var(--muted);font-size:13px}.ad-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}.ad-main-column,.ad-side-column{display:flex;flex-direction:column;gap:16px;min-width:0}.ad-source-panel{min-height:150px}.ad-selected-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:9px}.ad-empty{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:9px}.ad-source-item{display:grid;grid-template-columns:78px minmax(0,1fr) 30px;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:9px;background:var(--bg)}.ad-source-item video{width:78px;height:48px;object-fit:cover;border-radius:6px;background:#070b12}.ad-source-item div{min-width:0}.ad-source-item b,.ad-source-item small,.ad-library-item b,.ad-library-item small,.ad-result-clip b,.ad-result-clip small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ad-source-item b{font-size:12px}.ad-source-item small,.ad-library-item small,.ad-result-clip small{margin-top:5px;color:var(--muted);font-size:11px}.ad-remove-source{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:15px}.ad-remove-source:hover{color:var(--danger)}.ad-settings-grid{align-items:end}.ad-check{display:flex!important;align-items:center;gap:8px;min-height:40px;font-size:12px;color:var(--text);cursor:pointer}.ad-check input{width:16px;height:16px;accent-color:var(--accent)}.ad-input-suffix{position:relative}.ad-input-suffix span{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px}.ad-output-row{margin-top:14px}.ad-output-row>div{display:flex;gap:8px}.ad-output-row small{font-weight:400;color:var(--muted)}.ad-action-row{justify-content:flex-end;margin-top:16px}.ad-action-row .premium-render-btn{min-width:220px}.ad-progress-track{height:9px;background:var(--bg);border-radius:99px;overflow:hidden}.ad-progress-track>div{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#8b5cf6);transition:width .2s}.ad-progress-step{margin-top:10px;font-size:12px}.ad-progress-meta{margin-top:4px;color:var(--muted);font-size:11px}.ad-progress-log{max-height:180px;overflow:auto;margin:12px 0 0;padding:9px;background:var(--bg);border-radius:7px;color:var(--muted);font:11px/1.55 Consolas,monospace;white-space:pre-wrap}.ad-result-panel{min-height:250px}.ad-result-summary{margin-bottom:10px;color:#45d483;font-weight:700}.ad-result-clip{display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}.ad-result-clip video{width:100px;height:58px;object-fit:cover;border-radius:6px;background:#05070b}.ad-result-clip div{min-width:0}.ad-result-clip b{font-size:11px}.ad-picker{position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;padding:28px;background:rgba(2,6,14,.78);backdrop-filter:blur(7px)}.ad-picker.hidden{display:none}.ad-picker-card{width:min(1000px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:12px;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--card);box-shadow:0 25px 80px rgba(0,0,0,.5)}.ad-library-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;overflow:auto;min-height:180px;padding:2px}.ad-library-item{position:relative;display:grid;grid-template-columns:90px minmax(0,1fr);gap:9px;align-items:center;text-align:left;padding:7px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);cursor:pointer}.ad-library-item.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.ad-library-item video{width:90px;height:55px;object-fit:cover;border-radius:6px;background:#05070b}.ad-library-item span:not(.ad-library-check){min-width:0}.ad-library-item b{font-size:11px}.ad-library-check{position:absolute;z-index:2;top:5px;left:5px;width:20px;height:20px;border-radius:5px;background:rgba(2,6,14,.8);border:1px solid var(--border);display:grid;place-items:center;color:#fff}.ad-library-item.selected .ad-library-check{background:var(--accent)}.ad-picker-actions{justify-content:space-between}.ad-picker-actions span{font-size:12px;color:var(--muted)}#ad-editor-video{display:block;width:100%;max-height:430px;background:#030509;border-radius:9px}.ad-editor-toolbar{justify-content:space-between;margin:12px 0;font-size:12px}.ad-editor-toolbar label{margin-left:auto}.ad-editor-toolbar input{width:65px;margin-left:5px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)}.ad-timeline{position:relative;height:72px;overflow:hidden;border:1px solid var(--border);border-radius:8px;background:#111827;cursor:pointer}.ad-clip-zone{position:absolute;inset-block:0;display:grid;place-items:center;border-right:1px solid rgba(255,255,255,.12);background:linear-gradient(180deg,rgba(59,130,246,.18),rgba(139,92,246,.1));color:rgba(255,255,255,.6);font-size:11px;pointer-events:none}.ad-cut-marker{position:absolute;z-index:4;top:0;bottom:0;width:5px;padding:0;transform:translateX(-50%);border:0;background:#f97316;cursor:ew-resize;box-shadow:0 0 0 2px rgba(249,115,22,.2)}#ad-timeline-progress{position:absolute;z-index:2;left:0;bottom:0;height:4px;background:var(--accent);pointer-events:none}#ad-playhead{position:absolute;z-index:3;top:0;bottom:0;width:2px;background:#fff;pointer-events:none}.ad-editor-foot{justify-content:flex-end;flex-wrap:wrap;margin-top:12px}.ad-editor-foot>span{margin-right:auto;color:var(--muted);font-size:11px}
 @media(max-width:1050px){.ad-layout{grid-template-columns:1fr}.ad-side-column{display:grid;grid-template-columns:1fr 1fr}.ad-result-panel{min-height:0}}@media(max-width:700px){.ad-page-head,.ad-head-actions,.ad-action-row,.ad-editor-foot{align-items:stretch;flex-direction:column}.ad-side-column{display:flex}.ad-selected-list,.ad-library-grid{grid-template-columns:1fr}.ad-action-row .premium-render-btn{min-width:0}.ad-picker{padding:10px}}
 .video-card-split-badge{position:absolute;left:6px;bottom:6px;z-index:3;padding:3px 6px;border-radius:4px;background:#7c3aed;color:#fff;font-size:9px;font-weight:800;letter-spacing:.3px}.video-card-split-badge.done{background:#07865b}
+/* Facebook: choose immediate or scheduled publishing. */
+#fb-modal .fb-modal-content { width: 520px; max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+#fb-modal .fb-modal-header { flex-shrink: 0; }
+#fb-modal .fb-modal-body { overflow-y: auto; min-height: 0; }
+.fb-schedule { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-2); }
+.fb-schedule legend { padding: 0 5px; color: var(--text); font-size: 12px; font-weight: 600; }
+.fb-schedule-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fb-schedule-modes label { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; min-height: 40px; border: 1px solid var(--border); border-radius: 7px; color: #b8c5d6; cursor: pointer; }
+.fb-schedule-modes label:has(input:checked) { border-color: var(--accent); background: rgba(59,130,246,.12); color: var(--accent-2); }
+.fb-schedule-modes input { accent-color: var(--accent); }
+.fb-schedule-fields { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
+.fb-schedule-fields label { min-width: 0; margin: 12px 0 0; color: #b8c5d6; font-size: 12px; }
+.fb-schedule-fields small { font-size: 10px; font-weight: 400; color: var(--muted); }
+.fb-schedule-fields input { display: block; width: 100%; min-width: 0; height: 42px; margin-top: 7px; padding: 8px 10px; color-scheme: dark; font-family: inherit; }
+.fb-schedule-shortcuts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.fb-schedule-shortcuts button { padding: 5px 9px; min-height: 30px; background: transparent; border: 1px solid var(--border-2); color: #b8c5d6; border-radius: 6px; font-size: 11px; font-weight: 500; }
+.fb-schedule-shortcuts button:hover { border-color: var(--accent); color: var(--accent-2); background: rgba(59,130,246,.08); }
+.fb-schedule-timezone { color: var(--muted); font-size: 11px; }
+.fb-schedule-summary { margin: 12px 0 0; color: #b8c5d6; font-size: 12px; line-height: 1.5; }
+.fb-schedule-summary.is-error { color: #f87171; }
+.fb-schedule-note { margin: 7px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+@media (max-width: 420px) { .fb-schedule-fields { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
+/* Facebook: automatic publishing settings */
+.facebook-auto-publish {
+  container: facebook-auto-publish / inline-size;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-2);
+}
+.facebook-auto-publish-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 16px;
+  cursor: pointer;
+}
+.facebook-auto-publish-intro { display: grid; gap: 5px; min-width: 0; }
+.facebook-auto-publish-intro strong { color: var(--text); font-size: 13px; font-weight: 600; }
+.facebook-auto-publish-intro > span { color: #94a3b8; font-size: 12px; font-weight: 400; line-height: 1.5; }
+.facebook-auto-publish input.facebook-auto-publish-switch {
+  appearance: none;
+  position: relative;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: #334155;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.facebook-auto-publish-switch::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: transform .15s;
+}
+.facebook-auto-publish input.facebook-auto-publish-switch:checked { background: var(--accent); border-color: var(--accent); }
+.facebook-auto-publish-switch:checked::before { transform: translateX(16px); background: #fff; }
+.facebook-auto-publish-switch:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+.facebook-auto-publish-fields { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1.4fr); gap: 14px; }
+.facebook-auto-publish-field { display: grid; gap: 7px; min-width: 0; margin: 0; }
+.facebook-auto-publish-field > span { color: #b8c5d6; font-size: 12px; font-weight: 500; line-height: 1.5; }
+.facebook-auto-publish-field small { margin-left: 6px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.facebook-auto-publish-field .premium-select,
+.facebook-auto-publish-field .premium-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  margin: 0;
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 22px;
+  border-radius: 7px;
+}
+.facebook-auto-publish-field .premium-select { padding-right: 30px; text-overflow: ellipsis; }
+@container facebook-auto-publish (max-width: 640px) {
+  .facebook-auto-publish-fields { grid-template-columns: minmax(0, 1fr) 150px; }
+  .facebook-auto-publish-caption { grid-column: 1 / -1; }
+}
+@container facebook-auto-publish (max-width: 360px) {
+  .facebook-auto-publish-fields { grid-template-columns: minmax(0, 1fr); }
+  .facebook-auto-publish-field small { display: inline-block; }
+}
+
 /* Standalone Voice (TTS) */
 .tts-page-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:16px; }
 .tts-page-head h2 { margin:0 0 5px; font-size:22px; }

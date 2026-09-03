@@ -5377,6 +5377,9 @@ async function openFbModal(url) {
   if (modal) {
     modal.classList.remove('hidden');
     document.getElementById('fb-video-url').value = url;
+    setFacebookScheduleMode('now');
+    document.getElementById('fb-schedule-date').value = '';
+    document.getElementById('fb-schedule-time').value = '';
 
     // Reset ẩn/hiện các trường thủ công
     const manualFields = document.getElementById('fb-manual-fields');
@@ -5414,6 +5417,59 @@ function closeFbModal() {
   }
 }
 
+function facebookScheduleLocalValue(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function setFacebookScheduleMode(mode) {
+  const later = mode === 'later';
+  $('fb-schedule-now').checked = !later;
+  $('fb-schedule-later').checked = later;
+  $('fb-schedule-details').classList.toggle('hidden', !later);
+  $('fb-schedule-note').classList.toggle('hidden', !later);
+  if (later && !$('fb-schedule-date').value && !$('fb-schedule-time').value) {
+    chooseFacebookSchedule('1h');
+  } else updateFacebookSchedule();
+}
+
+function chooseFacebookSchedule(preset) {
+  const date = new Date();
+  if (preset === 'tomorrow') {
+    date.setDate(date.getDate() + 1);
+    date.setHours(9, 0, 0, 0);
+  } else {
+    date.setTime(date.getTime() + (preset === '15m' ? 15 : 60) * 60000);
+    date.setSeconds(0, 0);
+  }
+  const [day, time] = facebookScheduleLocalValue(date).split('T');
+  $('fb-schedule-date').value = day;
+  $('fb-schedule-time').value = time;
+  updateFacebookSchedule();
+}
+
+function updateFacebookSchedule() {
+  const later = $('fb-schedule-later').checked;
+  const value = $('fb-schedule-date').value && $('fb-schedule-time').value
+    ? `${$('fb-schedule-date').value}T${$('fb-schedule-time').value}` : '';
+  const date = new Date(value);
+  const valid = value && Number.isFinite(date.getTime()) && facebookScheduleLocalValue(date) === value;
+  $('fb-scheduled-at').value = later && valid ? value : '';
+  $('fb-schedule-date').min = facebookScheduleLocalValue(new Date()).split('T')[0];
+  const summary = $('fb-schedule-summary');
+  summary.classList.toggle('is-error', later && (!valid || date.getTime() <= Date.now()));
+  if (!later) summary.textContent = 'Video sẽ được thêm vào hàng đợi đăng ngay.';
+  else if (!valid) summary.textContent = 'Chọn đầy đủ ngày và giờ đăng.';
+  else if (date.getTime() <= Date.now()) summary.textContent = 'Hãy chọn thời gian trong tương lai.';
+  else summary.textContent = 'Bắt đầu đăng lúc ' + new Intl.DateTimeFormat('vi-VN', {
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', day: '2-digit', month: '2-digit', year: 'numeric'
+  }).format(date) + '.';
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  $('fb-schedule-timezone').textContent = `Múi giờ của máy: ${zone}`;
+  const button = $('fb-publish-btn');
+  if (!button.disabled) button.textContent = later ? 'HẸN GIỜ ĐĂNG FACEBOOK' : 'ĐĂNG LÊN FACEBOOK';
+}
+
 async function publishToFacebook() {
   const videoUrl = document.getElementById('fb-video-url').value;
   const pageId = document.getElementById('fb-page-id').value.trim();
@@ -5424,6 +5480,15 @@ async function publishToFacebook() {
   const selectedAccount = Number.isInteger(accountIndex) ? fbPages[accountIndex] : null;
   const type = document.getElementById('fb-publish-type')?.value || 'reel';
   const scheduledValue = document.getElementById('fb-scheduled-at')?.value || '';
+
+  if (document.getElementById('fb-schedule-later')?.checked && !scheduledValue) {
+    toast('Vui lòng chọn đầy đủ ngày và giờ đăng.', 'error');
+    return;
+  }
+  if (scheduledValue && (!Number.isFinite(new Date(scheduledValue).getTime()) || new Date(scheduledValue).getTime() <= Date.now())) {
+    toast('Thời gian hẹn đăng phải ở trong tương lai.', 'error');
+    return;
+  }
 
   if (!videoUrl) {
     toast('Không tìm thấy đường dẫn video', 'error');
@@ -5957,23 +6022,55 @@ async function connectFacebookOAuth() {
   // Open synchronously from the click to avoid popup blocking after network waits.
   const popup = window.open('about:blank', '_blank', 'width=720,height=780');
   if (popup) popup.opener = null;
+  const connection = new AbortController();
+  let closedAt = null;
+  // Allow a just-completed callback to be received before treating closure as cancellation.
+  const closeWatcher = setInterval(() => {
+    if (!popup?.closed) return;
+    if (closedAt === null) closedAt = Date.now();
+    setBusy(button, true, 'Đang kiểm tra kết quả kết nối...');
+    if (Date.now() - closedAt >= 5000) connection.abort();
+  }, 250);
+  async function requestJson(url, options = {}) {
+    const request = new AbortController();
+    const abort = () => request.abort();
+    connection.signal.addEventListener('abort', abort, { once: true });
+    if (connection.signal.aborted) request.abort();
+    const timeout = setTimeout(abort, 45000);
+    try {
+      const response = await fetch(url, { ...options, signal: request.signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Không lấy được kết quả kết nối Facebook. Vui lòng thử lại.');
+      return data;
+    } catch (error) {
+      if (request.signal.aborted && !connection.signal.aborted) throw new Error('Máy chủ phản hồi quá lâu. Vui lòng thử kết nối lại.');
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      connection.signal.removeEventListener('abort', abort);
+    }
+  }
   try {
     setBusy(button, true, 'Đang mở Facebook...');
     if (!popup) throw new Error('Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên và kết nối lại.');
-    const configResponse = await fetch('/api/facebook/oauth/config');
-    const config = await configResponse.json();
+    const config = await requestJson('/api/facebook/oauth/config');
     if (!config.configured) {
       throw new Error(config.error || 'Máy chủ chưa bật kết nối Facebook. Các Page đã lưu vẫn sử dụng được.');
     }
-    const response = await fetch('/api/facebook/oauth/start', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Không bắt đầu được OAuth Facebook');
+    const result = await requestJson('/api/facebook/oauth/start', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    if (popup.closed) {
+      toast('Cửa sổ đăng nhập đã đóng. Bạn có thể nhấn Kết nối Facebook để thử lại.', 'info');
+      return;
+    }
     popup.location.href = result.url;
+    setBusy(button, true, 'Đang chờ kết nối Facebook...');
     const deadline = Math.min(new Date(result.expiresAt).getTime() || Date.now() + 10 * 60 * 1000, Date.now() + 10 * 60 * 1000);
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      const status = await fetch(`/api/facebook/oauth/status/${encodeURIComponent(result.sessionId)}`).then((item) => item.json());
+      if (connection.signal.aborted) throw new Error('Cửa sổ đăng nhập đã đóng.');
+      const status = await requestJson(`/api/facebook/oauth/status/${encodeURIComponent(result.sessionId)}`);
       if (status.status === 'success') {
+        clearInterval(closeWatcher);
         popup.close();
         await loadFbPages(); renderFbPages();
         toast(`Đã kết nối ${status.accounts?.length || 0} Page Facebook.`, 'success');
@@ -5982,8 +6079,16 @@ async function connectFacebookOAuth() {
       if (status.status === 'error') throw new Error(status.error || 'OAuth Facebook thất bại');
     }
     throw new Error('Đăng nhập Facebook quá thời gian chờ');
-  } catch (error) { popup?.close(); toast(error.message, 'error'); }
-  finally { setBusy(button, false); }
+  } catch (error) {
+    toast(connection.signal.aborted
+      ? 'Cửa sổ đăng nhập đã đóng; chưa xác nhận được kết nối. Bạn có thể thử lại.'
+      : error.message, connection.signal.aborted ? 'info' : 'error');
+  } finally {
+    clearInterval(closeWatcher);
+    connection.abort();
+    popup?.close();
+    setBusy(button, false);
+  }
 }
 
 const FACEBOOK_JOB_LABELS = {
