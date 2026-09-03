@@ -12,7 +12,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const os = require('os');
+const crypto = require('crypto');
+const { execFile, execSync } = require('child_process');
 const shared = require('../lib/shared-state');
 const anti = require('../lib/anti-dupe');
 
@@ -27,13 +29,18 @@ function snapshot() {
     id: activeJob.id, type: activeJob.type, status: activeJob.status,
     percent: activeJob.percent, step: activeJob.step,
     error: activeJob.error || null, result: activeJob.result || null,
-    clips: activeJob.clips || null, total: activeJob.total || 0, current: activeJob.current || 0
+    clips: activeJob.clips || null, total: activeJob.total || 0, current: activeJob.current || 0,
+    logs: (activeJob.logs || []).slice(-120)
   };
 }
 
 function setProgress(job, percent, step, extra) {
   job.percent = Math.max(0, Math.min(100, Math.round(percent)));
   job.step = step;
+  if (step && job.logs && job.logs.at(-1) !== step) {
+    job.logs.push(step);
+    if (job.logs.length > 500) job.logs.splice(0, job.logs.length - 500);
+  }
   if (extra) Object.assign(job, extra);
 }
 
@@ -51,7 +58,9 @@ function encoderArgs() {
 }
 
 function baseName(p) { return path.basename(p, path.extname(p)); }
-function safeBaseName(p) { return baseName(p).replace(/[^\w\-_. ]+/g, '_').slice(0, 80); }
+function safeBaseName(p) {
+  return baseName(p).replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_').replace(/[. ]+$/g, '').slice(0, 90) || 'video';
+}
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function resolveSource(req) {
@@ -76,6 +85,7 @@ function runFFmpeg(args, totalDuration, job, basePct, span, label) {
   return new Promise((resolve, reject) => {
     const proc = shared.spawn(shared.FFMPEG_PATH, args);
     job.proc = proc;
+    try { os.setPriority(proc.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (_) {}
     let stderr = '';
     proc.stderr.on('data', chunk => {
       const s = chunk.toString('utf8');
@@ -135,7 +145,7 @@ function newJob(type) {
     id: `ad_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     type, status: 'running', percent: 0, step: 'Đang khởi tạo...',
     error: null, result: null, clips: null, total: 0, current: 0,
-    cancelled: false, proc: null
+    cancelled: false, proc: null, logs: []
   };
 }
 
@@ -149,6 +159,99 @@ function resolveSrc(req) {
     return shared.resolveAssetPath('video', req.body.mainVideoFile);
   }
   return null;
+}
+
+function parseStringArray(value) {
+  if (Array.isArray(value)) return value.map(String);
+  try {
+    const parsed = JSON.parse(String(value || '[]'));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch (_) {
+    return String(value || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function resolveSplitSources(req) {
+  const sources = [];
+  for (const file of req.files?.videoUpload || []) {
+    const moved = shared.moveUploadedFile(file, shared.DOWNLOADS_DIR, file.originalname);
+    if (moved) sources.push(moved);
+  }
+  const requested = [req.body?.mainVideoFile, ...parseStringArray(req.body?.mainVideoFiles)].filter(Boolean);
+  for (const filename of requested) {
+    const resolved = shared.resolveAssetPath('video', filename);
+    if (resolved) sources.push(resolved);
+  }
+  return [...new Set(sources.map((source) => path.resolve(source)))];
+}
+
+function sourceReference(source) {
+  const root = path.resolve(shared.DOWNLOADS_DIR);
+  const resolved = path.resolve(source);
+  return resolved.startsWith(`${root}${path.sep}`) ? path.relative(root, resolved) : '';
+}
+
+function defaultSplitOutDir(source) { return path.join(path.dirname(source), 'clip_nho'); }
+
+function splitSignature(source, segments, config) {
+  let stat = null;
+  try { stat = fs.statSync(source); } catch (_) {}
+  return crypto.createHash('sha256').update(JSON.stringify({
+    source: path.resolve(source), size: stat?.size || 0, mtimeMs: Math.round(stat?.mtimeMs || 0),
+    segments: segments.map(({ start, end }) => [Number(start.toFixed(3)), Number(end.toFixed(3))]),
+    aspect: config.aspect, flip: config.flip, precise: config.precise
+  })).digest('hex');
+}
+
+function splitSignaturePath(outDir, source) {
+  const sourceHash = crypto.createHash('sha1').update(path.resolve(source)).digest('hex').slice(0, 10);
+  return path.join(outDir, `.bam-${sourceHash}.json`);
+}
+
+function readSplitSignature(filePath) {
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch (_) { return null; }
+}
+
+function writeSplitSignature(filePath, payload) {
+  const temporary = `${filePath}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(payload, null, 2), 'utf8');
+  fs.renameSync(temporary, filePath);
+}
+
+function clipOutputName(source, index, aspect) {
+  const suffix = aspect && aspect !== 'keep' ? `_${aspect.replace(':', 'x')}` : '';
+  return `${safeBaseName(source)}_clip_${pad2(index)}${suffix}.mp4`;
+}
+
+function cleanupStaleSplitOutputs(outDir, source) {
+  const prefix = `${safeBaseName(source)}_clip_`;
+  let entries = [];
+  try { entries = fs.readdirSync(outDir, { withFileTypes: true }); } catch (_) {}
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.startsWith(prefix) || !/\.mp4$/i.test(entry.name)) continue;
+    try { fs.unlinkSync(path.join(outDir, entry.name)); } catch (_) {}
+  }
+}
+
+function ensureEditorPreview(source, info) {
+  const compatibleContainer = ['.mp4', '.m4v', '.mov'].includes(path.extname(source).toLowerCase());
+  if (compatibleContainer && ['h264', 'avc1'].includes(String(info.videoCodec || '').toLowerCase())) return Promise.resolve('');
+  const stat = fs.statSync(source);
+  const previewDir = path.join(shared.UPLOADS_DIR, 'bam-preview-cache');
+  fs.mkdirSync(previewDir, { recursive: true });
+  const key = crypto.createHash('sha1').update(`${path.resolve(source)}:${stat.size}:${Math.round(stat.mtimeMs)}`).digest('hex');
+  const output = path.join(previewDir, `${key}.mp4`);
+  if (fs.existsSync(output) && fs.statSync(output).size > 1024) return Promise.resolve(`/api/serve-file?path=${encodeURIComponent(output)}`);
+  return new Promise((resolve, reject) => {
+    execFile(shared.FFMPEG_PATH, ['-y', '-i', source, '-map', '0:v:0', '-map', '0:a?',
+      '-vf', "scale='min(1280,iw)':-2", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '30',
+      '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', output],
+    { timeout: Math.max(300000, Math.ceil((info.durationSec || 0) * 3000)), maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (!error && fs.existsSync(output) && fs.statSync(output).size > 1024) return resolve(`/api/serve-file?path=${encodeURIComponent(output)}`);
+      try { fs.unlinkSync(output); } catch (_) {}
+      reject(new Error(`Không tạo được bản xem trước tương thích: ${String(stderr || error?.message || '').slice(-500)}`));
+    });
+  });
 }
 
 // Logo: file upload hoặc đường dẫn tuyệt đối
@@ -230,81 +333,133 @@ async function renderAntiDupe(req, res) {
   }
 }
 
-// ---- (2) BĂM VIDEO THEO CẢNH ------------------------------------------------
-// Phát hiện cảnh bằng FFmpeg (KHÔNG cần PySceneDetect) rồi render từng clip.
-// Mỗi clip dùng cùng nhóm filter NHƯNG BỎ setpts(tốc độ) và eq(màu).
-async function renderSceneSplit(req, res) {
+async function analyzeSceneSplit(req, res) {
   if (isRunning()) {
     return res.status(409).json({ error: 'Đang có tác vụ né trùng/băm cảnh chạy. Hãy đợi hoặc hủy trước.' });
   }
-  const source = resolveSrc(req);
+  const source = resolveSplitSources(req)[0];
   if (!source) {
     return res.status(400).json({ error: 'Thiếu video nguồn. Chọn video trong kho hoặc tải file lên.' });
   }
+  try {
+    const info = await anti.getVideoInfo(source);
+    if (!info.durationSec) throw new Error('Không đọc được thời lượng video nguồn.');
+    const skippedLongVideo = info.durationSec > 2400;
+    const cuts = await anti.detectSceneCuts(source, req.body?.sensitivity || 'medium', { durationSec: info.durationSec });
+    const previewUrl = await ensureEditorPreview(source, info);
+    return res.json({ success: true, source: sourceReference(source), name: path.basename(source),
+      durationSec: info.durationSec, width: info.width, height: info.height, cuts, skippedLongVideo, previewUrl });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+async function runSceneSplitJob(job, sources, body) {
+  const customOutputDir = String(body.outputDir || '').trim();
+  const sensitivity = String(body.sensitivity || 'medium');
+  const mode = String(body.splitMode || 'count');
+  const numCopies = Math.max(1, Math.min(200, parseInt(body.numCopies, 10) || 5));
+  const targetSeconds = Math.max(3, Math.min(600, Number(body.targetSeconds) || 40));
+  const aspect = String(body.aspect || 'keep');
+  const flip = anti.bool(body.flip);
+  const precise = anti.bool(body.precise);
+  let manualRanges = null;
+  try {
+    const parsed = JSON.parse(String(body.ranges || 'null'));
+    if (Array.isArray(parsed)) manualRanges = parsed.map((range) => ({ start: Number(range?.[0]), end: Number(range?.[1]) }))
+      .filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end) && range.end - range.start >= 0.5);
+  } catch (_) {}
+
+  job.totalVideos = sources.length;
+  job.clips = [];
+  for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+    if (job.cancelled) throw new Error('Đã hủy bởi người dùng');
+    const source = sources[sourceIndex];
+    setProgress(job, (sourceIndex / sources.length) * 95, `Đang đọc ${sourceIndex + 1}/${sources.length}: ${path.basename(source)}`);
+    const info = await anti.getVideoInfo(source);
+    if (!info.durationSec) throw new Error(`Không đọc được thời lượng: ${path.basename(source)}`);
+    let segments;
+    if (manualRanges && sourceIndex === 0) {
+      segments = manualRanges.map((range, index) => ({ index: index + 1, ...range, duration: range.end - range.start }));
+    } else {
+      let cuts = [];
+      if (info.durationSec > 2400) {
+        setProgress(job, job.percent, `Video ${Math.round(info.durationSec / 60)} phút: chia đều để tránh treo máy.`);
+      } else {
+        setProgress(job, job.percent, `Đang dò cảnh ${sourceIndex + 1}/${sources.length}…`);
+        cuts = await anti.detectSceneCuts(source, sensitivity, {
+          durationSec: info.durationSec,
+          onProcess: (proc) => { job.proc = proc; }
+        });
+        if (job.cancelled) throw new Error('Đã hủy bởi người dùng');
+      }
+      segments = mode === 'duration'
+        ? anti.planTargetDurationSegments(cuts, info.durationSec, targetSeconds)
+        : anti.planSceneSegments(cuts, info.durationSec, numCopies);
+    }
+    if (!segments.length) throw new Error(`Không lập được khoảng cắt cho ${path.basename(source)}`);
+    job.total = (job.total || 0) + segments.length;
+    const outDir = customOutputDir || defaultSplitOutDir(source);
+    fs.mkdirSync(outDir, { recursive: true });
+    const signatureFile = splitSignaturePath(outDir, source);
+    const signature = splitSignature(source, segments, { aspect, flip, precise });
+    const canResume = readSplitSignature(signatureFile)?.signature === signature;
+    if (!canResume) cleanupStaleSplitOutputs(outDir, source);
+    writeSplitSignature(signatureFile, { signature, source, updatedAt: new Date().toISOString() });
+
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      if (job.cancelled) throw new Error('Đã hủy bởi người dùng');
+      const segment = segments[segmentIndex];
+      job.current = job.clips.length + 1;
+      const outPath = path.join(outDir, clipOutputName(source, segmentIndex + 1, aspect));
+      const clip = { index: segmentIndex + 1, file: path.basename(outPath), url: urlForOutDir(outDir, path.basename(outPath)),
+        path: outPath, source: path.basename(source), start: segment.start, end: segment.end, duration: segment.duration };
+      const completedInfo = canResume && fs.existsSync(outPath) ? await anti.getVideoInfo(outPath) : null;
+      const durationTolerance = Math.max(1.5, segment.duration * 0.1);
+      if (completedInfo?.durationSec > 0.05 && Math.abs(completedInfo.durationSec - segment.duration) <= durationTolerance) {
+        job.logs.push(`↻ Bỏ qua clip đã hoàn tất: ${path.basename(outPath)}`);
+        job.clips.push({ ...clip, reused: true });
+        continue;
+      }
+      const itemSpan = 95 / sources.length / segments.length;
+      const basePct = sourceIndex * (95 / sources.length) + segmentIndex * itemSpan;
+      const canStreamCopy = !precise && aspect === 'keep' && !flip;
+      let args;
+      if (canStreamCopy) {
+        args = ['-y', '-ss', segment.start.toFixed(3), '-i', source, '-t', segment.duration.toFixed(3),
+          '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', outPath];
+      } else {
+        const built = anti.buildSceneClipFilters({ startSec: segment.start, endSec: segment.end, aspect, flip }, { hasAudio: info.hasAudio !== false });
+        args = ['-y', '-i', source, '-filter_complex', built.segments.join(';'), '-map', '[vout]'];
+        if (info.hasAudio !== false) args.push('-map', '[aout]');
+        args.push(...encoderArgs());
+        if (info.hasAudio !== false) args.push('-c:a', 'aac');
+        args.push('-movflags', '+faststart', '-shortest', outPath);
+      }
+      await runFFmpeg(args, segment.duration, job, basePct, itemSpan,
+        `Băm ${sourceIndex + 1}/${sources.length} · clip ${segmentIndex + 1}/${segments.length}`);
+      job.clips.push({ ...clip, reused: false });
+    }
+  }
+  setProgress(job, 100, `Hoàn tất: ${job.clips.length} clip.`);
+  job.status = 'done';
+  job.result = { clips: job.clips, count: job.clips.length };
+}
+
+// ---- (2) BĂM VIDEO THEO CẢNH ------------------------------------------------
+// Khởi động nền để request không treo suốt quá trình xử lý video dài.
+async function renderSceneSplit(req, res) {
+  if (isRunning()) return res.status(409).json({ error: 'Đang có tác vụ né trùng/băm cảnh chạy. Hãy đợi hoặc hủy trước.' });
+  const sources = resolveSplitSources(req);
+  if (!sources.length) return res.status(400).json({ error: 'Thiếu video nguồn. Chọn video trong kho hoặc tải file lên.' });
   const job = newJob('scenesplit');
   activeJob = job;
-  const workDir = fs.mkdtempSync(path.join(shared.TMP_UPLOADS_DIR, 'ad-'));
-  try {
-    setProgress(job, 2, 'Đang đọc thông tin video...');
-    const info = await anti.getVideoInfo(source);
-    const durationSec = info.durationSec || 0;
-    if (durationSec <= 0) throw new Error('Không đọc được thời lượng video nguồn.');
-
-    setProgress(job, 4, 'Đang phát hiện cảnh bằng FFmpeg...');
-    const sensitivity = (req.body.sensitivity || 'medium').toString();
-    const cuts = await anti.detectSceneCuts(source, sensitivity);
-    const numCopies = Math.max(0, parseInt(req.body.numCopies, 10) || 0);
-    setProgress(job, 8, `Lập kế hoạch chia cảnh (${cuts.length} điểm cắt)...`);
-    const segs = anti.planSceneSegments(cuts, durationSec, numCopies);
-    if (!segs.length) throw new Error('Không thể chia cảnh: video quá ngắn hoặc không phát hiện được cảnh.');
-
-    job.total = segs.length;
-    job.clips = [];
-
-    const baseCfg = {
-      flip: anti.bool(req.body.flip),
-      aspect: (req.body.aspect || 'keep').toString().trim(),
-      watermarkText: (req.body.watermarkText || '').toString().trim(),
-      watermarkPos: (req.body.watermarkPos || 'br').toString().trim(),
-      watermarkSize: anti.num(req.body.watermarkSize, 30),
-      watermarkColor: (req.body.watermarkColor || 'white').toString().trim(),
-      watermarkAlpha: anti.num(req.body.watermarkAlpha, 0.85),
-      logoPath: resolveLogo(req, workDir),
-      logoPos: (req.body.logoPos || 'br').toString().trim()
-    };
-    const outDir = resolveOutDir(req.body);
-    const baseNm = safeBaseName(source);
-    const span = 87 / segs.length;
-
-    for (let i = 0; i < segs.length; i++) {
-      if (job.cancelled) throw new Error('Đã hủy bởi người dùng');
-      const s = segs[i];
-      job.current = i + 1;
-      const cfg2 = Object.assign({}, baseCfg, { startSec: s.start, endSec: s.end });
-      const built = anti.buildAntiDupeFilters(cfg2, { workDir, durationSec: s.duration });
-      const outPath = shared.getUniqueFilePath(outDir, `${baseNm}_clip_${pad2(i + 1)}`, '.mp4');
-      const args = buildRenderArgs(source, built, cfg2, outPath);
-      const basePct = 10 + i * span;
-      await runFFmpeg(args, s.duration, job, basePct, span, `Băm clip ${i + 1}/${segs.length}`);
-      const url = urlForOutDir(outDir, path.basename(outPath));
-      job.clips.push({ index: i + 1, file: path.basename(outPath), url, path: outPath, start: s.start, end: s.end, duration: s.duration });
-    }
-
-    setProgress(job, 100, `Hoàn tất băm cảnh: ${segs.length} clip!`);
-    job.status = 'done';
-    const result = { clips: job.clips, count: segs.length };
-    job.result = result;
-    activeJob = null;
-    return res.json(Object.assign({ success: true, message: `Đã băm thành ${segs.length} clip` }, result));
-  } catch (e) {
-    job.status = 'error';
-    job.error = e.message;
-    setProgress(job, job.percent, 'Lỗi: ' + e.message);
-    activeJob = null;
-    return res.status(500).json({ error: e.message });
-  } finally {
-    try { if (workDir && fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
-  }
+  setImmediate(() => runSceneSplitJob(job, sources, { ...req.body }).catch((error) => {
+    job.status = job.cancelled ? 'cancelled' : 'error';
+    job.error = error.message;
+    setProgress(job, job.percent, `${job.cancelled ? 'Đã hủy' : 'Lỗi'}: ${error.message}`);
+  }));
+  return res.status(202).json({ success: true, started: true, jobId: job.id, videos: sources.length });
 }
 
 // ---- Tiến độ / Hủy ----------------------------------------------------------
@@ -321,4 +476,4 @@ function cancel(req, res) {
   return res.json({ success: true, message: 'Đã gửi yêu cầu hủy tác vụ.' });
 }
 
-module.exports = { renderAntiDupe, renderSceneSplit, getProgress, cancel };
+module.exports = { renderAntiDupe, analyzeSceneSplit, renderSceneSplit, getProgress, cancel };

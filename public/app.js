@@ -116,6 +116,8 @@ function executeSwitchView(name) {
     if (homeView) homeView.classList.remove('hidden');
     if (editorView) editorView.classList.add('hidden');
     renderProjectsList();
+  } else if (name === 'tts') {
+    window.loadStandaloneTts?.();
   }
 }
 
@@ -1738,6 +1740,12 @@ async function renderStudio(event) {
     data.set(name, input?.checked ? 'true' : 'false');
   }
   data.set('uiSnapshot', JSON.stringify(serializeStudioForm()));
+  try {
+    const facebookAuto = JSON.parse(localStorage.getItem('facebook_auto_publish') || '{}');
+    if (facebookAuto.enabled === true && facebookAuto.accountId) {
+      data.set('facebookPublish', JSON.stringify(facebookAuto));
+    }
+  } catch (_) {}
 
   const subMode = data.get('subtitleMode');
   const voiceMode = data.get('voiceMode');
@@ -3530,11 +3538,12 @@ function renderVideoGrid(videos) {
   }
 
   const selectedFileVal = $('selected-video-file').value;
-
-  for (const item of videos) {
+  const createCard = (item) => {
     const card = document.createElement('div');
     card.className = 'video-card-item';
-    if (selectedFileVal === item.filename) {
+    const selectedChild = Array.isArray(item.splitClips)
+      && item.splitClips.some((clip) => clip.filename === selectedFileVal);
+    if (selectedFileVal === item.filename || selectedChild) {
       card.classList.add('selected');
     }
     card.dataset.filename = item.filename;
@@ -3549,11 +3558,13 @@ function renderVideoGrid(videos) {
         <video src="${videoUrl}" preload="metadata" muted playsinline></video>
         <div class="video-card-play-icon">▶</div>
         <div class="video-card-duration">--:--</div>
+        ${item.isSplitClip ? '<div class="video-card-split-badge">CLIP BĂM</div>' : item.chopped ? '<div class="video-card-split-badge done">ĐÃ BĂM</div>' : ''}
       </div>
       <div class="video-card-info">
         <div class="video-card-name" title="${crawlEscape(item.filename)}">${crawlEscape(displayName)}</div>
         <div class="video-card-meta">${crawlEscape(platformLabel)}${modeLabel ? ` · ${crawlEscape(modeLabel)}` : ''}${item.source ? ` · ${crawlEscape(item.source)}` : ''}</div>
         <div class="video-card-meta">${(item.size / (1024 * 1024)).toFixed(1)} MB</div>
+        ${item.splitClipCount ? `<button type="button" class="video-split-toggle">▸ ${item.splitClipCount} clip</button>` : ''}
       </div>
     `;
 
@@ -3575,7 +3586,8 @@ function renderVideoGrid(videos) {
       videoEl.currentTime = 0;
     });
 
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('.video-split-toggle')) return;
       document.querySelectorAll('#studio-video-grid .video-card-item').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       $('selected-video-file').value = item.filename;
@@ -3583,8 +3595,58 @@ function renderVideoGrid(videos) {
       if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
       updateConditionalFields();
     });
+    return card;
+  };
 
-    grid.appendChild(card);
+  for (const item of videos) {
+    const group = document.createElement('div');
+    group.className = 'video-card-group';
+    const card = createCard(item);
+    const groupVideoEl = card.querySelector('video');
+    group.appendChild(card);
+    if (Array.isArray(item.splitClips) && item.splitClips.length) {
+      const children = document.createElement('div');
+      children.className = 'video-split-children hidden';
+      children.innerHTML = item.splitClips.map((clip, index) => `
+        <button type="button" class="video-split-row" data-clip-index="${index}" title="${crawlEscape(clip.name)}">
+          <b>${index + 1}.</b><span>Clip ${index + 1} · ${(clip.size / (1024 * 1024)).toFixed(1)} MB</span><i>▶</i>
+        </button>`).join('');
+      card.querySelector('.video-split-toggle')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const open = children.classList.toggle('hidden') === false;
+        event.currentTarget.textContent = `${open ? '▾' : '▸'} ${item.splitClipCount} clip`;
+      });
+      children.querySelectorAll('.video-split-row').forEach((row) => row.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const clip = item.splitClips[Number(row.dataset.clipIndex)];
+        if (!clip) return;
+        if (!groupVideoEl) return;
+        const clipUrl = studioDownloadUrl(clip.filename);
+        document.querySelectorAll('#studio-video-grid .video-card-item').forEach((candidate) => candidate.classList.remove('selected'));
+        card.classList.add('selected');
+        $('selected-video-file').value = clip.filename;
+        setPreviewVideo(clipUrl);
+        if (typeof switchToPreviewTab === 'function') switchToPreviewTab();
+        updateConditionalFields();
+        groupVideoEl.src = clipUrl;
+        groupVideoEl.muted = false;
+        groupVideoEl.load();
+        groupVideoEl.play().catch(() => {});
+        children.querySelectorAll('.video-split-row').forEach((candidate) => candidate.classList.remove('playing'));
+        row.classList.add('playing');
+        groupVideoEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }));
+      const selectedClipIndex = item.splitClips.findIndex((clip) => clip.filename === selectedFileVal);
+      if (selectedClipIndex >= 0) {
+        children.classList.remove('hidden');
+        const selectedRow = children.querySelector(`[data-clip-index="${selectedClipIndex}"]`);
+        selectedRow?.classList.add('playing');
+        const toggle = card.querySelector('.video-split-toggle');
+        if (toggle) toggle.textContent = `▾ ${item.splitClipCount} clip`;
+      }
+      group.appendChild(children);
+    }
+    grid.appendChild(group);
   }
 }
 
@@ -5310,7 +5372,7 @@ document.querySelectorAll('.studio-config-column .panel-head').forEach(head => {
   });
 });
 
-function openFbModal(url) {
+async function openFbModal(url) {
   const modal = document.getElementById('fb-modal');
   if (modal) {
     modal.classList.remove('hidden');
@@ -5326,7 +5388,7 @@ function openFbModal(url) {
     const select = document.getElementById('fb-page-select');
     if (select) {
       select.innerHTML = '';
-      loadFbPages(); // Đọc danh sách Page mới nhất
+      await loadFbPages(); // Đọc danh sách Page mã hóa từ backend
 
       if (fbPages.length === 0) {
         select.innerHTML = '<option value="manual">Chưa có Page nào được lưu (Nhập thủ công)</option>';
@@ -5336,7 +5398,7 @@ function openFbModal(url) {
       } else {
         let optionsHtml = '<option value="" disabled selected>-- Chọn Page đã lưu --</option>';
         fbPages.forEach((page, idx) => {
-          optionsHtml += `<option value="${idx}">${page.name} (${page.id})</option>`;
+          optionsHtml += `<option value="${idx}">${fbEscape(page.name)} (${fbEscape(page.pageId)})</option>`;
         });
         optionsHtml += '<option value="manual">Nhập thủ công / Tùy chỉnh...</option>';
         select.innerHTML = optionsHtml;
@@ -5358,43 +5420,61 @@ async function publishToFacebook() {
   const pageToken = document.getElementById('fb-page-token').value.trim();
   const description = document.getElementById('fb-description').value.trim();
   const comment = document.getElementById('fb-comment').value.trim();
+  const accountIndex = parseInt(document.getElementById('fb-page-select')?.value, 10);
+  const selectedAccount = Number.isInteger(accountIndex) ? fbPages[accountIndex] : null;
+  const type = document.getElementById('fb-publish-type')?.value || 'reel';
+  const scheduledValue = document.getElementById('fb-scheduled-at')?.value || '';
 
   if (!videoUrl) {
     toast('Không tìm thấy đường dẫn video', 'error');
     return;
   }
 
-  if (!pageId || !pageToken) {
+  if (!selectedAccount && (!pageId || !pageToken)) {
     toast('Vui lòng nhập đủ Page ID và Page Token!', 'error');
     return;
   }
 
   const btn = document.getElementById('fb-publish-btn');
-  setBusy(btn, true, 'Đang tải lên Facebook...');
+  if (btn?.disabled) return;
+  setBusy(btn, true, 'Đang tạo tác vụ Facebook...');
 
   try {
     const videoFilename = videoUrl.split('/').pop();
+    const fingerprint = JSON.stringify([videoFilename, selectedAccount?.id || pageId, description, comment, type, scheduledValue]);
+    let pendingSubmission;
+    try { pendingSubmission = JSON.parse(sessionStorage.getItem('facebook_pending_submission') || 'null'); } catch {}
+    if (pendingSubmission?.fingerprint !== fingerprint) {
+      pendingSubmission = { fingerprint, key: crypto.randomUUID() };
+      sessionStorage.setItem('facebook_pending_submission', JSON.stringify(pendingSubmission));
+    }
 
     const res = await fetch('/api/publish-facebook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         videoPath: videoFilename,
+        idempotencyKey: pendingSubmission.key,
         description,
         comment,
-        pageId,
-        pageToken
+        accountId: selectedAccount?.id,
+        pageId: selectedAccount?.pageId || pageId,
+        pageToken: selectedAccount ? undefined : pageToken,
+        type,
+        scheduledAt: scheduledValue ? new Date(scheduledValue).toISOString() : undefined
       })
     });
 
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Lỗi khi đăng lên Facebook');
+    sessionStorage.removeItem('facebook_pending_submission');
 
     if (result.warning) {
       toast('⚠️ ' + result.warning, 'warning');
     } else {
-      toast('🎉 Đăng video & bình luận thành công!', 'success');
+      toast(result.duplicate ? 'Tác vụ này đã có trong hàng đợi.' : 'Đã thêm vào hàng đợi đăng Facebook!', 'success');
     }
+    loadFacebookJobs();
     closeFbModal();
   } catch (error) {
     toast(error.message, 'error');
@@ -5408,10 +5488,24 @@ async function publishToFacebook() {
 // ==========================================
 let fbPages = [];
 
-function loadFbPages() {
+function fbEscape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+}
+
+async function loadFbPages() {
   try {
-    const data = localStorage.getItem('fbPages');
-    fbPages = data ? JSON.parse(data) : [];
+    const legacyRaw = localStorage.getItem('fbPages');
+    if (legacyRaw) {
+      const legacy = JSON.parse(legacyRaw);
+      if (Array.isArray(legacy) && legacy.some((page) => page.token)) {
+        const migrated = await fetch('/api/facebook/accounts/import', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accounts: legacy }) });
+        if (migrated.ok) localStorage.removeItem('fbPages');
+      }
+    }
+    const response = await fetch('/api/facebook/accounts');
+    if (!response.ok) throw new Error('Không đọc được danh sách Page');
+    fbPages = (await response.json()).accounts || [];
+    syncFacebookAutoPublishUi();
   } catch (e) {
     console.error('Lỗi khi đọc danh sách Page:', e);
     fbPages = [];
@@ -5420,7 +5514,34 @@ function loadFbPages() {
 }
 
 function saveFbPagesToStorage() {
-  localStorage.setItem('fbPages', JSON.stringify(fbPages));
+  // Token không còn được lưu trong renderer/localStorage.
+}
+
+function syncFacebookAutoPublishUi() {
+  const select = $('facebook-auto-publish-page');
+  if (!select) return;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('facebook_auto_publish') || '{}'); } catch {}
+  select.innerHTML = '<option value="">Chọn Page</option>' + fbPages.map((page) => `<option value="${fbEscape(page.id)}">${fbEscape(page.name)} (${fbEscape(page.pageId)})</option>`).join('');
+  select.value = fbPages.some((page) => page.id === saved.accountId) ? saved.accountId : '';
+  if ($('facebook-auto-publish-enabled')) $('facebook-auto-publish-enabled').checked = saved.enabled === true;
+  if ($('facebook-auto-publish-type')) $('facebook-auto-publish-type').value = saved.type || 'reel';
+  if ($('facebook-auto-publish-caption')) $('facebook-auto-publish-caption').value = saved.message || '';
+}
+
+function saveFacebookAutoPublishSettings() {
+  const value = {
+    enabled: $('facebook-auto-publish-enabled')?.checked === true,
+    accountId: $('facebook-auto-publish-page')?.value || '',
+    type: $('facebook-auto-publish-type')?.value || 'reel',
+    message: $('facebook-auto-publish-caption')?.value || ''
+  };
+  if (value.enabled && !value.accountId) {
+    value.enabled = false;
+    if ($('facebook-auto-publish-enabled')) $('facebook-auto-publish-enabled').checked = false;
+    toast('Hãy chọn Page trước khi bật tự động đăng.', 'warning');
+  }
+  localStorage.setItem('facebook_auto_publish', JSON.stringify(value));
 }
 
 let currentPage = 1;
@@ -5446,7 +5567,7 @@ function renderFbPages(filter = '') {
   const searchVal = filter.toLowerCase().trim();
   const filtered = fbPages.filter(p =>
     p.name.toLowerCase().includes(searchVal) ||
-    p.id.includes(searchVal)
+    p.pageId.includes(searchVal)
   );
 
   if (countBadge) {
@@ -5489,11 +5610,12 @@ function renderFbPages(filter = '') {
 
     card.innerHTML = `
       <div class="page-card-header">
-        <div class="page-card-avatar">${initials}</div>
+        <div class="page-card-avatar">${page.avatar ? `<img src="${fbEscape(page.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">` : initials}</div>
         <div class="page-card-info">
-          <div class="page-card-name" title="${page.name}">${page.name}</div>
-          ${page.pageName && page.pageName !== page.name ? `<div style="font-size: 11px; color: var(--accent-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Tên Facebook: ${page.pageName}">📘 ${page.pageName}</div>` : ''}
-          <div class="page-card-id">ID: ${page.id}</div>
+          <div class="page-card-name" title="${fbEscape(page.name)}">${fbEscape(page.name)}</div>
+          ${page.pageName && page.pageName !== page.name ? `<div style="font-size: 11px; color: var(--accent-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Tên Facebook: ${fbEscape(page.pageName)}">📘 ${fbEscape(page.pageName)}</div>` : ''}
+          <div class="page-card-id">ID: ${fbEscape(page.pageId)} · ${Number(page.fanCount || 0).toLocaleString('vi-VN')} theo dõi</div>
+          <div style="font-size:10px;color:${page.status === 'online' ? '#4ade80' : '#fb7185'};margin-top:3px;">${page.status === 'online' ? '● Đã kết nối' : '● Cần kết nối lại'}</div>
         </div>
       </div>
       <div class="page-card-actions">
@@ -5676,7 +5798,7 @@ async function saveFbPage() {
   }
 
   // Kiểm tra trùng ID (ngoại trừ Page đang sửa)
-  const duplicateIdx = fbPages.findIndex(p => p.id === id);
+  const duplicateIdx = fbPages.findIndex(p => p.pageId === id);
   if (duplicateIdx !== -1 && duplicateIdx !== editIndex) {
     toast('Page ID này đã tồn tại trong danh sách!', 'error');
     return;
@@ -5686,10 +5808,10 @@ async function saveFbPage() {
   setBusy(saveBtn, true, 'Đang xác thực...');
 
   try {
-    const res = await fetch('/api/verify-facebook-page', {
+    const res = await fetch('/api/facebook/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pageId: id, pageToken: token })
+      body: JSON.stringify({ pageId: id, accessToken: token, name })
     });
 
     // Tránh lỗi phân tích cú pháp HTML thành JSON (Unexpected token '<')
@@ -5707,12 +5829,12 @@ async function saveFbPage() {
 
     if (editIndex >= 0 && editIndex < fbPages.length) {
       // Cập nhật
-      fbPages[editIndex] = { name, id, token, pageName: result.name };
-      toast(`🎉 Đã cập nhật thành công Page: ${result.name}!`, 'success');
+      fbPages[editIndex] = result.account;
+      toast(`🎉 Đã cập nhật thành công Page: ${result.account.pageName || result.account.name}!`, 'success');
     } else {
       // Thêm mới
-      fbPages.push({ name, id, token, pageName: result.name });
-      toast(`🎉 Đã thêm thành công Page: ${result.name}!`, 'success');
+      fbPages.push(result.account);
+      toast(`🎉 Đã thêm thành công Page: ${result.account.pageName || result.account.name}!`, 'success');
     }
 
     saveFbPagesToStorage();
@@ -5730,8 +5852,9 @@ function editFbPage(index) {
   const page = fbPages[index];
 
   $('page-input-name').value = page.name;
-  $('page-input-id').value = page.id;
-  $('page-input-token').value = page.token;
+  $('page-input-id').value = page.pageId;
+  $('page-input-token').value = '';
+  $('page-input-token').placeholder = `Nhập lại token để cập nhật (đang lưu an toàn •••${page.tokenHint || ''})`;
   $('edit-page-index').value = index;
 
   // Hiện preview tên Facebook nếu đã có
@@ -5779,7 +5902,7 @@ function deleteFbPage(index) {
 
   const msgEl = $('delete-confirm-message');
   if (msgEl) {
-    msgEl.innerHTML = `Bạn có chắc chắn muốn xóa Page <strong>"${page.name}"</strong> (ID: ${page.id}) khỏi danh sách không?<br><span style="color: var(--danger); font-size: 12px; margin-top: 6px; display: inline-block;">⚠️ Hành động này không thể hoàn tác!</span>`;
+    msgEl.innerHTML = `Bạn có chắc chắn muốn xóa Page <strong>"${fbEscape(page.name)}"</strong> (ID: ${fbEscape(page.pageId)}) khỏi danh sách không?<br><span style="color: var(--danger); font-size: 12px; margin-top: 6px; display: inline-block;">⚠️ Các lịch đăng đang chờ của Page sẽ không thể chạy.</span>`;
   }
 
   const modal = $('delete-confirm-modal');
@@ -5796,11 +5919,13 @@ function closeDeleteModal() {
   pageIndexToDelete = -1;
 }
 
-function executeDeletePage() {
+async function executeDeletePage() {
   if (pageIndexToDelete < 0 || pageIndexToDelete >= fbPages.length) return;
 
+  const account = fbPages[pageIndexToDelete];
+  const response = await fetch(`/api/facebook/accounts/${encodeURIComponent(account.id)}`, { method:'DELETE' });
+  if (!response.ok) return toast('Không thể xóa Page khỏi kho bảo mật.', 'error');
   fbPages.splice(pageIndexToDelete, 1);
-  saveFbPagesToStorage();
   renderFbPages($('page-search-input')?.value || '');
   toast('Đã xóa Page khỏi danh sách!', 'success');
 
@@ -5826,10 +5951,181 @@ function togglePageTokenInputVisibility() {
   }
 }
 
-function initFbPages() {
+async function connectFacebookOAuth() {
+  const button = $('facebook-oauth-btn');
+  if (button?.disabled) return;
+  // Open synchronously from the click to avoid popup blocking after network waits.
+  const popup = window.open('about:blank', '_blank', 'width=720,height=780');
+  if (popup) popup.opener = null;
+  try {
+    setBusy(button, true, 'Đang mở Facebook...');
+    if (!popup) throw new Error('Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên và kết nối lại.');
+    const configResponse = await fetch('/api/facebook/oauth/config');
+    const config = await configResponse.json();
+    if (!config.configured) {
+      throw new Error(config.error || 'Máy chủ chưa bật kết nối Facebook. Các Page đã lưu vẫn sử dụng được.');
+    }
+    const response = await fetch('/api/facebook/oauth/start', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không bắt đầu được OAuth Facebook');
+    popup.location.href = result.url;
+    const deadline = Math.min(new Date(result.expiresAt).getTime() || Date.now() + 10 * 60 * 1000, Date.now() + 10 * 60 * 1000);
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const status = await fetch(`/api/facebook/oauth/status/${encodeURIComponent(result.sessionId)}`).then((item) => item.json());
+      if (status.status === 'success') {
+        popup.close();
+        await loadFbPages(); renderFbPages();
+        toast(`Đã kết nối ${status.accounts?.length || 0} Page Facebook.`, 'success');
+        return;
+      }
+      if (status.status === 'error') throw new Error(status.error || 'OAuth Facebook thất bại');
+    }
+    throw new Error('Đăng nhập Facebook quá thời gian chờ');
+  } catch (error) { popup?.close(); toast(error.message, 'error'); }
+  finally { setBusy(button, false); }
+}
+
+const FACEBOOK_JOB_LABELS = {
+  queued:'Đang chờ', validating:'Đang kiểm tra', uploading:'Đang tải lên', processing:'Facebook đang xử lý',
+  finalizing:'Đang hoàn tất', retrying:'Sẽ thử lại', published:'Đã đăng', failed:'Thất bại',
+  auth_required:'Cần đăng nhập lại', cancelled:'Đã hủy', needs_review:'Cần kiểm tra kết quả'
+};
+let facebookLoadedJobs = [];
+let activeFacebookManageJob = null;
+
+async function loadFacebookJobs() {
+  const container = $('facebook-jobs-list');
+  if (!container) return;
+  try {
+    const response = await fetch('/api/facebook/jobs?limit=100');
+    const jobs = (await response.json()).jobs || [];
+    facebookLoadedJobs = jobs;
+    if (!jobs.length) {
+      container.innerHTML = '<div class="empty-state-block"><p>Chưa có tác vụ đăng Facebook.</p></div>';
+      return;
+    }
+    container.innerHTML = jobs.map((job) => {
+      const account = fbPages.find((page) => page.id === job.accountId);
+      const isFuture = ['queued','retrying'].includes(job.status) && new Date(job.nextAttemptAt || job.scheduledAt).getTime() > Date.now() + 1000;
+      const displayStatus = isFuture ? 'scheduled' : job.status;
+      const label = isFuture ? 'Đã hẹn giờ' : (FACEBOOK_JOB_LABELS[job.status] || job.status);
+      const uncertainStart = job.feedPhase === 'publishing' || ['starting','invalid_start'].includes(job.upload?.phase) || (job.status === 'needs_review' && !job.upload && !job.platformWorkId);
+      const canRetry = ['failed','auth_required','needs_review'].includes(job.status) && !uncertainStart;
+      const retryLabel = job.platformWorkId || ['finishing','finished'].includes(job.upload?.phase) || job.status === 'needs_review' ? 'Kiểm tra lại' : 'Thử lại';
+      const canCancel = !['published','failed','cancelled'].includes(job.status);
+      return `<article class="facebook-job-row">
+        <div><b title="${fbEscape(job.videoPath || job.message)}">${fbEscape(account?.name || job.pageId || 'Facebook')} · ${fbEscape(String(job.type).toUpperCase())}</b><small>${fbEscape((job.videoPath || job.message || '').split(/[\\/]/).pop())}</small></div>
+        <div><span class="facebook-job-status ${displayStatus}">${fbEscape(label)} · ${Number(job.percent || 0)}%</span><small>${new Date(job.scheduledAt).toLocaleString('vi-VN')}${job.error ? ` · ${fbEscape(job.error)}` : ''}${job.warning ? ` · ${fbEscape(job.warning)}` : ''}</small></div>
+        <div class="facebook-job-actions">${job.status === 'published' ? `<button class="ghost-btn" onclick="openFacebookPostManager('${job.id}')">Quản lý</button>` : ''}${job.permalink ? `<button class="ghost-btn" onclick="window.open('${fbEscape(job.permalink)}','_blank')">Mở bài</button>` : ''}${canRetry ? `<button class="ghost-btn" onclick="retryFacebookJob('${job.id}')">${retryLabel}</button>` : ''}${canCancel ? `<button class="ghost-btn" onclick="cancelFacebookJob('${job.id}')">Hủy</button>` : ''}</div>
+      </article>`;
+    }).join('');
+  } catch (error) { container.innerHTML = `<div class="empty-state-block"><p>${fbEscape(error.message)}</p></div>`; }
+}
+
+async function retryFacebookJob(id) {
+  const response = await fetch(`/api/facebook/jobs/${encodeURIComponent(id)}/retry`, { method:'POST' });
+  const result = await response.json();
+  toast(response.ok ? 'Đã đưa tác vụ vào hàng đợi thử lại.' : result.error, response.ok ? 'success' : 'error');
+  loadFacebookJobs();
+}
+
+async function cancelFacebookJob(id) {
+  const response = await fetch(`/api/facebook/jobs/${encodeURIComponent(id)}/cancel`, { method:'POST' });
+  const result = await response.json();
+  toast(response.ok ? 'Đã hủy tác vụ Facebook.' : result.error, response.ok ? 'success' : 'error');
+  loadFacebookJobs();
+}
+
+function closeFacebookPostManager() {
+  $('facebook-post-manager-modal')?.classList.add('hidden');
+  activeFacebookManageJob = null;
+}
+
+async function facebookManagerRequest(url, options) {
+  const response = await fetch(url, options);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Facebook API thất bại');
+  return result;
+}
+
+async function openFacebookPostManager(jobId) {
+  const job = facebookLoadedJobs.find((item) => item.id === jobId);
+  if (!job?.platformWorkId) return toast('Tác vụ chưa có Facebook Post ID.', 'error');
+  activeFacebookManageJob = job;
+  $('facebook-post-manager-modal')?.classList.remove('hidden');
+  if ($('facebook-post-comments')) $('facebook-post-comments').innerHTML = '<p style="color:var(--muted);">Đang tải bình luận...</p>';
+  if ($('facebook-post-insights')) $('facebook-post-insights').innerHTML = '<small style="color:var(--muted);grid-column:1/-1;">Đang tải thống kê...</small>';
+  const query = `accountId=${encodeURIComponent(job.accountId)}`;
+  const [commentsResult, insightsResult] = await Promise.allSettled([
+    facebookManagerRequest(`/api/facebook/posts/${encodeURIComponent(job.platformWorkId)}/comments?${query}`),
+    facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(job.platformWorkId)}/insights?${query}`)
+  ]);
+  if (activeFacebookManageJob?.id !== job.id) return;
+  renderFacebookManagerComments(commentsResult.status === 'fulfilled' ? commentsResult.value.data || [] : [], commentsResult.status === 'rejected' ? commentsResult.reason.message : '');
+  renderFacebookManagerInsights(insightsResult.status === 'fulfilled' ? insightsResult.value.data || [] : [], insightsResult.status === 'rejected' ? insightsResult.reason.message : '');
+}
+
+function renderFacebookManagerInsights(items, error = '') {
+  const container = $('facebook-post-insights');
+  if (!container) return;
+  if (error) return void (container.innerHTML = `<small style="color:#fb7185;grid-column:1/-1;">${fbEscape(error)}</small>`);
+  if (!items.length) return void (container.innerHTML = '<small style="color:var(--muted);grid-column:1/-1;">Facebook chưa trả về insights cho bài này.</small>');
+  const labels = { post_media_view:'Lượt xem nội dung', post_clicks:'Lượt nhấp' };
+  container.innerHTML = items.map((item) => `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;"><small style="color:var(--muted);">${fbEscape(labels[item.name] || item.title || item.name)}</small><b style="display:block;margin-top:4px;font-size:18px;">${Number(item.values?.[0]?.value || 0).toLocaleString('vi-VN')}</b></div>`).join('');
+}
+
+function renderFacebookManagerComments(items, error = '') {
+  const container = $('facebook-post-comments');
+  if (!container) return;
+  if (error) return void (container.innerHTML = `<p style="color:#fb7185;">${fbEscape(error)}</p>`);
+  if (!items.length) return void (container.innerHTML = '<p style="color:var(--muted);">Bài viết chưa có bình luận.</p>');
+  container.innerHTML = items.map((comment) => `<article style="padding:10px;border:1px solid var(--border);border-radius:8px;"><b>${fbEscape(comment.from?.name || 'Người dùng Facebook')}</b><p style="margin:5px 0;white-space:pre-wrap;">${fbEscape(comment.message || '')}</p><small style="color:var(--muted);">${comment.created_time ? new Date(comment.created_time).toLocaleString('vi-VN') : ''} · ${Number(comment.like_count || 0)} lượt thích</small><div style="display:flex;gap:6px;margin-top:7px;"><button class="ghost-btn" style="height:28px;font-size:11px;" onclick="replyFacebookComment('${comment.id}')">Trả lời</button><button class="ghost-btn" style="height:28px;font-size:11px;" onclick="likeFacebookManagerObject('${comment.id}')">Thích</button><button class="ghost-btn" style="height:28px;font-size:11px;color:#fb7185;" onclick="deleteFacebookManagerComment('${comment.id}')">Xóa</button></div></article>`).join('');
+}
+
+async function sendFacebookManagerComment(objectId, forcedMessage) {
+  const job = activeFacebookManageJob;
+  const input = $('facebook-post-comment-input');
+  const message = forcedMessage ?? input?.value?.trim();
+  if (!job || !message) return;
+  try {
+    await facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(objectId || job.platformWorkId)}/comments`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accountId:job.accountId, message }) });
+    if (input && !forcedMessage) input.value = '';
+    toast('Đã gửi bình luận Facebook.', 'success');
+    openFacebookPostManager(job.id);
+  } catch (error) { toast(error.message, 'error'); }
+}
+
+function replyFacebookComment(commentId) {
+  const message = window.prompt('Nội dung trả lời bình luận:');
+  if (message?.trim()) sendFacebookManagerComment(commentId, message.trim());
+}
+
+async function likeFacebookManagerObject(objectId) {
+  const job = activeFacebookManageJob;
+  if (!job) return;
+  try {
+    await facebookManagerRequest(`/api/facebook/objects/${encodeURIComponent(objectId)}/like`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accountId:job.accountId, liked:true }) });
+    toast('Đã thích bình luận.', 'success');
+  } catch (error) { toast(error.message, 'error'); }
+}
+
+async function deleteFacebookManagerComment(commentId) {
+  const job = activeFacebookManageJob;
+  if (!job || !window.confirm('Xóa bình luận này khỏi Facebook?')) return;
+  try {
+    await facebookManagerRequest(`/api/facebook/comments/${encodeURIComponent(commentId)}`, { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ accountId:job.accountId }) });
+    toast('Đã xóa bình luận.', 'success');
+    openFacebookPostManager(job.id);
+  } catch (error) { toast(error.message, 'error'); }
+}
+
+async function initFbPages() {
   // Khởi chạy load và render danh sách Page ban đầu
-  loadFbPages();
+  await loadFbPages();
   renderFbPages();
+  loadFacebookJobs();
+  if (!window.__facebookJobRefresh) window.__facebookJobRefresh = setInterval(loadFacebookJobs, 5000);
 
   const searchInput = $('page-search-input');
   if (searchInput) {
@@ -5859,8 +6155,8 @@ function initFbPages() {
         const index = parseInt(val);
         if (index >= 0 && index < fbPages.length) {
           const page = fbPages[index];
-          $('fb-page-id').value = page.id;
-          $('fb-page-token').value = page.token;
+          $('fb-page-id').value = page.pageId;
+          $('fb-page-token').value = '';
         }
         if (manualFields) {
           manualFields.classList.add('hidden'); // Ẩn đi khi chọn Page đã lưu

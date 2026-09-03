@@ -21,6 +21,7 @@ const { OcrGpuManager } = require('./lib/ocr-gpu-manager');
 const { WhisperGpuManager } = require('./lib/whisper-gpu-manager');
 const { readCrawlerHistory, deleteCrawlerHistory } = require('./lib/crawler-history-reader');
 const { verifyLocalLicense, getLicenseFilePath, LICENSE_SERVER_URL } = require('./lib/license-manager');
+const facebookController = require('./controllers/facebookController');
 
 function createBrowserPreviewResolver(platform) {
   return async ({ input, count, mode, onLog }) => {
@@ -380,12 +381,17 @@ if (process.platform === 'win32') {
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => {
+    if (String(req.originalUrl || '').startsWith('/api/facebook/webhook')) req.rawBody = Buffer.from(buffer);
+  }
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/renders', express.static(shared.RENDERS_DIR));
 app.use('/downloads', express.static(shared.DOWNLOADS_DIR));
 app.use('/voices', express.static(shared.VOICES_DIR));
 app.use('/voice-previews', express.static(shared.VOICE_PREVIEWS_DIR));
+app.use('/tts-output', express.static(shared.TTS_OUTPUT_DIR));
 app.use('/music', express.static(shared.MUSIC_DIR));
 app.use('/logos', express.static(shared.LOGOS_DIR));
 
@@ -413,6 +419,7 @@ const downloadController = require('./controllers/downloadController');
 const studioController = require('./controllers/studioController');
 const segmentController = require('./controllers/segmentController');
 const voiceController = require('./controllers/voiceController');
+const standaloneTts = require('./lib/standalone-tts');
 const systemController = require('./controllers/systemController');
 const antiDupeController = require('./controllers/antiDupeController');
 
@@ -765,9 +772,11 @@ app.post('/api/anti-dupe-render', studioUpload.fields([
   { name: 'videoUpload', maxCount: 1 },
   { name: 'logoUpload', maxCount: 1 }
 ]), antiDupeController.renderAntiDupe);
+app.post('/api/anti-dupe-scene-analyze', studioUpload.fields([
+  { name: 'videoUpload', maxCount: 1 }
+]), antiDupeController.analyzeSceneSplit);
 app.post('/api/anti-dupe-scene-split', studioUpload.fields([
-  { name: 'videoUpload', maxCount: 1 },
-  { name: 'logoUpload', maxCount: 1 }
+  { name: 'videoUpload', maxCount: 50 }
 ]), antiDupeController.renderSceneSplit);
 app.get('/api/anti-dupe-progress', antiDupeController.getProgress);
 app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
@@ -775,6 +784,19 @@ app.post('/api/anti-dupe-cancel', antiDupeController.cancel);
 // 4. Voice and asset routes
 app.get('/api/voice-engines', voiceController.getVoiceEngines);
 app.post('/api/preview-engine-voice', voiceController.previewEngineVoice);
+app.get('/api/standalone-tts/status', (req, res) => res.json(standaloneTts.getState()));
+app.get('/api/standalone-tts/outputs', (req, res) => res.json({ outputs: standaloneTts.listOutputs() }));
+app.post('/api/standalone-tts/cancel', async (req, res) => res.json({ success: await standaloneTts.cancel() }));
+app.post('/api/standalone-tts/generate', studioUpload.single('referenceAudio'), async (req, res) => {
+  try {
+    res.json(await standaloneTts.generate(req.body, req.file));
+  } catch (error) {
+    if (req.file?.path) {
+      try { fs.rmSync(req.file.path, { force: true }); } catch (_) {}
+    }
+    res.status(error.code === 'VOICE_ENGINE_BUSY' ? 409 : 500).json({ error: error.message });
+  }
+});
 app.post('/api/generate-cloner-voice', studioUpload.single('refAudio'), voiceController.generateClonerVoice);
 app.get('/api/cloner-voice-progress', voiceController.getClonerProgress);
 app.post('/api/cancel-cloner-voice', voiceController.cancelClonerVoice);
@@ -842,8 +864,12 @@ app.post('/api/douyin-download', downloadController.downloadDouyin);
 app.get('/api/open-file-folder', systemController.openFileFolder);
 app.get('/api/download-crawl/open-file-folder', systemController.openDownloadedFileFolder);
 app.get('/api/serve-file', systemController.serveFile);
-app.post('/api/publish-facebook', systemController.publishFacebook);
-app.post('/api/verify-facebook-page', systemController.verifyFacebookPage);
+// Facebook Page Manager: kho token mã hóa, hàng đợi bền vững, Post/Reel/Story,
+// hẹn giờ, retry, OAuth và API quản lý tương tác.
+facebookController.registerFacebookRoutes(app);
+// Giữ tương thích giao diện/bản dự án cũ; hai route này nay cũng đi qua queue mới.
+app.post('/api/publish-facebook', facebookController.legacyPublish);
+app.post('/api/verify-facebook-page', facebookController.legacyVerify);
 app.get('/api/check-dependencies', systemController.checkDependencies);
 app.get('/api/check-dependencies-status', systemController.checkDependenciesStatus);
 app.post('/api/download-dependency', systemController.downloadDependency);

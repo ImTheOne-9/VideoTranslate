@@ -105,6 +105,13 @@ for (const filename of ['ffmpeg.exe', 'ffprobe.exe', 'yt-dlp.exe', 'uv.exe', 'no
 }
 
 const buildFiles = packageJson.build?.files || [];
+for (const excluded of ['!license-server/**/*', '!.env', '!.env.*', '!**/.env', '!**/.env.*']) {
+  check(buildFiles.includes(excluded), `Thiếu loại trừ cấu hình server khỏi gói desktop: ${excluded}`);
+}
+if (exists('.env')) {
+  check(!/^\s*(?:export\s+)?FACEBOOK_APP_SECRET\s*=/m.test(fs.readFileSync(path.join(root, '.env'), 'utf8')),
+    'FACEBOOK_APP_SECRET còn trong .env desktop; chuyển sang cấu hình backend trước khi build.');
+}
 for (const pattern of [
   'public/**/*',
   'scripts/**/*',

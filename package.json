@@ -1,6 +1,6 @@
 {
   "name": "video-studio-tools",
-  "version": "1.0.48",
+  "version": "1.0.49",
   "description": "Video Studio Tools",
   "main": "index.js",
   "scripts": {
@@ -73,7 +73,13 @@
       "whisper-onnx-child-runtime.js",
       "logo.ico",
       "package.json",
-      "changelog.json"
+      "changelog.json",
+      "!license-server/**/*",
+      "!.env",
+      "!.env.*",
+      "!**/.env",
+      "!**/.env.*",
+      "!scripts/migrate-facebook-oauth-env.js"
     ],
     "extraResources": [
       {

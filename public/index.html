@@ -105,6 +105,10 @@
             </svg></span>
           <strong>Băm cảnh</strong>
         </button>
+        <button class="nav-btn" data-view="tts" title="Tạo Voice (TTS)">
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></span>
+          <strong>Tạo Voice (TTS)</strong>
+        </button>
         <div class="nav-section-label" style="margin-top: 8px;">Mạng xã hội</div>
         <button class="nav-btn" data-view="pages" title="Quản lý Page">
           <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -2479,134 +2483,93 @@
         </div>
       </section>
 
-      <section class="view" id="view-antidupe">
-  <div style="display:flex; gap:20px; flex-wrap:wrap; padding:0 0 16px;">
-    <div style="flex:1; min-width:320px; display:flex; flex-direction:column; gap:16px;">
-
-      <div id="ad-source-panel" class="panel">
-        <div class="panel-head">
-          <h3>Video nguồn</h3>
+      <section class="view" id="view-tts">
+        <div class="tts-page-head">
+          <div><h2>Tạo Voice (TTS)</h2><p>Nhập mỗi câu trên một dòng. Hệ thống tạo một file WAV và giữ khoảng nghỉ tự nhiên giữa các dòng.</p></div>
+          <span class="tts-limit">Tối đa 500 dòng · 20.000 ký tự</span>
         </div>
-        <div class="studio-source-tabs">
-          <button type="button" class="source-tab-btn active" data-ad-source-mode="library">Video đã tải</button>
-          <button type="button" class="source-tab-btn" data-ad-source-mode="upload">Tải lên từ máy</button>
-        </div>
-        <input type="hidden" id="ad-selected-video" value="">
-
-        <div id="ad-source-library" class="source-section">
-          <div id="ad-video-grid" class="studio-video-grid" style="max-height:300px; overflow-y:auto;">
-            <!-- Populated by JS -->
-          </div>
-        </div>
-
-        <div id="ad-source-upload-section" class="source-section hidden">
-          <div class="custom-file-upload">
-            <input type="file" id="ad-source-upload" accept="video/*">
-            <div class="upload-placeholder">
-              <span class="upload-icon"></span>
-              <span class="upload-text">Chọn file video hoặc kéo thả vào đây</span>
+        <div class="tts-layout">
+          <div class="tts-main-column">
+            <div class="panel">
+              <div class="panel-head"><h3>Nội dung cần đọc</h3><span id="tts-text-counter" class="badge">0 dòng · 0 ký tự</span></div>
+              <textarea id="tts-text" class="premium-textarea tts-textarea" placeholder="Xin chào, đây là câu thứ nhất.&#10;Mỗi dòng sẽ được ngắt bằng một khoảng nghỉ ngắn."></textarea>
             </div>
-          </div>
-          <div id="ad-upload-preview" class="upload-video-preview hidden">
-            <label>Xem trước video đã chọn</label>
-            <video id="ad-upload-video" controls></video>
-            <div class="video-preview-info">
-              <span id="ad-upload-name"></span>
-              <span id="ad-upload-size"></span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="ad-panel-split" style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px;">
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--border);">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="8" y2="13"/><line x1="16" y1="13" x2="12" y2="13"/><line x1="10" y1="17" x2="8" y2="17"/><line x1="16" y1="17" x2="12" y2="17"/></svg>
-          <h3 style="margin:0; font-size:15px; color:var(--text);">Băm tự động theo cảnh</h3>
-        </div>
-
-        <div class="sub-settings-grid" style="margin-bottom:16px;">
-          <div class="form-group">
-            <label>Số bản (chia đều)</label>
-            <input type="number" id="ad-num-copies" class="premium-input" value="5" min="0" step="1">
-          </div>
-          <div class="form-group">
-            <label>Độ nhạy cắt cảnh</label>
-            <select id="ad-sensitivity" class="premium-select">
-              <option value="low">Thấp (ít cảnh)</option>
-              <option value="medium" selected>Vừa</option>
-              <option value="high">Cao (nhiều cảnh)</option>
-            </select>
-          </div>
-        </div>
-
-        <div style="margin-bottom:16px;">
-          <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Tùy chọn đầu ra</div>
-          <div class="sub-settings-grid">
-            <div class="form-group">
-              <label>Tỉ lệ khung hình</label>
-              <select id="ad-aspect2" class="premium-select">
-                <option value="keep">Giữ nguyên</option>
-                <option value="9:16" selected>9:16 (Reels/Shorts)</option>
-                <option value="1:1">1:1</option>
-                <option value="16:9">16:9</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Lật ngang</label>
-              <div style="display:flex; align-items:center; gap:8px; padding:6px 0;">
-                <label style="position:relative;display:inline-block;width:40px;height:22px;margin:0;cursor:pointer;flex-shrink:0;">
-                  <input type="checkbox" id="ad-flip2" style="opacity:0;width:0;height:0;">
-                  <span style="position:absolute;cursor:pointer;inset:0;background:#444;border-radius:11px;transition:background .25s;" id="ad-flip2-track"></span>
-                  <span style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:#ccc;border-radius:50%;transition:transform .25s,background .25s;box-shadow:0 1px 4px rgba(0,0,0,0.3);" id="ad-flip2-knob"></span>
-                </label>
-                <span style="font-size:12px;color:var(--muted);">Lật ngang video</span>
+            <div class="panel">
+              <div class="panel-head"><h3>Chọn model giọng đọc</h3><span id="tts-engine-status" class="badge">Đang kiểm tra...</span></div>
+              <div id="tts-engine-grid" class="tts-engine-grid"></div>
+              <div class="tts-settings-grid">
+                <div class="form-group"><label>Ngôn ngữ</label><select id="tts-language" class="premium-select"><option value="vi">Tiếng Việt</option><option value="zh">Tiếng Trung</option><option value="en">Tiếng Anh</option><option value="ja">Tiếng Nhật</option><option value="ko">Tiếng Hàn</option></select></div>
+                <div class="form-group"><label>Giới tính</label><select id="tts-gender" class="premium-select"><option value="female">Nữ</option><option value="male">Nam</option></select></div>
+                <div class="form-group"><label>Giọng đọc</label><select id="tts-voice" class="premium-select"></select></div>
+                <div class="form-group"><label>Tốc độ <span id="tts-speed-value">1.00x</span></label><input id="tts-speed" type="range" min="0.5" max="2" step="0.05" value="1"></div>
               </div>
+              <div id="tts-clone-box" class="tts-clone-box hidden">
+                <div class="tts-clone-title">Giọng mẫu OmniVoice</div>
+                <div class="tts-settings-grid">
+                  <div class="form-group"><label>Giọng đã lưu</label><select id="tts-reference-voice" class="premium-select"><option value="">Tải file mới bên dưới</option></select></div>
+                  <div class="form-group"><label>Tải giọng mẫu 20–30 giây</label><input id="tts-reference-audio" type="file" accept="audio/*,video/*" class="premium-input"></div>
+                </div>
+                <div class="form-group"><label>Nội dung chính xác trong giọng mẫu</label><textarea id="tts-reference-text" class="premium-textarea" rows="2" placeholder="Nhập đúng nguyên văn câu đã đọc trong file mẫu..."></textarea></div>
+              </div>
+              <div class="tts-action-row"><button type="button" id="tts-preview-btn" class="ghost-btn">▶ Nghe thử</button><button type="button" id="tts-generate-btn" class="premium-render-btn">TẠO FILE VOICE</button></div>
             </div>
+          </div>
+          <aside class="tts-side-column">
+            <div class="panel"><div class="panel-head"><h3>Tiến trình</h3><span id="tts-progress-pct">0%</span></div><div class="tts-progress-track"><div id="tts-progress-bar"></div></div><div id="tts-progress-step">Chưa có tác vụ.</div><button type="button" id="tts-cancel-btn" class="ghost-btn hidden">Dừng tạo Voice</button></div>
+            <div class="panel"><div class="panel-head"><h3>Voice đã tạo</h3><button type="button" id="tts-refresh-output" class="ghost-btn">Làm mới</button></div><div id="tts-output-list" class="tts-output-list"><div class="ad-empty">Chưa có file Voice.</div></div></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-antidupe">
+        <div class="ad-page-head">
+          <div><h2>Băm nhỏ video</h2><p>Chia chính xác theo số phần, theo thời lượng hoặc tự đặt mốc như CapCut.</p></div>
+          <div class="ad-head-actions">
+            <button type="button" class="ghost-btn" id="ad-add-library-btn">＋ Video đã tải</button>
+            <button type="button" class="ghost-btn" id="ad-add-files-btn">＋ Thêm từ máy</button>
+            <input type="file" id="ad-source-upload" accept="video/*" multiple hidden>
           </div>
         </div>
 
+        <div class="ad-layout">
+          <div class="ad-main-column">
+            <div class="panel ad-source-panel">
+              <div class="panel-head"><h3>Danh sách cần băm</h3><span id="ad-source-count" class="badge">0 video</span></div>
+              <div id="ad-selected-list" class="ad-selected-list"><div class="ad-empty">Chưa chọn video.</div></div>
+            </div>
 
+            <div class="panel">
+              <div class="panel-head"><h3>Thiết lập băm tự động</h3></div>
+              <div class="sub-settings-grid ad-settings-grid">
+                <div class="form-group"><label>Cách chia</label><select id="ad-split-mode" class="premium-select"><option value="count">Chia đúng số phần</option><option value="duration">Gom theo thời lượng</option></select></div>
+                <div class="form-group" id="ad-count-setting"><label>Số phần mỗi video</label><input type="number" id="ad-num-copies" class="premium-input" value="5" min="1" max="200"></div>
+                <div class="form-group hidden" id="ad-duration-setting"><label>Thời lượng mục tiêu</label><div class="ad-input-suffix"><input type="number" id="ad-target-seconds" class="premium-input" value="40" min="3" max="600"><span>giây</span></div></div>
+                <div class="form-group"><label>Độ nhạy cảnh</label><select id="ad-sensitivity" class="premium-select"><option value="low">Thấp · ít mốc</option><option value="medium" selected>Vừa</option><option value="high">Cao · nhiều mốc</option></select></div>
+                <div class="form-group"><label>Tỉ lệ đầu ra</label><select id="ad-aspect2" class="premium-select"><option value="keep" selected>Giữ nguyên · nhanh</option><option value="9:16">9:16 · nền mờ</option><option value="16:9">16:9 · nền mờ</option><option value="1:1">1:1 · nền mờ</option></select></div>
+                <label class="ad-check"><input type="checkbox" id="ad-flip2"><span>Lật ngang đầu ra</span></label>
+                <label class="ad-check"><input type="checkbox" id="ad-precise"><span>Cắt chính xác từng khung hình</span></label>
+              </div>
+              <div class="form-group ad-output-row"><label>Thư mục lưu <small>(để trống: thư mục <b>clip_nho</b> cạnh video gốc)</small></label><div><input type="text" id="ad-output-dir" class="premium-input" placeholder="Mặc định thông minh"><button type="button" class="ghost-btn" id="ad-output-dir-btn">Chọn thư mục</button></div></div>
+              <div class="ad-action-row"><button type="button" class="ghost-btn" id="ad-editor-btn">✂ Chỉnh mốc thủ công</button><button type="button" class="premium-render-btn" id="ad-split-btn">BĂM TẤT CẢ VIDEO</button></div>
+            </div>
 
-        <div style="margin-bottom:16px;">
-          <div class="form-group">
-            <label>Thư mục lưu (để trống = mặc định)</label>
-            <div style="display:flex; gap:8px;">
-              <input type="text" id="ad-output-dir" class="premium-input" placeholder="D:\out" style="flex:1;">
-              <button type="button" class="ghost-btn" id="ad-output-dir-btn" style="white-space:nowrap; padding:0 14px; height:40px; display:inline-flex; align-items:center; gap:6px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                Chọn
-              </button>
+            <div class="panel hidden" id="ad-editor">
+              <div class="panel-head"><div><h3>Trình chỉnh mốc cắt</h3><small id="ad-editor-name"></small></div><button type="button" class="ghost-btn" id="ad-editor-close">Đóng</button></div>
+              <video id="ad-editor-video" controls preload="metadata"></video>
+              <div class="ad-editor-toolbar"><span id="ad-editor-time">00:00 / 00:00</span><label>Số clip <input type="number" id="ad-cut-count" value="5" min="1" max="200"></label><button type="button" class="ghost-btn" id="ad-reset-cuts">Chia đều lại</button></div>
+              <div id="ad-timeline" class="ad-timeline"><div id="ad-timeline-progress"></div><div id="ad-playhead"></div></div>
+              <div class="ad-editor-foot"><span>Kéo các vạch để đổi mốc. Nhấp timeline để tua.</span><label class="ad-check"><input type="checkbox" id="ad-editor-precise"><span>Cắt chính xác từng khung hình</span></label><button type="button" class="premium-render-btn" id="ad-manual-split-btn">CẮT THEO CÁC MỐC NÀY</button></div>
             </div>
           </div>
+
+          <aside class="ad-side-column">
+            <div class="panel"><div class="panel-head"><h3>Tiến trình</h3><span id="ad-progress-pct">0%</span></div><div class="ad-progress-track"><div id="ad-progress-bar"></div></div><div id="ad-progress-step">Chưa có tác vụ nào.</div><div id="ad-progress-meta"></div><button type="button" class="ghost-btn" id="ad-cancel-btn" hidden>Dừng băm</button><pre id="ad-progress-log" class="ad-progress-log"></pre></div>
+            <div class="panel ad-result-panel"><div class="panel-head"><h3>Kết quả</h3></div><div id="ad-result"><div class="ad-empty">Clip hoàn tất sẽ hiện tại đây.</div></div></div>
+          </aside>
         </div>
 
-        <button type="button" class="premium-render-btn" id="ad-split-btn" style="background:var(--accent-2, #f97316); border-color:var(--accent-2, #f97316); width:100%; padding:14px; font-size:15px; display:flex; align-items:center; justify-content:center; gap:8px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          BĂM TỰ ĐỘNG THEO CẢNH
-        </button>
-      </div>
-    </div>
-
-    <div style="flex:1; min-width:320px; display:flex; flex-direction:column; gap:16px;">
-      <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px;">
-        <h3 style="margin:0 0 12px; font-size:15px; color:var(--text);">Tiến trình</h3>
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:6px;">
-          <span id="ad-progress-step">Chưa có tác vụ nào.</span>
-          <span id="ad-progress-pct">0%</span>
-        </div>
-        <div style="height:10px; background:var(--bg); border-radius:6px; overflow:hidden;">
-          <div id="ad-progress-bar" style="height:100%; width:0%; background:var(--accent-2, #f97316); transition:width .2s;"></div>
-        </div>
-        <div id="ad-progress-meta" style="font-size:11px; color:var(--muted); margin-top:6px;"></div>
-        <button type="button" class="ghost-btn" id="ad-cancel-btn" style="margin-top:12px; display:none; color:var(--danger); border-color:var(--danger);">✖ Hủy tác vụ</button>
-      </div>
-        <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; flex:1; display:flex; flex-direction:column; min-height:0;">
-          <h3 style="margin:0 0 12px; font-size:15px; color:var(--text); flex-shrink:0;">Kết quả</h3>
-          <div id="ad-result" style="font-size:13px; color:var(--muted); overflow-y:auto; flex:1;"></div>
-        </div>
-    </div>
-  </div>
-</section>
+        <div id="ad-library-picker" class="ad-picker hidden"><div class="ad-picker-card"><div class="panel-head"><div><h3>Chọn video đã tải</h3><small>Chọn nhiều video rồi bấm Thêm vào danh sách.</small></div><button type="button" class="ghost-btn" id="ad-library-close">✕</button></div><input id="ad-library-search" class="premium-input" placeholder="Tìm tên video..."><div id="ad-video-grid" class="ad-library-grid"></div><div class="ad-picker-actions"><span id="ad-library-selected-count">0 video đã chọn</span><button type="button" class="premium-render-btn" id="ad-library-confirm">THÊM ĐÃ CHỌN</button></div></div></div>
+      </section>
 <section class="view" id="view-pages">
         <div class="panel" style="margin-bottom: 14px;">
           <div class="panel-head" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
@@ -2620,6 +2583,14 @@
             <button type="button" id="open-add-page-btn" onclick="openPageModal()"
               style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">THÊM
               PAGE MỚI</button>
+            <button type="button" id="facebook-oauth-btn" class="ghost-btn" onclick="connectFacebookOAuth()"
+              style="white-space:nowrap;height:42px;border-color:rgba(24,119,242,.55);color:#60a5fa;">KẾT NỐI FACEBOOK</button>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:rgba(24,119,242,.035);">
+            <label style="display:flex;gap:7px;align-items:center;margin:0;font-size:12px;"><input type="checkbox" id="facebook-auto-publish-enabled" onchange="saveFacebookAutoPublishSettings()"> Tự động xếp hàng Facebook sau khi render xong</label>
+            <select id="facebook-auto-publish-page" class="premium-select" style="min-width:180px;max-width:280px;height:34px;" onchange="saveFacebookAutoPublishSettings()"><option value="">Chọn Page</option></select>
+            <select id="facebook-auto-publish-type" class="premium-select" style="width:140px;height:34px;" onchange="saveFacebookAutoPublishSettings()"><option value="reel">Reel</option><option value="post">Video Post</option><option value="story">Story</option></select>
+            <input id="facebook-auto-publish-caption" class="premium-input" style="min-width:220px;flex:1;height:34px;" placeholder="Caption mặc định sau render" oninput="saveFacebookAutoPublishSettings()">
           </div>
         </div>
 
@@ -2633,6 +2604,10 @@
             style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
             <!-- Các nút chuyển trang sẽ được sinh động bằng JS -->
           </div>
+        </div>
+        <div class="panel" style="margin-top:14px;">
+          <div class="panel-head"><div><h3>Lịch đăng và lịch sử Facebook</h3><small>Tác vụ được lưu trên máy và tự tiếp tục khi mở lại ứng dụng.</small></div><button type="button" class="ghost-btn" onclick="loadFacebookJobs()">Làm mới</button></div>
+          <div id="facebook-jobs-list" class="facebook-jobs-list"><div class="empty-state-block"><p>Chưa có tác vụ đăng Facebook.</p></div></div>
         </div>
       </section>
 
@@ -2762,6 +2737,17 @@
           <textarea id="fb-description" class="premium-textarea" rows="2"
             placeholder="Nội dung mô tả video (Caption)..."></textarea>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label style="margin:0 0 6px 0;">Loại bài đăng</label>
+            <select id="fb-publish-type" class="premium-select"><option value="reel">Facebook Reel</option><option value="post">Video Post</option><option value="story">Video Story</option></select>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label style="margin:0 0 6px 0;">Thời gian đăng</label>
+            <input type="datetime-local" id="fb-scheduled-at" class="premium-input">
+          </div>
+        </div>
+        <small style="color:var(--muted);margin-top:-8px;">Để trống thời gian để đăng ngay. Hẹn giờ cục bộ cần ứng dụng đang chạy.</small>
         <div class="form-group" style="margin-bottom: 8px;">
           <label style="margin: 0 0 6px 0;">Nội dung tự động bình luận</label>
           <textarea id="fb-comment" class="premium-textarea" rows="2"
@@ -2858,6 +2844,17 @@
           <button type="button" class="premium-render-btn ghost-btn" style="flex: 1; margin: 0;"
             onclick="closeDeleteModal()">Hủy bỏ</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="facebook-post-manager-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content" style="width:760px;max-width:95%;max-height:88vh;overflow:auto;">
+      <div class="fb-modal-header"><h3>Quản lý bài Facebook</h3><button class="fb-modal-close" onclick="closeFacebookPostManager()">&times;</button></div>
+      <div class="fb-modal-body">
+        <div id="facebook-post-insights" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;"></div>
+        <div style="display:flex;gap:8px;"><input id="facebook-post-comment-input" class="premium-input" placeholder="Viết bình luận mới vào bài..."><button class="premium-render-btn" style="margin:0;width:150px;" onclick="sendFacebookManagerComment()">Gửi</button></div>
+        <div id="facebook-post-comments" style="display:grid;gap:8px;"><p style="color:var(--muted);">Đang tải bình luận...</p></div>
       </div>
     </div>
   </div>
@@ -4495,6 +4492,7 @@
   <script src="js/drag-drop-module.js"></script>
   <script src="js/ui-utils.js"></script>
   <script src="js/anti-dupe-module.js"></script>
+  <script src="js/tts-standalone-module.js"></script>
   <script src="js/ocr-ui.js"></script>
   <script src="app.js"></script>
   <script src="js/segment-editor.js"></script>
