@@ -5,7 +5,7 @@ Phạm vi bản sửa upload: adapter, hàng đợi, kiểm tra media, trạng t
 ## Luồng xử lý
 
 - Post dùng `/videos` qua `graph-video.facebook.com`, tải từng chunk theo offset Facebook xác nhận. Reel và Story giữ endpoint riêng và dùng URL upload Facebook trả về.
-- Không dùng `content_category` để chọn Post/Reel/Story. Post gửi `published=true`; Reel gửi `video_state=PUBLISHED` khi finish.
+- Không dùng `content_category` để chọn Post/Reel/Story. Khi đăng ngay, Post gửi `published=true`; Reel gửi `video_state=PUBLISHED` khi finish. Khi hẹn giờ phía Facebook, dùng [luồng hẹn giờ mới](facebook-native-scheduling.md).
 - Lưu `upload` trong kho tác vụ: loại nội dung, phiên bản API, kích thước/mtime file, ID video, ID phiên hoặc URL upload, offset đã xác nhận và giai đoạn hiện tại.
 - Ghi checkpoint trước request tạo phiên/transfer/finish và sau phản hồi. Không phát request tiếp nếu lưu checkpoint thất bại.
 - Chỉ chấp nhận finish có `success: true`. Phản hồi không rõ hoặc mất mạng ở finish chuyển sang GET trạng thái ID cũ, không tự gửi finish hay tạo video mới.

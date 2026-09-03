@@ -33,6 +33,7 @@ test('Switching back to immediate clears the scheduled payload', async t => {
   assert.equal(f.elements['fb-scheduled-at'].value, '');
   await f.context.publishToFacebook();
   assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].scheduleMode, 'immediate');
   assert.equal(f.requests[0].scheduledAt, undefined);
 });
 
@@ -41,6 +42,7 @@ test('Quick preset sends the chosen local time as the correct UTC instant', asyn
   f.context.setFacebookScheduleMode('later');
   f.context.chooseFacebookSchedule('15m');
   await f.context.publishToFacebook();
+  assert.equal(f.requests[0].scheduleMode, 'facebook');
   assert.equal(f.requests[0].scheduledAt, new Date(Date.now() + 15 * 60000).toISOString());
   f.context.chooseFacebookSchedule('tomorrow');
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0);

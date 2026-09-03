@@ -5632,15 +5632,20 @@ select option {
   background: rgba(11, 16, 24, 0.45);
 }
 
-.facebook-jobs-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
-.facebook-job-row { display: grid; grid-template-columns: minmax(170px,1fr) minmax(120px,.7fr) auto; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,.018); }
+.facebook-jobs-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; container: facebook-jobs / inline-size; }
+.facebook-job-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,.8fr) 190px; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,.018); }
+.facebook-job-row > div { min-width: 0; }
 .facebook-job-row b,.facebook-job-row small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .facebook-job-row small { color:var(--muted); margin-top:3px; font-size:11px; }
 .facebook-job-status { font-size:11px; font-weight:700; text-transform:uppercase; color:#93c5fd; }
 .facebook-job-status.needs_review { color:#fbbf24; }
 .facebook-job-status.published { color:#4ade80; }.facebook-job-status.failed,.facebook-job-status.auth_required { color:#fb7185; }.facebook-job-status.scheduled { color:#fbbf24; }
-.facebook-job-actions { display:flex; gap:6px; }.facebook-job-actions button { height:30px; padding:0 9px; font-size:11px; }
-@media (max-width:760px) { .facebook-job-row { grid-template-columns:1fr; }.facebook-job-actions { justify-content:flex-start; } }
+.facebook-job-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }.facebook-job-actions button { height:30px; padding:0 9px; font-size:11px; }
+@container facebook-jobs (max-width:620px) {
+  .facebook-job-row { grid-template-columns:minmax(0,1fr); gap:8px; }
+  .facebook-job-actions { justify-content:flex-start; }
+  .facebook-job-actions:empty { display:none; }
+}
 
 .whisper-compact-hint {
   font-size: 10px;
@@ -5750,6 +5755,8 @@ select option {
 .fb-schedule-summary { margin: 12px 0 0; color: #b8c5d6; font-size: 12px; line-height: 1.5; }
 .fb-schedule-summary.is-error { color: #f87171; }
 .fb-schedule-note { margin: 7px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.facebook-job-status.facebook_scheduled { color: #60a5fa; }
+.facebook-job-schedule-note { color: #94a3b8; margin-top: 5px; line-height: 1.5; }
 @media (max-width: 420px) { .fb-schedule-fields { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 
 /* Facebook: automatic publishing settings */

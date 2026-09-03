@@ -5457,13 +5457,13 @@ function updateFacebookSchedule() {
   $('fb-scheduled-at').value = later && valid ? value : '';
   $('fb-schedule-date').min = facebookScheduleLocalValue(new Date()).split('T')[0];
   const summary = $('fb-schedule-summary');
-  summary.classList.toggle('is-error', later && (!valid || date.getTime() <= Date.now()));
+  summary.classList.toggle('is-error', later && (!valid || date.getTime() - Date.now() < 10 * 60000));
   if (!later) summary.textContent = 'Video sẽ được thêm vào hàng đợi đăng ngay.';
   else if (!valid) summary.textContent = 'Chọn đầy đủ ngày và giờ đăng.';
-  else if (date.getTime() <= Date.now()) summary.textContent = 'Hãy chọn thời gian trong tương lai.';
-  else summary.textContent = 'Bắt đầu đăng lúc ' + new Intl.DateTimeFormat('vi-VN', {
+  else if (date.getTime() - Date.now() < 10 * 60000) summary.textContent = 'Hãy chọn ít nhất 10 phút nữa để có thời gian tải video.';
+  else summary.textContent = 'Yêu cầu Facebook xuất bản lúc ' + new Intl.DateTimeFormat('vi-VN', {
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23', day: '2-digit', month: '2-digit', year: 'numeric'
-  }).format(date) + '.';
+  }).format(date) + '. Video được tải lên ngay khi bạn xác nhận.';
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   $('fb-schedule-timezone').textContent = `Múi giờ của máy: ${zone}`;
   const button = $('fb-publish-btn');
@@ -5489,6 +5489,10 @@ async function publishToFacebook() {
     toast('Thời gian hẹn đăng phải ở trong tương lai.', 'error');
     return;
   }
+  if (scheduledValue && new Date(scheduledValue).getTime() - Date.now() < 10 * 60000) {
+    toast('Hãy hẹn ít nhất 10 phút nữa để có thời gian tải video và gửi lịch sang Facebook.', 'error');
+    return;
+  }
 
   if (!videoUrl) {
     toast('Không tìm thấy đường dẫn video', 'error');
@@ -5506,7 +5510,7 @@ async function publishToFacebook() {
 
   try {
     const videoFilename = videoUrl.split('/').pop();
-    const fingerprint = JSON.stringify([videoFilename, selectedAccount?.id || pageId, description, comment, type, scheduledValue]);
+    const fingerprint = JSON.stringify([videoFilename, selectedAccount?.id || pageId, description, comment, type, scheduledValue, scheduledValue ? 'facebook' : 'immediate']);
     let pendingSubmission;
     try { pendingSubmission = JSON.parse(sessionStorage.getItem('facebook_pending_submission') || 'null'); } catch {}
     if (pendingSubmission?.fingerprint !== fingerprint) {
@@ -5526,6 +5530,7 @@ async function publishToFacebook() {
         pageId: selectedAccount?.pageId || pageId,
         pageToken: selectedAccount ? undefined : pageToken,
         type,
+        scheduleMode: scheduledValue ? 'facebook' : 'immediate',
         scheduledAt: scheduledValue ? new Date(scheduledValue).toISOString() : undefined
       })
     });
@@ -5537,7 +5542,9 @@ async function publishToFacebook() {
     if (result.warning) {
       toast('⚠️ ' + result.warning, 'warning');
     } else {
-      toast(result.duplicate ? 'Tác vụ này đã có trong hàng đợi.' : 'Đã thêm vào hàng đợi đăng Facebook!', 'success');
+      toast(result.duplicate ? 'Tác vụ này đã có trong hàng đợi.' : scheduledValue
+        ? 'Đã xếp hàng tải video. Hãy chờ trạng thái “Facebook đã nhận lịch” trước khi tắt máy.'
+        : 'Đã thêm vào hàng đợi đăng Facebook!', 'success');
     }
     loadFacebookJobs();
     closeFbModal();
@@ -6094,7 +6101,7 @@ async function connectFacebookOAuth() {
 const FACEBOOK_JOB_LABELS = {
   queued:'Đang chờ', validating:'Đang kiểm tra', uploading:'Đang tải lên', processing:'Facebook đang xử lý',
   finalizing:'Đang hoàn tất', retrying:'Sẽ thử lại', published:'Đã đăng', failed:'Thất bại',
-  auth_required:'Cần đăng nhập lại', cancelled:'Đã hủy', needs_review:'Cần kiểm tra kết quả'
+  auth_required:'Cần đăng nhập lại', cancelled:'Đã hủy', needs_review:'Cần kiểm tra kết quả', facebook_scheduled:'Facebook đã nhận lịch'
 };
 let facebookLoadedJobs = [];
 let activeFacebookManageJob = null;
@@ -6112,17 +6119,25 @@ async function loadFacebookJobs() {
     }
     container.innerHTML = jobs.map((job) => {
       const account = fbPages.find((page) => page.id === job.accountId);
-      const isFuture = ['queued','retrying'].includes(job.status) && new Date(job.nextAttemptAt || job.scheduledAt).getTime() > Date.now() + 1000;
+      const nativeSchedule = job.scheduleMode === 'facebook';
+      const remoteFinishSent = nativeSchedule && (job.platformWorkId || ['finishing','finished'].includes(job.upload?.phase));
+      const isFuture = !nativeSchedule && job.scheduleMode !== 'immediate' && job.status === 'queued'
+        && new Date(job.scheduledAt).getTime() > Date.now() + 1000;
       const displayStatus = isFuture ? 'scheduled' : job.status;
-      const label = isFuture ? 'Đã hẹn giờ' : (FACEBOOK_JOB_LABELS[job.status] || job.status);
+      const label = isFuture ? 'Hẹn giờ trên máy (lịch cũ)' : (FACEBOOK_JOB_LABELS[job.status] || job.status);
       const uncertainStart = job.feedPhase === 'publishing' || ['starting','invalid_start'].includes(job.upload?.phase) || (job.status === 'needs_review' && !job.upload && !job.platformWorkId);
       const canRetry = ['failed','auth_required','needs_review'].includes(job.status) && !uncertainStart;
       const retryLabel = job.platformWorkId || ['finishing','finished'].includes(job.upload?.phase) || job.status === 'needs_review' ? 'Kiểm tra lại' : 'Thử lại';
-      const canCancel = !['published','failed','cancelled'].includes(job.status);
+      const canCancel = !remoteFinishSent && !['published','failed','cancelled'].includes(job.status);
+      const scheduleNotice = job.status === 'facebook_scheduled'
+        ? `Có thể tắt máy; Facebook giữ lịch xuất bản.${job.firstComment ? ' Bình luận sẽ gửi khi phần mềm chạy và xác nhận bài đã đăng.' : ''} Sửa/hủy lịch trong Meta Business Suite.`
+        : nativeSchedule && !['published','cancelled'].includes(job.status)
+          ? remoteFinishSent ? 'Đã gửi yêu cầu lịch. Kiểm tra trạng thái tác vụ; sửa/hủy lịch trong Meta Business Suite.' : 'Chưa gửi xong lịch sang Facebook. Giữ phần mềm mở và xử lý lỗi nếu có.'
+          : '';
       return `<article class="facebook-job-row">
         <div><b title="${fbEscape(job.videoPath || job.message)}">${fbEscape(account?.name || job.pageId || 'Facebook')} · ${fbEscape(String(job.type).toUpperCase())}</b><small>${fbEscape((job.videoPath || job.message || '').split(/[\\/]/).pop())}</small></div>
-        <div><span class="facebook-job-status ${displayStatus}">${fbEscape(label)} · ${Number(job.percent || 0)}%</span><small>${new Date(job.scheduledAt).toLocaleString('vi-VN')}${job.error ? ` · ${fbEscape(job.error)}` : ''}${job.warning ? ` · ${fbEscape(job.warning)}` : ''}</small></div>
-        <div class="facebook-job-actions">${job.status === 'published' ? `<button class="ghost-btn" onclick="openFacebookPostManager('${job.id}')">Quản lý</button>` : ''}${job.permalink ? `<button class="ghost-btn" onclick="window.open('${fbEscape(job.permalink)}','_blank')">Mở bài</button>` : ''}${canRetry ? `<button class="ghost-btn" onclick="retryFacebookJob('${job.id}')">${retryLabel}</button>` : ''}${canCancel ? `<button class="ghost-btn" onclick="cancelFacebookJob('${job.id}')">Hủy</button>` : ''}</div>
+        <div><span class="facebook-job-status ${displayStatus}">${fbEscape(label)} · ${Number(job.percent || 0)}%</span><small>${new Date(job.scheduledAt).toLocaleString('vi-VN')}${job.error ? ` · ${fbEscape(job.error)}` : ''}${job.warning ? ` · ${fbEscape(job.warning)}` : ''}</small>${scheduleNotice ? `<small class="facebook-job-schedule-note">${fbEscape(scheduleNotice)}</small>` : ''}</div>
+        <div class="facebook-job-actions">${job.status === 'published' ? `<button class="ghost-btn" onclick="openFacebookPostManager('${job.id}')">Quản lý</button>` : ''}${remoteFinishSent && job.status !== 'published' ? `<button class="ghost-btn" onclick="window.open('https://business.facebook.com/','_blank')">Lịch trên Facebook</button>` : ''}${job.permalink ? `<button class="ghost-btn" onclick="window.open('${fbEscape(job.permalink)}','_blank')">Mở bài</button>` : ''}${canRetry ? `<button class="ghost-btn" onclick="retryFacebookJob('${job.id}')">${retryLabel}</button>` : ''}${canCancel ? `<button class="ghost-btn" onclick="cancelFacebookJob('${job.id}')">Hủy</button>` : ''}</div>
       </article>`;
     }).join('');
   } catch (error) { container.innerHTML = `<div class="empty-state-block"><p>${fbEscape(error.message)}</p></div>`; }

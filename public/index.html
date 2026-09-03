@@ -2623,7 +2623,7 @@
           </div>
         </div>
         <div class="panel" style="margin-top:14px;">
-          <div class="panel-head"><div><h3>Lịch đăng và lịch sử Facebook</h3><small>Tác vụ được lưu trên máy và tự tiếp tục khi mở lại ứng dụng.</small></div><button type="button" class="ghost-btn" onclick="loadFacebookJobs()">Làm mới</button></div>
+          <div class="panel-head"><div><h3>Lịch đăng và lịch sử Facebook</h3><small>Lịch có trạng thái “Facebook đã nhận lịch” sẽ tự xuất bản dù máy tắt. Các tác vụ chưa gửi xong cần phần mềm chạy.</small></div><button type="button" class="ghost-btn" onclick="loadFacebookJobs()">Làm mới</button></div>
           <div id="facebook-jobs-list" class="facebook-jobs-list"><div class="empty-state-block"><p>Chưa có tác vụ đăng Facebook.</p></div></div>
         </div>
       </section>
@@ -2762,7 +2762,7 @@
           <legend>Thời gian đăng</legend>
           <div class="fb-schedule-modes">
             <label><input type="radio" name="fb-schedule-mode" id="fb-schedule-now" checked onchange="setFacebookScheduleMode('now')"><span>Đăng ngay</span></label>
-            <label><input type="radio" name="fb-schedule-mode" id="fb-schedule-later" onchange="setFacebookScheduleMode('later')"><span>Hẹn giờ</span></label>
+            <label><input type="radio" name="fb-schedule-mode" id="fb-schedule-later" onchange="setFacebookScheduleMode('later')"><span>Hẹn giờ trên Facebook</span></label>
           </div>
           <div id="fb-schedule-details" class="fb-schedule-details hidden">
             <div class="fb-schedule-fields">
@@ -2778,7 +2778,7 @@
           </div>
           <input type="hidden" id="fb-scheduled-at">
           <p id="fb-schedule-summary" class="fb-schedule-summary" aria-live="polite">Video sẽ được thêm vào hàng đợi đăng ngay.</p>
-          <p id="fb-schedule-note" class="fb-schedule-note hidden">Để phần mềm mở và máy có mạng khi đến giờ. Máy tắt hoặc ngủ sẽ làm lịch đăng bị trễ.</p>
+          <p id="fb-schedule-note" class="fb-schedule-note hidden">Giữ phần mềm mở đến khi hiện “Facebook đã nhận lịch”. Sau đó Facebook tự xuất bản khi đến giờ, kể cả khi máy tắt. Bình luận tự động vẫn cần phần mềm chạy sau khi bài được đăng.</p>
         </fieldset>
         <div class="form-group" style="margin-bottom: 8px;">
           <label style="margin: 0 0 6px 0;">Nội dung tự động bình luận</label>
