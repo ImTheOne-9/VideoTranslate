@@ -6,16 +6,32 @@ Cập nhật kiểm tra: 03/09/2026. Đây là hồ sơ chuẩn bị, không ph�
 
 - App trên Dashboard: **Video Studio**, ID `1837023007457224`.
 - Danh mục doanh nghiệp: **Hoang Business**, ID `2138162720389813`. Tên này chưa xác minh là tên pháp lý.
+- Meta Business Suite hiển thị **Đủ điều kiện xác minh**, nhưng trạng thái doanh nghiệp vẫn là **Chưa xác minh**. Hồ sơ hiện chưa có tên pháp lý, địa chỉ, số điện thoại, website hoặc Trang chính; email quản trị `doanhoang1910@gmail.com` đang **Đang chờ xác nhận**.
+- Đã mở luồng xác minh ở chế độ kiểm tra. Meta yêu cầu chọn quốc gia, sau đó cung cấp tên, địa chỉ, số điện thoại, email và website; Meta có thể yêu cầu tải giấy tờ nếu không tự đối chiếu được doanh nghiệp. Chưa nhập dữ liệu hoặc gửi hồ sơ.
 - Người vận hành do chủ sản phẩm cung cấp: **Đoàn Việt Hoàng**. Đã bổ sung tên này vào các trang công khai trong source; đây không phải xác nhận doanh nghiệp của Meta.
 - Danh sách app hiển thị **Đang phát triển**; Dashboard mới hiển thị **Đã hủy đăng**.
 - Dashboard yêu cầu trở thành **Nhà cung cấp công nghệ**, hoàn tất xác minh quyền truy cập để gửi xét duyệt và dùng dữ liệu của doanh nghiệp khác.
-- Mục **Đăng** đang khóa nút phát hành và yêu cầu URL chính sách riêng tư. Trong **Thông tin cơ bản**, URL này và email liên hệ đang trống; Terms và Data Deletion đang là `https://www.facebook.com/`, không phải chính sách của Editnhanh. Giao diện chưa hiển thị icon đã tải hoặc hạng mục được chọn. Chưa sửa/lưu các giá trị này vì URL mới chưa được triển khai.
+- Kiểm tra Dashboard mới nhất: mục **Đăng** thông báo đã hoàn tất toàn bộ cài đặt ứng dụng bắt buộc và nút Đăng đã được bật. Điều này thay thế kết quả kiểm tra trước đó khi chính sách còn thiếu; chưa xác nhận quyền truy cập dữ liệu khách hàng đã được duyệt và chưa bấm phát hành.
 - `https://editnhanh.com/api/facebook/oauth/config` trả HTTP 200, `configured: true`, `mode: backend`.
 - Email hỗ trợ/xóa dữ liệu do chủ sản phẩm chọn: **doanhoang1910@gmail.com**. Đã cập nhật trong bốn trang chuẩn bị phát hành. Cấu hình website đang chạy vẫn là `support@editnhanh.com` tại lần kiểm tra trước; cần cập nhật cấu hình liên hệ của website khi triển khai để đồng nhất. Chưa gửi email thử.
-- Bốn trang bên dưới đã có trong source và được build cục bộ. Chưa triển khai chúng lên Render; chưa gán URL vào Meta, chưa gửi App Review, chưa phát hành.
+- Các trang chính sách đã được triển khai. Ngày 03/09/2026 đã kiểm tra trực tiếp ba URL tiếng Việt: đều có tên người vận hành, email `doanhoang1910@gmail.com` và cam kết phản hồi 5 ngày làm việc/xử lý 30 ngày. Chưa gửi App Review, chưa phát hành.
 - Build frontend thành công. Đã mở cả bốn trang build bằng HTTP cục bộ ở chiều rộng 1280 và 390 px: trả 200, có tiêu đề, không tràn ngang, không nhúng script theo dõi. Chưa kiểm tra bộ cài Windows cuối cùng hoặc quay video bằng chứng thật.
 
 ## Các URL chuẩn bị cho Meta
+
+### Kết quả kiểm tra quyền và thử nghiệm mới nhất
+
+Trang **Thử nghiệm**, khi mở chi tiết Quản lý mọi thứ trên Trang, hiển thị:
+
+- Bảng quyền hiện ghi `pages_manage_posts`: 981 lệnh gọi; `pages_read_engagement`, `pages_read_user_content`, `pages_show_list`: khoảng 1 nghìn; `pages_manage_engagement`: 4; `read_insights`: 11; `public_profile`: 12. Tất cả đều ở trạng thái **Sẵn sàng thử nghiệm**.
+- `business_management`: **Cần có 0/1 lệnh gọi API**. Quyền đã thêm trong Dashboard nhưng không nằm trong danh sách SCOPES khai báo của backend; cần đối chiếu Login Configuration/phụ thuộc thực tế trước khi quyết định giữ hay bỏ, không tự xóa chỉ vì bộ đếm bằng 0.
+- Meta ghi rõ dữ liệu thử nghiệm có thể mất tối đa 24 giờ mới hiển thị; mỗi thử nghiệm có hiệu lực 30 ngày. Bảng tổng lượt gọi có thể hiện 0 cho quyền mà trang thử nghiệm chi tiết đã đánh dấu hoàn tất. Không diễn giải 0 thành lỗi đăng bài hoặc bắt đăng lại khi chưa kiểm tra chi tiết.
+
+Đã mở hộp thoại **Trở thành Nhà cung cấp công nghệ**: Meta yêu cầu xác minh doanh nghiệp là thực thể kinh doanh, xác minh quyền truy cập dữ liệu doanh nghiệp khác và App Review về sử dụng/xử lý/bảo vệ dữ liệu. Hộp thoại nêu lựa chọn này không thể hủy bỏ sau khi được xác định là Nhà cung cấp công nghệ. Chưa bấm **Đúng, tôi là Nhà cung cấp công nghệ** trong lượt kiểm tra; tên cá nhân đã điền trên chính sách không phải bằng chứng hoàn tất xác minh doanh nghiệp.
+
+Tài liệu Meta xác nhận các quyền mà sản phẩm dùng (`pages_show_list`, `pages_manage_posts`, `pages_read_engagement`, `pages_read_user_content`, `pages_manage_engagement`, `read_insights`) thuộc nhóm cần **Xác minh quyền truy cập** khi ứng dụng phục vụ người không có vai trò trong app. Điều kiện tiên quyết là xác minh doanh nghiệp xong và tài khoản kinh doanh không bị hạn chế. Sau khi quản trị viên mô tả cách dùng dữ liệu của doanh nghiệp khác, Meta cho biết thường đưa ra quyết định trong khoảng 5 ngày. Quy trình này độc lập với App Review.
+
+Menu **Hành động** của `pages_manage_posts` hiện có lựa chọn **Thêm vào yêu cầu Xét duyệt ứng dụng**; chưa thêm hoặc gửi yêu cầu. Không cần đưa `business_management` vào hồ sơ nếu cấu hình OAuth thực tế không sử dụng quyền đó.
 
 | Mục | URL sau khi triển khai |
 | --- | --- |
@@ -113,9 +129,10 @@ Quay bản thực, không dùng ảnh mock hoặc video từ test tự động �
 2. Triển khai frontend mới lên service Render đang phục vụ editnhanh.com, theo quy trình triển khai hiện có. Không thay biến môi trường hoặc deploy key khác.
 3. Mở bốn URL bằng phiên không đăng nhập; xác nhận đúng nội dung, HTTPS và không bị chuyển về trang chủ. Build Vite tự sao chép các file `frontend/public` vào `frontend/dist`.
 4. Trong Meta App Video Studio, điền URL chính sách, điều khoản, hướng dẫn xóa dữ liệu; giữ callback OAuth đã hoạt động. Kiểm tra icon, liên hệ và website.
-5. Theo yêu cầu Dashboard, hoàn tất bước Nhà cung cấp công nghệ, xác minh quyền truy cập/doanh nghiệp và câu hỏi xử lý dữ liệu. Các thông tin pháp lý, giấy tờ, bên xử lý dữ liệu phải do chủ sản phẩm xác nhận. Không đánh dấu đã xác minh khi Meta chưa xác nhận.
-6. Rà từng quyền trong use case Quản lý mọi thứ trên Trang. Chuẩn bị video, nội dung mô tả ở trên và điều kiện reviewer truy cập được bộ cài.
-7. Điền hồ sơ bằng thông tin thực tế, kiểm tra lại bản xem trước và gửi xét duyệt. Ghi trạng thái/phản hồi của Meta; sửa đúng mục bị yêu cầu bổ sung.
+5. Xác nhận email quản trị doanh nghiệp; điền thông tin pháp lý khớp giấy tờ và hoàn tất Xác minh doanh nghiệp. Với cá nhân, chỉ dùng thông tin/giấy tờ mà Meta chấp nhận cho loại hình thực tế, không tự đặt tên doanh nghiệp.
+6. Sau khi chủ sản phẩm xác nhận lựa chọn không thể hoàn tác, xác định app là Nhà cung cấp công nghệ và hoàn tất Xác minh quyền truy cập.
+7. Rà từng quyền trong use case Quản lý mọi thứ trên Trang. Chuẩn bị video, nội dung mô tả ở trên và điều kiện reviewer truy cập được bộ cài.
+8. Thêm đúng các quyền đang dùng vào yêu cầu App Review, điền hồ sơ bằng thông tin thực tế, kiểm tra lại bản xem trước và gửi xét duyệt. Ghi trạng thái/phản hồi của Meta; sửa đúng mục bị yêu cầu bổ sung.
 
 ## E — Phát hành khi Dashboard cho phép
 
@@ -136,8 +153,10 @@ Sau phát hành, kiểm thử với một tài khoản được chủ sở hữu
 ## Tài liệu đối chiếu
 
 - Dashboard thực tế: https://developers.facebook.com/apps/1837023007457224/dashboard/
-- Quy trình xét duyệt: https://developers.facebook.com/docs/app-review/
+- Quy trình xét duyệt: https://developers.facebook.com/documentation/resp-plat-initiatives/individual-processes/app-review
+- Xác minh doanh nghiệp: https://developers.facebook.com/documentation/development/release/business-verification
+- Xác minh quyền truy cập: https://developers.facebook.com/documentation/development/release/access-verification
 - Data deletion: https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback/
 - OAuth backend của dự án: `docs/facebook-oauth-backend.md`.
 
-Các trang tài liệu Meta trực tiếp trả lỗi 429 trong phiên kiểm tra. Những yêu cầu riêng của app ở trên lấy từ Dashboard đăng nhập; các trường và điều kiện chưa xem được cần kiểm tra thực tế, không coi hướng dẫn cũ là bằng chứng đã đáp ứng.
+Những yêu cầu riêng của app ở trên lấy từ Dashboard đăng nhập và tài liệu Meta hiện hành. Các trường nằm sau bước nhập quốc gia chưa được điền hoặc gửi, nên chỉ ghi nhận những gì giao diện đã hiển thị.
