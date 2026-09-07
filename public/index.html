@@ -278,7 +278,25 @@
               </div>
 
               <div class="crawl-now-label">Chọn nền tảng</div>
+              <details class="panel" style="padding:12px;margin-bottom:12px">
+                <summary>Khám phá và quản lý kênh nguồn</summary>
+                <p>Tìm nguồn theo chủ đề. YouTube/Bilibili gom tác giả từ kết quả video rồi kiểm tra thông tin kênh; Douyin dùng luồng khám phá riêng.</p>
+                <textarea id="source-discovery-keywords" placeholder="Mỗi dòng một từ khóa" rows="2"></textarea>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                  <label><input type="checkbox" name="source-discovery-platform" value="douyin" checked> Douyin</label>
+                  <label><input type="checkbox" name="source-discovery-platform" value="bilibili" checked> Bilibili</label>
+                  <label><input type="checkbox" name="source-discovery-platform" value="youtube" checked> YouTube</label>
+                  <label>Kênh/từ khóa <input id="source-discovery-count" type="number" min="1" max="200" value="20" style="width:65px"></label>
+                  <label>Ít nhất video <input id="source-discovery-min" type="number" min="0" max="1000" value="0" style="width:65px"></label>
+                  <button type="button" id="source-discovery-run" onclick="crawlDiscoverSources()">Tìm kênh</button>
+                  <button type="button" onclick="crawlSaveDiscoveredSources()">Lưu kênh đã chọn</button>
+                  <button type="button" onclick="crawlOpenSources()">Nguồn đã lưu / video mới</button>
+                </div>
+                <div id="source-discovery-results" aria-live="polite"></div>
+              </details>
               <div class="crawl-platform-grid" id="crawl-platform-grid">
+                <button type="button" class="crawl-platform" data-platform="kuaishou"><b>快</b><span>Kuaishou</span><small id="crawl-count-kuaishou">0 đã cào</small></button>
+                <button type="button" class="crawl-platform" data-platform="honggo"><b>果</b><span>Honggo</span><small id="crawl-count-honggo">0 đã cào</small></button>
                 <button type="button" class="crawl-platform active" data-platform="youtube"><b>▶</b><span>YouTube</span><small id="crawl-count-youtube">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="tiktok"><b>♪</b><span>TikTok</span><small id="crawl-count-tiktok">0 đã cào</small></button>
                 <button type="button" class="crawl-platform" data-platform="douyin"><b>抖</b><span>Douyin</span><small id="crawl-count-douyin">0 đã cào</small></button>
@@ -303,7 +321,7 @@
                 placeholder="Nhập từ khóa tìm kiếm, mỗi dòng một từ khóa..."></textarea>
 
               <div class="crawl-option-grid">
-                <label>Số lượng<input type="number" id="crawl-now-count" value="100" min="1" max="500"></label>
+                <label id="crawl-now-count-wrap"><span id="crawl-now-count-label">Số lượng</span><input type="number" id="crawl-now-count" value="100" min="1" max="500"></label>
                 <label>Sắp xếp<select id="crawl-now-sort"><option value="relevance">Liên quan</option><option value="likes">Nhiều like</option><option value="views">Nhiều lượt xem</option><option value="newest">Mới nhất</option></select></label>
                 <label>Thời gian<select id="crawl-now-time"><option value="0">Tất cả</option><option value="1">1 ngày</option><option value="7">1 tuần</option><option value="30">1 tháng</option><option value="180">6 tháng</option></select></label>
                 <label>Ngôn ngữ<select id="crawl-now-language"><option value="">Giữ nguyên</option><option value="zh-CN">Dịch sang Trung giản thể</option><option value="zh-TW">Dịch sang Trung phồn thể</option></select></label>
@@ -355,6 +373,7 @@
                 <div class="crawl-queue-list" id="crawl-queue-list"></div>
                 <div class="crawl-retry-platforms" id="crawl-retry-platforms"></div>
                 <div class="crawl-queue-actions"><button type="button" class="crawl-link-btn" id="crawl-pause-btn" onclick="crawlTogglePause()">⏸ Dừng sau task này</button><button type="button" class="crawl-link-btn" onclick="crawlRetryAll()">↻ Thử lại tất cả lỗi</button></div>
+                <label>Thử lại nhóm lỗi <select id="crawl-retry-reason"><option value="network">Mạng</option><option value="timeout">Quá thời gian</option><option value="login_expired">Đăng nhập</option><option value="anti_bot">Xác minh</option><option value="partial">Thành công một phần</option><option value="disk_full">Hết dung lượng</option></select><button type="button" onclick="crawlRetryAll('', document.getElementById('crawl-retry-reason').value)">Thử lại</button></label>
               </div>
             </aside>
           </div>
@@ -4527,6 +4546,7 @@
   <script src="js/tts-standalone-module.js"></script>
   <script src="js/ocr-ui.js"></script>
   <script src="app.js"></script>
+  <script src="js/crawl-sources.js"></script>
   <script src="js/segment-editor.js"></script>
 </body>
 

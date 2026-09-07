@@ -6903,6 +6903,12 @@ function crawlCurrentRequest() {
     count: Number($('crawl-now-count')?.value || 100),
     sort: $('crawl-now-sort')?.value || 'relevance',
     timeDays: Number($('crawl-now-time')?.value || 0),
+    minLike: Math.max(0, Number($('crawl-now-min-like')?.value || 0)),
+    minView: Math.max(0, Number($('crawl-now-min-view')?.value || 0)),
+    filterDays: Math.max(0, Number($('crawl-now-days')?.value || 0)),
+    // ViralCrawl dùng chính chế độ "Theo bộ" làm tín hiệu tải trọn series;
+    // không bắt người dùng bật thêm một checkbox có cùng ý nghĩa.
+    wholeSeries: crawlNowState.mode === 'chase',
     quality: $('crawl-now-quality')?.value || '1080',
     language: $('crawl-now-language')?.value || '',
     deepNew: $('crawl-now-skip-dupe')?.checked !== false
@@ -6963,6 +6969,22 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  const isSeries = crawlNowState.mode === 'chase';
+  const honggoSeries = isSeries && crawlNowState.platform === 'honggo';
+  const countApplies = crawlNowState.mode === 'search' || crawlNowState.mode === 'creator' || honggoSeries;
+  const countInput = $('crawl-now-count');
+  const countWrap = $('crawl-now-count-wrap');
+  const countLabel = $('crawl-now-count-label');
+  if (countInput) countInput.disabled = !countApplies;
+  if (countWrap) {
+    countWrap.style.opacity = countApplies ? '' : '0.55';
+    countWrap.title = countApplies ? '' : (isSeries
+      ? 'Chế độ Theo bộ tự tải toàn bộ series, tối đa 5.000 tập.'
+      : 'Chế độ Theo link tải đúng các link đã dán.');
+  }
+  if (countLabel) countLabel.textContent = honggoSeries
+    ? 'Số tập tải'
+    : (countApplies ? 'Số lượng' : (isSeries ? 'Số lượng (không áp dụng — tải cả bộ)' : 'Số lượng (không áp dụng)'));
   $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili' && crawlNowState.platform !== 'bilitv');
   const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
@@ -7047,6 +7069,7 @@ async function crawlLoadLoginStatus() {
       }
     }
     const labels = {
+      kuaishou: ['Kuaishou', '快', 'kuaishou'],
       douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
       xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],
       youtube: ['YouTube', '▶', 'youtube'], tiktok: ['TikTok', '♪', 'tiktok'],
@@ -7056,7 +7079,7 @@ async function crawlLoadLoginStatus() {
     if (grid) grid.innerHTML = Object.entries(labels).map(([key, config]) => {
       const [label, icon, theme] = config;
       const status = platforms[key] || 'out';
-      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : 'Chưa đăng nhập';
+      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : status === 'unknown' ? 'Chưa xác minh / đang bận' : 'Chưa đăng nhập';
       const action = status === 'in' ? 'Mở lại' : status === 'na' ? 'Mở nền tảng' : 'Đăng nhập';
       return `<button type="button" class="crawl-login-card ${status} ${theme}" onclick="crawlOpenPlatformLogin('${key}')">
         <span class="crawl-login-icon">${icon}</span><span class="crawl-login-state"><i></i>${text}</span>
@@ -7066,7 +7089,7 @@ async function crawlLoadLoginStatus() {
 }
 
 async function crawlOpenPlatformLogin(platform) {
-  if (['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter'].includes(platform)) {
+  if (['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter', 'kuaishou'].includes(platform)) {
     try {
       const response = await fetch('/api/download-crawl/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
@@ -7392,7 +7415,7 @@ function crawlFilteredItems() {
   return crawlNowState.previewItems.filter((item) => {
     if (minLike && Number(item.likeCount || 0) < minLike) return false;
     if (minView && Number(item.viewCount || 0) < minView) return false;
-    if (minTimestamp && Number(item.timestamp || 0) && Number(item.timestamp) < minTimestamp) return false;
+    if (minTimestamp && (!Number(item.timestamp || 0) || Number(item.timestamp) < minTimestamp)) return false;
     return true;
   });
 }
@@ -7424,6 +7447,7 @@ function crawlRenderPreview() {
       <div class="crawl-preview-info">
         <div class="crawl-preview-title" title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</div>
         <div class="crawl-preview-meta">${crawlFormatDuration(item.duration)} · ${crawlEscape(item.uploader || item.platform)}</div>
+        <div class="crawl-preview-meta">♥ ${item.likeCount == null ? '?' : Number(item.likeCount).toLocaleString('vi-VN')} · lượt xem ${item.viewCount == null ? '?' : Number(item.viewCount).toLocaleString('vi-VN')}</div>
       </div>
     </article>`;
   }).join('');
@@ -7558,7 +7582,7 @@ function crawlToggleAll(checked) {
 }
 
 async function crawlEnqueue(items) {
-  const selectedItems = items || crawlNowState.previewItems.filter((item) => {
+  const selectedItems = items || crawlFilteredItems().filter((item) => {
     const key = item.key || `${item.platform}:${item.id}`;
     return crawlNowState.selected.has(key);
   });
@@ -7568,6 +7592,7 @@ async function crawlEnqueue(items) {
   }
   try {
     const jobCrawlerPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+    jobCrawlerPlatforms.push('kuaishou', 'honggo');
     if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
       const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
       const sourceRequest = crawlCurrentRequest();
@@ -7614,6 +7639,10 @@ async function crawlAllNow() {
 }
 
 function crawlTaskStatusLabel(task) {
+  if (task.status === 'success' && task.kind === 'crawl') {
+    if (task.reason === 'partial') return `Tải được ${task.completedVideos || 0}, lỗi ${task.failedVideos || 0}`;
+    if (['no_matches', 'no_new', 'no_output'].includes(task.reason)) return task.step || 'Không tải thêm video';
+  }
   return ({ pending: 'Đang chờ', downloading: task.step || 'Đang tải', success: 'Đã xong', error: 'Lỗi', cancelled: 'Đã hủy' })[task.status] || task.status;
 }
 
@@ -7634,7 +7663,7 @@ function crawlRenderQueue(snapshot) {
           <div class="crawl-queue-item-status" title="${crawlEscape(crawlTaskStatusLabel(task))}">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
           ${task.reason ? `<div class="crawl-queue-reason">${crawlEscape(task.reason)}${task.error ? ` · ${crawlEscape(task.error)}` : ''}</div>` : ''}</div>
         ${['pending', 'downloading'].includes(task.status) ? `<button class="crawl-queue-cancel" onclick="crawlCancelTask('${crawlEscape(task.id)}')">Hủy</button>` : ''}
-        ${['error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
+        ${['error', 'cancelled'].includes(task.status) || (task.status === 'success' && task.reason === 'partial') ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
         ${['success', 'error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRemoveTask('${crawlEscape(task.id)}')">✕</button>` : ''}
       </div>
       <div class="crawl-queue-mini-track"><i style="width:${Math.max(0, Math.min(100, Number(task.percent) || 0))}%"></i></div>
@@ -7753,9 +7782,9 @@ async function crawlRetryTask(taskId) {
   await crawlPollStatus();
 }
 
-async function crawlRetryAll(platform = '') {
+async function crawlRetryAll(platform = '', reason = '') {
   await fetch('/api/download-crawl/retry-all', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform, reason })
   });
   crawlStartPolling();
   await crawlPollStatus();

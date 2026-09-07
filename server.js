@@ -45,6 +45,8 @@ function createCookieSyncResolver(platform) {
 
 const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
+const { SupplementalCrawler } = require('./lib/supplemental-crawler');
+const supplementalCrawler = new SupplementalCrawler(mediaCrawler);
 const piperRuntimeManager = new PiperRuntimeManager();
 const ocrGpuManager = new OcrGpuManager({
   runtimeReady: () => crawlerRuntimeManager.ready('ocr'),
@@ -58,9 +60,9 @@ const whisperGpuManager = new WhisperGpuManager({
 });
 
 function createMediaCrawlerPreviewResolver(platform) {
-  return async ({ input, count, mode, onLog, onItem }) => {
+  return async ({ input, count, mode, sort, timeDays, onLog, onItem }) => {
     if (!mediaCrawler.status().available) return createBrowserPreviewResolver(platform)({ input, count, mode, onLog });
-    return mediaCrawler.preview({ platform, input, count, mode, onLog, onItem });
+    return mediaCrawler.preview({ platform, input, count, mode, sort, timeDays, onLog, onItem });
   };
 }
 
@@ -93,6 +95,9 @@ async function previewDouyinDetail({ input, onLog }) {
 const downloadCrawlManager = new DownloadCrawlManager({
   shared,
   previewResolvers: {
+    'kuaishou:search': createMediaCrawlerPreviewResolver('kuaishou'),
+    'kuaishou:creator': createMediaCrawlerPreviewResolver('kuaishou'),
+    'kuaishou:detail': createMediaCrawlerPreviewResolver('kuaishou'),
     'youtube:search': createProjectYtDlpPreviewResolver('youtube'),
     'youtube:creator': createProjectYtDlpPreviewResolver('youtube'),
     'tiktok:search': createProjectYtDlpPreviewResolver('tiktok'),
@@ -134,6 +139,8 @@ const downloadCrawlManager = new DownloadCrawlManager({
     weibo: createCookieSyncResolver('weibo')
   },
   crawlResolvers: {
+    honggo: (config, hooks) => supplementalCrawler.honggo(config, hooks),
+    kuaishou: (config, hooks) => mediaCrawler.crawl(config, hooks),
     ...(mediaCrawler.status().available
       ? Object.fromEntries(['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo']
         .map((platform) => [platform, (config, hooks) => mediaCrawler.crawl(config, hooks)]))
@@ -144,6 +151,7 @@ const downloadCrawlManager = new DownloadCrawlManager({
       : {})
   },
   loginChecker: async (platform, mode) => {
+    if (platform === 'honggo') return 'na';
     if (mediaCrawler.supports(platform) && mediaCrawler.status().available) return mediaCrawler.checkLogin(platform);
     if (projectYtDlp.status().available) {
       if (platform === 'tiktok' && mode === 'search') return projectYtDlp.checkLogin(platform);
@@ -558,6 +566,18 @@ app.post('/api/download-crawl/enqueue-job', (req, res) => {
   }
 });
 app.get('/api/source-channels', (req, res) => res.json({ channels: sourceChannelManager.list() }));
+app.post('/api/source-channels/discover', async (req, res) => {
+  try { res.json(await supplementalCrawler.discover(req.body || {})); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.patch('/api/source-channels/:id', (req, res) => {
+  try { res.json({ channel: sourceChannelManager.update(req.params.id, req.body || {}) }); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.post('/api/source-channels/:id/selected', (req, res) => {
+  try { res.json(sourceChannelManager.runSelected(req.params.id, req.body?.ids)); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
 app.post('/api/source-channels', (req, res) => {
   try { res.json({ success: true, channel: sourceChannelManager.add(req.body || {}) }); }
   catch (error) { res.status(400).json({ error: error.message }); }
@@ -607,28 +627,28 @@ app.post('/api/download-crawl/history/delete', (req, res) => {
 });
 app.get('/api/download-crawl/login-status', async (req, res) => {
   const cookies = shared.getCookieStatus();
-  const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+  const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'kuaishou'];
   const browserStates = mediaCrawler.status().available
     ? await mediaCrawler.checkLogins(browserPlatforms)
     : Object.fromEntries(await Promise.all(browserPlatforms.map(async (platform) => [platform, await platformBrowserExtractor.loginStatus(platform)])));
   const projectStates = projectYtDlp.status().available
     ? await projectYtDlp.checkLogins(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter'])
     : {};
-  const loginState = (platform, hasCookie = false) => browserStates[platform] === 'in'
-    ? 'in'
-    : (browserStates[platform] === 'unknown' && hasCookie ? 'in' : 'out');
+  const loginState = (platform) => ['in', 'out'].includes(browserStates[platform]) ? browserStates[platform] : 'unknown';
   res.json({
     platforms: {
+      kuaishou: loginState('kuaishou'),
+      honggo: 'na',
       douyin: loginState('douyin', cookies.douyin),
       bilibili: loginState('bilibili', cookies.bilibili),
       xiaohongshu: loginState('xiaohongshu', cookies.xiaohongshu),
       rednote: loginState('rednote', cookies.rednote),
       weibo: loginState('weibo', cookies.weibo),
-      youtube: projectStates.youtube === 'in' ? 'in' : 'out',
+      youtube: projectStates.youtube || 'unknown',
       tiktok: projectStates.tiktok || 'out',
       facebook: projectStates.facebook === 'in' ? 'in' : 'na',
-      instagram: projectStates.instagram === 'in' ? 'in' : 'out',
-      twitter: projectStates.twitter === 'in' ? 'in' : 'out',
+      instagram: projectStates.instagram || 'unknown',
+      twitter: projectStates.twitter || 'unknown',
       reddit: 'na'
     }
   });
@@ -690,7 +710,7 @@ app.post('/api/download-crawl/retry', (req, res) => {
   res.json({ success: downloadCrawlManager.retry(String(req.body?.taskId || '')) });
 });
 app.post('/api/download-crawl/retry-all', (req, res) => {
-  res.json({ success: true, count: downloadCrawlManager.retryAll(String(req.body?.platform || '')) });
+  res.json({ success: true, count: downloadCrawlManager.retryAll(String(req.body?.platform || ''), String(req.body?.reason || '')) });
 });
 app.post('/api/download-crawl/clear-logs', (req, res) => {
   downloadCrawlManager.clearLogs();

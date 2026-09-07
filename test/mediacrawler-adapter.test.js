@@ -258,6 +258,9 @@ test('XHS selected links use browser-first tai_links instead of MediaCrawler det
     let call;
     adapter._run = async (script, args, options) => {
       call = { script, args, options };
+      const out = args[args.indexOf('--out-dir') + 1];
+      const bytes = Buffer.alloc(110 * 1024); bytes.write('ftyp', 4);
+      fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'abc.mp4'), bytes);
       return { stdout: '{"ok":true,"tai":["abc"],"loi":[]}\n' };
     };
     const result = await adapter.crawl({

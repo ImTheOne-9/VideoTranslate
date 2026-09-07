@@ -48,10 +48,7 @@ test('accepts and canonicalizes only mainland Bilibili video links', () => {
     normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.bilibili.com/video/av12345?p=2' }).input,
     'https://www.bilibili.com/video/av12345'
   );
-  assert.throws(
-    () => normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.bilibili.tv/en/video/123' }),
-    /chỉ hỗ trợ Bilibili nội địa/
-  );
+  assert.equal(normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.bilibili.tv/en/video/123' }).platform, 'bilitv');
   assert.throws(
     () => normalizeCrawlRequest({ platform: 'bilibili', mode: 'detail', input: 'https://www.youtube.com/watch?v=123' }),
     /chỉ hỗ trợ link Bilibili nội địa/

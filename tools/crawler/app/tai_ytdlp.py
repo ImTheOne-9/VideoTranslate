@@ -1095,6 +1095,8 @@ def _item_yt(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": e.get("url") or ("https://www.youtube.com/watch?v=%s" % vid if vid else ""),
         "like": str(e.get("view_count") or ""),
+        "view_count": e.get("view_count"), "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("channel") or e.get("uploader") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1112,6 +1114,9 @@ def _item_tt(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": e.get("url") or "",
         "like": str(e.get("view_count") or e.get("like_count") or ""),
+        "view_count": e.get("view_count"),
+        "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("uploader") or e.get("channel") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1132,6 +1137,8 @@ def _item_ig(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": url,
         "like": str(e.get("view_count") or e.get("like_count") or ""),
+        "view_count": e.get("view_count"), "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("uploader") or e.get("channel") or e.get("creator") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1149,6 +1156,8 @@ def _item_video_generic(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": e.get("webpage_url") or e.get("original_url") or e.get("url") or "",
         "like": str(e.get("view_count") or e.get("like_count") or ""),
+        "view_count": e.get("view_count"), "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("uploader") or e.get("channel") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1353,6 +1362,7 @@ def main():
     ap.add_argument("--type", required=True, choices=["search", "creator", "detail", "bo"])
     ap.add_argument("--input", required=True)
     ap.add_argument("--count", default="10")
+    ap.add_argument("--quality", choices=['best', '2160', '1080', '720', '480', '360'], default='best')
     ap.add_argument("--source-type", dest="source_type", choices=["search", "creator", "detail", "bo"], default="")
     ap.add_argument("--source-input", dest="source_input", default="")
     ap.add_argument("--source-name", dest="source_name", default="")
@@ -1633,6 +1643,9 @@ def main():
             "enable_file_urls": False,   # H11: tường minh KHÔNG cho yt-dlp đọc file:// (chống SSRF/đọc file cục bộ)
             "logger": _YDLLogger(),      # bắt error/warning yt-dlp (quiet nuốt) -> hiển thị cho user
         }
+        if a.quality != 'best':
+            limit = '[height<=%s]' % a.quality
+            o['format'] = ("bv*%s[vcodec~='^(avc1|h264)']+ba[ext=m4a]/b%s[vcodec~='^(avc1|h264)']/bv*%s+ba/b%s[vcodec!=none]" % (limit, limit, limit, limit))
         # download_archive: CHỈ dùng cho creator/search ("cào không trùng" khi kéo cả kênh/từ khóa nhiều trang).
         # KHÔNG dùng cho "Theo link" (detail): user CHỦ ĐỘNG chọn link → phải tải nếu file đã mất; archive ghi
         # id sau khi tải xong 1 lần → lần sau file bị xóa vẫn bị SKIP ÂM THẦM (quiet nuốt) → "0 video" khó hiểu
@@ -1881,6 +1894,11 @@ def main():
                         break
             if not urls:
                 log("⚠ TikTok: cả yt-dlp và trình duyệt đều không liệt kê được video (kênh trống, riêng tư hoặc bị chặn).")
+                from tiktok_series import run_series
+                for cu in chan_urls:
+                    result = run_series(cu, count, os.environ.get('MC_DATA_DIR') or os.path.join(THU_MUC_CRAWLER, 'data'), creator=True, log=log)
+                    if result.get('ok'):
+                        log('Phim ngắn: %s tập, %s lỗi' % (result['total'], result['failed']))
                 print("YTDLP_DONE 0", flush=True)
                 return
             thu_muc = os.path.join(base, "kenh", "%(channel,uploader,uploader_id)s")
