@@ -768,6 +768,9 @@ app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
 app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
 app.post('/api/render-resume', studioController.resumeRenderTask);
+app.get('/api/render-tasks/:taskId/source-subtitle', studioController.downloadSourceSubtitle);
+app.post('/api/render-tasks/:taskId/source-subtitle/approve',
+  studioUpload.single('subtitle'), studioController.approveSourceSubtitle);
 app.get('/api/render-tasks/:taskId/segments', segmentController.getSegments);
 app.put('/api/render-tasks/:taskId/segments', segmentController.updateSegments);
 app.post('/api/render-tasks/:taskId/segments/replace', segmentController.replaceText);

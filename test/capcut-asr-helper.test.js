@@ -3,12 +3,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
+const { getCrawlerPaths } = require('../lib/crawler-paths');
 
-const { normalizeCues, runWorker, transcribeToSrt } = require('../lib/capcut-asr-helper');
+const {
+  adaptiveApiTimeoutSeconds,
+  adaptiveProcessTimeoutMs,
+  normalizeCues,
+  runWorker,
+  transcribeToSrt
+} = require('../lib/capcut-asr-helper');
 
 async function withTempDirectory(callback) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'capcut-asr-'));
@@ -29,6 +38,37 @@ test('CapCut cue normalization removes invalid cues and prevents overlap', () =>
     { startMs: 100, endMs: 900, text: 'Câu một' },
     { startMs: 900, endMs: 1_500, text: 'Câu hai' },
     { startMs: 1_700, endMs: 2_000, text: 'quá cuối video' }
+  ]);
+});
+
+test('CapCut timeout follows ViralCrawl duration policy', () => {
+  assert.equal(adaptiveApiTimeoutSeconds(30_000), 40);
+  assert.equal(adaptiveApiTimeoutSeconds(5 * 60_000), 45);
+  assert.equal(adaptiveApiTimeoutSeconds(60 * 60_000), 133);
+  assert.equal(adaptiveApiTimeoutSeconds(10 * 60 * 60_000), 600);
+  assert.equal(adaptiveProcessTimeoutMs(30_000, 2), 8 * 60_000);
+  assert.ok(adaptiveProcessTimeoutMs(5 * 60 * 60_000, 2) > 8 * 60_000);
+});
+
+test('CapCut worker follows ViralCrawl cue sizing for Chinese, Japanese, Korean and Latin speech', () => {
+  const configured = getCrawlerPaths().python;
+  const python = fsSync.existsSync(configured) ? configured : 'python';
+  const appRoot = path.resolve(__dirname, '..', 'tools', 'crawler', 'app');
+  const script = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(appRoot)})`,
+    'import capcut_asr as worker',
+    "languages = ['ch', 'ja', 'ko', 'vi', 'en', 'auto']",
+    'print(json.dumps([worker.line_parameters(worker.language_code(x)) for x in languages]))'
+  ].join('; ');
+  const result = spawnSync(python, ['-c', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    env: { ...process.env, CAPCUT_WPL: '', CAPCUT_MAX_LINES: '', PYTHONUTF8: '1' }
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), [
+    [15, 1], [30, 2], [45, 2], [60, 2], [60, 2], [60, 2]
   ]);
 });
 
@@ -90,5 +130,7 @@ test('CapCut worker retries with a fresh device and classifies network failures'
       }
     }), (error) => error.code === 'CAPCUT_ASR_NETWORK');
     assert.equal(receivedArgs[receivedArgs.indexOf('--attempts') + 1], '2');
+    assert.equal(receivedArgs[receivedArgs.indexOf('--timeout') + 1], '40');
+    assert.equal(receivedArgs[receivedArgs.indexOf('--ffprobe') + 1], path.resolve(getCrawlerPaths().ffprobePath));
   });
 });

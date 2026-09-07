@@ -273,7 +273,10 @@ def _add_cuda_dlls():
         pass
 
 
-_ENGINE_LOCK = __import__("threading").Lock()
+# Re-entrant because the positioning-engine fallback calls _engine() while
+# holding this same lock. A plain Lock deadlocks when the tiny locator cannot
+# be initialized before the main OCR engine.
+_ENGINE_LOCK = __import__("threading").RLock()
 
 
 _OCR_GPU_CACHE = [None]

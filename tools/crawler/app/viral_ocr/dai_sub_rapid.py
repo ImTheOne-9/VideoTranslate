@@ -1969,10 +1969,12 @@ def phat_hien_dai_rapid(video, log_fn=print, n_frames=8):
         boxes = []   # mỗi box: (yc_frac, y0_frac, y1_frac, w_frac, xc_frac, frame_k)
         crops = []   # (k, crop_bgr) — GIỮ để dò CHỮ-ĐỔI (phân biệt SUB vs biển-hiệu-TĨNH) ở bước chọn cluster
         _n_thu, _n_loi, _loi_cuoi = 0, 0, ""   # đếm lời gọi engine THÀNH/BẠI để phân biệt "không có chữ" vs "engine chết"
+        _n_doc_loi = 0                           # frame decode/seek failures are technical, not content evidence
         for k in range(n_frames):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(nfr * (k + 0.5) / n_frames))
             ok, fr = cap.read()
             if not ok or fr is None:
+                _n_doc_loi += 1
                 continue
             crop = fr[y_off:, :]
             crops.append((k, crop))
@@ -2002,11 +2004,16 @@ def phat_hien_dai_rapid(video, log_fn=print, n_frames=8):
         cap.release()
         # Engine hỏng ở MỌI khung đã thử ⇒ KHÔNG có quyền kết luận gì về nội dung video (xem ghi chú trong
         # vòng lặp). Phải báo lỗi KỸ THUẬT để caller lùi tầng khác, thay vì im lặng nói "video không có sub".
+        if _n_thu == 0:
+            raise LoiKyThuat("Không giải mã được khung nào (%d/%d lần đọc hỏng) — codec lạ / seek hỏng / file cụt."
+                             % (_n_doc_loi, n_frames))
         if _n_thu > 0 and _n_loi == _n_thu:
             raise LoiKyThuat("OCR chết ở TẤT CẢ %d khung đã quét — %s" % (_n_thu, _loi_cuoi or "không rõ"))
         if _n_loi:
             log_fn("⚠ OCR lỗi ở %d/%d khung khi dò dải (vẫn dùng %d khung đọc được)." % (_n_loi, _n_thu, _n_thu - _n_loi))
-        if len(boxes) < max(3, n_frames // 3):
+        # Keep an absolute floor. Scaling this threshold with n_frames rejects
+        # sparse subtitles precisely when long videos are sampled more widely.
+        if len(boxes) < 3:
             return None
         # CLUSTER 1D theo y-center: sort rồi gom các box cách nhau ≤ 0.03 (cùng 1 hàng text lặp qua frame).
         boxes.sort(key=lambda z: z[0])
@@ -2305,8 +2312,56 @@ def phat_hien_dai_rapid(video, log_fn=print, n_frames=8):
             if nf <= 2 and nf < n_frames * _minpct:
                 log_fn("ℹ Chữ chỉ thấy %d/%d khung (quá hiếm) — không chắc phụ đề cứng → KHÔNG blur." % (nf, n_frames))
                 return None
-        log_fn("🎯 Dò HỘP sub RapidOCR+clustering: y %.0f–%.0f%%, x %.0f–%.0f%% (%d/%d frame)."
-               % (y0 * 100, y1 * 100, x0 * 100, x1 * 100, nf, n_frames))
+        # Detector-only boxes can be logos, decorations or scene texture. Read
+        # a few frames from the selected cluster and require real source-script
+        # text before treating the band as hard subtitles. Technical failures
+        # fail open: they must never be translated into "no subtitles".
+        if os.environ.get("CHE_XN_HAN", "1") != "0" and crops:
+            try:
+                _xn_n = int(os.environ.get("CHE_XN_KHUNG", "8") or 8)
+            except ValueError:
+                _xn_n = 8
+            _dem_xn, _ten_xn = _he_chu_nguon(None)
+            _mau = [c for c in crops if c[1] is not None]
+            if _mau and _xn_n > 0:
+                # Prefer the exact frames belonging to the winning cluster so
+                # sparse subtitles are not verified against empty frames.
+                _ks = set(z[5] for z in best)
+                _mau_b = [c for c in _mau if c[0] in _ks]
+                if _mau_b:
+                    _mau = _mau_b
+                if len(_mau) > _xn_n:
+                    _mau = ([_mau[round(j * (len(_mau) - 1) / (_xn_n - 1))] for j in range(_xn_n)]
+                            if _xn_n >= 2 else _mau[:1])
+            _co_chu = _doc_duoc = 0
+            for _k2, _cr in _mau:
+                try:
+                    _hc = _cr.shape[0]
+                    _ya = max(0, min(_hc - 1, int(y0 * H) - y_off))
+                    _yb = max(_ya + 1, min(_hc, int(y1 * H) - y_off + 1))
+                    if _yb - _ya < 4:
+                        continue
+                    _sub = _cr[_ya:_yb, :]
+                    try:
+                        _rr, _ = eng(_sub, use_cls=False)
+                    except TypeError:
+                        _t2 = eng(_sub)
+                        _rr = _t2[0] if isinstance(_t2, tuple) else _t2
+                    _doc_duoc += 1
+                    for _it in (_rr or []):
+                        if _it and len(_it) >= 2 and _dem_xn(_it[1]) >= 1:
+                            _co_chu += 1
+                            break
+                except Exception:
+                    continue
+            if _doc_duoc >= 2 and _co_chu == 0:
+                log_fn("ℹ Đọc thử %d mẫu TRONG dải vừa dò (y %.0f–%.0f%%): KHÔNG thấy ký tự %s nào → "
+                       "KHÔNG blur. Tắt cổng: CHE_XN_HAN=0."
+                       % (_doc_duoc, y0 * 100, y1 * 100, _ten_xn))
+                return None
+        log_fn("🎯 Dò HỘP sub RapidOCR+clustering: y %.0f–%.0f%%, x %.0f–%.0f%% (%d/%d frame)%s."
+               % (y0 * 100, y1 * 100, x0 * 100, x1 * 100, nf, n_frames,
+                  "" if os.environ.get("CHE_XN_HAN", "1") == "0" else " · đã xác nhận có chữ"))
         return (max(0.0, y0 - 0.006), min(1.0, y1 + 0.008), H, x0, x1)   # TIGHT: chỉ phủ nét chữ, không phình
     except LoiKyThuat:
         raise

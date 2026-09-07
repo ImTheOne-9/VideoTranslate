@@ -494,6 +494,10 @@ function mapAutomaticSubtitleProgress(event = {}) {
       return { percent: 33, step: 'CapCut ASR không khả dụng, đang chuyển sang Faster Whisper local...' };
     case 'capcut_asr_no_speech':
       return { percent: 34, step: 'CapCut xác nhận video không có lời thoại; bỏ qua phụ đề và lồng tiếng.' };
+    case 'subtitle_source_cache_hit':
+      return { percent: 34, step: 'Đã dùng lại phụ đề nguồn đã nhận dạng cho video này.' };
+    case 'subtitle_source_cache_waiting':
+      return { percent: 12, step: 'Video này đang được job khác nhận dạng; chờ dùng chung SRT nguồn...' };
     default:
       return null;
   }
@@ -614,7 +618,11 @@ function createAutomaticSubtitleResolver(dependencies = {}) {
         languageEvidence: result.languageEvidence || null,
         cueCount: Number(result.cueCount) || 0,
         online: result.online === true,
-        uploadedAudio: result.uploadedAudio === true
+        uploadedAudio: result.uploadedAudio === true,
+        noSpeech: result.noSpeech === true,
+        metadataPath: result.metadataPath || null,
+        cached: result.cached === true,
+        cachedReason: result.cachedReason || null
       }, null, 2), 'utf8');
       fs.renameSync(temporaryPath, metadataPath);
     } catch {}
@@ -703,6 +711,21 @@ function applyRenderTaskFailure(task, error, state = shared.state) {
     task.error = null;
     task.actionRequired = 'segment_review';
     task.percent = Math.max(task.percent || 0, 38);
+    state.studioProgress = {
+      status: 'waiting_input',
+      percent: task.percent,
+      step: task.step,
+      error: null
+    };
+    return 'waiting_input';
+  }
+
+  if (error?.code === 'SOURCE_SUBTITLE_REVIEW_REQUIRED') {
+    task.status = 'waiting_input';
+    task.step = 'SRT nguồn đã sẵn sàng để kiểm tra';
+    task.error = null;
+    task.actionRequired = 'source_subtitle_review';
+    task.percent = Math.max(task.percent || 0, 34);
     state.studioProgress = {
       status: 'waiting_input',
       percent: task.percent,
@@ -1086,7 +1109,7 @@ async function executeRenderTask(task) {
 
     let subtitlePath = null;
     let subtitleMode = body.subtitleMode || 'none';
-    const voiceMode = body.voiceMode || 'none';
+    let voiceMode = body.voiceMode || 'none';
     // Pipeline cue-based là đường mặc định mới. Đường grouped/Smart Fit cũ vẫn
     // được giữ dưới cờ legacy để có thể khôi phục mà không làm mất dữ liệu job cũ.
     const adaptiveNarrationEnabled = body.narrationPipeline !== 'legacy';
@@ -1140,6 +1163,13 @@ async function executeRenderTask(task) {
       )
       : (subtitleStage.subtitlePath ? { source: subtitleMode, reason: 'user_selected_subtitle' } : null));
     task.subtitleSource = subtitleSource;
+    if (subtitleSource?.noSpeech === true) {
+      console.log('[Auto Subtitle] CapCut xác nhận không có lời thoại; bỏ qua timeline, dịch và lồng tiếng.');
+      // Nếu người dùng đã nhập kịch bản riêng thì vẫn cho phép tạo giọng từ kịch bản.
+      // Chỉ tắt chế độ đọc tự động khi không có SRT nguồn để tránh khởi động
+      // voice engine rồi báo lỗi "Vui lòng nhập kịch bản" ở cuối pipeline.
+      if (voiceMode === 'omi' && !omiScriptText) voiceMode = 'none';
+    }
     const sourceAsrMetadataPath = subtitlePath && fs.existsSync(`${subtitlePath}.asr.json`)
       ? `${subtitlePath}.asr.json`
       : null;
@@ -1206,6 +1236,24 @@ async function executeRenderTask(task) {
       task.subtitleTimelineReport = timelineStage.report || null;
     }
     const sourceSubtitlePath = subtitlePath;
+    const sourceSubtitleReviewEnabled = subtitleMode === 'generate'
+      && [true, 'true', 'on', '1'].includes(body.sourceSubtitleReviewEnabled);
+    if (sourceSubtitleReviewEnabled
+        && subtitlePath
+        && fs.existsSync(subtitlePath)
+        && task.sourceSubtitleReviewApproved !== true) {
+      task.sourceSubtitleReview = {
+        path: subtitlePath,
+        fileName: `${task.id}-source.srt`,
+        cueCount: Number(task.subtitleTimelineReport?.outputCues) || 0,
+        createdAt: task.sourceSubtitleReview?.createdAt || new Date().toISOString(),
+        approvedAt: null,
+        edited: false
+      };
+      const reviewRequired = new Error('SRT nguồn đã được tạo. Hãy tải xuống để kiểm tra, nạp bản đã sửa hoặc xác nhận tiếp tục dịch.');
+      reviewRequired.code = 'SOURCE_SUBTITLE_REVIEW_REQUIRED';
+      throw reviewRequired;
+    }
 
     let originalIsChinese = false;
     if (subtitlePath && fs.existsSync(subtitlePath)) {
@@ -3445,6 +3493,15 @@ function createRenderQueueHandlers(dependencies = {}) {
           voiceExecution: task.voiceExecution || null,
           backgroundSeparation: task.backgroundSeparation || null,
           segmentReview: task.segmentReview || null,
+          sourceSubtitleReview: task.sourceSubtitleReview
+            ? {
+              fileName: task.sourceSubtitleReview.fileName,
+              cueCount: Number(task.sourceSubtitleReview.cueCount) || 0,
+              createdAt: task.sourceSubtitleReview.createdAt || null,
+              approvedAt: task.sourceSubtitleReview.approvedAt || null,
+              edited: task.sourceSubtitleReview.edited === true
+            }
+            : null,
           currentStage: task.currentStage || null,
           completedStages: Object.entries(task.stages || {})
             .filter(([, stage]) => stage.status === 'success')
@@ -3493,6 +3550,80 @@ function createRenderQueueHandlers(dependencies = {}) {
       persistTask(task);
 
       const response = res.json({ success: true, taskId });
+      startQueueProcessing(processNext, logger);
+      return response;
+    },
+
+    downloadSourceSubtitle: async (req, res) => {
+      const taskId = String(req.params?.taskId || '');
+      const task = state.renderQueue.find((candidate) => candidate.id === taskId);
+      if (!task) return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+      const sourcePath = task.sourceSubtitleReview?.path;
+      const workRoot = task.workDir ? path.resolve(task.workDir) : '';
+      if (!sourcePath
+          || !workRoot
+          || !path.resolve(sourcePath).startsWith(workRoot + path.sep)
+          || !existsSync(sourcePath)) {
+        return res.status(404).json({ error: 'SRT nguồn không còn tồn tại' });
+      }
+      return res.download(sourcePath, task.sourceSubtitleReview.fileName || `${taskId}-source.srt`);
+    },
+
+    approveSourceSubtitle: async (req, res) => {
+      const taskId = String(req.params?.taskId || req.body?.taskId || '');
+      const task = state.renderQueue.find((candidate) => candidate.id === taskId);
+      if (!task) return res.status(404).json({ error: 'Không tìm thấy tác vụ kết xuất' });
+      if (task.status !== 'waiting_input' || task.actionRequired !== 'source_subtitle_review') {
+        return res.status(409).json({ error: 'Tác vụ không chờ kiểm tra SRT nguồn' });
+      }
+      const sourcePath = task.sourceSubtitleReview?.path;
+      if (!sourcePath || !existsSync(sourcePath)) {
+        return res.status(409).json({ error: 'SRT nguồn không còn tồn tại; hãy chạy lại bước nhận dạng.' });
+      }
+
+      let edited = false;
+      const upload = req.file;
+      try {
+        if (upload) {
+          if (path.extname(String(upload.originalname || '')).toLowerCase() !== '.srt') {
+            return res.status(400).json({ error: 'Bản phụ đề đã sửa phải là file .srt' });
+          }
+          const reviewedPath = path.join(task.workDir, 'source-reviewed.srt');
+          const durationSeconds = Number(task.stages?.prepare_source?.output?.totalDuration)
+            || Number(task.stages?.prepare_source?.output?.duration)
+            || 0;
+          const normalized = normalizeSubtitleTimelineFile(upload.path, reviewedPath, {
+            deepCleanup: false,
+            videoDurationMs: durationSeconds > 0 ? durationSeconds * 1000 : 0
+          });
+          fs.copyFileSync(normalized.path, sourcePath);
+          task.subtitleTimelineReport = normalized.report;
+          if (task.stages?.subtitle_timeline?.output) {
+            task.stages.subtitle_timeline.output.report = normalized.report;
+          }
+          task.sourceSubtitleReview.cueCount = normalized.report.outputCues;
+          edited = true;
+        }
+      } catch (error) {
+        return res.status(400).json({ error: `SRT đã sửa không hợp lệ: ${error.message}` });
+      } finally {
+        if (upload?.path) {
+          try { rmSync(upload.path, { force: true }); } catch {}
+        }
+      }
+
+      task.sourceSubtitleReviewApproved = true;
+      task.sourceSubtitleReview = {
+        ...task.sourceSubtitleReview,
+        approvedAt: new Date().toISOString(),
+        edited
+      };
+      task.status = 'pending';
+      task.error = null;
+      task.actionRequired = null;
+      task.step = edited ? 'Đã nhận SRT sửa, đang chờ dịch...' : 'SRT nguồn đã duyệt, đang chờ dịch...';
+      persistTask(task);
+      const response = res.json({ success: true, taskId, edited });
       startQueueProcessing(processNext, logger);
       return response;
     },
@@ -3861,6 +3992,8 @@ module.exports = {
 
   getQueueStatus: renderQueueHandlers.getQueueStatus,
   useWhisperForRenderTask: renderQueueHandlers.useWhisperForRenderTask,
+  downloadSourceSubtitle: renderQueueHandlers.downloadSourceSubtitle,
+  approveSourceSubtitle: renderQueueHandlers.approveSourceSubtitle,
   resumeRenderTask: renderQueueHandlers.resumeRenderTask,
   cancelQueueTask: renderQueueHandlers.cancelQueueTask,
 

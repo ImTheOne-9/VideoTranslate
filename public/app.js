@@ -1734,7 +1734,7 @@ async function renderStudio(event) {
   const data = new FormData(form);
   for (const name of [
     'audioNoiseGate', 'audioDucking', 'audioExportTracks',
-    'whisperHybridFill', 'capcutAsrEnabled'
+    'whisperHybridFill', 'capcutAsrEnabled', 'sourceSubtitleReviewEnabled'
   ]) {
     const input = form.elements[name];
     data.set(name, input?.checked ? 'true' : 'false');
@@ -2217,7 +2217,20 @@ function updateMainResultUI(queue, currentActiveId) {
       </div>
     `;
   } else if (targetTask.status === 'waiting_input') {
-    if (targetTask.actionRequired === 'segment_review') {
+    if (targetTask.actionRequired === 'source_subtitle_review') {
+      const review = targetTask.sourceSubtitleReview || {};
+      html = `
+        <div class="render-loading-state ocr-waiting-state">
+          <h3>SRT nguồn đã sẵn sàng</h3>
+          <p>${Number(review.cueCount || 0)} câu đã nhận dạng. Tải xuống để kiểm tra, nạp bản .srt đã sửa hoặc tiếp tục dịch.</p>
+          <div class="ocr-fallback-actions">
+            <a class="premium-render-btn ghost-btn" href="/api/render-tasks/${encodeURIComponent(targetTask.id)}/source-subtitle">Tải SRT nguồn</a>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="chooseReviewedSourceSubtitle('${targetTask.id}', event)">Nạp SRT đã sửa</button>
+            <button type="button" class="premium-render-btn" onclick="approveSourceSubtitle('${targetTask.id}', null, event)">Tiếp tục dịch</button>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+          </div>
+        </div>`;
+    } else if (targetTask.actionRequired === 'segment_review') {
       const review = targetTask.segmentReview || {};
       const reviewText = `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
         + `${Number(review.warnings || 0) ? ` • ${Number(review.warnings)} câu có cảnh báo` : ''}`;
@@ -2410,7 +2423,15 @@ function renderQueueModalUI(queue, currentActiveId) {
 
     let actionHtml = '';
     let waitingMessageHtml = '';
-    if (isWaiting && task.actionRequired === 'segment_review') {
+    if (isWaiting && task.actionRequired === 'source_subtitle_review') {
+      const review = task.sourceSubtitleReview || {};
+      waitingMessageHtml = `<div class="queue-ocr-error">SRT nguồn có ${Number(review.cueCount || 0)} câu, đang chờ kiểm tra.</div>`;
+      actionHtml = `
+        <a class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" href="/api/render-tasks/${encodeURIComponent(task.id)}/source-subtitle">Tải SRT</a>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="chooseReviewedSourceSubtitle('${task.id}', event)">Nạp bản sửa</button>
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="approveSourceSubtitle('${task.id}', null, event)">Tiếp tục</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if (isWaiting && task.actionRequired === 'segment_review') {
       const review = task.segmentReview || {};
       waitingMessageHtml = `<div class="queue-ocr-error">`
         + `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
@@ -2668,6 +2689,41 @@ async function resumeRenderTask(taskId, event) {
   }
 }
 window.resumeRenderTask = resumeRenderTask;
+
+async function approveSourceSubtitle(taskId, file, event) {
+  const button = event?.currentTarget || event?.target;
+  setBusy(button, true, file ? 'Đang nạp SRT...' : 'Đang tiếp tục...');
+  try {
+    const body = new FormData();
+    if (file) body.set('subtitle', file, file.name);
+    const response = await fetch(`/api/render-tasks/${encodeURIComponent(taskId)}/source-subtitle/approve`, {
+      method: 'POST',
+      body
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Không thể xác nhận SRT nguồn.');
+    toast(result.edited ? 'Đã nạp SRT sửa và tiếp tục dịch.' : 'Đã duyệt SRT nguồn và tiếp tục dịch.', 'success');
+    startQueuePolling();
+    await updateQueueStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+    setBusy(button, false);
+  }
+}
+window.approveSourceSubtitle = approveSourceSubtitle;
+
+function chooseReviewedSourceSubtitle(taskId, event) {
+  event?.preventDefault?.();
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.srt,application/x-subrip,text/plain';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (file) approveSourceSubtitle(taskId, file, event);
+  }, { once: true });
+  input.click();
+}
+window.chooseReviewedSourceSubtitle = chooseReviewedSourceSubtitle;
 
 async function cancelRenderVideo() {
   const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
