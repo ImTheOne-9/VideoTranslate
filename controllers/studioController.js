@@ -1351,6 +1351,7 @@ async function executeRenderTask(task) {
           openaiApiKey: body.openaiApiKey,
           openaiModel: body.openaiModel,
           targetLang,
+          subtitleSourceKind: subtitleSource?.source || subtitleMode || 'upload',
           srcLang: originalIsChinese
             ? 'zho_Hans'
             : (subtitleSource?.language || body.sourceLanguage || body.whisperLanguage || body.ocrLanguage || 'auto'),
