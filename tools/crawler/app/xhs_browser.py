@@ -431,6 +431,30 @@ class XHSBrowser:
             pass
         return "tai_loi"
 
+    async def _luu_metadata_bai(self, page, article_url, out_path):
+        """Store public article metadata beside the final media; never store share tokens."""
+        import re
+        try:
+            metadata = await page.evaluate("""() => {
+                const content = selector => (document.querySelector(selector) || {}).content || '';
+                const element = document.querySelector('#detail-title, .note-detail .title, .note-container .title');
+                return {
+                    title: (element && element.textContent || content('meta[property="og:title"]') || document.title || '').trim(),
+                    thumbnail: content('meta[property="og:image"]')
+                };
+            }""")
+            title = re.sub(r"\s*[-|]\s*(小红书|rednote|RedNote).*$", "", str(metadata.get("title") or "")).strip()
+            if title in ("小红书", "rednote", "RedNote") or "你的生活兴趣社区" in title or "Discover and share your lifestyle" in title:
+                title = ""
+            from urllib.parse import urlsplit, urlunsplit
+            parsed = urlsplit(article_url)
+            public_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+            record = {"title": title[:200], "thumbnail": metadata.get("thumbnail") or "", "url": public_url}
+            with open(out_path + ".metadata.json", "w", encoding="utf-8") as handle:
+                json.dump(record, handle, ensure_ascii=False)
+        except Exception:
+            pass  # Metadata failure must not turn a valid download into an error.
+
     async def _tai_explore_url(self, explore_url, out_path, on_log=None):
         """Bắt luồng video và giữ nguyên nhân thất bại cho luồng gọi phía trên."""
         _log = on_log or (lambda message: None)
@@ -489,6 +513,7 @@ class XHSBrowser:
                     with open(out_path, "wb") as handle:
                         handle.write(body)
                     _sua_hevc_ve_h264(out_path, on_log=_log)
+                    await self._luu_metadata_bai(p2, explore_url, out_path)
                     self.last_failure = None
                     return True
                 except Exception as error:

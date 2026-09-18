@@ -7348,11 +7348,12 @@ function crawlRenderHistory() {
   }
   list.innerHTML = items.map((item) => {
     const encodedKey = encodeURIComponent(item.key).replace(/'/g, '%27');
-    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : '';
+    const localThumbnail = item.mediaPath ? `/api/download-crawl/thumbnail?path=${encodeURIComponent(item.mediaPath)}` : '';
+    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : localThumbnail;
     const source = crawlHistorySource(item) || item.platform;
     return `<article class="crawl-history-item${item.downloaded ? ' downloaded' : ''}">
       <div class="crawl-history-thumb">
-        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span>▶</span>'}
+        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" data-fallback="${crawlEscape(localThumbnail)}" alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback && this.getAttribute('src')!==this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback='';}else{this.style.display='none';}">` : '<span>▶</span>'}
         <input type="checkbox" aria-label="Chọn video" ${crawlHistorySelected.has(item.key) ? 'checked' : ''} onchange="crawlHistoryToggleItem('${encodedKey}', this.checked)">
         <em>${item.downloaded ? '✓ Đã tải' : 'Chưa tải'}</em>
       </div>

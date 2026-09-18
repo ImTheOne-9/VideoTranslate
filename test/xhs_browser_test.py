@@ -11,6 +11,19 @@ xhs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(xhs)
 
 class BrowserTests(unittest.IsolatedAsyncioTestCase):
+    async def test_saves_article_title_without_share_token(self):
+        import json
+        browser = xhs.XHSBrowser("unused")
+        page = AsyncMock()
+        page.evaluate.return_value = {"title": "Trang diem - rednote", "thumbnail": "https://example.com/cover.jpg"}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = str(pathlib.Path(tmp) / "note.mp4")
+            await browser._luu_metadata_bai(page, "https://www.rednote.com/explore/abc?xsec_token=secret", output)
+            record = json.loads(pathlib.Path(output + ".metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(record["title"], "Trang diem")
+            self.assertNotIn("secret", record["url"])
+
+
     async def test_reads_note_tab_and_distinguishes_login_images_unavailable(self):
         browser = xhs.XHSBrowser("unused")
         class Page:

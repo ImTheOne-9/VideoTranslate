@@ -603,6 +603,16 @@ app.get('/api/download-crawl/status', (req, res) => {
 app.get('/api/download-crawl/stats', (req, res) => {
   res.json(downloadCrawlManager.stats(req.query?.date || ''));
 });
+app.get('/api/download-crawl/thumbnail', async (req, res) => {
+  try {
+    const { crawlThumbnail } = require('./lib/crawl-thumbnail');
+    const image = await crawlThumbnail(shared.DOWNLOADS_DIR, req.query.path, shared.FFMPEG_PATH);
+    res.sendFile(image);
+  } catch (_) {
+    res.status(404).end();
+  }
+});
+
 app.get('/api/download-crawl/history', (req, res) => {
   const items = readCrawlerHistory(shared.DOWNLOADS_DIR, {
     platform: req.query?.platform,

@@ -166,3 +166,18 @@ test('crawler history prefers a Facebook video id origin over a generic watch UR
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('RedNote history uses saved article title for an ID-only media filename', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rednote-title-'));
+  try {
+    const videos = path.join(root, 'rednote', 'videos', 'link');
+    fs.mkdirSync(videos, { recursive: true });
+    const media = path.join(videos, '6a588e28000000000f00a55f.mp4');
+    fs.writeFileSync(media, 'video');
+    fs.writeFileSync(`${media}.metadata.json`, JSON.stringify({ title: 'Trang diem', thumbnail: 'https://example.com/cover.jpg' }));
+    const items = readCrawlerHistory(root, { platform: 'rednote' });
+    assert.equal(items[0].title, 'Trang diem');
+    assert.equal(items[0].thumbnail, 'https://example.com/cover.jpg');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
