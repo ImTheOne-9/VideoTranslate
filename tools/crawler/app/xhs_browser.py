@@ -89,7 +89,7 @@ def _ffbin(name):
     if p:
         return p
     import glob
-    for pat in (os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\ffmpeg-*\bin\%s.exe" % name),):
+    for pat in (os.path.join(os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages"), "Gyan.FFmpeg*", "ffmpeg-*", "bin", name + ".exe"),):
         hit = glob.glob(pat)
         if hit:
             return hit[0]
@@ -190,7 +190,7 @@ _PARSE_JS = r"""(re) => {
 # GỒM CẢ tiếng Anh của rednote.com (quốc tế) — trước đây chỉ dò tiếng Trung nên rednote.com hiện
 # "Log in to view this user's notes" mà can_login() KHÔNG bắt được → list ra 0 card → báo NHẦM
 # "vẫn đăng nhập, 0 video do anti-bot". Chuỗi tiếng Anh lấy từ DOM thật trang kênh rednote khi cookie hết hạn.
-_LOGIN_HINT = ("请登录", "登录后查看", "扫码登录", "登录小红书",
+_LOGIN_HINT = ("请登录", "登录后查看", "登录即可查看", "扫码登录", "登录小红书",
                "Log in to view", "to view this user's notes", "Scan QR code with rednote",
                "Log in with phone")
 
@@ -405,42 +405,100 @@ class XHSBrowser:
             await self.page.wait_for_timeout(600)
         return ""
 
-    async def _tai_explore_url(self, explore_url, out_path):
-        """Mở /explore/?xsec_token ở TAB MỚI (token note hợp lệ → mở lại được) → bắt .mp4 → tải. Đóng tab.
-        Tách tab riêng → KHÔNG phá DOM trang kênh (tránh re-index khi click card kế)."""
+    async def _ly_do_hong(self, page):
+        """Đọc chính tab bài viết; không kết luận từ trang kênh hay cookie."""
+        try:
+            text = (await page.inner_text("body", timeout=5000)).lower()
+        except Exception:
+            text = ""
+        if any(hint in text for hint in (
+                "内容无法展示", "笔记不存在", "笔记已删除", "内容已删除",
+                "链接已失效", "暂时无法浏览", "300017", "note not found",
+                "content unavailable", "link has expired")):
+            return "token_het"
+        try:
+            has_video = await page.evaluate("() => !!document.querySelector('video')")
+        except Exception:
+            has_video = False
+        if not has_video and any(hint.lower() in text for hint in _LOGIN_HINT):
+            return "tuong_login"
+        try:
+            if not has_video:
+                images = await page.evaluate("() => document.querySelectorAll('.note-slider img, .swiper-slide img').length")
+                if images:
+                    return "anh"
+        except Exception:
+            pass
+        return "tai_loi"
+
+    async def _tai_explore_url(self, explore_url, out_path, on_log=None):
+        """Bắt luồng video và giữ nguyên nhân thất bại cho luồng gọi phía trên."""
+        _log = on_log or (lambda message: None)
+        self.last_failure = "tai_loi"
         vids = []
         p2 = await self.ctx.new_page()
         p2.on("response", lambda r: vids.append(r.url)
               if ((".mp4" in r.url or "sns-video" in r.url) and ".m3u8" not in r.url) else None)
         try:
-            await p2.goto(explore_url, wait_until="domcontentloaded", timeout=60000)
+            try:
+                response = await p2.goto(explore_url, wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                self.last_failure = "mo_trang"
+                _log("      ✗ Không mở được trang bài (lỗi kết nối hoặc quá thời gian).")
+                return False
+            if response is not None and response.status >= 400:
+                _log("      ⚠ Trang bài trả HTTP %d." % response.status)
+            _log("      … đã mở bài, đang dò luồng video…")
             await p2.wait_for_timeout(3500)
             try:
                 await p2.evaluate("()=>{const v=document.querySelector('video');if(v){v.muted=true;"
                                   "v.play().catch(()=>{});if(v.currentSrc)window.__vsrc=v.currentSrc;}}")
-                await p2.wait_for_timeout(3500)
             except Exception:
                 pass
+            await p2.wait_for_timeout(3500)
             try:
-                _cs = await p2.evaluate("()=>window.__vsrc||''")
-                if _cs and ".mp4" in _cs:
-                    vids.append(_cs)
+                source = await p2.evaluate("()=>window.__vsrc||''")
+                if source and ".mp4" in source:
+                    vids.append(source)
             except Exception:
                 pass
-            # tải bằng ctx.request (mang cookie/headers browser thật)
-            urls = [u for u in vids if ".mp4" in u] or list(vids)
-            for u in dict.fromkeys(urls):
+            urls = list(dict.fromkeys([u for u in vids if ".mp4" in u] or vids))
+            if not urls:
+                self.last_failure = await self._ly_do_hong(p2)
+                return False
+            _log("      … bắt được %d luồng, đang tải tệp…" % len(urls))
+            for index, url in enumerate(urls, 1):
+                pending = None
                 try:
-                    resp = await self.ctx.request.get(u, timeout=120000)
-                    if resp.ok:
-                        body = await resp.body()
-                        if _media_body_hop_le(resp, body):
-                            with open(out_path, "wb") as f:
-                                f.write(body)
-                            _sua_hevc_ve_h264(out_path)   # HEVC→H.264 để app hiện thumbnail/phát được
-                            return True
-                except Exception:
-                    continue
+                    _log("      … thử luồng %d/%d…" % (index, len(urls)))
+                    pending = asyncio.ensure_future(self.ctx.request.get(url, timeout=120000))
+                    elapsed = 0
+                    while not pending.done():
+                        await asyncio.wait({pending}, timeout=20)
+                        elapsed += 20
+                        if not pending.done():
+                            _log("      … vẫn đang tải (khoảng %d giây)…" % elapsed)
+                    resp = pending.result()
+                    if not resp.ok:
+                        _log("      ✗ Luồng video trả HTTP %d." % resp.status)
+                        continue
+                    body = await resp.body()
+                    if not _media_body_hop_le(resp, body):
+                        _log("      ✗ Phản hồi không phải tệp video hợp lệ.")
+                        continue
+                    with open(out_path, "wb") as handle:
+                        handle.write(body)
+                    _sua_hevc_ve_h264(out_path, on_log=_log)
+                    self.last_failure = None
+                    return True
+                except Exception as error:
+                    # Không in URL/token từ lỗi của Playwright.
+                    _log("      ✗ Tải luồng thất bại (%s)." % type(error).__name__)
+                finally:
+                    if pending is not None and not pending.done():
+                        pending.cancel()
+                        await asyncio.gather(pending, return_exceptions=True)
+            self.last_failure = "tai_loi"
             return False
         finally:
             try:
@@ -460,27 +518,80 @@ class XHSBrowser:
         return not await self.can_login()
 
     async def tai_theo_links(self, links, out_dir, on_log=None):
-        """[B4] TẢI các note theo DANH SÁCH LINK (href card có xsec_token, từ preview). Mở TỪNG href ở TAB MỚI
-        → RedNote tự redirect /explore/<id>?xsec_token → bắt .mp4 → tải. KHÔNG list lại kênh (đã có link từ
-        bước 'xem trước & chọn'). Trả {ok, tai:[nid], loi:[...]}. Phải gọi SAU khi profile đã login."""
-        import re as _re
-        _log = on_log or (lambda m: None)
+        """Tải link đã chọn; thử hồ sơ sạch hai vòng khi gặp tường đăng nhập."""
+        import re
+        import tempfile
+        _log = on_log or (lambda message: None)
+        labels = {
+            "anh": "bài chỉ có ảnh", "mo_trang": "không mở được trang",
+            "token_het": "bài không truy cập được hoặc mã truy cập đã hết hạn",
+            "tuong_login": "bị chặn bằng tường đăng nhập",
+            "tai_loi": "không lấy được tệp video", "link_kenh": "link không phải bài viết",
+        }
         os.makedirs(out_dir, exist_ok=True)
-        tai, loi = [], []
-        for href in links:
-            m = _re.search(r"/(?:explore|discovery/item)/([0-9a-fA-F]+)|/user/profile/[0-9a-fA-F]+/([0-9a-fA-F]{16,})", href or "")
-            nid = (m.group(1) or m.group(2)) if m else ""
-            if not nid:
-                loi.append(href[:30]); _log("  ✗ (link không hợp lệ)"); continue
-            out = os.path.join(out_dir, nid + ".mp4")
+        tai, failures, retry = [], {}, []
+
+        async def download(browser, href, nid):
             try:
-                ok = await self._tai_explore_url(href, out)
-            except Exception:
+                ok = await browser._tai_explore_url(
+                    href, os.path.join(out_dir, nid + ".mp4"), on_log=_log)
+            except Exception as error:
                 ok = False
-            (tai if ok else loi).append(nid)
-            _log("  %s %s" % ("✔" if ok else "✗", nid))
-        return {"ok": len(tai) > 0, "tai": tai, "loi": loi,
-                "msg": "Tải %d/%d video XHS/RedNote (theo link đã chọn)" % (len(tai), len(links))}
+                browser.last_failure = "tai_loi"
+                _log("      ✗ Xử lý bài thất bại (%s)." % type(error).__name__)
+            if ok:
+                if nid not in tai:
+                    tai.append(nid)
+                failures.pop(nid, None)
+                _log("  ✔ %s" % nid)
+                return None
+            reason = getattr(browser, "last_failure", None) or "tai_loi"
+            failures[nid] = reason
+            _log("  ✗ %s — %s" % (nid, labels.get(reason, reason)))
+            return reason
+
+        for index, href in enumerate(links, 1):
+            _log("  … (%d/%d) đang mở bài…" % (index, len(links)))
+            match = re.search(_NOTE_RE, href or "")
+            nid = (match.group(1) or match.group(2)) if match else ""
+            if not nid:
+                failures["invalid_%d" % index] = "link_kenh"
+                _log("  ✗ Link không phải bài viết; link kênh cần dùng chế độ Theo kênh.")
+                continue
+            if await download(self, href, nid) == "tuong_login":
+                retry.append((href, nid))
+
+        for round_index in range(2):
+            if not retry:
+                break
+            if round_index:
+                await asyncio.sleep(4)
+            _log("  ↩ %d bài gặp tường đăng nhập — thử hồ sơ sạch vòng %d/2…"
+                 % (len(retry), round_index + 1))
+            temporary = tempfile.mkdtemp(prefix="vst_xhs_clean_")
+            remaining = []
+            try:
+                async with XHSBrowser(temporary, intl=self.intl,
+                                      headless=self.headless, ua=self.ua) as clean:
+                    for href, nid in retry:
+                        if await download(clean, href, nid) == "tuong_login":
+                            remaining.append((href, nid))
+            except Exception as error:
+                remaining = retry
+                _log("  ⚠ Không mở được hồ sơ sạch (%s)." % type(error).__name__)
+            finally:
+                # temporary được mkdtemp tạo riêng cho lần thử; không đụng profile gốc.
+                shutil.rmtree(temporary, ignore_errors=True)
+            retry = remaining
+        summary = {}
+        for reason in failures.values():
+            summary[reason] = summary.get(reason, 0) + 1
+        message = "Tải %d/%d video XHS/RedNote (theo link đã chọn)" % (len(tai), len(links))
+        if summary:
+            message += ". " + "; ".join("%d bài: %s" % (count, labels.get(reason, reason))
+                                         for reason, count in summary.items())
+        return {"ok": bool(tai), "tai": tai, "loi": list(failures),
+                "tom_tat": summary, "msg": message}
 
     async def cao_lien_mach(self, url, out_dir, max_count=50, cho_login_giay=180, on_log=None):
         """[B3] Cào creator XHS/RedNote — CÁCH BỀN NHẤT (0 click, 0 re-index):
@@ -561,7 +672,12 @@ async def _run(args):
                                              on_log=lambda m: print("LOG:" + m, flush=True))
             if args.action == "tai_links":
                 # TẢI các note theo LINK đã chọn (từ 'xem trước & chọn'). --links = href phân tách bằng '|'.
-                links = [x.strip() for x in (args.links or "").split("|") if x.strip()]
+                raw = args.links or ""
+                if args.links_file:
+                    with open(args.links_file, encoding="utf-8") as handle:
+                        raw = handle.read()
+                links = [part.strip() for line in raw.splitlines()
+                         for part in line.split("|") if part.strip()]
                 if not links:
                     return {"ok": False, "msg": "Không có link nào."}
                 return await b.tai_theo_links(links, args.out_dir,
@@ -634,13 +750,14 @@ def main():
     ap.add_argument("--profile", default="")         # user_data_dir; rỗng -> suy từ env
     ap.add_argument("--ids", default="")             # action=download: note_id phân tách dấu phẩy
     ap.add_argument("--links", default="")           # action=tai_links: href note (có token) phân tách bằng '|'
+    ap.add_argument("--links-file", dest="links_file", default="")
     ap.add_argument("--out-dir", dest="out_dir", default="")  # thư mục lưu .mp4
     args = ap.parse_args()
     if args.action == "download":
         if not args.ids.strip() or not args.out_dir.strip():
             print(json.dumps({"ok": False, "msg": "download cần --ids và --out-dir."}, ensure_ascii=False)); return
     elif args.action == "tai_links":
-        if not args.links.strip() or not args.out_dir.strip():
+        if not (args.links.strip() or args.links_file.strip()) or not args.out_dir.strip():
             print(json.dumps({"ok": False, "msg": "tai_links cần --links và --out-dir."}, ensure_ascii=False)); return
     elif not args.url.strip():
         print(json.dumps({"ok": False, "msg": "Chưa nhập link kênh."}, ensure_ascii=False))
