@@ -54,6 +54,33 @@ class FallbackTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(body, b"previous")
 
+    def test_instagram_owner_matches_exact_post(self):
+        doc = json.dumps({"items": [{"shortcode": "target", "owner": {"username": "MyChannel"}}, {"shortcode": "suggested", "owner": {"username": "Other"}}]})
+        self.assertEqual(m._ig_owner([doc], "target"), "mychannel")
+        self.assertEqual(m._ig_owner([doc], "missing"), "")
+        self.assertEqual(m._ig_owner(["invalid-json"], "target"), "")
+
+    def test_instagram_window_setting_controls_launch(self):
+        from unittest.mock import MagicMock
+        pw = MagicMock()
+        with patch.object(m.os.path, "isdir", return_value=True), patch.dict(os.environ, {"IG_KENH_HEADFUL": "1"}):
+            m._ig_mo_context(pw)
+            self.assertFalse(pw.chromium.launch_persistent_context.call_args.kwargs["headless"])
+        with patch.object(m.os.path, "isdir", return_value=True), patch.dict(os.environ, {"IG_KENH_HEADFUL": "0"}):
+            m._ig_mo_context(pw)
+            self.assertTrue(pw.chromium.launch_persistent_context.call_args.kwargs["headless"])
+
+    def test_instagram_login_and_private_messages_are_distinct(self):
+        from unittest.mock import MagicMock
+        page = MagicMock()
+        page.url = "https://www.instagram.com/accounts/login/"
+        self.assertIn("đăng nhập", m._ig_trang_bi_chan(page))
+        page.url = "https://www.instagram.com/demo/"
+        page.inner_text.return_value = "This account is private"
+        self.assertIn("riêng tư", m._ig_trang_bi_chan(page))
+        page.inner_text.return_value = "normal public page"
+        self.assertEqual(m._ig_trang_bi_chan(page), "")
+
     def test_browser_rejects_recommended_video_addresses(self):
         doc = json.dumps({"items": [
             {"id": ID, "video": {"playAddr": "https://cdn.example.com/correct"}},

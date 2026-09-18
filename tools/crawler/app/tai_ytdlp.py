@@ -834,19 +834,62 @@ def _fb_bo_sung_metadata(items, log=print):
         _don_cookie_temp()
 
 
+def _ig_owner(documents, shortcode):
+    """Read an owner only from the metadata object matching this exact post."""
+    def walk(value):
+        if isinstance(value, dict):
+            if str(value.get("shortcode") or value.get("code") or "") == shortcode:
+                owner = value.get("owner") or value.get("user") or {}
+                if isinstance(owner, dict) and owner.get("username"):
+                    return str(owner["username"]).lower()
+            for child in value.values():
+                found = walk(child)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                found = walk(child)
+                if found:
+                    return found
+        return ""
+    for document in documents:
+        try:
+            found = walk(json.loads(document))
+            if found:
+                return found
+        except (ValueError, TypeError):
+            pass
+    return ""
+
+
+def _ig_trang_bi_chan(page):
+    try:
+        if "/accounts/login" in page.url:
+            return "Instagram yêu cầu đăng nhập — hãy đăng nhập trong ứng dụng rồi thử lại."
+        body = page.inner_text("body").lower()
+        if any(word in body for word in ("this account is private", "tài khoản này ở chế độ riêng tư", "this profile is private")):
+            return "Instagram báo tài khoản riêng tư — cần tài khoản có quyền xem."
+        if any(word in body for word in ("log in to instagram", "đăng nhập vào instagram")):
+            return "Instagram hiện tường đăng nhập — hãy đăng nhập rồi thử lại."
+    except Exception:
+        pass
+    return ""
+
+
 def _ig_mo_context(pw):
     """Mở Instagram bằng profile riêng nếu có; profile lỗi/đang bận thì dùng phiên ẩn danh."""
+    headless = os.environ.get("IG_KENH_HEADFUL", "1").lower() in ("0", "false", "no")
     udd = os.path.join(BROWSER_DATA_DIR, "ig_user_data_dir")
     ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
     if os.path.isdir(udd):
         try:
             return pw.chromium.launch_persistent_context(
-                udd, headless=True, user_agent=ua,
+                udd, headless=headless, user_agent=ua,
                 args=["--disable-blink-features=AutomationControlled"]), None
         except Exception as e:
             log("⚠ Instagram: không mở được profile đăng nhập, thử phiên công khai: %s" % str(e)[:100])
-    browser = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+    browser = pw.chromium.launch(headless=headless, args=["--disable-blink-features=AutomationControlled"])
     return browser.new_context(user_agent=ua), browser
 
 
@@ -855,7 +898,9 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
     base = chuan_hoa_user("ig", profile_input)
     if not base or not re.match(r"https?://(?:www\.)?instagram\.com/[^/]+/?$", base, re.I):
         return []
+    handle = base.rstrip("/").rsplit("/", 1)[-1].lower()
     items, seen = [], set()
+    rejected, unknown = 0, 0
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
@@ -864,6 +909,10 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                 pg = ctx.new_page()
                 pg.goto(base, wait_until="domcontentloaded", timeout=40000)
                 pg.wait_for_timeout(3500)
+                reason = _ig_trang_bi_chan(pg)
+                if reason:
+                    log("⚠ " + reason)
+                    return []
                 khong_moi = 0
                 while len(items) < count and khong_moi < 5:
                     rows = pg.eval_on_selector_all("a", """els => els.map(a => {
@@ -880,11 +929,35 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                     moi = 0
                     for row in rows:
                         href = (row.get("href") or "").split("?")[0]
-                        match = re.search(r"instagram\.com/(?:reel|p)/([^/?#]+)", href, re.I)
+                        match = re.search(r"instagram\.com/(?:[^/?#]+/)?(?:reel|p)/([^/?#]+)", href, re.I)
                         vid = match.group(1) if match else ""
                         if not vid or vid in seen:
                             continue
                         seen.add(vid); moi += 1
+                        owner = ""
+                        named = re.search(r"instagram\.com/([^/?#]+)/(?:reel|p)/", href, re.I)
+                        if named:
+                            owner = named.group(1).lower()
+                        else:
+                            documents = pg.eval_on_selector_all("script[type='application/json']", "nodes => nodes.map(n => n.textContent)")
+                            owner = _ig_owner(documents, vid)
+                            if not owner:
+                                detail = ctx.new_page()
+                                try:
+                                    detail.goto(href, wait_until="domcontentloaded", timeout=40000)
+                                    detail.wait_for_timeout(1500)
+                                    documents = detail.eval_on_selector_all("script[type='application/json']", "nodes => nodes.map(n => n.textContent)")
+                                    owner = _ig_owner(documents, vid)
+                                except Exception:
+                                    pass
+                                finally:
+                                    detail.close()
+                        if owner != handle:
+                            if owner:
+                                rejected += 1
+                            else:
+                                unknown += 1
+                            continue
                         items.append({"id": vid, "title": (row.get("title") or "").strip()[:160],
                                       "thumb": row.get("thumb") or "", "url": href,
                                       "like": "", "nick": base.rstrip("/").rsplit("/", 1)[-1],
@@ -901,7 +974,11 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                 if browser:
                     browser.close()
     except Exception as e:
-        log("⚠ Instagram: fallback trình duyệt không lấy được danh sách: %s" % str(e)[:140])
+        log("⚠ Instagram: lỗi kỹ thuật mở/đọc trang (%s); kiểm tra mạng hoặc đóng cửa sổ đăng nhập đang dùng profile rồi thử lại." % type(e).__name__)
+    if rejected or unknown:
+        log("ℹ Instagram: bỏ %d bài của kênh khác, %d bài chưa xác minh được tác giả." % (rejected, unknown))
+    if not items:
+        log("⚠ Instagram: không lấy được bài đã xác minh đúng kênh; chưa thể kết luận kênh trống hoặc riêng tư.")
     return items[:count]
 
 
