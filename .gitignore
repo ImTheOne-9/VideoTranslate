@@ -117,3 +117,5 @@ temp/
 cookies/
 
 render-jobs
+
+!tools/crawler/app/youtube_session.py

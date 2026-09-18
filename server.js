@@ -656,11 +656,11 @@ app.get('/api/download-crawl/login-status', async (req, res) => {
 app.post('/api/download-crawl/login', async (req, res) => {
   try {
     const platform = String(req.body?.platform || '');
-    const result = mediaCrawler.supports(platform) && mediaCrawler.status().available
+    const result = await (mediaCrawler.supports(platform) && mediaCrawler.status().available
       ? mediaCrawler.openLogin(platform)
       : projectYtDlp.supportsLogin(platform) && projectYtDlp.status().available
         ? projectYtDlp.openLogin(platform)
-      : await platformBrowserExtractor.openLogin(platform);
+      : platformBrowserExtractor.openLogin(platform));
     res.json({ success: true, engine: result?.engine || 'browser', message: `Đã mở cửa sổ đăng nhập ${platform}. Đăng nhập xong có thể đóng cửa sổ.` });
   } catch (error) {
     res.status(503).json({ error: error.message || 'Không mở được cửa sổ đăng nhập.' });

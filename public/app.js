@@ -7145,7 +7145,7 @@ async function crawlLoadLoginStatus() {
 }
 
 async function crawlOpenPlatformLogin(platform) {
-  if (['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter', 'kuaishou'].includes(platform)) {
+  if (['youtube', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter', 'kuaishou'].includes(platform)) {
     try {
       const response = await fetch('/api/download-crawl/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
@@ -7155,7 +7155,11 @@ async function crawlOpenPlatformLogin(platform) {
         toast(data.message || 'Đã mở cửa sổ đăng nhập.', 'success');
         return;
       }
-    } catch (_) {}
+      toast(data.error || 'Không mở được cửa sổ đăng nhập.', 'error');
+    } catch (error) {
+      toast(error.message || 'Không kết nối được chức năng đăng nhập.', 'error');
+    }
+    return;
   }
   openCookieModal();
   const select = $('cookie-platform-select');

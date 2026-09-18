@@ -1229,6 +1229,11 @@ def liet_ke(a, count):
         if not urls:
             print(json.dumps({"ok": False, "msg": "Chưa nhập từ khóa."})); return
 
+    if plat == "yt":
+        saved = (os.environ.get("MC_YT_COOKIE_FILE") or "").strip()
+        if saved and os.path.isfile(saved):
+            cookiefile = os.path.join(_ck_temp_dir(), "yt_preview.txt")
+            shutil.copy2(saved, cookiefile)
     opts = {"extract_flat": False if a.type == "detail" else "in_playlist",
             "skip_download": True, "playlistend": count,
             "quiet": True, "no_warnings": True, "ignoreerrors": True, "nocheckcertificate": True}
@@ -1429,13 +1434,27 @@ def main():
             log(f"🔑 Dùng cookie phiên đăng nhập {a.platform.upper()}.")
     if a.platform in NEN_CAN_COOKIE and not _co_cookie():
         log(f"⚠ {a.platform.upper()} cần đăng nhập — chưa có phiên. Bấm 'Đăng nhập {a.platform.upper()}' trước khi cào.")
-    # YouTube cho phép ẩn danh, nhưng nếu người dùng đã mở phiên đăng nhập thì xuất cookie qua Playwright
-    # sang file tạm riêng. Cách này không giao trực tiếp Cookie DB đang bị Chromium khóa cho yt-dlp.
+    # Ưu tiên cookie người dùng đã xuất; luôn dùng bản sao tạm cho yt-dlp.
     if a.platform == "yt" and not _co_cookie():
-        cf = xuat_cookie_tu_phien("yt")
-        if cf:
-            cookies_file = cf
-            log("🔑 Dùng cookie YouTube tùy chọn từ bản sao tạm an toàn.")
+        saved = (os.environ.get("MC_YT_COOKIE_FILE") or "").strip()
+        if saved and os.path.isfile(saved):
+            cookies_file = os.path.join(_ck_temp_dir(), "yt_saved.txt")
+            shutil.copy2(saved, cookies_file)
+            log("🔑 Dùng cookie YouTube đã xuất.")
+        else:
+            try:
+                from youtube_session import export_cookies
+                cf = os.path.join(_ck_temp_dir(), "yt_chrome.txt")
+                export_cookies(cf)
+                cookies_file = cf
+                log("🔑 Dùng cookie YouTube lấy qua Chrome.")
+            except Exception:
+                cf = xuat_cookie_tu_phien("yt")
+                if cf:
+                    cookies_file = cf
+                    log("🔑 Dùng cookie phiên YouTube từ Playwright.")
+                else:
+                    log("ℹ Chưa lấy được cookie YouTube — thử tải công khai.")
     # TikTok: KHÔNG tự nhét cookie login vào yt-dlp download/liệt-kê. yt-dlp 2026.06+ tự GIẢI JS challenge
     # của TikTok để né anti-bot — nhưng khi CÓ cookie login thì TikTok trả HTTP 403 Forbidden ngay bước
     # "Downloading webpage" (cookie phiên xung đột với cookie-challenge yt-dlp tự sinh). Tái hiện THẬT: cùng 1
@@ -1739,6 +1758,13 @@ def main():
             })
         except Exception:
             pass
+        if a.platform == "yt":
+            try:
+                from youtube_session import register_title_translation
+                key = register_title_translation()
+                o.setdefault("postprocessors", []).append({"key": key, "when": "pre_process"})
+            except Exception:
+                pass
         return o
 
     # ---- Dựng danh sách (URL, outtmpl) theo chế độ ----
