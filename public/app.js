@@ -3530,7 +3530,7 @@ function updateConditionalFields() {
 const studioVideoPlatformLabels = {
   local: 'Tải đơn lẻ', youtube: 'YouTube', tiktok: 'TikTok', douyin: 'Douyin',
   bilibili: 'Bilibili', facebook: 'Facebook', instagram: 'Instagram',
-  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote'
+  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', honggo: 'Honggo'
 };
 const studioVideoModeLabels = { local: 'Tải đơn lẻ', detail: 'Theo link', search: 'Theo từ khóa', creator: 'Theo kênh', chase: 'Theo bộ' };
 

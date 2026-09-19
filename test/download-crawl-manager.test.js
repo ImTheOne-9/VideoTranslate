@@ -169,6 +169,7 @@ test('public XHS detail preview uses the anonymous single-download metadata path
     });
     assert.equal(manager.capabilities().xiaohongshu.detail, true);
     assert.ok(manager.capabilities().xiaohongshu.previewModes.includes('detail'));
+    assert.deepEqual(manager.capabilities().honggo.previewModes, ['detail', 'chase']);
 
     const result = await manager.preview({ platform: 'xiaohongshu', mode: 'detail', input: sourceUrl, count: 1 });
 

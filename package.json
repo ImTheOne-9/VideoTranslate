@@ -91,6 +91,8 @@
           "!app/**/browser_data/**/*",
           "!app/**/__pycache__/**/*",
           "!app/**/*.pyc",
+          "app/tai_honggo_api.pyc",
+          "app/honggo_engine/**/*",
           "!app/**/test/**/*",
           "!app/**/tests/**/*",
           "!app/**/test_data/**/*",

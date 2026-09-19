@@ -199,12 +199,79 @@ test('Kuaishou download validates media and does not leak signed CDN links to hi
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'kuaishou/jsonl/detail_contents.jsonl'), 'utf8'), /secret|video_play_url/);
 });
 
+test('server routes Honggo detail and series preview through the Honggo extractor', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  assert.match(source, /'honggo:detail': \(config\) => supplementalCrawler\.honggo\(config, \{ onLog: config\.onLog \}, true\)/);
+  assert.match(source, /'honggo:chase': \(config\) => supplementalCrawler\.honggo\(config, \{ onLog: config\.onLog \}, true\)/);
+});
+
 test('Honggo rejects other hosts and detail uses one-episode CLI flag', async (t) => {
   const root = fixture(t); let args;
   const adapter = new SupplementalCrawler({ appRoot: root, dataDir: root, _run: async (_, a) => { args = a; return { stdout: '{"ok":true,"tong":1,"bo_qua":1}' }; } });
   await assert.rejects(adapter.honggo({ mode: 'detail', input: 'https://example.com/anything' }), /Honggo/);
   await adapter.honggo({ mode: 'detail', input: 'https://www.hongguoapp.cn/vodplay/12-1-2.html' });
   assert.ok(args.includes('--mot-tap'));
+});
+
+test('Honggo official preview uses app metadata and falls back to the three-episode web list', async (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, 'honggo_engine'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'tai_honggo_api.py'), 'loader');
+  fs.writeFileSync(path.join(root, 'tai_honggo.py'), 'web');
+  const calls = [];
+  const runner = { appRoot: root, dataDir: root, _run: async (script, args) => {
+    calls.push(path.basename(script));
+    assert.ok(args.includes('--preview-json'));
+    return { stdout: 'JSON: {"ok":true,"tong":394,"items":[{"id":"sid/v1","title":"Demo — Tập 1","thumb":"https://img/1.jpg","url":"https://hongguoduanju.com/player/sid/v1","duration":80,"like_count":12,"view_count":300,"nick":"Honggo · 394 tập"},{"id":"sid/v2","title":"Demo — Tập 2","thumb":"https://img/2.jpg","url":"https://hongguoduanju.com/player/sid/v2"}]}' };
+  }};
+  const crawler = new SupplementalCrawler(runner);
+  const items = await crawler.honggo({ mode: 'chase', input: 'https://hongguoduanju.com/player/1234567890123456789', outputDir: root, count: 10 }, {}, true);
+  assert.deepEqual(calls, ['tai_honggo_api.py']);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, 'Demo — Tập 1');
+  assert.equal(items[0].thumbnail, 'https://img/1.jpg');
+  assert.equal(items[0].duration, 80);
+  assert.equal(items[0].likeCount, 12);
+  assert.equal(items[0].viewCount, 300);
+
+  calls.length = 0;
+  runner._run = async (script) => {
+    calls.push(path.basename(script));
+    if (script.endsWith('tai_honggo_api.py')) throw new Error('signer unavailable');
+    return { stdout: '{"ok":true,"tong":1,"items":[{"id":"web1","title":"Web tập 1","url":"https://hongguoduanju.com/player/web1"}]}' };
+  };
+  const fallback = await crawler.honggo({ mode: 'chase', input: 'https://hongguoduanju.com/player/1234567890123456789', outputDir: root, count: 10 }, {}, true);
+  assert.deepEqual(calls, ['tai_honggo_api.py', 'tai_honggo.py']);
+  assert.equal(fallback[0].title, 'Web tập 1');
+});
+test('Honggo official links prefer app API and fall back to web on API failure', async (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, 'honggo_engine'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'tai_honggo_api.py'), 'loader');
+  fs.writeFileSync(path.join(root, 'tai_honggo.py'), 'web');
+  const calls = [];
+  const runner = { appRoot: root, dataDir: root, _run: async (script, args) => {
+    calls.push(path.basename(script));
+    if (script.endsWith('tai_honggo_api.py')) {
+      const out = args[args.indexOf('--out') + 1];
+      mp4(path.join(out, 'Episode 1.mp4'));
+      return { stdout: 'LOG:api\nJSON: {"ok":true,"tai":1,"bo_qua":0,"tong":1}' };
+    }
+    throw new Error('web should not run');
+  }};
+  const crawler = new SupplementalCrawler(runner);
+  const result = await crawler.honggo({ mode: 'chase', input: 'https://hongguoduanju.com/player/1234567890123456789', outputDir: root, count: 2 });
+  assert.deepEqual(calls, ['tai_honggo_api.py']);
+  assert.equal(result.completedVideos, 1);
+
+  calls.length = 0;
+  runner._run = async (script) => {
+    calls.push(path.basename(script));
+    if (script.endsWith('tai_honggo_api.py')) throw new Error('signer unavailable');
+    return { stdout: '{"ok":true,"tai":0,"bo_qua":1,"tong":1}' };
+  };
+  await crawler.honggo({ mode: 'detail', input: 'https://hongguoduanju.com/player/1234567890123456789/1', outputDir: root, count: 1 });
+  assert.deepEqual(calls, ['tai_honggo_api.py', 'tai_honggo.py']);
 });
 
 test('discovery isolates output and returns per-platform failures alongside successful channels', async (t) => {

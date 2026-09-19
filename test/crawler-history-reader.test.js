@@ -181,3 +181,37 @@ test('RedNote history uses saved article title for an ID-only media filename', (
     assert.equal(items[0].thumbnail, 'https://example.com/cover.jpg');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+test('Honggo app downloads appear in crawl history with series metadata', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-history-honggo-'));
+  try {
+    const seriesId = '7685973096800455705';
+    const vid = '7685976640777636926';
+    const seriesDir = path.join(root, 'honggo', 'Demo Series');
+    const stateDir = path.join(root, 'honggo', '.hgstate');
+    fs.mkdirSync(seriesDir, { recursive: true });
+    fs.mkdirSync(stateDir, { recursive: true });
+    const media = path.join(seriesDir, '第001集.mp4');
+    fs.writeFileSync(media, 'video');
+    fs.writeFileSync(path.join(seriesDir, '.series.json'), JSON.stringify({
+      series_id: seriesId, title: 'Demo Series', total: 12, cover: 'https://img.example/cover.jpg'
+    }));
+    fs.writeFileSync(path.join(stateDir, `series_${seriesId}.json`), JSON.stringify({
+      series_id: seriesId, title: 'Demo Series', episodes: {
+        1: { vid, status: 'done', ts: 1770000000, file: media }
+      }
+    }));
+
+    const items = readCrawlerHistory(root, { platform: 'honggo' });
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, 'Demo Series — Tập 1');
+    assert.equal(items[0].thumbnail, 'https://img.example/cover.jpg');
+    assert.equal(items[0].sourceMode, 'chase');
+    assert.equal(items[0].sourceName, 'Demo Series');
+    assert.equal(items[0].downloaded, true);
+    assert.equal(items[0].mediaPath, path.join('honggo', 'Demo Series', '第001集.mp4'));
+    assert.equal(items[0].url, `https://hongguoduanju.com/player/${seriesId}/${vid}`);
+    assert.equal(readCrawlerHistory(root, { platform: 'honggo', onlyUndownloaded: true }).length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

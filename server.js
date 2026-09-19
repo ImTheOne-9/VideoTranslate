@@ -95,6 +95,8 @@ async function previewDouyinDetail({ input, onLog }) {
 const downloadCrawlManager = new DownloadCrawlManager({
   shared,
   previewResolvers: {
+    'honggo:detail': (config) => supplementalCrawler.honggo(config, { onLog: config.onLog }, true),
+    'honggo:chase': (config) => supplementalCrawler.honggo(config, { onLog: config.onLog }, true),
     'kuaishou:search': createMediaCrawlerPreviewResolver('kuaishou'),
     'kuaishou:creator': createMediaCrawlerPreviewResolver('kuaishou'),
     'kuaishou:detail': createMediaCrawlerPreviewResolver('kuaishou'),
