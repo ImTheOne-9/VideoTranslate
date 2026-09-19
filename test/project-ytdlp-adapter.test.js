@@ -101,8 +101,16 @@ test('Instagram Python preview normalizes reels tab and exports project profile 
   assert.match(source, /def _item_ig\(e\):/);
   assert.match(source, /def _ig_liet_ke_kenh\(profile_input, count, log=print\):/);
   assert.match(source, /items = _ig_bo_sung_metadata\(items, log=log\)/);
+  assert.match(source, /hasVideo:Boolean\(v \|\| src\)/);
+  assert.match(source, /_ig_video_confirmed/);
+  assert.match(source, /bài ảnh\/carousel không có video/);
+  assert.match(source, /_ig_bo_sung_metadata\(items, log=log\)\[:count\]/);
   assert.match(source, /re\.findall\(r"\/\(reel\|p\)\/\(\[A-Za-z0-9_-\]\+\)"/);
-  assert.match(source, /"duration": e\.get\("duration"\) or 0/);
+assert.match(source, /"duration": e\.get\("duration"\) or 0/);
+  assert.match(source, /headless = not headful/);
+  assert.match(source, /pg = ctx\.pages\[0\] if ctx\.pages else ctx\.new_page\(\)/);
+  assert.match(source, /if detail is None:\s+detail = ctx\.new_page\(\)/);
+  assert.doesNotMatch(source, /finally:\s+detail\.close\(\)/);
 });
 
 test('TikTok creator keeps partial video ids and falls back to browser when secUid extraction fails', () => {
@@ -165,6 +173,21 @@ test('crawl delegates the complete job to tai_ytdlp with project output root', a
     assert.deepEqual(call.args.slice(0, 6), ['--platform', 'tt', '--type', 'creator', '--input', '@kenh']);
     assert.equal(call.options.env.MC_DATA_DIR, directory);
     assert.equal(result.engine, 'Video Studio yt-dlp');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('crawl reports selected-link failures from the third YTDLP_DONE counter', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-ytdlp-failures-'));
+  try {
+    const adapter = new ProjectYtDlpAdapter();
+    adapter._run = async () => ({ stdout: 'YTDLP_DONE 6 0 2\n' });
+    const result = await adapter.crawl({
+      platform: 'instagram', mode: 'detail',
+      input: 'https://www.instagram.com/reel/demo/', count: 8, outputDir: directory
+    });
+    assert.equal(result.failedVideos, 2);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

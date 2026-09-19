@@ -877,8 +877,9 @@ def _ig_trang_bi_chan(page):
 
 
 def _ig_mo_context(pw):
-    """Mở Instagram bằng profile riêng nếu có; profile lỗi/đang bận thì dùng phiên ẩn danh."""
-    headless = os.environ.get("IG_KENH_HEADFUL", "1").lower() in ("0", "false", "no")
+    """Mở Instagram bằng profile riêng nếu có; chạy nền mặc định, IG_KENH_HEADFUL=1 để hiện cửa sổ."""
+    headful = (os.environ.get("IG_KENH_HEADFUL", "") or "").strip().lower() in ("1", "true", "yes")
+    headless = not headful
     udd = os.path.join(BROWSER_DATA_DIR, "ig_user_data_dir")
     ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -906,7 +907,10 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
         with sync_playwright() as pw:
             ctx, browser = _ig_mo_context(pw)
             try:
-                pg = ctx.new_page()
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                for stale in list(ctx.pages)[1:]:
+                    stale.close()
+                detail = None
                 pg.goto(base, wait_until="domcontentloaded", timeout=40000)
                 pg.wait_for_timeout(3500)
                 reason = _ig_trang_bi_chan(pg)
@@ -942,7 +946,8 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                             documents = pg.eval_on_selector_all("script[type='application/json']", "nodes => nodes.map(n => n.textContent)")
                             owner = _ig_owner(documents, vid)
                             if not owner:
-                                detail = ctx.new_page()
+                                if detail is None:
+                                    detail = ctx.new_page()
                                 try:
                                     detail.goto(href, wait_until="domcontentloaded", timeout=40000)
                                     detail.wait_for_timeout(1500)
@@ -950,8 +955,6 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                                     owner = _ig_owner(documents, vid)
                                 except Exception:
                                     pass
-                                finally:
-                                    detail.close()
                         if owner != handle:
                             if owner:
                                 rejected += 1
@@ -992,7 +995,9 @@ def _ig_bo_sung_metadata(items, log=print):
         with sync_playwright() as pw:
             ctx, browser = _ig_mo_context(pw)
             try:
-                pg = ctx.new_page()
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                for stale in list(ctx.pages)[1:]:
+                    stale.close()
                 for item in missing:
                     try:
                         pg.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
@@ -1000,10 +1005,10 @@ def _ig_bo_sung_metadata(items, log=print):
                         meta = pg.evaluate("""async () => {
                           const v = document.querySelector('video');
                           const get = p => document.querySelector(`meta[property="${p}"]`)?.content || '';
+                          const src = get('og:video') || get('og:video:url') || get('og:video:secure_url');
                           const result = {duration: v && Number.isFinite(v.duration) ? v.duration : 0,
                                           title:get('og:title'), description:get('og:description'),
-                                          thumb:get('og:image')};
-                          const src = get('og:video') || get('og:video:url') || get('og:video:secure_url');
+                                          thumb:get('og:image'), hasVideo:Boolean(v || src)};
                           if (!result.duration && src) {
                             result.duration = await new Promise(resolve => {
                               const probe = document.createElement('video');
@@ -1017,6 +1022,10 @@ def _ig_bo_sung_metadata(items, log=print):
                           }
                           return result;
                         }""") or {}
+                        # Fallback kênh thu cả /reel/ lẫn /p/. /p/ có thể là ảnh/carousel thuần;
+                        # chỉ loại khi đã mở trang thành công và xác nhận không có <video>/og:video.
+                        # Nếu việc đọc trang lỗi, không gắn cờ để tránh bỏ oan video thật.
+                        item["_ig_video_confirmed"] = bool(meta.get("hasVideo"))
                         if meta.get("duration"):
                             item["duration"] = float(meta["duration"])
                         if not item.get("title"):
@@ -1031,7 +1040,13 @@ def _ig_bo_sung_metadata(items, log=print):
                     browser.close()
     except Exception as e:
         log("⚠ Instagram: không mở được trình duyệt bổ sung metadata: %s" % str(e)[:120])
-    return items
+    removed = sum(1 for item in items if item.get("_ig_video_confirmed") is False)
+    if removed:
+        log("ℹ Instagram: bỏ %d bài ảnh/carousel không có video khỏi danh sách xem trước." % removed)
+    kept = [item for item in items if item.get("_ig_video_confirmed") is not False]
+    for item in kept:
+        item.pop("_ig_video_confirmed", None)
+    return kept
 
 
 def _tiktok_liet_ke_kenh_browser(profile_url, count, log=print):
@@ -1521,7 +1536,9 @@ def liet_ke(a, count):
     if plat == "ig" and a.type == "creator" and not items:
         log("ℹ Instagram extractor không liệt kê được kênh — thử qua trình duyệt.")
         for source in tach_dong(a.input):
-            for it in _ig_liet_ke_kenh(source, count - len(items), log=log):
+            # Đọc dư bài vì profile có thể xen ảnh/carousel; sau bước xác minh sẽ cắt đúng count video.
+            _ig_can = max(count - len(items), (count - len(items)) * 3)
+            for it in _ig_liet_ke_kenh(source, _ig_can, log=log):
                 if it["id"] and it["id"] not in seen:
                     seen.add(it["id"]); items.append(it)
                 if len(items) >= count:
@@ -1548,7 +1565,7 @@ def liet_ke(a, count):
             if len(items) >= count:
                 break
     if plat == "ig" and items:
-        items = _ig_bo_sung_metadata(items, log=log)
+        items = _ig_bo_sung_metadata(items, log=log)[:count]
     _don_cookie_temp()   # dọn cookie phiên tạm (các đường return sớm vẫn được atexit dọn)
     # nick/avatar item (nếu parser có) làm dự phòng khi thiếu metadata kênh cấp playlist
     if not kenh_nick:
@@ -2294,14 +2311,22 @@ def main():
             _xoa_archive_id(_vid)
             log(f"⚠ Không ghi nhận {_vid}: file media cuối không hợp lệ hoặc chưa được tạo xong.")
 
+    # Với danh sách link đã chọn, biết chính xác tổng đầu vào nên báo được số thất bại thật. Các mode kênh/
+    # tìm kiếm có thể trả ít hơn --count một cách bình thường, vì vậy không suy diễn phần thiếu là lỗi.
+    _that_bai = 0
+    if a.type == "detail":
+        _link_da_chon = list(dict.fromkeys(tach_dong(a.input)))
+        _that_bai = max(0, len(_link_da_chon) - len(da_xong) - len(da_bo_qua))
+
     # Báo TRUNG THỰC: nếu 0 video tải MỚI nhưng có video bị bỏ qua vì đã tải trước đó -> nói rõ (KHÔNG để
-    # web_app tưởng nhầm anti-bot). YTDLP_DONE nhận thêm tham số thứ 2 = số video bỏ-qua (web_app cũ đọc [1] vẫn OK).
+    # web_app tưởng nhầm anti-bot). YTDLP_DONE: tải mới, bỏ qua do trùng, tải lỗi.
     if len(da_xong) == 0 and len(da_bo_qua) > 0:
         log(f"↩ Các video này ĐÃ TẢI TRƯỚC ĐÓ rồi ({len(da_bo_qua)} video) — không tải lại. "
             f"Muốn tải lại: xóa file cũ trong 'File đã tải' rồi cào lại.")
     else:
-        log(f"✔ Hoàn tất. Tải được {len(da_xong)} video.")
-    print(f"YTDLP_DONE {len(da_xong)} {len(da_bo_qua)}", flush=True)
+        _duoi = f", lỗi {_that_bai} video" if _that_bai else ""
+        log(f"✔ Hoàn tất. Tải được {len(da_xong)} video{_duoi}.")
+    print(f"YTDLP_DONE {len(da_xong)} {len(da_bo_qua)} {_that_bai}", flush=True)
 
 
 if __name__ == "__main__":
