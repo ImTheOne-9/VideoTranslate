@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 app.commandLine.appendSwitch('disable-http2');
 const path = require('path');
 const fs = require('fs');
@@ -169,6 +169,39 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
 
   console.log(`Đang tải trang giao diện: ${url}`);
   mainWindow.loadURL(url);
+
+  // Mọi window.open/target=_blank HTTPS từ giao diện phải mở bằng trình duyệt mặc định.
+  // Không tạo BrowserWindow phụ và không cho scheme lạ chạy qua shell.
+  mainWindow.webContents.setWindowOpenHandler(({ url: externalUrl }) => {
+    try {
+      const target = new URL(externalUrl);
+      if (target.protocol === 'https:' && !target.username && !target.password) {
+        shell.openExternal(target.href).catch((error) => {
+          console.error('Không mở được liên kết ngoài:', error.message);
+        });
+      }
+    } catch (error) {
+      console.error('Từ chối liên kết ngoài không hợp lệ:', error.message);
+    }
+    return { action: 'deny' };
+  });
+
+  // Chặn liên kết ngoài thay thế trang ứng dụng khi một thẻ không có target=_blank.
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const destination = new URL(navigationUrl);
+      const application = new URL(url);
+      if (destination.origin === application.origin) return;
+      event.preventDefault();
+      if (destination.protocol === 'https:' && !destination.username && !destination.password) {
+        shell.openExternal(destination.href).catch((error) => {
+          console.error('Không mở được liên kết ngoài:', error.message);
+        });
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
 
   // Ghi log console từ render process vào file log chung
   mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {

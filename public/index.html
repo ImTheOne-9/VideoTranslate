@@ -2606,8 +2606,12 @@
             <button type="button" id="open-add-page-btn" onclick="openPageModal()"
               style="background: var(--accent); color: white; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; height: 42px;">THÊM
               PAGE MỚI</button>
-            <button type="button" id="facebook-oauth-btn" class="ghost-btn" onclick="connectFacebookOAuth()"
-              style="white-space:nowrap;height:42px;border-color:rgba(24,119,242,.55);color:#60a5fa;">KẾT NỐI FACEBOOK</button>
+            <button type="button" id="facebook-manual-guide-btn" class="ghost-btn" onclick="openFacebookManualGuide()"
+              style="white-space:nowrap;height:42px;border-color:rgba(24,119,242,.55);color:#60a5fa;">HƯỚNG DẪN TẠO APP &amp; LẤY TOKEN</button>
+          </div>
+          <div class="facebook-own-app-note" role="note" style="margin-top:12px;padding:12px 14px;border:1px solid rgba(96,165,250,.28);border-radius:10px;background:rgba(24,119,242,.07);font-size:13px;line-height:1.55;color:var(--muted);">
+            <strong style="display:block;color:var(--text);margin-bottom:3px;">Dùng Facebook App của chính bạn</strong>
+            Video Studio không đăng nhập qua Facebook App chung. Bạn tự tạo App tại Meta for Developers, lấy token rồi nhập vào phần mềm. Không nhập App Secret hoặc mật khẩu Facebook vào Video Studio.
           </div>
           <section class="facebook-auto-publish" aria-labelledby="facebook-auto-publish-title">
             <label class="facebook-auto-publish-heading" for="facebook-auto-publish-enabled">
@@ -2874,6 +2878,141 @@
               style="flex: 1; margin: 0;" onclick="cancelEditPage()">Hủy</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual Facebook App Guide Modal -->
+  <div id="facebook-manual-guide-modal" class="fb-modal-overlay hidden">
+    <div class="fb-modal-content facebook-guide-modal" role="dialog" aria-modal="true" aria-labelledby="facebook-guide-title">
+      <div class="fb-modal-header facebook-guide-header">
+        <div>
+          <span class="facebook-guide-eyebrow">THIẾT LẬP MỘT LẦN</span>
+          <h3 id="facebook-guide-title">Kết nối bằng Facebook App của bạn</h3>
+          <p>Tạo token trong App của chính bạn, sau đó nhập Page vào Video Studio.</p>
+        </div>
+        <button class="fb-modal-close" aria-label="Đóng hướng dẫn" onclick="closeFacebookManualGuide()">&times;</button>
+      </div>
+
+      <div class="fb-modal-body facebook-guide-body">
+        <section class="facebook-guide-hero">
+          <div class="facebook-guide-shield" aria-hidden="true">✓</div>
+          <div>
+            <strong>Bạn toàn quyền kiểm soát App và token</strong>
+            <p>Video Studio không dùng Facebook App chung, không cần App Secret và không yêu cầu mật khẩu Facebook.</p>
+          </div>
+          <div class="facebook-guide-badges">
+            <span>🔒 Page Token mã hóa trên máy</span>
+            <span>🧹 Không lưu User Token</span>
+          </div>
+        </section>
+
+        <section aria-labelledby="facebook-guide-flow-title">
+          <div class="facebook-guide-section-title">
+            <div><span>BẮT ĐẦU NHANH</span><h4 id="facebook-guide-flow-title">Quy trình gồm 4 bước</h4></div>
+            <small>Khoảng 5–10 phút</small>
+          </div>
+          <div class="facebook-guide-flow">
+            <div class="facebook-guide-flow-card"><b>1</b><span><strong>Tạo App</strong><small>Trên Meta for Developers</small></span></div>
+            <div class="facebook-guide-flow-card"><b>2</b><span><strong>Tạo User Token</strong><small>Chọn đủ quyền Page</small></span></div>
+            <div class="facebook-guide-flow-card"><b>3</b><span><strong>Kiểm tra Page</strong><small>Chạy /me/accounts</small></span></div>
+            <div class="facebook-guide-flow-card"><b>4</b><span><strong>Nhập vào app</strong><small>Tự lưu Page Token</small></span></div>
+          </div>
+        </section>
+
+        <section class="facebook-guide-details" aria-label="Hướng dẫn chi tiết">
+          <details open>
+            <summary><span class="facebook-guide-step-number">1</span><span><b>Tạo Facebook App của bạn</b><small>Không cần nhập App Secret vào Video Studio</small></span><i>⌄</i></summary>
+            <div class="facebook-guide-detail-content">
+              <ol>
+                <li>Đăng nhập tài khoản Facebook đang quản lý Page.</li>
+                <li>Mở <b>Meta for Developers → My Apps → Create App</b>.</li>
+                <li>Khi Meta hỏi loại hoặc trường hợp sử dụng, chọn lựa chọn có hỗ trợ <b>Facebook Login</b> hoặc <b>quản lý tài sản doanh nghiệp</b>. Tên lựa chọn có thể thay đổi theo giao diện Meta.</li>
+                <li>Nhập tên App, email liên hệ và hoàn tất tạo App. Nếu chỉ dùng cho Page của chính bạn, tài khoản tạo App đã có vai trò quản trị viên App.</li>
+              </ol>
+              <button type="button" class="facebook-guide-link-btn" onclick="window.open('https://developers.facebook.com/apps/','_blank','noopener')"><span>f</span>MỞ META FOR DEVELOPERS <b>↗</b></button>
+            </div>
+          </details>
+
+          <details>
+            <summary><span class="facebook-guide-step-number">2</span><span><b>Tạo User Access Token</b><small>Token phải được tạo từ đúng App vừa tạo</small></span><i>⌄</i></summary>
+            <div class="facebook-guide-detail-content">
+              <ol>
+                <li>Mở Graph API Explorer và chọn đúng App ở ô <b>Meta App</b>.</li>
+                <li>Chọn <b>User Token → Generate Access Token</b>, đăng nhập tài khoản quản lý Page.</li>
+                <li>Đánh dấu các quyền bên dưới rồi xác nhận.</li>
+              </ol>
+              <div class="facebook-permission-grid" aria-label="Các quyền Facebook cần dùng">
+                <span><b>pages_show_list</b><small>Lấy danh sách Page</small></span>
+                <span><b>pages_manage_posts</b><small>Đăng và xóa bài</small></span>
+                <span><b>pages_read_engagement</b><small>Đọc bài và tương tác</small></span>
+                <span><b>pages_manage_engagement</b><small>Bình luận và phản hồi</small></span>
+                <span><b>read_insights</b><small>Đọc thống kê</small></span>
+              </div>
+              <button type="button" class="facebook-guide-link-btn" onclick="window.open('https://developers.facebook.com/tools/explorer/','_blank','noopener')"><span>⌘</span>MỞ GRAPH API EXPLORER <b>↗</b></button>
+            </div>
+          </details>
+
+          <details>
+            <summary><span class="facebook-guide-step-number">3</span><span><b>Kiểm tra token đã thấy Page</b><small>Làm bước này trước khi dán token vào Video Studio</small></span><i>⌄</i></summary>
+            <div class="facebook-guide-detail-content">
+              <p>Trong Graph API Explorer, chọn phương thức <b>GET</b>, dán đường dẫn sau và nhấn <b>Submit</b>:</p>
+              <div class="facebook-graph-command">
+                <code id="facebook-graph-test-command">/me/accounts?fields=id,name,access_token,tasks</code>
+                <button type="button" onclick="copyFacebookGraphTest()">SAO CHÉP</button>
+              </div>
+              <div class="facebook-guide-result-grid">
+                <div class="is-success"><b>✓ Đúng</b><span>Kết quả có <code>id</code>, <code>name</code> và <code>access_token</code> của Page.</span></div>
+                <div class="is-error"><b>! Danh sách rỗng</b><span>Kiểm tra tài khoản có quyền trên Page, vai trò trong App và quyền <code>pages_show_list</code>.</span></div>
+              </div>
+            </div>
+          </details>
+
+          <details>
+            <summary><span class="facebook-guide-step-number">4</span><span><b>Nhập Page vào Video Studio</b><small>Khuyên dùng: nhập tất cả Page bằng User Token</small></span><i>⌄</i></summary>
+            <div class="facebook-guide-detail-content">
+              <div class="facebook-import-options">
+                <div class="facebook-import-option recommended">
+                  <span class="facebook-option-label">KHUYÊN DÙNG</span>
+                  <h5>Nhập bằng User Access Token</h5>
+                  <p>Tự lấy và lưu toàn bộ Page mà token nhìn thấy. User Token bị xóa khỏi ô ngay sau khi xử lý.</p>
+                </div>
+                <button type="button" class="facebook-import-option direct" onclick="closeFacebookManualGuide();openPageModal();">
+                  <span class="facebook-option-label">NHẬP 1 PAGE</span>
+                  <strong>Đã có Page Token?</strong>
+                  <small>Nhập trực tiếp Page ID + Page Access Token →</small>
+                </button>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="facebook-token-import" aria-labelledby="facebook-token-import-title">
+          <div class="facebook-guide-section-title">
+            <div><span>BƯỚC CUỐI</span><h4 id="facebook-token-import-title">Dán User Access Token</h4></div>
+            <span class="facebook-local-only">Chỉ xử lý trên ứng dụng và Meta</span>
+          </div>
+          <p>Dán token vừa tạo trong Graph API Explorer. Không dán App Secret hoặc mật khẩu Facebook.</p>
+          <div class="facebook-token-row">
+            <div class="facebook-token-field">
+              <input type="password" id="facebook-user-access-token" class="premium-input" autocomplete="off" spellcheck="false" placeholder="EAAB...">
+              <button type="button" id="facebook-user-token-visibility" aria-label="Hiện hoặc ẩn token" onclick="toggleFacebookUserTokenVisibility()">👁</button>
+            </div>
+            <button type="button" id="facebook-import-user-token-btn" class="premium-render-btn" onclick="importFacebookPagesFromUserToken()">NHẬP DANH SÁCH PAGE</button>
+          </div>
+          <div class="facebook-token-safety"><span>🔐</span><p><b>User Token không được lưu.</b> Page Token lấy từ Facebook được mã hóa bằng kho bảo mật của máy này.</p></div>
+        </section>
+
+        <details class="facebook-guide-troubleshoot">
+          <summary>Không thấy Page hoặc bị báo thiếu quyền?</summary>
+          <ul>
+            <li>Kiểm tra Graph API Explorer đang chọn đúng Facebook App của bạn.</li>
+            <li>Tài khoản tạo token phải có quyền quản lý nội dung trên Page.</li>
+            <li>Tạo lại token sau khi thêm đủ quyền; token cũ không tự nhận quyền mới.</li>
+            <li>App ở Development Mode thường chỉ dùng với tài khoản có vai trò trong App. Khi phục vụ tài khoản khác, Meta có thể yêu cầu chuyển Live và xét duyệt quyền.</li>
+            <li>Nếu token hết hạn hoặc bị thu hồi, tạo token mới rồi nhập lại để cập nhật Page.</li>
+          </ul>
+        </details>
       </div>
     </div>
   </div>

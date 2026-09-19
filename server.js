@@ -900,7 +900,7 @@ app.get('/api/open-file-folder', systemController.openFileFolder);
 app.get('/api/download-crawl/open-file-folder', systemController.openDownloadedFileFolder);
 app.get('/api/serve-file', systemController.serveFile);
 // Facebook Page Manager: kho token mã hóa, hàng đợi bền vững, Post/Reel/Story,
-// hẹn giờ, retry, OAuth và API quản lý tương tác.
+// hẹn giờ, retry và API quản lý tương tác bằng token do người dùng cung cấp.
 facebookController.registerFacebookRoutes(app);
 // Giữ tương thích giao diện/bản dự án cũ; hai route này nay cũng đi qua queue mới.
 app.post('/api/publish-facebook', facebookController.legacyPublish);

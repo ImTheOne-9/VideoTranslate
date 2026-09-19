@@ -1,8 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { FacebookOAuthClient } = require('../lib/facebook-oauth-client');
-const { verifyLocalLicense, LICENSE_SERVER_URL } = require('../lib/license-manager');
 const shared = require('../lib/shared-state');
 const FacebookApiService = require('../lib/facebookApi');
 const { FacebookAccountStore } = require('../lib/facebook-account-store');
@@ -20,19 +18,6 @@ const publishQueue = new FacebookPublishQueue({
 });
 publishQueue.start();
 
-let backendOAuth;
-function oauthClient() {
-  if (!backendOAuth) backendOAuth = new FacebookOAuthClient({
-    baseUrl: process.env.FACEBOOK_OAUTH_BACKEND_URL || LICENSE_SERVER_URL,
-    accountStore,
-    credentials: () => {
-      const license = verifyLocalLicense();
-      if (!license.valid) throw new Error(license.error || 'Hãy kích hoạt bản quyền trước khi kết nối Facebook.');
-      return { key: license.payload.key, hwid: license.payload.hwid };
-    }
-  });
-  return backendOAuth;
-}
 const publicAccount = (account) => account && (({ accessToken, ...safe }) => safe)(account);
 
 // Resolve old stored jobs on read, without rewriting the live queue file.
@@ -123,11 +108,12 @@ const controller = {
       const token = String(req.body?.userAccessToken || '').trim();
       if (!token) return res.status(400).json({ error: 'Thiếu User Access Token' });
       const pages = await FacebookApiService.listManagedPages(token);
-      const accounts = pages.map((page) => accountStore.upsert({
+      if (!pages.length) throw new Error('Token không trả về Page nào. Hãy kiểm tra tài khoản quản lý Page và quyền pages_show_list.');
+      pages.forEach((page) => accountStore.upsert({
         pageId: page.id, accessToken: page.access_token, name: page.name, pageName: page.name,
         avatar: page.picture?.data?.url, fanCount: page.fan_count, category: page.category, tasks: page.tasks
       }));
-      res.json({ success: true, accounts });
+      res.json({ success: true, importedCount: pages.length, accounts: accountStore.list() });
     } catch (error) { res.status(400).json({ error: graphError(error) }); }
   },
   listJobs: (req, res) => res.json({ jobs: jobStore.list({ status: req.query.status, limit: req.query.limit }).map(publicJob) }),
@@ -207,22 +193,6 @@ const controller = {
     try { res.json(await new FacebookApiService(account.pageId, account.accessToken).getInsights(managedObjectId(account, req.params.objectId), req.query.metrics)); }
     catch (error) { res.status(400).json({ error: graphError(error) }); }
   },
-  oauthConfig: async (_req, res) => {
-    res.set('Cache-Control', 'no-store');
-    try { res.json(await oauthClient().config()); }
-    catch (error) { res.status(503).json({ configured: false, mode: 'backend', error: error.message }); }
-  },
-  oauthStart: async (_req, res) => {
-    res.set('Cache-Control', 'no-store');
-    try { res.json(await oauthClient().start()); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
-  },
-  oauthStatus: async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    try { res.json(await oauthClient().status(req.params.sessionId)); }
-    catch (error) { res.status(error.status || 503).json({ status: 'error', error: error.message }); }
-  },
-  oauthCallback: (_req, res) => res.status(410).send('OAuth callback đã chuyển sang license server. Hãy kết nối lại từ phần mềm.'),
   accountStore, jobStore, publishQueue
 };
 
@@ -244,11 +214,6 @@ function registerFacebookRoutes(app) {
   app.delete('/api/facebook/comments/:commentId', controller.deleteComment);
   app.post('/api/facebook/objects/:objectId/like', controller.likeObject);
   app.get('/api/facebook/objects/:objectId/insights', controller.insights);
-  app.get('/api/facebook/oauth/config', controller.oauthConfig);
-  app.post('/api/facebook/oauth/start', controller.oauthStart);
-  app.get('/api/facebook/oauth/status/:sessionId', controller.oauthStatus);
-  app.get('/api/facebook/oauth/callback', controller.oauthCallback);
-  app.all('/api/facebook/webhook', (_req, res) => res.sendStatus(410));
 }
 
 module.exports = { ...controller, registerFacebookRoutes, resolveRenderPath, verifyAndSave, enqueueFromBody, enqueueRenderResult };

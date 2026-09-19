@@ -18,7 +18,6 @@ Xác minh người yêu cầu có quyền với tài khoản và dữ liệu li�
 | --- | --- |
 | Page/token trên máy | Hướng dẫn tắt tự đăng, xử lý tác vụ còn chờ và xóa Page trên từng máy. Không yêu cầu khách gửi toàn bộ kho token qua email. |
 | Video, dự án, lịch sử tác vụ và bản sao lưu | Xác nhận đúng phạm vi trước khi hướng dẫn xóa. Xóa Page không xóa các file này. Không cung cấp lệnh xóa đệ quy một thư mục lớn khi chưa xác định đường dẫn và tác vụ đang chạy. |
-| Phiên OAuth backend | Kết quả mã hóa hết hạn truy cập sau 10 phút, token tạm được xóa khỏi phiên khi ACK; MongoDB dọn theo TTL. Không tuyên bố backend đã xóa toàn bộ dữ liệu tài khoản vì phiên đã hết hạn. |
 | Tài khoản, bản quyền, giao dịch và nhật ký | Rà dữ liệu liên quan trước khi xóa, gồm các bản ghi liên kết. Endpoint xóa user không phải bằng chứng tự động xóa mọi dữ liệu liên quan. Nếu cần giữ một phần, ghi loại dữ liệu, lý do và thời hạn/điều kiện kết thúc lưu giữ. |
 | Email hỗ trợ và bản sao lưu do bên vận hành quản lý | Rà cả hộp thư và bản sao đã tạo trong phạm vi yêu cầu; xác nhận chính sách lưu/xóa của hạ tầng thực tế. Không hứa xóa tức thời mọi bản sao lưu của nhà cung cấp. |
 | Bài và lịch đã gửi đến Meta | Hướng dẫn khách quản lý trên Facebook/Meta Business Suite. Không xóa nội dung Page chỉ vì khách yêu cầu ngừng kết nối. |
@@ -29,8 +28,7 @@ Nêu rõ phần đã xử lý, phần cần khách thao tác, phần còn giữ 
 
 ## Thông tin đã đối chiếu từ code
 
-- Backend website/OAuth đang triển khai qua Render theo cấu hình vận hành hiện tại.
-- Phiên OAuth dùng MongoDB; MongoDB là hệ quản trị dữ liệu, chưa đủ để xác định tên nhà cung cấp hosting cơ sở dữ liệu hoặc vùng lưu trữ thực tế.
+- Backend website/bản quyền triển khai qua Render; token Facebook của luồng thủ công không đi qua backend này.
 - Mail hỗ trợ là Gmail do chủ sản phẩm cung cấp. Code website có hỗ trợ Resend và SMTP cho email giao dịch; chưa xác minh nhà cung cấp đang hoạt động trên Render, không tự chọn một tên để công khai.
 - Tác vụ dọn nhật ký xác thực chạy mỗi 24 giờ và nhắm các bản ghi cũ hơn 90 ngày. Không áp dụng mốc này cho toàn bộ server/provider logs.
 - Hiện không có cơ chế tự động xóa chung toàn bộ tài khoản, giao dịch và thư hỗ trợ sau một thời hạn cố định. Nội dung công khai đã nêu rõ điều này.

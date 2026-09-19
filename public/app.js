@@ -6090,77 +6090,71 @@ function togglePageTokenInputVisibility() {
   }
 }
 
-async function connectFacebookOAuth() {
-  const button = $('facebook-oauth-btn');
-  if (button?.disabled) return;
-  // Open synchronously from the click to avoid popup blocking after network waits.
-  const popup = window.open('about:blank', '_blank', 'width=720,height=780');
-  if (popup) popup.opener = null;
-  const connection = new AbortController();
-  let closedAt = null;
-  // Allow a just-completed callback to be received before treating closure as cancellation.
-  const closeWatcher = setInterval(() => {
-    if (!popup?.closed) return;
-    if (closedAt === null) closedAt = Date.now();
-    setBusy(button, true, 'Đang kiểm tra kết quả kết nối...');
-    if (Date.now() - closedAt >= 5000) connection.abort();
-  }, 250);
-  async function requestJson(url, options = {}) {
-    const request = new AbortController();
-    const abort = () => request.abort();
-    connection.signal.addEventListener('abort', abort, { once: true });
-    if (connection.signal.aborted) request.abort();
-    const timeout = setTimeout(abort, 45000);
-    try {
-      const response = await fetch(url, { ...options, signal: request.signal });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Không lấy được kết quả kết nối Facebook. Vui lòng thử lại.');
-      return data;
-    } catch (error) {
-      if (request.signal.aborted && !connection.signal.aborted) throw new Error('Máy chủ phản hồi quá lâu. Vui lòng thử kết nối lại.');
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      connection.signal.removeEventListener('abort', abort);
-    }
-  }
+function openFacebookManualGuide() {
+  const modal = $('facebook-manual-guide-modal');
+  if (modal) modal.classList.remove('hidden');
+  $('facebook-user-access-token')?.focus();
+}
+
+function closeFacebookManualGuide() {
+  const modal = $('facebook-manual-guide-modal');
+  if (modal) modal.classList.add('hidden');
+  const input = $('facebook-user-access-token');
+  if (input) input.value = '';
+}
+
+async function copyFacebookGraphTest() {
+  const command = $('facebook-graph-test-command')?.textContent || '/me/accounts?fields=id,name,access_token,tasks';
   try {
-    setBusy(button, true, 'Đang mở Facebook...');
-    if (!popup) throw new Error('Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên và kết nối lại.');
-    const config = await requestJson('/api/facebook/oauth/config');
-    if (!config.configured) {
-      throw new Error(config.error || 'Máy chủ chưa bật kết nối Facebook. Các Page đã lưu vẫn sử dụng được.');
-    }
-    const result = await requestJson('/api/facebook/oauth/start', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-    if (popup.closed) {
-      toast('Cửa sổ đăng nhập đã đóng. Bạn có thể nhấn Kết nối Facebook để thử lại.', 'info');
-      return;
-    }
-    popup.location.href = result.url;
-    setBusy(button, true, 'Đang chờ kết nối Facebook...');
-    const deadline = Math.min(new Date(result.expiresAt).getTime() || Date.now() + 10 * 60 * 1000, Date.now() + 10 * 60 * 1000);
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      if (connection.signal.aborted) throw new Error('Cửa sổ đăng nhập đã đóng.');
-      const status = await requestJson(`/api/facebook/oauth/status/${encodeURIComponent(result.sessionId)}`);
-      if (status.status === 'success') {
-        clearInterval(closeWatcher);
-        popup.close();
-        await loadFbPages(); renderFbPages();
-        toast(`Đã kết nối ${status.accounts?.length || 0} Page Facebook.`, 'success');
-        return;
-      }
-      if (status.status === 'error') throw new Error(status.error || 'OAuth Facebook thất bại');
-    }
-    throw new Error('Đăng nhập Facebook quá thời gian chờ');
+    await navigator.clipboard.writeText(command);
+    toast('Đã sao chép lệnh kiểm tra Graph API.', 'success');
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = command;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+    toast('Đã sao chép lệnh kiểm tra Graph API.', 'success');
+  }
+}
+
+function toggleFacebookUserTokenVisibility() {
+  const input = $('facebook-user-access-token');
+  const button = $('facebook-user-token-visibility');
+  if (!input || !button) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  button.textContent = input.type === 'password' ? '👁' : '🙈';
+}
+
+async function importFacebookPagesFromUserToken() {
+  const input = $('facebook-user-access-token');
+  const button = $('facebook-import-user-token-btn');
+  const userAccessToken = input?.value.trim() || '';
+  if (!userAccessToken) {
+    toast('Hãy dán User Access Token được tạo từ Facebook App của bạn.', 'error');
+    input?.focus();
+    return;
+  }
+  setBusy(button, true, 'Đang đọc danh sách Page...');
+  try {
+    const response = await fetch('/api/facebook/accounts/from-user-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userAccessToken })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không lấy được danh sách Page từ token này.');
+    fbPages = result.accounts || [];
+    if (input) input.value = '';
+    syncFacebookAutoPublishUi();
+    renderFbPages($('page-search-input')?.value || '');
+    closeFacebookManualGuide();
+    toast('Đã nhập ' + Number(result.importedCount || 0) + ' Page từ Facebook App của bạn.', 'success');
   } catch (error) {
-    toast(connection.signal.aborted
-      ? 'Cửa sổ đăng nhập đã đóng; chưa xác nhận được kết nối. Bạn có thể thử lại.'
-      : error.message, connection.signal.aborted ? 'info' : 'error');
+    toast('Không nhập được Page: ' + error.message, 'error');
   } finally {
-    clearInterval(closeWatcher);
-    connection.abort();
-    popup?.close();
     setBusy(button, false);
   }
 }
