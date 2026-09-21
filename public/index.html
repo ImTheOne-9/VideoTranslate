@@ -2899,7 +2899,7 @@
           <div class="facebook-guide-shield" aria-hidden="true">✓</div>
           <div>
             <strong>Bạn toàn quyền kiểm soát App và token</strong>
-            <p>Video Studio không dùng Facebook App chung, không cần App Secret và không yêu cầu mật khẩu Facebook.</p>
+            <p>Video Studio không dùng Facebook App chung và không yêu cầu mật khẩu Facebook. App Secret chỉ được gửi thẳng tới Meta khi bạn chọn đổi token dài hạn.</p>
           </div>
           <div class="facebook-guide-badges">
             <span>🔒 Page Token mã hóa trên máy</span>
@@ -2916,13 +2916,13 @@
             <div class="facebook-guide-flow-card"><b>1</b><span><strong>Tạo App</strong><small>Trên Meta for Developers</small></span></div>
             <div class="facebook-guide-flow-card"><b>2</b><span><strong>Tạo User Token</strong><small>Chọn đủ quyền Page</small></span></div>
             <div class="facebook-guide-flow-card"><b>3</b><span><strong>Kiểm tra Page</strong><small>Chạy /me/accounts</small></span></div>
-            <div class="facebook-guide-flow-card"><b>4</b><span><strong>Nhập vào app</strong><small>Tự lưu Page Token</small></span></div>
+            <div class="facebook-guide-flow-card"><b>4</b><span><strong>Đổi &amp; nhập token</strong><small>Tự lưu Page Token</small></span></div>
           </div>
         </section>
 
         <section class="facebook-guide-details" aria-label="Hướng dẫn chi tiết">
           <details open>
-            <summary><span class="facebook-guide-step-number">1</span><span><b>Tạo Facebook App của bạn</b><small>Không cần nhập App Secret vào Video Studio</small></span><i>⌄</i></summary>
+            <summary><span class="facebook-guide-step-number">1</span><span><b>Tạo Facebook App của bạn</b><small>Bạn giữ toàn quyền App ID và App Secret</small></span><i>⌄</i></summary>
             <div class="facebook-guide-detail-content">
               <ol>
                 <li>Đăng nhập tài khoản Facebook đang quản lý Page.</li>
@@ -2969,13 +2969,13 @@
           </details>
 
           <details>
-            <summary><span class="facebook-guide-step-number">4</span><span><b>Nhập Page vào Video Studio</b><small>Khuyên dùng: nhập tất cả Page bằng User Token</small></span><i>⌄</i></summary>
+            <summary><span class="facebook-guide-step-number">4</span><span><b>Đổi token dài hạn và nhập Page</b><small>Khuyên dùng để giảm số lần phải tạo lại token</small></span><i>⌄</i></summary>
             <div class="facebook-guide-detail-content">
               <div class="facebook-import-options">
                 <div class="facebook-import-option recommended">
                   <span class="facebook-option-label">KHUYÊN DÙNG</span>
-                  <h5>Nhập bằng User Access Token</h5>
-                  <p>Tự lấy và lưu toàn bộ Page mà token nhìn thấy. User Token bị xóa khỏi ô ngay sau khi xử lý.</p>
+                  <h5>Đổi sang token dài hạn rồi nhập</h5>
+                  <p>App gửi thông tin thẳng tới Meta để đổi token, sau đó lấy toàn bộ Page. App Secret và User Token không được lưu.</p>
                 </div>
                 <button type="button" class="facebook-import-option direct" onclick="closeFacebookManualGuide();openPageModal();">
                   <span class="facebook-option-label">NHẬP 1 PAGE</span>
@@ -2989,18 +2989,39 @@
 
         <section class="facebook-token-import" aria-labelledby="facebook-token-import-title">
           <div class="facebook-guide-section-title">
-            <div><span>BƯỚC CUỐI</span><h4 id="facebook-token-import-title">Dán User Access Token</h4></div>
-            <span class="facebook-local-only">Chỉ xử lý trên ứng dụng và Meta</span>
+            <div><span>BƯỚC CUỐI</span><h4 id="facebook-token-import-title">Chọn cách nhập Page</h4></div>
+            <span class="facebook-local-only">Dữ liệu nhạy cảm không được lưu</span>
           </div>
-          <p>Dán token vừa tạo trong Graph API Explorer. Không dán App Secret hoặc mật khẩu Facebook.</p>
-          <div class="facebook-token-row">
-            <div class="facebook-token-field">
-              <input type="password" id="facebook-user-access-token" class="premium-input" autocomplete="off" spellcheck="false" placeholder="EAAB...">
-              <button type="button" id="facebook-user-token-visibility" aria-label="Hiện hoặc ẩn token" onclick="toggleFacebookUserTokenVisibility()">👁</button>
-            </div>
-            <button type="button" id="facebook-import-user-token-btn" class="premium-render-btn" onclick="importFacebookPagesFromUserToken()">NHẬP DANH SÁCH PAGE</button>
+          <div class="facebook-token-method-list">
+            <article class="facebook-token-method featured">
+              <div class="facebook-token-method-heading">
+                <div><span class="facebook-option-label">KHUYÊN DÙNG</span><h5>Đổi token dài hạn rồi nhập Page</h5></div>
+                <span class="facebook-token-duration">Khoảng 60 ngày*</span>
+              </div>
+              <p>Nhập thông tin của App đã tạo và User Token ngắn hạn từ Graph API Explorer.</p>
+              <div class="facebook-exchange-grid">
+                <label><span>App ID</span><input type="text" id="facebook-exchange-app-id" class="premium-input" autocomplete="off" inputmode="numeric" spellcheck="false" placeholder="123456789012345"></label>
+                <label><span>App Secret</span><div class="facebook-token-field"><input type="password" id="facebook-exchange-app-secret" class="premium-input" autocomplete="new-password" spellcheck="false" placeholder="App Secret của App"><button type="button" id="facebook-exchange-secret-visibility" aria-label="Hiện hoặc ẩn App Secret" onclick="toggleFacebookExchangeSecretVisibility()">👁</button></div></label>
+                <label class="facebook-exchange-token"><span>User Access Token ngắn hạn</span><div class="facebook-token-field"><input type="password" id="facebook-exchange-user-token" class="premium-input" autocomplete="off" spellcheck="false" placeholder="EAAB..."><button type="button" id="facebook-exchange-token-visibility" aria-label="Hiện hoặc ẩn User Token" onclick="toggleFacebookExchangeTokenVisibility()">👁</button></div></label>
+              </div>
+              <button type="button" id="facebook-exchange-token-btn" class="premium-render-btn" onclick="exchangeFacebookLongLivedToken()">ĐỔI TOKEN &amp; NHẬP PAGE</button>
+              <div class="facebook-token-safety"><span>🔐</span><p><b>App Secret và User Token không được lưu.</b> Backend chỉ dùng chúng trong yêu cầu đổi token tới Meta. Page Token được mã hóa bằng kho bảo mật của máy.</p></div>
+            </article>
+
+            <article class="facebook-token-method">
+              <div class="facebook-token-method-heading"><div><span class="facebook-option-label">ĐÃ CÓ TOKEN PHÙ HỢP</span><h5>Nhập Page ngay</h5></div></div>
+              <p>Dùng cách này nếu bạn không muốn đổi token hoặc đã có User Access Token dài hạn.</p>
+              <div class="facebook-token-row">
+                <div class="facebook-token-field">
+                  <input type="password" id="facebook-user-access-token" class="premium-input" autocomplete="off" spellcheck="false" placeholder="EAAB...">
+                  <button type="button" id="facebook-user-token-visibility" aria-label="Hiện hoặc ẩn token" onclick="toggleFacebookUserTokenVisibility()">👁</button>
+                </div>
+                <button type="button" id="facebook-import-user-token-btn" class="premium-render-btn" onclick="importFacebookPagesFromUserToken()">NHẬP DANH SÁCH PAGE</button>
+              </div>
+              <div class="facebook-token-safety"><span>ℹ</span><p>User Token không được lưu. Token ngắn hạn có thể hết hạn nhanh hơn và bạn sẽ phải nhập lại Page.</p></div>
+            </article>
           </div>
-          <div class="facebook-token-safety"><span>🔐</span><p><b>User Token không được lưu.</b> Page Token lấy từ Facebook được mã hóa bằng kho bảo mật của máy này.</p></div>
+          <p class="facebook-token-footnote">* Thời hạn thực tế do Meta trả về và có thể bị thu hồi sớm khi đổi mật khẩu, gỡ quyền, thay đổi vai trò hoặc cấu hình App. Page Token có thể không có ngày hết hạn cố định nhưng vẫn có thể mất hiệu lực.</p>
         </section>
 
         <details class="facebook-guide-troubleshoot">

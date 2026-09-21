@@ -25,6 +25,14 @@ test('Facebook Page manager uses tokens from the user own app and exposes a guid
   assert.match(style, /#facebook-manual-guide-modal \.facebook-guide-modal \{ width: min\(1100px/);
   assert.match(app, /async function importFacebookPagesFromUserToken/);
   assert.match(app, /\/api\/facebook\/accounts\/from-user-token/);
+  assert.match(html, /facebook-exchange-app-id/);
+  assert.match(html, /facebook-exchange-app-secret/);
+  assert.match(html, /facebook-exchange-user-token/);
+  assert.match(app, /async function exchangeFacebookLongLivedToken/);
+  assert.match(app, /\/api\/facebook\/accounts\/exchange-user-token/);
+  assert.match(controller, /FacebookApiService\.exchangeUserToken/);
+  assert.match(controller, /accounts\/exchange-user-token/);
+  assert.doesNotMatch(controller, /res\.json\(\{[^}]*accessToken:\s*exchanged\.accessToken/s);
 });
 
 test('shared Facebook OAuth app flow is absent from desktop and license server runtime', () => {

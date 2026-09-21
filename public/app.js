@@ -6093,14 +6093,20 @@ function togglePageTokenInputVisibility() {
 function openFacebookManualGuide() {
   const modal = $('facebook-manual-guide-modal');
   if (modal) modal.classList.remove('hidden');
-  $('facebook-user-access-token')?.focus();
+  $('facebook-exchange-app-id')?.focus();
 }
 
 function closeFacebookManualGuide() {
   const modal = $('facebook-manual-guide-modal');
   if (modal) modal.classList.add('hidden');
-  const input = $('facebook-user-access-token');
-  if (input) input.value = '';
+  ['facebook-exchange-app-id', 'facebook-exchange-app-secret', 'facebook-exchange-user-token', 'facebook-user-access-token'].forEach((id) => {
+    const input = $(id);
+    if (input) { input.value = ''; input.type = id === 'facebook-exchange-app-id' ? 'text' : 'password'; }
+  });
+  [['facebook-exchange-secret-visibility', '👁'], ['facebook-exchange-token-visibility', '👁'], ['facebook-user-token-visibility', '👁']].forEach(([id, label]) => {
+    const button = $(id);
+    if (button) button.textContent = label;
+  });
 }
 
 async function copyFacebookGraphTest() {
@@ -6127,6 +6133,59 @@ function toggleFacebookUserTokenVisibility() {
   if (!input || !button) return;
   input.type = input.type === 'password' ? 'text' : 'password';
   button.textContent = input.type === 'password' ? '👁' : '🙈';
+}
+
+function toggleFacebookSensitiveField(inputId, buttonId) {
+  const input = $(inputId);
+  const button = $(buttonId);
+  if (!input || !button) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  button.textContent = input.type === 'password' ? '👁' : '🙈';
+}
+
+function toggleFacebookExchangeSecretVisibility() {
+  toggleFacebookSensitiveField('facebook-exchange-app-secret', 'facebook-exchange-secret-visibility');
+}
+
+function toggleFacebookExchangeTokenVisibility() {
+  toggleFacebookSensitiveField('facebook-exchange-user-token', 'facebook-exchange-token-visibility');
+}
+
+async function exchangeFacebookLongLivedToken() {
+  const appIdInput = $('facebook-exchange-app-id');
+  const secretInput = $('facebook-exchange-app-secret');
+  const tokenInput = $('facebook-exchange-user-token');
+  const button = $('facebook-exchange-token-btn');
+  const appId = appIdInput?.value.trim() || '';
+  const appSecret = secretInput?.value.trim() || '';
+  const userAccessToken = tokenInput?.value.trim() || '';
+  if (!/^\d{5,32}$/.test(appId)) {
+    toast('App ID phải là dãy số trong trang Cài đặt cơ bản của Facebook App.', 'error');
+    appIdInput?.focus();
+    return;
+  }
+  if (!appSecret) { toast('Hãy nhập App Secret của App.', 'error'); secretInput?.focus(); return; }
+  if (!userAccessToken) { toast('Hãy nhập User Access Token ngắn hạn.', 'error'); tokenInput?.focus(); return; }
+
+  setBusy(button, true, 'Đang đổi token với Meta...');
+  try {
+    const response = await fetch('/api/facebook/accounts/exchange-user-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appId, appSecret, userAccessToken })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Meta không đổi được token này.');
+    fbPages = result.accounts || [];
+    syncFacebookAutoPublishUi();
+    renderFbPages($('page-search-input')?.value || '');
+    const expiry = result.expiresAt ? new Date(result.expiresAt).toLocaleString('vi-VN') : '';
+    closeFacebookManualGuide();
+    toast('Đã đổi token dài hạn và nhập ' + Number(result.importedCount || 0) + ' Page.' + (expiry ? ' User Token dự kiến hết hạn: ' + expiry + '.' : ''), 'success');
+  } catch (error) {
+    toast('Không đổi được token: ' + error.message, 'error');
+  } finally {
+    setBusy(button, false);
+  }
 }
 
 async function importFacebookPagesFromUserToken() {

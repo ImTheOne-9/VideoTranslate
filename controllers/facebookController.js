@@ -37,6 +37,13 @@ function resolveRenderPath(value) {
   return resolveFacebookRenderPath(value, shared.RENDERS_DIR);
 }
 
+function saveManagedPages(pages) {
+  pages.forEach((page) => accountStore.upsert({
+    pageId: page.id, accessToken: page.access_token, name: page.name, pageName: page.name,
+    avatar: page.picture?.data?.url, fanCount: page.fan_count, category: page.category, tasks: page.tasks
+  }));
+}
+
 async function verifyAndSave(body) {
   const pageId = String(body.pageId || body.id || '').trim();
   const token = String(body.accessToken || body.pageToken || body.token || '').trim();
@@ -106,14 +113,32 @@ const controller = {
   connectUserToken: async (req, res) => {
     try {
       const token = String(req.body?.userAccessToken || '').trim();
-      if (!token) return res.status(400).json({ error: 'Thiếu User Access Token' });
+      if (!token || token.length > 8192) return res.status(400).json({ error: 'User Access Token không hợp lệ' });
       const pages = await FacebookApiService.listManagedPages(token);
       if (!pages.length) throw new Error('Token không trả về Page nào. Hãy kiểm tra tài khoản quản lý Page và quyền pages_show_list.');
-      pages.forEach((page) => accountStore.upsert({
-        pageId: page.id, accessToken: page.access_token, name: page.name, pageName: page.name,
-        avatar: page.picture?.data?.url, fanCount: page.fan_count, category: page.category, tasks: page.tasks
-      }));
+      saveManagedPages(pages);
       res.json({ success: true, importedCount: pages.length, accounts: accountStore.list() });
+    } catch (error) { res.status(400).json({ error: graphError(error) }); }
+  },
+  exchangeUserToken: async (req, res) => {
+    try {
+      const appId = String(req.body?.appId || '').trim();
+      const appSecret = String(req.body?.appSecret || '').trim();
+      const userAccessToken = String(req.body?.userAccessToken || '').trim();
+      if (!appId || !appSecret || !userAccessToken) {
+        return res.status(400).json({ error: 'Hãy nhập đủ App ID, App Secret và User Access Token ngắn hạn.' });
+      }
+      const exchanged = await FacebookApiService.exchangeUserToken(appId, appSecret, userAccessToken);
+      const pages = await FacebookApiService.listManagedPages(exchanged.accessToken);
+      if (!pages.length) throw new Error('Token dài hạn không trả về Page nào. Hãy kiểm tra quyền pages_show_list và tài khoản quản lý Page.');
+      saveManagedPages(pages);
+      res.json({
+        success: true,
+        importedCount: pages.length,
+        accounts: accountStore.list(),
+        expiresIn: exchanged.expiresIn,
+        expiresAt: exchanged.expiresAt
+      });
     } catch (error) { res.status(400).json({ error: graphError(error) }); }
   },
   listJobs: (req, res) => res.json({ jobs: jobStore.list({ status: req.query.status, limit: req.query.limit }).map(publicJob) }),
@@ -203,6 +228,7 @@ function registerFacebookRoutes(app) {
   app.delete('/api/facebook/accounts/:id', controller.deleteAccount);
   app.post('/api/facebook/accounts/:id/verify', controller.verifyAccount);
   app.post('/api/facebook/accounts/from-user-token', controller.connectUserToken);
+  app.post('/api/facebook/accounts/exchange-user-token', controller.exchangeUserToken);
   app.get('/api/facebook/jobs', controller.listJobs);
   app.get('/api/facebook/jobs/:id', controller.getJob);
   app.post('/api/facebook/jobs', controller.createJob);

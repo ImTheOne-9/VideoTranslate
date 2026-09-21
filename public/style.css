@@ -5982,6 +5982,19 @@ select option {
 .facebook-import-option p,.facebook-import-option small { display:block; margin:5px 0 0; color:var(--muted); font-size:9px; line-height:1.45; }
 .facebook-token-import { padding:16px; border:1px solid rgba(96,165,250,.28); border-radius:12px; background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(99,102,241,.04)); }
 .facebook-token-import > p { margin:-2px 0 10px; color:var(--muted); font-size:10px; }
+.facebook-token-method-list { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr); gap:12px; align-items:start; }
+.facebook-token-method { display:grid; gap:11px; min-width:0; padding:14px; border:1px solid var(--border); border-radius:11px; background:rgba(7,12,22,.45); }
+.facebook-token-method.featured { border-color:rgba(74,222,128,.3); background:linear-gradient(145deg,rgba(34,197,94,.07),rgba(15,23,42,.42)); }
+.facebook-token-method > p { margin:0; color:var(--muted); font-size:10px; line-height:1.5; }
+.facebook-token-method-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.facebook-token-method-heading h5 { margin:0; color:var(--text); font-size:13px; }
+.facebook-token-duration { flex:none; padding:4px 8px; border:1px solid rgba(74,222,128,.25); border-radius:999px; color:#86efac; font-size:9px; }
+.facebook-exchange-grid { display:grid; grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr); gap:9px; }
+.facebook-exchange-grid label { display:grid; gap:5px; min-width:0; color:#aebbd0; font-size:9px; font-weight:700; }
+.facebook-exchange-grid .facebook-exchange-token { grid-column:1 / -1; }
+.facebook-exchange-grid .premium-input { width:100%; height:40px; margin:0; box-sizing:border-box; }
+.facebook-token-method > .premium-render-btn { width:100%; height:40px; margin:0; }
+.facebook-token-footnote { margin:11px 2px 0 !important; font-size:9px !important; line-height:1.5; }
 .facebook-token-row { display:grid; grid-template-columns:minmax(0,1fr) 190px; gap:9px; }
 .facebook-token-field { position:relative; min-width:0; }
 .facebook-token-field .premium-input { width:100%; height:42px; margin:0; padding-right:46px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
@@ -6002,5 +6015,6 @@ select option {
   .facebook-guide-flow-card:nth-child(2)::after { display:none; }
   .facebook-guide-detail-content { padding-left:16px; }
   .facebook-permission-grid,.facebook-guide-result-grid,.facebook-import-options { grid-template-columns:1fr; }
-  .facebook-token-row { grid-template-columns:1fr; }
+  .facebook-token-row,.facebook-token-method-list,.facebook-exchange-grid { grid-template-columns:1fr; }
+  .facebook-exchange-grid .facebook-exchange-token { grid-column:auto; }
 }
