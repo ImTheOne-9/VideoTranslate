@@ -135,6 +135,14 @@ const userSchema = new mongoose.Schema({
   affiliateCode: { type: String, default: null }, // Mã affiliate được gán cho user (không thay đổi sau khi set)
   failedLoginAttempts: { type: Number, default: 0 },  // Số lần đăng nhập sai liên tiếp
   lockUntil: { type: Date, default: null },            // Thời điểm mở khóa tài khoản (null = không bị khóa)
+  contactStatus: { 
+    type: String, 
+    enum: ['pending', 'contacted', 'no_answer', 'callback', 'closed', 'not_interested'], 
+    default: 'pending' 
+  },
+  contactNote: { type: String, default: '' },
+  contactedBy: { type: String, default: null },
+  contactedAt: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now }
 });
 const UserModel = mongoose.model('User', userSchema);
@@ -560,6 +568,10 @@ const DB = {
           passwordChangedAt: user.passwordChangedAt || null,
           failedLoginAttempts: user.failedLoginAttempts || 0,
           lockUntil: user.lockUntil || null,
+          contactStatus: user.contactStatus || 'pending',
+          contactNote: user.contactNote || '',
+          contactedBy: user.contactedBy || null,
+          contactedAt: user.contactedAt || null,
           createdAt: user.createdAt,
           save: async function() {
             const dbData = readJSON();
@@ -586,6 +598,10 @@ const DB = {
                 passwordChangedAt: this.passwordChangedAt,
                 failedLoginAttempts: this.failedLoginAttempts || 0,
                 lockUntil: this.lockUntil || null,
+                contactStatus: this.contactStatus || 'pending',
+                contactNote: this.contactNote !== undefined ? this.contactNote : '',
+                contactedBy: this.contactedBy || null,
+                contactedAt: this.contactedAt || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -653,6 +669,10 @@ const DB = {
           passwordChangedAt: user.passwordChangedAt || null,
           failedLoginAttempts: user.failedLoginAttempts || 0,
           lockUntil: user.lockUntil || null,
+          contactStatus: user.contactStatus || 'pending',
+          contactNote: user.contactNote || '',
+          contactedBy: user.contactedBy || null,
+          contactedAt: user.contactedAt || null,
           createdAt: user.createdAt,
           save: async function() {
             const dbData = readJSON();
@@ -679,6 +699,10 @@ const DB = {
                 passwordChangedAt: this.passwordChangedAt,
                 failedLoginAttempts: this.failedLoginAttempts || 0,
                 lockUntil: this.lockUntil || null,
+                contactStatus: this.contactStatus || 'pending',
+                contactNote: this.contactNote !== undefined ? this.contactNote : '',
+                contactedBy: this.contactedBy || null,
+                contactedAt: this.contactedAt || null,
                 createdAt: this.createdAt
               };
               await writeJSON(dbData);
@@ -707,7 +731,11 @@ const DB = {
           verificationToken: data.verificationToken || null,
           verificationExpires: data.verificationExpires || null,
           registrationMetaEventId: data.registrationMetaEventId || null,
-          registrationAttribution: data.registrationAttribution || {}
+          registrationAttribution: data.registrationAttribution || {},
+          contactStatus: data.contactStatus || 'pending',
+          contactNote: data.contactNote || '',
+          contactedBy: data.contactedBy || null,
+          contactedAt: data.contactedAt || null
         });
         return await user.save();
       } else {
@@ -728,6 +756,10 @@ const DB = {
           verificationExpires: data.verificationExpires || null,
           registrationMetaEventId: data.registrationMetaEventId || null,
           registrationAttribution: data.registrationAttribution || {},
+          contactStatus: data.contactStatus || 'pending',
+          contactNote: data.contactNote || '',
+          contactedBy: data.contactedBy || null,
+          contactedAt: data.contactedAt || null,
           createdAt: new Date().toISOString()
         };
         db.users.push(newUser);
@@ -3873,12 +3905,13 @@ app.get('/api/admin/keys', adminAuth, async (req, res) => {
   }
 });
 
-// API lấy danh sách Users có phân trang & tìm kiếm (Admin)
+// API lấy danh sách Users có phân trang & tìm kiếm & lọc liên lạc (Admin & Sale)
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
+    const contactStatus = req.query.contactStatus || 'all';
 
     let users = [];
     let totalItems = 0;
@@ -3895,15 +3928,33 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
       memberCount = totalUsers - adminCount;
 
       // Build Query
-      const query = {};
+      const andConditions = [];
       if (search) {
         const searchRegex = new RegExp(search.trim(), 'i');
-        query.$or = [
-          { fullName: searchRegex },
-          { email: searchRegex },
-          { phoneNumber: searchRegex }
-        ];
+        andConditions.push({
+          $or: [
+            { fullName: searchRegex },
+            { email: searchRegex },
+            { phoneNumber: searchRegex }
+          ]
+        });
       }
+
+      if (contactStatus && contactStatus !== 'all') {
+        if (contactStatus === 'pending') {
+          andConditions.push({
+            $or: [
+              { contactStatus: 'pending' },
+              { contactStatus: null },
+              { contactStatus: { $exists: false } }
+            ]
+          });
+        } else {
+          andConditions.push({ contactStatus });
+        }
+      }
+
+      const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
       totalItems = await UserModel.countDocuments(query);
       users = await UserModel.find(query)
@@ -3933,6 +3984,14 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
         });
       }
 
+      if (contactStatus && contactStatus !== 'all') {
+        if (contactStatus === 'pending') {
+          filtered = filtered.filter(u => !u.contactStatus || u.contactStatus === 'pending');
+        } else {
+          filtered = filtered.filter(u => u.contactStatus === contactStatus);
+        }
+      }
+
       filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       totalItems = filtered.length;
       users = filtered.slice((page - 1) * limit, page * limit);
@@ -3949,6 +4008,10 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
       role: u.role || 'user',
       avatar: u.avatar || null,
       isVerified: u.isVerified || false,
+      contactStatus: u.contactStatus || 'pending',
+      contactNote: u.contactNote || '',
+      contactedBy: u.contactedBy || null,
+      contactedAt: u.contactedAt || null,
       createdAt: u.createdAt || null
     }));
 
@@ -3973,9 +4036,53 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
   }
 });
 
+// API cập nhật trạng thái & ghi chú liên lạc khách hàng (Cả Admin và Sale đều dùng được)
+app.post('/api/admin/update-user-contact', adminAuth, async (req, res) => {
+  const { email, contactStatus, contactNote } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Thiếu email người dùng cần cập nhật liên lạc!' });
+  }
+
+  const validStatuses = ['pending', 'contacted', 'no_answer', 'callback', 'closed', 'not_interested'];
+  if (contactStatus && !validStatuses.includes(contactStatus)) {
+    return res.status(400).json({ error: 'Trạng thái liên lạc không hợp lệ!' });
+  }
+
+  try {
+    const user = await DB.users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng này!' });
+    }
+
+    const actorName = req.adminUser ? `${req.adminUser.fullName || req.adminUser.email} (${req.adminUser.role === 'admin' ? 'Admin' : 'Sale'})` : 'Admin';
+    const now = new Date();
+
+    if (contactStatus !== undefined) user.contactStatus = contactStatus;
+    if (contactNote !== undefined) user.contactNote = String(contactNote).trim();
+    user.contactedBy = actorName;
+    user.contactedAt = now;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Cập nhật ghi chú liên lạc thành công!',
+      user: {
+        email: user.email,
+        contactStatus: user.contactStatus,
+        contactNote: user.contactNote,
+        contactedBy: user.contactedBy,
+        contactedAt: user.contactedAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi cập nhật ghi chú liên lạc: ' + err.message });
+  }
+});
+
 // API cập nhật thông tin người dùng (Admin - Sửa thành viên)
 app.post('/api/admin/update-user', adminOnlyAuth, async (req, res) => {
-  const { email, fullName, phoneNumber, isVerified, role, registrationIp, registrationHwid, deviceHwid } = req.body;
+  const { email, fullName, phoneNumber, isVerified, role, registrationIp, registrationHwid, deviceHwid, contactStatus, contactNote } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Thiếu email người dùng cần cập nhật!' });
   }
@@ -4005,6 +4112,20 @@ app.post('/api/admin/update-user', adminOnlyAuth, async (req, res) => {
     if (registrationHwid !== undefined) user.registrationHwid = String(registrationHwid).trim() || null;
     if (deviceHwid !== undefined) user.deviceHwid = String(deviceHwid).trim() || null;
 
+    if (contactStatus !== undefined) {
+      const validStatuses = ['pending', 'contacted', 'no_answer', 'callback', 'closed', 'not_interested'];
+      if (validStatuses.includes(contactStatus)) {
+        user.contactStatus = contactStatus;
+      }
+    }
+    if (contactNote !== undefined) {
+      user.contactNote = String(contactNote).trim();
+    }
+    if (contactStatus !== undefined || contactNote !== undefined) {
+      user.contactedBy = req.adminUser ? `${req.adminUser.fullName || req.adminUser.email} (${req.adminUser.role === 'admin' ? 'Admin' : 'Sale'})` : 'Admin';
+      user.contactedAt = new Date();
+    }
+
     await user.save();
 
     res.json({
@@ -4018,7 +4139,11 @@ app.post('/api/admin/update-user', adminOnlyAuth, async (req, res) => {
         isVerified: user.isVerified || false,
         registrationIp: user.registrationIp || null,
         registrationHwid: user.registrationHwid || null,
-        deviceHwid: user.deviceHwid || null
+        deviceHwid: user.deviceHwid || null,
+        contactStatus: user.contactStatus || 'pending',
+        contactNote: user.contactNote || '',
+        contactedBy: user.contactedBy || null,
+        contactedAt: user.contactedAt || null
       }
     });
   } catch (err) {
