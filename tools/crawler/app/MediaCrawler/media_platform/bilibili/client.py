@@ -31,12 +31,12 @@ from urllib.parse import urlencode
 import httpx
 from playwright.async_api import BrowserContext, Page
 from tools.httpx_util import make_async_client
+from tools.tien_do_tai import TienDo as _TienDo   # tiến độ tải video (19/08/2026) — xem file đó
 
 import config
 from base.base_crawler import AbstractApiClient
 from proxy.proxy_mixin import ProxyRefreshMixin
 from tools import utils
-from tools.tien_do_tai import TienDo as _TienDo
 
 if TYPE_CHECKING:
     from proxy.proxy_ip_pool import ProxyIpPool
@@ -239,23 +239,47 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
                   "page_num": page_num, "page_size": page_size}
         return await self.get(uri, params, enable_params_sign=False)
 
-    async def get_video_play_url(self, aid: int, cid: int) -> Dict:
+    async def get_video_play_url(self, aid: int, cid: int, fnval: Optional[int] = None) -> Dict:
         """
         Bilibli web video play url api
         :param aid: Video aid
         :param cid: cid
+        :param fnval: ép cứng trường bit `fnval` (None = theo env/mặc định 4048). `1` = xin bản MP4
+                      GỘP SẴN — core.py dùng khi nhánh DASH ghép không xong (xem `durl_list` ở đó).
         :return:
         """
         if not aid or not cid or aid <= 0 or cid <= 0:
             raise ValueError("aid and cid must exist")
         uri = "/x/player/wbi/playurl"
-        qn_value = getattr(config, "BILI_QN", 80)
+        # 🔵 CHẤT LƯỢNG (28/08/2026 — chủ dự án: "cào chất lượng nhất").
+        # `fnval` là TRƯỜNG BIT (tài liệu bilibili-API-collect): 1=MP4 gộp sẵn · 16=DASH ·
+        # 4048 = 16|64|128|256|512|1024|2048 = DASH + 4K + HDR + Dolby + 8K.
+        # 🔴 `fnval=1` là TRẦN THẬT, KHÔNG phải do mất phiên — ĐO 28/08 trên CÙNG video, CÙNG phiên
+        # đăng nhập (aid=691055564):
+        #     fnval=1     → liệt kê CHỈ "720P, 360P"                    · quality = 64  (720p)
+        #     fnval=4048  → liệt kê "4K, 1080P+, 1080P, 720P, 480P..."  · quality = 80  (1080p)
+        # ⚠ Tuỳ TỪNG video: có video vẫn có sẵn MP4 1080p nên `fnval=1` ra 80 — đo MỘT video là
+        #   kết luận sai (tôi đã vấp đúng thế). Đo 20 video qua tìm kiếm thật: **17/20 = 85% được
+        #   NÂNG** (chủ yếu 720→1080), 3 giữ nguyên, **0 tệ đi**.
+        # Repo GỐC (NanmiCoder/MediaCrawler) cũng để `fnval:1` và cũng không xử lý `dash` — đây là
+        # giới hạn từ thượng nguồn, không phải bản fork làm hỏng.
+        # Về hành vi cũ: BILI_FNVAL=1 (khi đó `core.py` tự lùi nhánh durl vì không có `dash`).
+        qn_value = int(os.environ.get("BILI_QN") or getattr(config, "BILI_QN", 120))
+        if fnval is not None:
+            # Người gọi ép cứng (core.py xin lại `fnval=1` khi nhánh DASH ghép không xong). KHÔNG dùng
+            # env để ép: hai video tải NỀN song song (`MC_DL_CONCURRENCY`) sẽ giẫm lên nhau.
+            _fnval = int(fnval)
+        else:
+            try:
+                _fnval = int(os.environ.get("BILI_FNVAL") or 4048)
+            except ValueError:
+                _fnval = 4048
         params = {
             "avid": aid,
             "cid": cid,
             "qn": qn_value,
             "fourk": 1,
-            "fnval": 1,
+            "fnval": _fnval,
             "platform": "pc",
         }
 
@@ -271,7 +295,29 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
         # khi lỗi liên tiếp) — ĐƠN GIẢN hơn bản cũ (không còn khái niệm "khối 8/32MB" + "lượt phục hồi 3 vòng
         # concurrency giảm dần", chỉ N đoạn cố định theo CONCUR, mỗi đoạn tự retry tới cùng).
         url_candidates = [url] + [u for u in (backup_urls or []) if u and u != url]
-        CONCUR = 4
+        # 🚀 ƯU TIÊN MIRROR NHANH (14/09/2026). playurl trả nhiều mirror; `baseUrl` thường là
+        # `akamaized.net` — ĐO THẬT trên line VN: chậm ~1.7–2× so với mirror `bilivideo.com`
+        # (akamaized route US, thiếu node nội địa; cộng đồng BBDown + yt-dlp#14498/#10849 xác nhận).
+        # TRƯỚC ĐÂY chỉ đụng backup KHI baseUrl LỖI, không bao giờ vì TỐC ĐỘ ⇒ luôn kẹt mirror chậm.
+        # Nay xếp lại: bilivideo.com TRƯỚC, akamaized SAU (VẪN giữ làm fallback — sort ỔN ĐỊNH nên
+        # trong cùng hạng giữ thứ tự gốc). Tắt: MC_BILI_MIRROR_GIU=1 (giữ thứ tự gốc của Bilibili).
+        if os.environ.get("MC_BILI_MIRROR_GIU") != "1" and len(url_candidates) > 1:
+            def _mirror_uu_tien(_u):
+                _h = (_u.split("/", 3)[2] if "://" in _u else "").lower()
+                if "bilivideo.com" in _h:
+                    return 0          # nhanh nhất (đo ~1.7–2×)
+                if "akamaized" in _h:
+                    return 2          # chậm nhất → chỉ fallback
+                return 1              # mcdn/PCDN/khác → giữa
+            url_candidates.sort(key=_mirror_uu_tien)
+        # SỐ KẾT NỐI SONG SONG. CDN akamaized bóp ~băng thông MỖI kết nối (đo: 1 kết nối ~0.1MB/s,
+        # 4 kết nối ~4× — tuyến tính) ⇒ đây là ĐÒN BẨY tốc độ chính. Mặc định 4 (giữ hành vi cũ);
+        # nâng qua env MC_BILI_CONCUR để đo/tăng. Kẹp [1,32]: quá nhiều → Akamai chặn per-IP (429) →
+        # CHẬM hơn. Trần thật = min(băng thông đường truyền, ngưỡng per-IP của Akamai).
+        try:
+            CONCUR = max(1, min(32, int(os.environ.get("MC_BILI_CONCUR") or 4)))
+        except ValueError:
+            CONCUR = 4
         base_headers = {
             "User-Agent": self.headers.get("User-Agent", ""),
             "Referer": "https://www.bilibili.com",
@@ -300,12 +346,19 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
             # đứt-nhưng-nhận-thêm-được-vài-MB là ĐANG TIẾN, phạt nó là tự bóp cổ mình: đo thật (server cắt 50%
             # số request) cho thấy đếm-tổng-số-lần làm đoạn 8MB chết ở lần 3 dù đã gom được 5/8MB và vẫn đang lên.
             # Chỉ bỏ cuộc khi N lần LIÊN TIẾP không nhích thêm byte nào. `_tran` chặn lặp vô hạn.
-            _max_ke = max(3, len(url_candidates) * 3)
+            # 🔴 12/09/2026 — NGÂN SÁCH RIÊNG CHO ĐOẠN DÒ. Ca khách (log 10:45→10:49, máy PC_DELL):
+            #   luồng TIẾNG của DASH thử lại ~12 lần, lần nào cũng tải hết 1MB rồi MẤT TRẮNG ⇒ đốt ~4 PHÚT
+            #   không tiến được byte nào, rồi mới lùi sang bản MP4 gộp sẵn — mà bản đó tải xong trong 1 phút.
+            #   Đoạn DÒ không lấy nổi sau vài lần thì URL này hỏng, và người gọi ĐÃ CÓ đường lùi
+            #   (`_tai_dash_bili` → `durl`/`fnval=1`). Chỉ hạ ngân sách cho ĐOẠN DÒ; các đoạn giữa chừng
+            #   GIỮ NGUYÊN vì ở đó resume thật sự cứu được (video 1,57GB của khách 29/07).
+            _la_do = (rng_start == 0 and _can == _probe_len)
+            _max_ke = 4 if _la_do else max(3, len(url_candidates) * 3)
+            _bo_range = 0        # số lần server PHỚT LỜ `Range` khi ta xin tải tiếp từ chỗ dở
             _khong_tien = 0
             _lan = 0
             _tran = 200
-            progress = _TienDo(url[-24:], doan=str(rng_start), tong=(_can or 0))
-            while _khong_tien < _max_ke and _lan < _tran:
+            while _khong_tien < _max_ke and _lan < _tran and _bo_range < 2:
                 _lan += 1
                 _truoc = len(buf)
                 cur_start = rng_start + len(buf)          # RESUME: tiếp tục từ chỗ ĐÃ nhận được
@@ -322,7 +375,17 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
                                 if resp.status_code == 200 and cur_start > rng_start:
                                     # Server BỎ QUA Range → trả từ byte 0, KHÔNG nối tiếp được với buf đang có
                                     # (nối vào là hỏng file). Bỏ phần đã nhận, vòng sau tải lại từ đầu đoạn.
+                                    # 🔴 12/09/2026 — ĐẾM rồi BỎ CUỘC. Gặp 2 lần nghĩa là host này KHÔNG hỗ
+                                    #   trợ tải tiếp: thử thêm chỉ tốn băng thông và thời gian, KHÔNG BAO GIỜ
+                                    #   xong. Vòng `while` ở trên thoát khi `_bo_range >= 2`.
                                     buf.clear()
+                                    _bo_range += 1
+                                    if _bo_range == 1:
+                                        try:
+                                            print("LOG:⚠ Máy chủ này không cho tải tiếp từ chỗ dở — đứt là "
+                                                  "mất cả đoạn. Đang chuyển sang cách tải khác…", flush=True)
+                                        except Exception:
+                                            pass
                                     raise httpx.HTTPError("server bỏ qua Range khi resume")
                                 if total is None:
                                     cr = resp.headers.get("content-range", "")   # "bytes 0-X/TỔNG"
@@ -333,11 +396,20 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
                                             pass
                                     elif resp.status_code == 200:                # server bỏ qua Range -> cả file
                                         total = int(resp.headers.get("content-length") or 0) or None
-                                async for _c in resp.aiter_bytes():
-                                    buf.extend(_c)          # GIỮ được kể cả khi đứt giữa chừng
-                                    progress.dat_da(len(buf))
+                                # 19/08/2026 — TIẾN ĐỘ TẢI (tools/tien_do_tai.py). Khoá theo `url` GỐC (không
+                                # phải `url_candidates[url_i]`): mỗi đoạn có thể đang dùng MIRROR khác nhau, lấy
+                                # url đang tải làm khoá thì 1 video bị đếm thành nhiều. `doan=rng_start` để 4
+                                # đoạn song song là 4 mục riêng nhưng vẫn gộp về CÙNG một video khi in.
+                                # Báo TUYỆT ĐỐI `len(buf)`: nhánh "server bỏ qua Range" ở trên có `buf.clear()`.
+                                _td = _TienDo(url[-24:], doan=str(rng_start), tong=(_can or 0),
+                                                              tong_file=(total or 0))   # tổng THẬT của file
+                                try:
+                                    async for _c in resp.aiter_bytes():
+                                        buf.extend(_c)      # GIỮ được kể cả khi đứt giữa chừng
+                                        _td.dat_da(len(buf))
+                                finally:
+                                    _td.dong()
                                 if _can is None or len(buf) >= _can:
-                                    progress.dong()
                                     return bytes(buf), total
                                 # EOF SỚM mà không ném lỗi (nhận thiếu) → vòng sau resume tiếp phần còn lại.
                                 utils.logger.warning(f"[BilibiliClient.get_video_media] nhận THIẾU đoạn @{rng_start//1048576}MB "
@@ -385,9 +457,7 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
                     else:
                         await asyncio.sleep(1.5)   # tịt hẳn → nghỉ lâu hơn cho CDN nguôi
             if _can is not None and len(buf) >= _can:
-                progress.dong()
                 return bytes(buf), total       # gom đủ qua nhiều lần resume
-            progress.dong()
             return None, total
 
         # Đoạn ĐẦU tải riêng (không song song) để biết total_size trước khi chia CONCUR đoạn còn lại.

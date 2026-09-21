@@ -7,6 +7,7 @@ const {
   docTm,
   tyLeHan,
   nhipTuDich,
+  normalizeSubtitleSourceKind,
   tranTuDich,
   slotGiay,
   buildPrompt,
@@ -234,6 +235,29 @@ test('Gemini translation reuses the persistent login profile', (t) => {
   const translationDir = getGeminiTranslationProfileDir();
   assert.equal(getGeminiProfileDir(), loginDir);
   assert.equal(translationDir, loginDir);
+});
+
+test('Gemini Web prompt applies source-specific OCR and ASR recovery rules', () => {
+  const items = [
+    { id: 1, timestamp: '00:00:01,000 --> 00:00:03,000', text: '频道' }
+  ];
+  const asr = buildPrompt(items, '', 'vi', false, 'translate', { sourceKind: 'whisper' });
+  const ocr = buildPrompt(items, '', 'vi', false, 'translate', { sourceKind: 'ocr' });
+  const hybrid = buildPrompt(items, '', 'vi', false, 'translate', { sourceKind: 'hybrid' });
+
+  assert.equal(normalizeSubtitleSourceKind('capcut-asr'), 'asr');
+  assert.equal(normalizeSubtitleSourceKind('upload'), 'user-subtitle');
+  assert.match(asr, /NGHE NHẦM ĐỒNG ÂM/);
+  assert.match(asr, /贫道 \(bần đạo\) thành 频道/);
+  assert.doesNotMatch(asr, /XỬ LÝ LỖI OCR BẢN GỐC/);
+  assert.match(ocr, /XỬ LÝ LỖI OCR BẢN GỐC/);
+  assert.doesNotMatch(ocr, /贫道 \(bần đạo\) thành 频道/);
+  assert.match(hybrid, /XỬ LÝ LỖI OCR BẢN GỐC/);
+  assert.match(hybrid, /NGHE NHẦM ĐỒNG ÂM/);
+  assert.match(hybrid, /万 = 10 nghìn/);
+  assert.match(hybrid, /华为 → Huawei/);
+  assert.match(hybrid, /không miễn phí/);
+  assert.match(hybrid, /CHẤM CÂU THEO MẠCH/);
 });
 
 test('Vietnamese dubbing keeps duration guidance without the unreliable numeric word cap', () => {

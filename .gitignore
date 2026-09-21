@@ -33,6 +33,10 @@ tools/crawler/app/*
 !tools/crawler/app/capcut_voice_catalog.json
 !tools/crawler/app/whisper_cuda_runtime.py
 !tools/crawler/app/tai_ytdlp.py
+!tools/crawler/app/tiktok_series.py
+!tools/crawler/app/tai_honggo.py
+!tools/crawler/app/yt_goi_y.py
+!tools/crawler/app/bili_goi_y.py
 !tools/crawler/app/tim_anh.py
 !tools/crawler/app/mo_dang_nhap.py
 !tools/crawler/app/kiem_tra_login.py
@@ -56,6 +60,10 @@ tools/crawler/app/MediaCrawler/media_platform/*
 !tools/crawler/app/MediaCrawler/media_platform/douyin/
 tools/crawler/app/MediaCrawler/media_platform/douyin/*
 !tools/crawler/app/MediaCrawler/media_platform/douyin/client.py
+!tools/crawler/app/MediaCrawler/media_platform/douyin/core.py
+!tools/crawler/app/MediaCrawler/media_platform/kuaishou/
+tools/crawler/app/MediaCrawler/media_platform/kuaishou/*
+!tools/crawler/app/MediaCrawler/media_platform/kuaishou/core.py
 !tools/crawler/app/MediaCrawler/media_platform/bilibili/
 tools/crawler/app/MediaCrawler/media_platform/bilibili/*
 !tools/crawler/app/MediaCrawler/media_platform/bilibili/client.py
@@ -109,3 +117,5 @@ temp/
 cookies/
 
 render-jobs
+
+!tools/crawler/app/youtube_session.py

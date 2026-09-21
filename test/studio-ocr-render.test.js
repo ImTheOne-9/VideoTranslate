@@ -677,6 +677,47 @@ test('valid resume prepares the task and triggers queue processing exactly once'
   assert.equal(state.renderQueue.length, 1);
 });
 
+test('source subtitle approval resumes from the completed recognition checkpoint', async () => {
+  await withTempDir('source-review-approve-', async (directory) => {
+    const sourcePath = path.join(directory, 'timeline-normalized.srt');
+    fs.writeFileSync(sourcePath, '1\n00:00:00,000 --> 00:00:01,000\n第一句\n', 'utf8');
+    const task = {
+      id: 'source-review',
+      status: 'waiting_input',
+      actionRequired: 'source_subtitle_review',
+      workDir: directory,
+      body: {},
+      sourceSubtitleReview: {
+        path: sourcePath,
+        fileName: 'source-review-source.srt',
+        cueCount: 1
+      }
+    };
+    let processCalls = 0;
+    const handlers = createQueueHandlers(createQueueState([task]), {
+      existsSync: fs.existsSync,
+      processNextRenderTask: () => {
+        processCalls += 1;
+        return Promise.resolve();
+      }
+    });
+    const response = createResponse();
+
+    await handlers.approveSourceSubtitle({
+      params: { taskId: task.id },
+      body: {},
+      file: null
+    }, response);
+
+    assert.deepEqual(response.jsonCalls, [{ success: true, taskId: task.id, edited: false }]);
+    assert.equal(task.status, 'pending');
+    assert.equal(task.actionRequired, null);
+    assert.equal(task.sourceSubtitleReviewApproved, true);
+    assert.ok(task.sourceSubtitleReview.approvedAt);
+    assert.equal(processCalls, 1);
+  });
+});
+
 test('checkpoint resume merges current AI credentials and keeps completed stages', async () => {
   const task = {
     id: 'checkpoint-resume',
@@ -926,6 +967,22 @@ test('large render function persists source before work and delegates only gener
   assert.match(executeSource, /error\.code = 'SUBTITLE_COVERAGE_INCOMPLETE'/);
 });
 
+test('source subtitle review pauses before translation without becoming an error', () => {
+  const error = Object.assign(new Error('SRT ready'), { code: 'SOURCE_SUBTITLE_REVIEW_REQUIRED' });
+  const task = { id: 'task-source-review', status: 'rendering', percent: 30, step: 'SRT', error: null };
+  const state = createQueueState([task]);
+  state.currentActiveTask = task;
+  state.isStudioRendering = true;
+  state.activeRenderId = task.id;
+
+  assert.equal(applyRenderTaskFailure(task, error, state), 'waiting_input');
+  assert.equal(task.status, 'waiting_input');
+  assert.equal(task.actionRequired, 'source_subtitle_review');
+  assert.equal(task.error, null);
+  assert.equal(task.percent, 34);
+  assert.equal(state.isStudioRendering, false);
+});
+
 test('suspicious OCR coverage waits for an explicit Whisper fallback', () => {
   const error = Object.assign(new Error('OCR chỉ phủ 42% video'), {
     code: 'SUBTITLE_COVERAGE_INCOMPLETE'
@@ -958,4 +1015,12 @@ test('server registers the exact resume route while preserving existing queue ro
     "app.post('/api/clear-queue', studioController.clearQueue);",
     "app.post('/api/cancel-render', studioController.cancelRender);"
   ]);
+  assert.match(
+    source,
+    /app\.get\('\/api\/render-tasks\/:taskId\/source-subtitle', studioController\.downloadSourceSubtitle\);/
+  );
+  assert.match(
+    source,
+    /app\.post\('\/api\/render-tasks\/:taskId\/source-subtitle\/approve',\s*studioUpload\.single\('subtitle'\), studioController\.approveSourceSubtitle\);/
+  );
 });

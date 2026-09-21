@@ -258,6 +258,10 @@ test('XHS selected links use browser-first tai_links instead of MediaCrawler det
     let call;
     adapter._run = async (script, args, options) => {
       call = { script, args, options };
+      const out = args[args.indexOf('--out-dir') + 1];
+      if (args.includes('--links-file')) call.links = fs.readFileSync(args[args.indexOf('--links-file') + 1], 'utf8');
+      const bytes = Buffer.alloc(110 * 1024); bytes.write('ftyp', 4);
+      fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'abc.mp4'), bytes);
       return { stdout: '{"ok":true,"tai":["abc"],"loi":[]}\n' };
     };
     const result = await adapter.crawl({
@@ -266,7 +270,10 @@ test('XHS selected links use browser-first tai_links instead of MediaCrawler det
     });
     assert.equal(path.basename(call.script), 'xhs_browser.py');
     assert.ok(call.args.includes('tai_links'));
-    assert.ok(call.args.some((value) => value.includes('xsec_token=token')));
+    assert.match(call.links, /xsec_token=token/);
+    assert.equal(call.args[call.args.indexOf('--headless') + 1], /^(1|yes|true)$/i.test(String(process.env.XHS_HEADLESS || '').trim()) ? 'yes' : 'no');
+    assert.ok(call.args.includes('--profile'));
+    assert.equal(fs.existsSync(call.args[call.args.indexOf('--links-file') + 1]), false);
     assert.equal(result.completedVideos, 1);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -366,6 +373,74 @@ test('legacy bilibili archive migrates into the canonical bili directory', () =>
       ['old', 'new']
     );
     assert.equal(fs.existsSync(path.join(directory, 'bilibili')), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('XHS zero downloads retain the actual failure reason and remove the temporary links file', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-failure-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({ userRoot: path.join(directory, 'user') });
+    let linksFile;
+    adapter._run = async (script, args) => {
+      linksFile = args[args.indexOf('--links-file') + 1];
+      assert.ok(fs.existsSync(linksFile));
+      return { stdout: JSON.stringify({ ok: false, tom_tat: { tuong_login: 1 }, msg: 'Tải 0/1 video XHS/RedNote (theo link đã chọn)' }) };
+    };
+    await assert.rejects(adapter.crawl({ platform: 'rednote', mode: 'detail', input: 'https://www.rednote.com/explore/abc?xsec_token=token', outputDir: directory }), (error) => error.reason === 'login_expired');
+    assert.equal(fs.existsSync(linksFile), false);
+    adapter._run = async () => { throw new Error('spawn failed'); };
+    await assert.rejects(adapter.crawl({ platform: 'rednote', mode: 'detail', input: 'https://www.rednote.com/explore/abc?xsec_token=token', outputDir: directory }), /spawn failed/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('RedNote tokenless article reaches the browser and keeps the actual page failure', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-tokenless-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({ userRoot: path.join(directory, 'user') });
+    const url = 'https://www.rednote.com/discovery/item/69b7dcb8000000001a030547?source=webshare&xsec_source=pc_share';
+    let invoked = false;
+    adapter._run = async (script, args) => {
+      invoked = true;
+      assert.equal(fs.readFileSync(args[args.indexOf('--links-file') + 1], 'utf8'), url);
+      return { stdout: JSON.stringify({ ok: false, tom_tat: { token_het: 1 }, msg: 'Bài không truy cập được hoặc mã truy cập đã hết hạn' }) };
+    };
+    await assert.rejects(adapter.crawl({ platform: 'rednote', mode: 'detail', input: url, outputDir: directory }), (error) => error.reason === 'access_token_expired');
+    assert.equal(invoked, true);
+    invoked = false;
+    await assert.rejects(adapter.crawl({ platform: 'rednote', mode: 'detail', input: 'https://example.com/discovery/item/abc', outputDir: directory }), (error) => error.reason === 'invalid_link');
+    assert.equal(invoked, false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('RedNote detail preview preserves original share URLs for final and streamed selections', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-preview-origin-'));
+  try {
+    const adapter = new MediaCrawlerAdapter({ userRoot: path.join(directory, 'user'), dataDir: directory });
+    const id = '6a588e28000000000f00a55f';
+    const original = `https://www.rednote.com/discovery/item/${id}?source=webshare`;
+    const metadata = { id, url: `https://www.xiaohongshu.com/explore/${id}?xsec_token=None&xsec_source=pc_search`, loai: 'video' };
+    adapter._run = async (script, args, options) => {
+      options.onLog(`PREVIEW_ITEM ${JSON.stringify(metadata)}`);
+      return { stdout: JSON.stringify({ ok: true, items: [metadata] }) };
+    };
+    const streamed = [];
+    const items = await adapter.preview({ platform: 'rednote', mode: 'detail', input: original, count: 1, onItem: (item) => streamed.push(item) });
+    assert.equal(items[0].sourceUrl, original);
+    assert.equal(items[0].url, original);
+    assert.equal(streamed[0].sourceUrl, original);
+    const search = await adapter.preview({ platform: 'rednote', mode: 'search', input: 'demo', count: 1 });
+    const url = new URL(search[0].sourceUrl);
+    assert.equal(url.hostname, 'www.rednote.com');
+    assert.equal(url.searchParams.has('xsec_token'), false);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

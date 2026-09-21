@@ -1,6 +1,6 @@
 # Facebook upload: vận hành và kiểm thử
 
-Phạm vi bản sửa upload: adapter, hàng đợi, kiểm tra media, trạng thái trên giao diện và chống gửi trùng yêu cầu tạo tác vụ. Bản cập nhật tiếp theo chuyển OAuth và App Secret sang backend; xem [cấu hình OAuth trên Render](facebook-oauth-backend.md). Token Page đã lưu và phiên bản API đang cấu hình được giữ nguyên.
+Phạm vi đăng Facebook: adapter, hàng đợi, kiểm tra media, trạng thái trên giao diện và chống gửi trùng. Người dùng tự tạo Facebook App và cung cấp token; xem [hướng dẫn Facebook App riêng](facebook-manual-app.md). Token Page được mã hóa trên máy và phiên bản API đang cấu hình được giữ nguyên.
 
 ## Luồng xử lý
 

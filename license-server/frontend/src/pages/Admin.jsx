@@ -1,6 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home, Eye, EyeOff, Link2, ToggleLeft, ToggleRight, BarChart3, ShoppingBag, BadgePercent, ExternalLink, ChevronUp, ChevronDown, RefreshCcw, Shield, Unlock, Filter } from 'lucide-react';
+import { Lock, Key, X, ShieldCheck, KeyRound, CheckCircle, AlertTriangle, Clock, Search, PlusCircle, Loader2, Copy, ArrowRight, Power, Plus, Users, UserCheck, UserX, Trash2, User, Settings, Layers, Edit2, CreditCard, Banknote, TrendingUp, Home, Eye, EyeOff, Link2, ToggleLeft, ToggleRight, BarChart3, ShoppingBag, BadgePercent, ExternalLink, ChevronUp, ChevronDown, RefreshCcw, Shield, Unlock, Filter, PhoneCall, PhoneOff, CalendarClock, Ban, NotebookPen, MessageSquare } from 'lucide-react';
+
+const CONTACT_STATUS_CONFIG = {
+  pending: {
+    label: 'Chưa liên lạc',
+    badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    dotClass: 'bg-amber-400',
+    icon: Clock
+  },
+  contacted: {
+    label: 'Đã liên lạc',
+    badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    dotClass: 'bg-emerald-400',
+    icon: CheckCircle
+  },
+  no_answer: {
+    label: 'Không nghe máy',
+    badgeClass: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+    dotClass: 'bg-rose-400',
+    icon: PhoneOff
+  },
+  callback: {
+    label: 'Hẹn gọi lại',
+    badgeClass: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    dotClass: 'bg-purple-400',
+    icon: CalendarClock
+  },
+  closed: {
+    label: 'Đã chốt gói',
+    badgeClass: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    dotClass: 'bg-blue-400',
+    icon: ShieldCheck
+  },
+  not_interested: {
+    label: 'Không nhu cầu',
+    badgeClass: 'bg-zinc-700/30 text-zinc-400 border-zinc-700/50',
+    dotClass: 'bg-zinc-500',
+    icon: Ban
+  }
+};
 
 export default function Admin({ showToast }) {
   const [adminUser, setAdminUser] = useState(null);
@@ -30,11 +69,19 @@ export default function Admin({ showToast }) {
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearchText, setUserSearchText] = useState('');
+  const [userContactFilter, setUserContactFilter] = useState('all');
 
   // Users pagination states
   const [userPage, setUserPage] = useState(1);
   const [totalUserPages, setTotalUserPages] = useState(1);
   const [totalUserItems, setTotalUserItems] = useState(0);
+
+  // Contact Note Modal states (Admin & Sale)
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [selectedUserForContact, setSelectedUserForContact] = useState(null);
+  const [contactStatusInput, setContactStatusInput] = useState('pending');
+  const [contactNoteInput, setContactNoteInput] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
 
   // Stats overview states
   const [stats, setStats] = useState({ total: 0, active: 0, suspended: 0, expired: 0 });
@@ -84,6 +131,8 @@ export default function Admin({ showToast }) {
   const [editIp, setEditIp] = useState('');
   const [editHwid, setEditHwid] = useState('');
   const [editDeviceHwid, setEditDeviceHwid] = useState('');
+  const [editContactStatus, setEditContactStatus] = useState('pending');
+  const [editContactNote, setEditContactNote] = useState('');
   const [savingUser, setSavingUser] = useState(false);
 
   // Password fields inside edit user modal
@@ -200,7 +249,7 @@ export default function Admin({ showToast }) {
     }
   }, [adminUser, userPage]);
 
-  // Reset users page to 1 when search text changes
+  // Reset users page to 1 when search text or contact filter changes
   useEffect(() => {
     if (adminUser) {
       if (userPage === 1) {
@@ -209,7 +258,7 @@ export default function Admin({ showToast }) {
         setUserPage(1);
       }
     }
-  }, [userSearchText]);
+  }, [userSearchText, userContactFilter]);
 
   // Fetch config when adminUser is set
   useEffect(() => {
@@ -553,7 +602,7 @@ export default function Admin({ showToast }) {
   const loadUsers = async () => {
     setLoadingUsers(true);
     try {
-      const res = await apiFetch(`/api/admin/users?page=${userPage}&limit=10&search=${encodeURIComponent(userSearchText)}`);
+      const res = await apiFetch(`/api/admin/users?page=${userPage}&limit=10&search=${encodeURIComponent(userSearchText)}&contactStatus=${encodeURIComponent(userContactFilter)}`);
 
       if (res.status === 401) {
         return; // Handled by loadKeys 401 check
@@ -809,6 +858,42 @@ export default function Admin({ showToast }) {
     }
   };
 
+  const handleOpenContactModal = (u) => {
+    setSelectedUserForContact(u);
+    setContactStatusInput(u.contactStatus || 'pending');
+    setContactNoteInput(u.contactNote || '');
+    setIsContactModalOpen(true);
+  };
+
+  const handleSaveContactModal = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedUserForContact) return;
+    setSavingContact(true);
+    try {
+      const res = await apiFetch('/api/admin/update-user-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: selectedUserForContact.email,
+          contactStatus: contactStatusInput,
+          contactNote: contactNoteInput
+        })
+      });
+      const data = await res.json();
+      if (res.status === 200 && data.success) {
+        showToast(data.message || 'Cập nhật ghi chú liên lạc thành công!');
+        setIsContactModalOpen(false);
+        await loadUsers();
+      } else {
+        showToast(data.error || 'Lỗi khi cập nhật liên lạc', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi kết nối: ' + err.message, 'error');
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
   const handleOpenUserEdit = (u) => {
     setEditUserEmail(u.email);
     setEditFullName(u.fullName || '');
@@ -818,6 +903,8 @@ export default function Admin({ showToast }) {
     setEditIp(u.registrationIp && u.registrationIp !== 'unknown' ? (u.registrationIp || '') : '');
     setEditHwid(u.registrationHwid || '');
     setEditDeviceHwid(u.deviceHwid || '');
+    setEditContactStatus(u.contactStatus || 'pending');
+    setEditContactNote(u.contactNote || '');
     // Reset password fields
     setEditNewPassword('');
     setEditConfirmPassword('');
@@ -866,7 +953,9 @@ export default function Admin({ showToast }) {
           role: editRole,
           registrationIp: editIp.trim(),
           registrationHwid: editHwid.trim(),
-          deviceHwid: editDeviceHwid.trim()
+          deviceHwid: editDeviceHwid.trim(),
+          contactStatus: editContactStatus,
+          contactNote: editContactNote
         })
       });
       const data = await res.json();
@@ -1511,9 +1600,30 @@ export default function Admin({ showToast }) {
                   className="w-full rounded-lg bg-zinc-900 border border-zinc-800 pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
+
+              {/* Contact Status Filter */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-400">
+                  <Filter className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+                  <span className="shrink-0">Liên lạc:</span>
+                  <select
+                    value={userContactFilter}
+                    onChange={(e) => setUserContactFilter(e.target.value)}
+                    className="bg-transparent text-white font-medium focus:outline-none cursor-pointer pr-1"
+                  >
+                    <option value="all" className="bg-zinc-900 text-white">Tất cả trạng thái</option>
+                    <option value="pending" className="bg-zinc-900 text-amber-400">🟡 Chưa liên lạc</option>
+                    <option value="contacted" className="bg-zinc-900 text-emerald-400">🟢 Đã liên lạc</option>
+                    <option value="no_answer" className="bg-zinc-900 text-rose-400">🔴 Không nghe máy</option>
+                    <option value="callback" className="bg-zinc-900 text-purple-400">🟣 Hẹn gọi lại</option>
+                    <option value="closed" className="bg-zinc-900 text-blue-400">🔵 Đã chốt gói</option>
+                    <option value="not_interested" className="bg-zinc-900 text-zinc-400">⚪ Không nhu cầu</option>
+                  </select>
+                </div>
+              </div>
               
               <div className="text-xs text-zinc-500">
-                Hiển thị <span className="font-bold text-zinc-350">{filteredUsers.length}</span> / {users.length} người dùng
+                Hiển thị <span className="font-bold text-zinc-350">{filteredUsers.length}</span> / {totalUserItems} người dùng
               </div>
             </div>
 
@@ -1524,6 +1634,7 @@ export default function Admin({ showToast }) {
                   <tr>
                     <th scope="col" className="px-6 py-4">Thành Viên</th>
                     <th scope="col" className="px-6 py-4">Số Điện Thoại</th>
+                    <th scope="col" className="px-6 py-4">Liên Lạc / Ghi Chú</th>
                     <th scope="col" className="px-6 py-4 text-center">Vai Trò</th>
                     <th scope="col" className="px-6 py-4 text-center">Email Xác Minh</th>
                     <th scope="col" className="px-6 py-4">IP Đăng Ký</th>
@@ -1535,7 +1646,7 @@ export default function Admin({ showToast }) {
                 <tbody className="divide-y divide-zinc-900/50 bg-transparent">
                   {loadingUsers ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-12 text-center text-zinc-500">
+                      <td colSpan="9" className="px-6 py-12 text-center text-zinc-500">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
                           <span>Đang tải danh sách thành viên...</span>
@@ -1544,8 +1655,8 @@ export default function Admin({ showToast }) {
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-12 text-center text-zinc-500">
-                        Không có người dùng nào khớp với từ khóa tìm kiếm
+                      <td colSpan="9" className="px-6 py-12 text-center text-zinc-500">
+                        Không có người dùng nào khớp với bộ lọc hoặc từ khóa tìm kiếm
                       </td>
                     </tr>
                   ) : (
@@ -1575,7 +1686,51 @@ export default function Admin({ showToast }) {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-xs font-mono text-zinc-400">
-                            {u.phoneNumber || <span className="italic text-zinc-700">Chưa cập nhật</span>}
+                            {u.phoneNumber ? (
+                              <div className="flex items-center gap-1.5">
+                                <span>{u.phoneNumber}</span>
+                                <a 
+                                  href={`https://zalo.me/${u.phoneNumber}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] text-blue-400 hover:underline bg-blue-500/10 px-1 py-0.5 rounded"
+                                  title="Nhắn Zalo"
+                                >
+                                  Zalo
+                                </a>
+                              </div>
+                            ) : (
+                              <span className="italic text-zinc-700">Chưa cập nhật</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            {(() => {
+                              const stKey = u.contactStatus || 'pending';
+                              const conf = CONTACT_STATUS_CONFIG[stKey] || CONTACT_STATUS_CONFIG.pending;
+                              const StatusIcon = conf.icon;
+                              return (
+                                <div className="flex flex-col gap-1 min-w-[170px] max-w-[240px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${conf.badgeClass}`}>
+                                      <StatusIcon className="h-3 w-3" />
+                                      {conf.label}
+                                    </span>
+                                  </div>
+                                  {u.contactNote ? (
+                                    <p className="text-xs text-zinc-300 line-clamp-2 italic bg-zinc-950/70 p-1.5 rounded border border-zinc-800/80" title={u.contactNote}>
+                                      "{u.contactNote}"
+                                    </p>
+                                  ) : (
+                                    <span className="text-[10px] text-zinc-600 italic">Chưa có ghi chú</span>
+                                  )}
+                                  {u.contactedBy && (
+                                    <p className="text-[10px] text-zinc-500 truncate" title={`Lần cuối: ${u.contactedBy}`}>
+                                      Bởi: {u.contactedBy} {u.contactedAt ? `• ${new Date(u.contactedAt).toLocaleDateString('vi-VN', { month: '2-digit', day: '2-digit' })}` : ''}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="px-6 py-4 text-center">
                             {u.role === 'admin' ? (
@@ -1611,6 +1766,15 @@ export default function Admin({ showToast }) {
                           </td>
                           <td className="px-6 py-4 text-xs text-zinc-500">{formattedJoined}</td>
                           <td className="px-6 py-4 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => handleOpenContactModal(u)}
+                              className="p-1 px-2 bg-emerald-950/40 border border-emerald-800/50 hover:bg-emerald-900 hover:text-white text-emerald-400 rounded transition-colors cursor-pointer inline-flex items-center gap-1 text-xs font-medium"
+                              title="Ghi chú & Trạng thái liên lạc"
+                            >
+                              <PhoneCall className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Liên lạc</span>
+                            </button>
+
                             {!isSale ? (
                               <>
                                 <button
@@ -1628,9 +1792,7 @@ export default function Admin({ showToast }) {
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </>
-                            ) : (
-                              <span className="text-xs italic text-zinc-600">Chỉ xem</span>
-                            )}
+                            ) : null}
                           </td>
                         </tr>
                       );
@@ -3144,6 +3306,42 @@ export default function Admin({ showToast }) {
                   </div>
                 </div>
               </div>
+
+              {/* Contact Status & Note Section */}
+              <div className="pt-3 border-t border-zinc-800/60 space-y-3">
+                <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <PhoneCall className="h-3.5 w-3.5 text-emerald-500" />
+                  Chăm Sóc & Liên Lạc Khách Hàng
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-400 mb-1">Trạng thái liên lạc</label>
+                    <select
+                      value={editContactStatus}
+                      onChange={(e) => setEditContactStatus(e.target.value)}
+                      className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="pending">🟡 Chưa liên lạc</option>
+                      <option value="contacted">🟢 Đã liên lạc</option>
+                      <option value="no_answer">🔴 Không nghe máy</option>
+                      <option value="callback">🟣 Hẹn gọi lại</option>
+                      <option value="closed">🔵 Đã chốt gói</option>
+                      <option value="not_interested">⚪ Không nhu cầu</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-400 mb-1">Ghi chú tóm tắt</label>
+                    <input
+                      type="text"
+                      value={editContactNote}
+                      onChange={(e) => setEditContactNote(e.target.value)}
+                      placeholder="Nội dung trao đổi với khách..."
+                      className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-4 border-t border-zinc-800 flex justify-end gap-3">
                 <button
                   type="button"
@@ -3158,6 +3356,153 @@ export default function Admin({ showToast }) {
                   className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-xs font-bold text-white rounded-lg shadow-lg hover:shadow-indigo-500/10 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {savingUser ? 'Đang lưu...' : 'Lưu Lại'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Note Modal (Admin & Sale) */}
+      {isContactModalOpen && selectedUserForContact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg p-6 rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl relative">
+            <button
+              onClick={() => setIsContactModalOpen(false)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-5 border-b border-zinc-800 pb-4">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                <PhoneCall className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Chăm Sóc & Liên Lạc Khách Hàng</h3>
+                <p className="text-xs text-zinc-400">Ghi chú và cập nhật tình trạng liên lạc của thành viên</p>
+              </div>
+            </div>
+
+            {/* User Info Card */}
+            <div className="p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-800/80 mb-5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Khách hàng:</span>
+                <span className="text-sm font-semibold text-white">{selectedUserForContact.fullName}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Email:</span>
+                <span className="text-xs font-mono text-zinc-300">{selectedUserForContact.email}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Số điện thoại:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-semibold text-emerald-400">
+                    {selectedUserForContact.phoneNumber || 'Chưa cập nhật'}
+                  </span>
+                  {selectedUserForContact.phoneNumber && (
+                    <>
+                      <a
+                        href={`tel:${selectedUserForContact.phoneNumber}`}
+                        className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-[11px] font-medium transition-colors"
+                        title="Gọi điện"
+                      >
+                        Gọi
+                      </a>
+                      <a
+                        href={`https://zalo.me/${selectedUserForContact.phoneNumber}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-[11px] font-medium transition-colors"
+                        title="Mở Zalo"
+                      >
+                        Zalo
+                      </a>
+                    </>
+                  )}
+                </div>
+              </div>
+              {selectedUserForContact.contactedBy && (
+                <div className="pt-2 border-t border-zinc-900 flex items-center justify-between text-[11px] text-zinc-500">
+                  <span>Liên lạc gần nhất:</span>
+                  <span>
+                    {selectedUserForContact.contactedBy} ({selectedUserForContact.contactedAt ? new Date(selectedUserForContact.contactedAt).toLocaleString('vi-VN') : 'N/A'})
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveContactModal} className="space-y-4">
+              {/* Contact Status Choice */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-2">
+                  Trạng thái liên lạc <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { key: 'pending', label: 'Chưa liên lạc', color: 'border-amber-500/40 text-amber-300 bg-amber-500/10' },
+                    { key: 'contacted', label: 'Đã liên lạc', color: 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' },
+                    { key: 'no_answer', label: 'Không nghe máy', color: 'border-rose-500/40 text-rose-300 bg-rose-500/10' },
+                    { key: 'callback', label: 'Hẹn gọi lại', color: 'border-purple-500/40 text-purple-300 bg-purple-500/10' },
+                    { key: 'closed', label: 'Đã chốt gói', color: 'border-blue-500/40 text-blue-300 bg-blue-500/10' },
+                    { key: 'not_interested', label: 'Không nhu cầu', color: 'border-zinc-600/40 text-zinc-300 bg-zinc-700/20' },
+                  ].map(item => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setContactStatusInput(item.key)}
+                      className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer ${
+                        contactStatusInput === item.key
+                          ? `${item.color} ring-2 ring-indigo-500/40 shadow-sm`
+                          : 'border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Note Textarea */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Ghi chú trao đổi
+                </label>
+                <textarea
+                  value={contactNoteInput}
+                  onChange={(e) => setContactNoteInput(e.target.value)}
+                  rows={4}
+                  placeholder="Ví dụ: Khách quan tâm gói 1 năm, cần tư vấn xuất video. Hẹn 19h tối mai tư vấn qua Zalo..."
+                  className="w-full rounded-xl bg-zinc-950 border border-zinc-800 px-3.5 py-2.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all resize-none"
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setIsContactModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingContact}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingContact ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      <span>Lưu Ghi Chú</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   createTranslationCheckpoint,
   createTranslationIncompleteError,
+  fallbackFailedItemsWithGeminiWeb,
   fallbackFailedItemsWithNllb,
   getTranslationPrompt,
   resolveGlobalTranslationContext,
@@ -79,6 +80,82 @@ test('Vietnamese JSON translation prompt has Chinese proper-name rules without l
   assert.match(vietnamese, /王明 → Vương Minh/);
   assert.match(vietnamese, /北京 → Bắc Kinh/);
   assert.doesNotMatch(english, /王明 → Vương Minh/);
+  assert.match(vietnamese, /万 = 10 nghìn/);
+  assert.match(vietnamese, /不满意不要钱/);
+  assert.match(vietnamese, /CHẤM CÂU THEO MẠCH/);
+  assert.doesNotMatch(english, /万 = 10 nghìn|不满意不要钱/);
+});
+
+test('JSON translation prompt changes recovery rules by subtitle source', () => {
+  const map = { 1: { text: '频道', durationSec: 1 } };
+  const asr = getTranslationPrompt(map, 'Tiếng Việt', [], null, { sourceKind: 'capcut-asr' });
+  const ocr = getTranslationPrompt(map, 'Tiếng Việt', [], null, { sourceKind: 'ocr' });
+  const uploaded = getTranslationPrompt(map, 'Tiếng Việt', [], null, { sourceKind: 'upload' });
+
+  assert.match(asr, /ĐỒNG ÂM/);
+  assert.match(asr, /贫道 thành 频道/);
+  assert.doesNotMatch(asr, /NGUỒN LÀ OCR/);
+  assert.match(ocr, /NGUỒN LÀ OCR/);
+  assert.doesNotMatch(ocr, /贫道 thành 频道/);
+  assert.match(uploaded, /PHỤ ĐỀ DO NGƯỜI DÙNG CUNG CẤP/);
+});
+
+test('JSON timing policy only adds numeric maxWords for explicitly fitted dubbing', async (t) => {
+  const outputPath = await tempOutput(t);
+  const item = {
+    id: '1',
+    startTime: '00:00:00,000',
+    endTime: '00:00:02,000',
+    text: '第一句'
+  };
+  const sourceById = { 1: '第一句' };
+
+  const run = async (suffix, options) => {
+    const checkpoint = createTranslationCheckpoint(`${outputPath}.${suffix}`, {
+      sourceText: '第一句',
+      targetLang: 'vi',
+      pipeline: suffix
+    });
+    let received;
+    await translateJsonBatchesWithCheckpoint({
+      srtArray: [{ ...item }],
+      sourceById,
+      checkpoint,
+      providerName: 'Test AI',
+      targetLang: 'vi',
+      srcLang: 'zho_Hans',
+      batchDelayMs: 0,
+      retryFailedRounds: 0,
+      ...options,
+      translateBatch: async (map) => {
+        received = map['1'];
+        return { 1: 'Câu thứ nhất' };
+      }
+    });
+    return received;
+  };
+
+  const subtitleOnly = await run('subtitle-only', { dubbingEnabled: false, numericFit: false });
+  const compactDubbing = await run('compact-dubbing', { dubbingEnabled: true, numericFit: false });
+  const fittedDubbing = await run('fitted-dubbing', {
+    dubbingEnabled: true,
+    numericFit: true,
+    voiceWordsPerSecond: 3
+  });
+
+  assert.equal(subtitleOnly.maxWords, undefined);
+  assert.equal(compactDubbing.maxWords, undefined);
+  assert.ok(Number.isInteger(fittedDubbing.maxWords));
+  assert.ok(fittedDubbing.maxWords > 0);
+
+  const noDubbingPrompt = getTranslationPrompt({ 1: subtitleOnly }, 'Tiếng Việt');
+  const compactPrompt = getTranslationPrompt({ 1: compactDubbing }, 'Tiếng Việt', [], null, {
+    dubbingEnabled: true,
+    numericFit: false
+  });
+  assert.match(noDubbingPrompt, /VIDEO KHÔNG YÊU CẦU LỒNG TIẾNG/);
+  assert.match(compactPrompt, /KHÔNG dùng công thức số từ cứng/);
+  assert.doesNotMatch(compactPrompt, /18 ký tự \/ giây/);
 });
 
 test('translation checkpoint resumes only failed cues and never stores API keys', async (t) => {
@@ -347,6 +424,86 @@ test('NLLB fallback receives and replaces only failed cues', async (t) => {
   assert.equal(items[0].text, 'Câu đã dịch');
   assert.equal(items[1].text, 'Câu thứ hai');
   assert.equal(checkpoint.report(2).fallbackUsed, 1);
+});
+
+test('Gemini Web fallback receives only failed API cues and preserves prior successes', async (t) => {
+  const outputPath = await tempOutput(t);
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText: 'source',
+    targetLang: 'vi'
+  });
+  const items = [
+    { id: '1', startTime: '00:00:00,000', endTime: '00:00:01,000', text: 'Câu đã dịch' },
+    { id: '2', startTime: '00:00:01,000', endTime: '00:00:02,000', text: '第二句' },
+    { id: '3', startTime: '00:00:02,000', endTime: '00:00:03,000', text: '第三句' }
+  ];
+  let receivedIds = [];
+  let receivedOptions;
+  let closed = 0;
+  const remaining = await fallbackFailedItemsWithGeminiWeb({
+    failedItems: [
+      { item: items[1], source: '第二句', reason: 'missing_id' },
+      { item: items[2], source: '第三句', reason: 'provider_error' }
+    ],
+    checkpoint,
+    srcLang: 'zho_Hans',
+    targetLang: 'vi',
+    targetLangName: 'Tiếng Việt',
+    sourceKind: 'capcut-asr',
+    dubbingEnabled: true,
+    numericFit: false,
+    tmContent: 'GLOSSARY',
+    translateWeb: async (failed, options) => {
+      receivedIds = failed.map((item) => item.id);
+      receivedOptions = options;
+      failed[0].text = 'Câu thứ hai';
+      checkpoint.success({ id: '2', text: '第二句' }, 'Câu thứ hai', 'Gemini Web');
+      checkpoint.failure({ id: '3', text: '第三句' }, 'Gemini Web', 'missing_id', 'missing_id');
+      return { failedItems: [{ item: failed[1], source: '第三句', reason: 'missing_id' }] };
+    },
+    closeWeb: async () => { closed += 1; }
+  });
+
+  assert.deepEqual(receivedIds, ['2', '3']);
+  assert.equal(items[0].text, 'Câu đã dịch');
+  assert.equal(items[1].text, 'Câu thứ hai');
+  assert.deepEqual(remaining.map((failed) => failed.item.id), ['3']);
+  assert.equal(receivedOptions.sourceKind, 'capcut-asr');
+  assert.equal(receivedOptions.compact, true);
+  assert.equal(receivedOptions.fit, false);
+  assert.equal(receivedOptions.tmContent, 'GLOSSARY');
+  assert.equal(closed, 1);
+});
+
+test('Gemini Web transport failure keeps cues checkpointed before the failure', async (t) => {
+  const outputPath = await tempOutput(t);
+  const checkpoint = createTranslationCheckpoint(outputPath, {
+    sourceText: 'source',
+    targetLang: 'vi'
+  });
+  const second = { id: '2', startTime: '00:00:01,000', endTime: '00:00:02,000', text: '第二句' };
+  const third = { id: '3', startTime: '00:00:02,000', endTime: '00:00:03,000', text: '第三句' };
+  const remaining = await fallbackFailedItemsWithGeminiWeb({
+    failedItems: [
+      { item: second, source: '第二句', reason: 'missing_id' },
+      { item: third, source: '第三句', reason: 'provider_error' }
+    ],
+    checkpoint,
+    srcLang: 'zho_Hans',
+    targetLang: 'vi',
+    targetLangName: 'Tiếng Việt',
+    sourceKind: 'asr',
+    translateWeb: async () => {
+      second.text = 'Câu thứ hai';
+      checkpoint.success({ id: '2', text: '第二句' }, 'Câu thứ hai', 'Gemini Web');
+      throw new Error('browser disconnected');
+    },
+    closeWeb: async () => {}
+  });
+
+  assert.equal(second.text, 'Câu thứ hai');
+  assert.deepEqual(remaining.map((failed) => failed.item.id), ['3']);
+  assert.equal(remaining[0].webFallbackError, 'browser disconnected');
 });
 
 test('translation incomplete error produces a resumable queue state with report', () => {

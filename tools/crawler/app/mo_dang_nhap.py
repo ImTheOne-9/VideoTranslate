@@ -40,6 +40,7 @@ if not (os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or "").strip():
 XHS_INTL = os.environ.get("MC_XHS_INTL", "0") == "1"
 
 URL = {
+    "ks": "https://www.kuaishou.com",
     "dy":   "https://www.douyin.com",
     "bili": "https://www.bilibili.com",
     "xhs":  "https://www.xiaohongshu.com",   # NỘI ĐỊA (domain cố định theo platform, bỏ toggle)
@@ -53,11 +54,12 @@ URL = {
     "yt":   "https://www.youtube.com/",
 }
 # Domain + cookie CHỈ có khi đã đăng nhập (giống kiem_tra_login.py) — để dò LIVE rồi tự đóng.
-HOST = {"dy": "douyin.com", "bili": "bilibili.com",
+HOST = {"ks": "kuaishou.com", "dy": "douyin.com", "bili": "bilibili.com",
         "xhs": "xiaohongshu.com", "rednote": "rednote.com",
         "wb": "weibo.com", "tw": "x.com", "ig": "instagram.com", "th": "threads",
         "tt": "tiktok.com", "fb": "facebook.com", "yt": "youtube.com"}
 AUTH = {
+    "ks": ["passToken"],
     "dy": ["sessionid", "sessionid_ss", "sid_tt"],
     "tt": ["sessionid", "sessionid_ss", "sid_tt"],   # TikTok (ByteDance, cùng họ Douyin)
     "bili": ["SESSDATA", "DedeUserID"],

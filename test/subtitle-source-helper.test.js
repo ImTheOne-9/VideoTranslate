@@ -281,7 +281,10 @@ test('CapCut no-speech result skips Whisper when no hardsub exists', async () =>
     const result = await resolveAutomaticSubtitle(options, dependencies);
     assert.equal(result.noSpeech, true);
     assert.equal(result.cueCount, 0);
-    assert.equal(await fs.readFile(result.path, 'utf8'), '');
+    assert.equal(result.path, null);
+    const metadata = JSON.parse(await fs.readFile(result.metadataPath, 'utf8'));
+    assert.equal(metadata.noSpeech, true);
+    assert.deepEqual(metadata.cues, []);
     assert.equal(whisperCalled, false);
   });
 });
@@ -341,16 +344,23 @@ test('hybrid merger adds Whisper only inside suspicious OCR gaps and keeps OCR a
   const ocr = [
     { startMs: 0, endMs: 4_000, text: '第一句' },
     { startMs: 5_000, endMs: 9_000, text: '第二句' },
-    { startMs: 10_000, endMs: 14_000, text: '第三句' }
+    { startMs: 10_000, endMs: 14_000, text: '第三句' },
+    { startMs: 15_000, endMs: 19_000, text: '第四句' },
+    { startMs: 20_000, endMs: 24_000, text: '第五句' },
+    { startMs: 25_000, endMs: 29_000, text: '第六句' }
   ];
   const gaps = findSuspiciousOcrGaps(ocr, 120_000);
-  assert.deepEqual(gaps.map((gap) => gap.kind), ['tail']);
+  assert.deepEqual(gaps.map((gap) => gap.kind), [
+    'internal', 'internal', 'internal', 'internal', 'internal', 'tail'
+  ]);
   const merged = mergeOcrAndWhisperCues(ocr, [
     { startMs: 6_000, endMs: 7_000, text: 'overlap must stay out' },
     { startMs: 40_000, endMs: 42_000, text: '补充句' }
   ], gaps);
   assert.equal(merged.added, 1);
-  assert.deepEqual(merged.cues.map((cue) => cue.source), ['ocr', 'ocr', 'ocr', 'whisper']);
+  assert.deepEqual(merged.cues.map((cue) => cue.source), [
+    'ocr', 'ocr', 'ocr', 'ocr', 'ocr', 'ocr', 'whisper'
+  ]);
 });
 
 test('enabled hybrid mode writes one OCR plus Whisper SRT while preserving the OCR report', async () => {
@@ -363,10 +373,13 @@ test('enabled hybrid mode writes one OCR plus Whisper SRT while preserving the O
         await fs.writeFile(outputPath, [
           '1', '00:00:00,000 --> 00:00:04,000', '第一句', '',
           '2', '00:00:05,000 --> 00:00:09,000', '第二句', '',
-          '3', '00:00:10,000 --> 00:00:14,000', '第三句', ''
+          '3', '00:00:10,000 --> 00:00:14,000', '第三句', '',
+          '4', '00:00:15,000 --> 00:00:19,000', '第四句', '',
+          '5', '00:00:20,000 --> 00:00:24,000', '第五句', '',
+          '6', '00:00:25,000 --> 00:00:29,000', '第六句', ''
         ].join('\n'), 'utf8');
         await fs.writeFile(reportPath, JSON.stringify({
-          cueCount: 3, blurBoxes: [{ start: 0, end: 14 }]
+          cueCount: 6, blurBoxes: [{ start: 0, end: 29 }]
         }), 'utf8');
         return { kind: 'success' };
       },
@@ -385,11 +398,13 @@ test('enabled hybrid mode writes one OCR plus Whisper SRT while preserving the O
     const metadata = JSON.parse(await fs.readFile(`${result.path}.asr.json`, 'utf8'));
     assert.equal(result.source, 'hybrid');
     assert.equal(result.reason, 'rapidocr_with_whisper_gap_fill');
-    assert.equal(result.cueCount, 4);
+    assert.equal(result.cueCount, 7);
     assert.equal(report.blurBoxes.length, 1);
     assert.equal(report.hybrid.addedWhisperCues, 1);
     assert.equal(metadata.engineId, 'rapidocr+faster-whisper');
-    assert.deepEqual(metadata.cues.map((cue) => cue.source), ['ocr', 'ocr', 'ocr', 'whisper']);
+    assert.deepEqual(metadata.cues.map((cue) => cue.source), [
+      'ocr', 'ocr', 'ocr', 'ocr', 'ocr', 'ocr', 'whisper'
+    ]);
     assert.match(output, /补充句/u);
     assert.doesNotMatch(output, /重叠句/u);
   });

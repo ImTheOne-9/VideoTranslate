@@ -114,7 +114,7 @@ test('Gemini Web uses the isolated line pipeline while Gemini API keeps JSON tra
   assert.doesNotMatch(html, /Gemini Web Automation/);
 });
 
-test('Gemini Web and Gemini API never fall back to NLLB automatically', () => {
+test('direct Gemini Web stays isolated while API providers rescue with Web then NLLB', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'lib', 'translate-sub.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
@@ -127,7 +127,17 @@ test('Gemini Web and Gemini API never fall back to NLLB automatically', () => {
   assert.match(webBlock, /để trống các cue đó và tiếp tục render/);
   assert.doesNotMatch(webBlock, /createTranslationIncompleteError/);
   assert.match(webBlock, /Giữ checkpoint để tiếp tục, không chuyển sang NLLB/);
-  assert.match(source, /const remaining = isGemini \? primary\.failedItems : await fallbackFailedItemsWithNllb/);
-  assert.match(source, /if \(isGemini\) \{[\s\S]*?không chuyển sang NLLB[\s\S]*?throw err;/);
+  assert.match(source, /fallbackFailedItemsWithGeminiWeb/);
+  assert.match(source, /let remaining = await fallbackFailedItemsWithGeminiWeb\(/);
+  assert.match(source, /remaining = await fallbackFailedItemsWithNllb\(/);
+  assert.match(source, /Giữ cue đã tốt và chuyển phần còn lại qua Gemini Web → NLLB/);
   assert.match(html, /Không tự chuyển sang NLLB/);
+});
+
+test('studio passes the actual subtitle source into translation', () => {
+  const controller = fs.readFileSync(
+    path.resolve(__dirname, '..', 'controllers', 'studioController.js'),
+    'utf8'
+  );
+  assert.match(controller, /subtitleSourceKind:\s*subtitleSource\?\.source \|\| subtitleMode \|\| 'upload'/);
 });

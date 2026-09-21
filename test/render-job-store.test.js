@@ -136,6 +136,28 @@ test('segment review waiting state and summary survive application restart', () 
   });
 });
 
+test('source subtitle review survives restart without becoming generic resume', () => {
+  withTempDir((rootDir) => {
+    const store = new RenderJobStore(rootDir);
+    const task = createTask('task_source_review');
+    task.status = 'waiting_input';
+    task.actionRequired = 'source_subtitle_review';
+    task.sourceSubtitleReviewApproved = false;
+    task.sourceSubtitleReview = {
+      path: path.join(store.getWorkDir(task.id), 'timeline-normalized.srt'),
+      fileName: 'task_source_review-source.srt',
+      cueCount: 18
+    };
+    store.saveTask(task);
+
+    const [restored] = store.loadUnfinishedTasks();
+    assert.equal(restored.status, 'waiting_input');
+    assert.equal(restored.actionRequired, 'source_subtitle_review');
+    assert.equal(restored.sourceSubtitleReview.cueCount, 18);
+    assert.equal(restored.sourceSubtitleReviewApproved, false);
+  });
+});
+
 test('OCR fallback choice is preserved across application restarts', () => {
   withTempDir((directory) => {
     const store = new RenderJobStore(directory);

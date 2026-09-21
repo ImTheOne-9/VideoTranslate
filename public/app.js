@@ -1734,7 +1734,7 @@ async function renderStudio(event) {
   const data = new FormData(form);
   for (const name of [
     'audioNoiseGate', 'audioDucking', 'audioExportTracks',
-    'whisperHybridFill', 'capcutAsrEnabled'
+    'whisperHybridFill', 'capcutAsrEnabled', 'sourceSubtitleReviewEnabled'
   ]) {
     const input = form.elements[name];
     data.set(name, input?.checked ? 'true' : 'false');
@@ -2217,7 +2217,20 @@ function updateMainResultUI(queue, currentActiveId) {
       </div>
     `;
   } else if (targetTask.status === 'waiting_input') {
-    if (targetTask.actionRequired === 'segment_review') {
+    if (targetTask.actionRequired === 'source_subtitle_review') {
+      const review = targetTask.sourceSubtitleReview || {};
+      html = `
+        <div class="render-loading-state ocr-waiting-state">
+          <h3>SRT nguồn đã sẵn sàng</h3>
+          <p>${Number(review.cueCount || 0)} câu đã nhận dạng. Tải xuống để kiểm tra, nạp bản .srt đã sửa hoặc tiếp tục dịch.</p>
+          <div class="ocr-fallback-actions">
+            <a class="premium-render-btn ghost-btn" href="/api/render-tasks/${encodeURIComponent(targetTask.id)}/source-subtitle">Tải SRT nguồn</a>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="chooseReviewedSourceSubtitle('${targetTask.id}', event)">Nạp SRT đã sửa</button>
+            <button type="button" class="premium-render-btn" onclick="approveSourceSubtitle('${targetTask.id}', null, event)">Tiếp tục dịch</button>
+            <button type="button" class="premium-render-btn ghost-btn" onclick="cancelQueueTask('${targetTask.id}', event)">Hủy</button>
+          </div>
+        </div>`;
+    } else if (targetTask.actionRequired === 'segment_review') {
       const review = targetTask.segmentReview || {};
       const reviewText = `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
         + `${Number(review.warnings || 0) ? ` • ${Number(review.warnings)} câu có cảnh báo` : ''}`;
@@ -2410,7 +2423,15 @@ function renderQueueModalUI(queue, currentActiveId) {
 
     let actionHtml = '';
     let waitingMessageHtml = '';
-    if (isWaiting && task.actionRequired === 'segment_review') {
+    if (isWaiting && task.actionRequired === 'source_subtitle_review') {
+      const review = task.sourceSubtitleReview || {};
+      waitingMessageHtml = `<div class="queue-ocr-error">SRT nguồn có ${Number(review.cueCount || 0)} câu, đang chờ kiểm tra.</div>`;
+      actionHtml = `
+        <a class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" href="/api/render-tasks/${encodeURIComponent(task.id)}/source-subtitle">Tải SRT</a>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="chooseReviewedSourceSubtitle('${task.id}', event)">Nạp bản sửa</button>
+        <button type="button" class="premium-render-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="approveSourceSubtitle('${task.id}', null, event)">Tiếp tục</button>
+        <button type="button" class="premium-render-btn ghost-btn" style="padding: 4px 10px; font-size: 11px; margin: 0; width: auto; height: 26px;" onclick="cancelQueueTask('${task.id}', event)">Hủy</button>`;
+    } else if (isWaiting && task.actionRequired === 'segment_review') {
       const review = task.segmentReview || {};
       waitingMessageHtml = `<div class="queue-ocr-error">`
         + `${Number(review.approved || 0)}/${Number(review.total || 0)} câu đã duyệt`
@@ -2668,6 +2689,41 @@ async function resumeRenderTask(taskId, event) {
   }
 }
 window.resumeRenderTask = resumeRenderTask;
+
+async function approveSourceSubtitle(taskId, file, event) {
+  const button = event?.currentTarget || event?.target;
+  setBusy(button, true, file ? 'Đang nạp SRT...' : 'Đang tiếp tục...');
+  try {
+    const body = new FormData();
+    if (file) body.set('subtitle', file, file.name);
+    const response = await fetch(`/api/render-tasks/${encodeURIComponent(taskId)}/source-subtitle/approve`, {
+      method: 'POST',
+      body
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Không thể xác nhận SRT nguồn.');
+    toast(result.edited ? 'Đã nạp SRT sửa và tiếp tục dịch.' : 'Đã duyệt SRT nguồn và tiếp tục dịch.', 'success');
+    startQueuePolling();
+    await updateQueueStatus();
+  } catch (error) {
+    toast(error.message, 'error');
+    setBusy(button, false);
+  }
+}
+window.approveSourceSubtitle = approveSourceSubtitle;
+
+function chooseReviewedSourceSubtitle(taskId, event) {
+  event?.preventDefault?.();
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.srt,application/x-subrip,text/plain';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (file) approveSourceSubtitle(taskId, file, event);
+  }, { once: true });
+  input.click();
+}
+window.chooseReviewedSourceSubtitle = chooseReviewedSourceSubtitle;
 
 async function cancelRenderVideo() {
   const confirmCancel = confirm('Bạn có chắc chắn muốn hủy tiến trình render hiện tại không?');
@@ -3474,7 +3530,7 @@ function updateConditionalFields() {
 const studioVideoPlatformLabels = {
   local: 'Tải đơn lẻ', youtube: 'YouTube', tiktok: 'TikTok', douyin: 'Douyin',
   bilibili: 'Bilibili', facebook: 'Facebook', instagram: 'Instagram',
-  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote'
+  xiaohongshu: 'Xiaohongshu', rednote: 'RedNote', honggo: 'Honggo'
 };
 const studioVideoModeLabels = { local: 'Tải đơn lẻ', detail: 'Theo link', search: 'Theo từ khóa', creator: 'Theo kênh', chase: 'Theo bộ' };
 
@@ -6034,77 +6090,130 @@ function togglePageTokenInputVisibility() {
   }
 }
 
-async function connectFacebookOAuth() {
-  const button = $('facebook-oauth-btn');
-  if (button?.disabled) return;
-  // Open synchronously from the click to avoid popup blocking after network waits.
-  const popup = window.open('about:blank', '_blank', 'width=720,height=780');
-  if (popup) popup.opener = null;
-  const connection = new AbortController();
-  let closedAt = null;
-  // Allow a just-completed callback to be received before treating closure as cancellation.
-  const closeWatcher = setInterval(() => {
-    if (!popup?.closed) return;
-    if (closedAt === null) closedAt = Date.now();
-    setBusy(button, true, 'Đang kiểm tra kết quả kết nối...');
-    if (Date.now() - closedAt >= 5000) connection.abort();
-  }, 250);
-  async function requestJson(url, options = {}) {
-    const request = new AbortController();
-    const abort = () => request.abort();
-    connection.signal.addEventListener('abort', abort, { once: true });
-    if (connection.signal.aborted) request.abort();
-    const timeout = setTimeout(abort, 45000);
-    try {
-      const response = await fetch(url, { ...options, signal: request.signal });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Không lấy được kết quả kết nối Facebook. Vui lòng thử lại.');
-      return data;
-    } catch (error) {
-      if (request.signal.aborted && !connection.signal.aborted) throw new Error('Máy chủ phản hồi quá lâu. Vui lòng thử kết nối lại.');
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      connection.signal.removeEventListener('abort', abort);
-    }
-  }
+function openFacebookManualGuide() {
+  const modal = $('facebook-manual-guide-modal');
+  if (modal) modal.classList.remove('hidden');
+  $('facebook-exchange-app-id')?.focus();
+}
+
+function closeFacebookManualGuide() {
+  const modal = $('facebook-manual-guide-modal');
+  if (modal) modal.classList.add('hidden');
+  ['facebook-exchange-app-id', 'facebook-exchange-app-secret', 'facebook-exchange-user-token', 'facebook-user-access-token'].forEach((id) => {
+    const input = $(id);
+    if (input) { input.value = ''; input.type = id === 'facebook-exchange-app-id' ? 'text' : 'password'; }
+  });
+  [['facebook-exchange-secret-visibility', '👁'], ['facebook-exchange-token-visibility', '👁'], ['facebook-user-token-visibility', '👁']].forEach(([id, label]) => {
+    const button = $(id);
+    if (button) button.textContent = label;
+  });
+}
+
+async function copyFacebookGraphTest() {
+  const command = $('facebook-graph-test-command')?.textContent || '/me/accounts?fields=id,name,access_token,tasks';
   try {
-    setBusy(button, true, 'Đang mở Facebook...');
-    if (!popup) throw new Error('Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên và kết nối lại.');
-    const config = await requestJson('/api/facebook/oauth/config');
-    if (!config.configured) {
-      throw new Error(config.error || 'Máy chủ chưa bật kết nối Facebook. Các Page đã lưu vẫn sử dụng được.');
-    }
-    const result = await requestJson('/api/facebook/oauth/start', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-    if (popup.closed) {
-      toast('Cửa sổ đăng nhập đã đóng. Bạn có thể nhấn Kết nối Facebook để thử lại.', 'info');
-      return;
-    }
-    popup.location.href = result.url;
-    setBusy(button, true, 'Đang chờ kết nối Facebook...');
-    const deadline = Math.min(new Date(result.expiresAt).getTime() || Date.now() + 10 * 60 * 1000, Date.now() + 10 * 60 * 1000);
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      if (connection.signal.aborted) throw new Error('Cửa sổ đăng nhập đã đóng.');
-      const status = await requestJson(`/api/facebook/oauth/status/${encodeURIComponent(result.sessionId)}`);
-      if (status.status === 'success') {
-        clearInterval(closeWatcher);
-        popup.close();
-        await loadFbPages(); renderFbPages();
-        toast(`Đã kết nối ${status.accounts?.length || 0} Page Facebook.`, 'success');
-        return;
-      }
-      if (status.status === 'error') throw new Error(status.error || 'OAuth Facebook thất bại');
-    }
-    throw new Error('Đăng nhập Facebook quá thời gian chờ');
+    await navigator.clipboard.writeText(command);
+    toast('Đã sao chép lệnh kiểm tra Graph API.', 'success');
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = command;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+    toast('Đã sao chép lệnh kiểm tra Graph API.', 'success');
+  }
+}
+
+function toggleFacebookUserTokenVisibility() {
+  const input = $('facebook-user-access-token');
+  const button = $('facebook-user-token-visibility');
+  if (!input || !button) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  button.textContent = input.type === 'password' ? '👁' : '🙈';
+}
+
+function toggleFacebookSensitiveField(inputId, buttonId) {
+  const input = $(inputId);
+  const button = $(buttonId);
+  if (!input || !button) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  button.textContent = input.type === 'password' ? '👁' : '🙈';
+}
+
+function toggleFacebookExchangeSecretVisibility() {
+  toggleFacebookSensitiveField('facebook-exchange-app-secret', 'facebook-exchange-secret-visibility');
+}
+
+function toggleFacebookExchangeTokenVisibility() {
+  toggleFacebookSensitiveField('facebook-exchange-user-token', 'facebook-exchange-token-visibility');
+}
+
+async function exchangeFacebookLongLivedToken() {
+  const appIdInput = $('facebook-exchange-app-id');
+  const secretInput = $('facebook-exchange-app-secret');
+  const tokenInput = $('facebook-exchange-user-token');
+  const button = $('facebook-exchange-token-btn');
+  const appId = appIdInput?.value.trim() || '';
+  const appSecret = secretInput?.value.trim() || '';
+  const userAccessToken = tokenInput?.value.trim() || '';
+  if (!/^\d{5,32}$/.test(appId)) {
+    toast('App ID phải là dãy số trong trang Cài đặt cơ bản của Facebook App.', 'error');
+    appIdInput?.focus();
+    return;
+  }
+  if (!appSecret) { toast('Hãy nhập App Secret của App.', 'error'); secretInput?.focus(); return; }
+  if (!userAccessToken) { toast('Hãy nhập User Access Token ngắn hạn.', 'error'); tokenInput?.focus(); return; }
+
+  setBusy(button, true, 'Đang đổi token với Meta...');
+  try {
+    const response = await fetch('/api/facebook/accounts/exchange-user-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appId, appSecret, userAccessToken })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Meta không đổi được token này.');
+    fbPages = result.accounts || [];
+    syncFacebookAutoPublishUi();
+    renderFbPages($('page-search-input')?.value || '');
+    const expiry = result.expiresAt ? new Date(result.expiresAt).toLocaleString('vi-VN') : '';
+    closeFacebookManualGuide();
+    toast('Đã đổi token dài hạn và nhập ' + Number(result.importedCount || 0) + ' Page.' + (expiry ? ' User Token dự kiến hết hạn: ' + expiry + '.' : ''), 'success');
   } catch (error) {
-    toast(connection.signal.aborted
-      ? 'Cửa sổ đăng nhập đã đóng; chưa xác nhận được kết nối. Bạn có thể thử lại.'
-      : error.message, connection.signal.aborted ? 'info' : 'error');
+    toast('Không đổi được token: ' + error.message, 'error');
   } finally {
-    clearInterval(closeWatcher);
-    connection.abort();
-    popup?.close();
+    setBusy(button, false);
+  }
+}
+
+async function importFacebookPagesFromUserToken() {
+  const input = $('facebook-user-access-token');
+  const button = $('facebook-import-user-token-btn');
+  const userAccessToken = input?.value.trim() || '';
+  if (!userAccessToken) {
+    toast('Hãy dán User Access Token được tạo từ Facebook App của bạn.', 'error');
+    input?.focus();
+    return;
+  }
+  setBusy(button, true, 'Đang đọc danh sách Page...');
+  try {
+    const response = await fetch('/api/facebook/accounts/from-user-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userAccessToken })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Không lấy được danh sách Page từ token này.');
+    fbPages = result.accounts || [];
+    if (input) input.value = '';
+    syncFacebookAutoPublishUi();
+    renderFbPages($('page-search-input')?.value || '');
+    closeFacebookManualGuide();
+    toast('Đã nhập ' + Number(result.importedCount || 0) + ' Page từ Facebook App của bạn.', 'success');
+  } catch (error) {
+    toast('Không nhập được Page: ' + error.message, 'error');
+  } finally {
     setBusy(button, false);
   }
 }
@@ -6903,6 +7012,12 @@ function crawlCurrentRequest() {
     count: Number($('crawl-now-count')?.value || 100),
     sort: $('crawl-now-sort')?.value || 'relevance',
     timeDays: Number($('crawl-now-time')?.value || 0),
+    minLike: Math.max(0, Number($('crawl-now-min-like')?.value || 0)),
+    minView: Math.max(0, Number($('crawl-now-min-view')?.value || 0)),
+    filterDays: Math.max(0, Number($('crawl-now-days')?.value || 0)),
+    // ViralCrawl dùng chính chế độ "Theo bộ" làm tín hiệu tải trọn series;
+    // không bắt người dùng bật thêm một checkbox có cùng ý nghĩa.
+    wholeSeries: crawlNowState.mode === 'chase',
     quality: $('crawl-now-quality')?.value || '1080',
     language: $('crawl-now-language')?.value || '',
     deepNew: $('crawl-now-skip-dupe')?.checked !== false
@@ -6963,6 +7078,22 @@ function crawlUpdateModeUi() {
 
 function crawlUpdateCapabilities() {
   const caps = crawlNowState.capabilities[crawlNowState.platform] || {};
+  const isSeries = crawlNowState.mode === 'chase';
+  const honggoSeries = isSeries && crawlNowState.platform === 'honggo';
+  const countApplies = crawlNowState.mode === 'search' || crawlNowState.mode === 'creator' || honggoSeries;
+  const countInput = $('crawl-now-count');
+  const countWrap = $('crawl-now-count-wrap');
+  const countLabel = $('crawl-now-count-label');
+  if (countInput) countInput.disabled = !countApplies;
+  if (countWrap) {
+    countWrap.style.opacity = countApplies ? '' : '0.55';
+    countWrap.title = countApplies ? '' : (isSeries
+      ? 'Chế độ Theo bộ tự tải toàn bộ series, tối đa 5.000 tập.'
+      : 'Chế độ Theo link tải đúng các link đã dán.');
+  }
+  if (countLabel) countLabel.textContent = honggoSeries
+    ? 'Số tập tải'
+    : (countApplies ? 'Số lượng' : (isSeries ? 'Số lượng (không áp dụng — tải cả bộ)' : 'Số lượng (không áp dụng)'));
   $('crawl-now-quality-wrap')?.classList.toggle('hidden', crawlNowState.platform !== 'bilibili' && crawlNowState.platform !== 'bilitv');
   const previewModes = Array.isArray(caps.previewModes) ? caps.previewModes : [];
   document.querySelectorAll('#crawl-mode-tabs button').forEach((button) => {
@@ -7047,6 +7178,7 @@ async function crawlLoadLoginStatus() {
       }
     }
     const labels = {
+      kuaishou: ['Kuaishou', '快', 'kuaishou'],
       douyin: ['Douyin', '抖', 'dy'], bilibili: ['Bilibili', '哔', 'bili'],
       xiaohongshu: ['Xiaohongshu', '小', 'xhs'], rednote: ['RedNote', 'R', 'rednote'],
       youtube: ['YouTube', '▶', 'youtube'], tiktok: ['TikTok', '♪', 'tiktok'],
@@ -7056,7 +7188,7 @@ async function crawlLoadLoginStatus() {
     if (grid) grid.innerHTML = Object.entries(labels).map(([key, config]) => {
       const [label, icon, theme] = config;
       const status = platforms[key] || 'out';
-      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : 'Chưa đăng nhập';
+      const text = status === 'in' ? 'Đã đăng nhập' : status === 'na' ? 'Không bắt buộc' : status === 'unknown' ? 'Chưa xác minh / đang bận' : 'Chưa đăng nhập';
       const action = status === 'in' ? 'Mở lại' : status === 'na' ? 'Mở nền tảng' : 'Đăng nhập';
       return `<button type="button" class="crawl-login-card ${status} ${theme}" onclick="crawlOpenPlatformLogin('${key}')">
         <span class="crawl-login-icon">${icon}</span><span class="crawl-login-state"><i></i>${text}</span>
@@ -7066,7 +7198,7 @@ async function crawlLoadLoginStatus() {
 }
 
 async function crawlOpenPlatformLogin(platform) {
-  if (['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter'].includes(platform)) {
+  if (['youtube', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'tiktok', 'facebook', 'instagram', 'twitter', 'kuaishou'].includes(platform)) {
     try {
       const response = await fetch('/api/download-crawl/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
@@ -7076,7 +7208,11 @@ async function crawlOpenPlatformLogin(platform) {
         toast(data.message || 'Đã mở cửa sổ đăng nhập.', 'success');
         return;
       }
-    } catch (_) {}
+      toast(data.error || 'Không mở được cửa sổ đăng nhập.', 'error');
+    } catch (error) {
+      toast(error.message || 'Không kết nối được chức năng đăng nhập.', 'error');
+    }
+    return;
   }
   openCookieModal();
   const select = $('cookie-platform-select');
@@ -7265,11 +7401,12 @@ function crawlRenderHistory() {
   }
   list.innerHTML = items.map((item) => {
     const encodedKey = encodeURIComponent(item.key).replace(/'/g, '%27');
-    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : '';
+    const localThumbnail = item.mediaPath ? `/api/download-crawl/thumbnail?path=${encodeURIComponent(item.mediaPath)}` : '';
+    const thumbnail = item.thumbnail ? `/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}` : localThumbnail;
     const source = crawlHistorySource(item) || item.platform;
     return `<article class="crawl-history-item${item.downloaded ? ' downloaded' : ''}">
       <div class="crawl-history-thumb">
-        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span>▶</span>'}
+        ${thumbnail ? `<img src="${crawlEscape(thumbnail)}" data-fallback="${crawlEscape(localThumbnail)}" alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback && this.getAttribute('src')!==this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback='';}else{this.style.display='none';}">` : '<span>▶</span>'}
         <input type="checkbox" aria-label="Chọn video" ${crawlHistorySelected.has(item.key) ? 'checked' : ''} onchange="crawlHistoryToggleItem('${encodedKey}', this.checked)">
         <em>${item.downloaded ? '✓ Đã tải' : 'Chưa tải'}</em>
       </div>
@@ -7392,7 +7529,7 @@ function crawlFilteredItems() {
   return crawlNowState.previewItems.filter((item) => {
     if (minLike && Number(item.likeCount || 0) < minLike) return false;
     if (minView && Number(item.viewCount || 0) < minView) return false;
-    if (minTimestamp && Number(item.timestamp || 0) && Number(item.timestamp) < minTimestamp) return false;
+    if (minTimestamp && (!Number(item.timestamp || 0) || Number(item.timestamp) < minTimestamp)) return false;
     return true;
   });
 }
@@ -7424,6 +7561,7 @@ function crawlRenderPreview() {
       <div class="crawl-preview-info">
         <div class="crawl-preview-title" title="${crawlEscape(item.title)}">${crawlEscape(item.title)}</div>
         <div class="crawl-preview-meta">${crawlFormatDuration(item.duration)} · ${crawlEscape(item.uploader || item.platform)}</div>
+        <div class="crawl-preview-meta">♥ ${item.likeCount == null ? '?' : Number(item.likeCount).toLocaleString('vi-VN')} · lượt xem ${item.viewCount == null ? '?' : Number(item.viewCount).toLocaleString('vi-VN')}</div>
       </div>
     </article>`;
   }).join('');
@@ -7558,7 +7696,7 @@ function crawlToggleAll(checked) {
 }
 
 async function crawlEnqueue(items) {
-  const selectedItems = items || crawlNowState.previewItems.filter((item) => {
+  const selectedItems = items || crawlFilteredItems().filter((item) => {
     const key = item.key || `${item.platform}:${item.id}`;
     return crawlNowState.selected.has(key);
   });
@@ -7568,9 +7706,17 @@ async function crawlEnqueue(items) {
   }
   try {
     const jobCrawlerPlatforms = ['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+    jobCrawlerPlatforms.push('kuaishou', 'honggo');
     if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
       const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
       const sourceRequest = crawlCurrentRequest();
+      const selectedEpisodes = crawlNowState.platform === 'honggo'
+        ? selectedItems.map((item) => ({
+          url: item.sourceUrl || item.url || '',
+          seriesId: item.seriesId || String(item.id || '').split('/')[0],
+          episodeNumber: Number(item.episodeNumber || item.episode) || 0
+        })).filter((item) => item.url && item.seriesId && item.episodeNumber > 0)
+        : [];
       const sourceName = sourceRequest.mode === 'creator'
         ? String(selectedItems.find((item) => item.uploader)?.uploader || '')
         : '';
@@ -7578,6 +7724,7 @@ async function crawlEnqueue(items) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...sourceRequest, mode: 'detail', input: urls.join('\n'), count: urls.length,
+          selectedEpisodes,
           sourceMode: sourceRequest.mode, sourceInput: sourceRequest.input, sourceName,
           label: `${crawlNowState.platform} · ${urls.length} video đã chọn`
         })
@@ -7614,6 +7761,10 @@ async function crawlAllNow() {
 }
 
 function crawlTaskStatusLabel(task) {
+  if (task.status === 'success' && task.kind === 'crawl') {
+    if (task.reason === 'partial') return `Tải được ${task.completedVideos || 0}, lỗi ${task.failedVideos || 0}`;
+    if (['no_matches', 'no_new', 'no_output'].includes(task.reason)) return task.step || 'Không tải thêm video';
+  }
   return ({ pending: 'Đang chờ', downloading: task.step || 'Đang tải', success: 'Đã xong', error: 'Lỗi', cancelled: 'Đã hủy' })[task.status] || task.status;
 }
 
@@ -7634,7 +7785,7 @@ function crawlRenderQueue(snapshot) {
           <div class="crawl-queue-item-status" title="${crawlEscape(crawlTaskStatusLabel(task))}">${task.kind === 'crawl' ? 'Job cào · ' : ''}${crawlEscape(crawlTaskStatusLabel(task))}</div>
           ${task.reason ? `<div class="crawl-queue-reason">${crawlEscape(task.reason)}${task.error ? ` · ${crawlEscape(task.error)}` : ''}</div>` : ''}</div>
         ${['pending', 'downloading'].includes(task.status) ? `<button class="crawl-queue-cancel" onclick="crawlCancelTask('${crawlEscape(task.id)}')">Hủy</button>` : ''}
-        ${['error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
+        ${['error', 'cancelled'].includes(task.status) || (task.status === 'success' && task.reason === 'partial') ? `<button class="crawl-link-btn" onclick="crawlRetryTask('${crawlEscape(task.id)}')">Thử lại</button>` : ''}
         ${['success', 'error', 'cancelled'].includes(task.status) ? `<button class="crawl-link-btn" onclick="crawlRemoveTask('${crawlEscape(task.id)}')">✕</button>` : ''}
       </div>
       <div class="crawl-queue-mini-track"><i style="width:${Math.max(0, Math.min(100, Number(task.percent) || 0))}%"></i></div>
@@ -7753,9 +7904,9 @@ async function crawlRetryTask(taskId) {
   await crawlPollStatus();
 }
 
-async function crawlRetryAll(platform = '') {
+async function crawlRetryAll(platform = '', reason = '') {
   await fetch('/api/download-crawl/retry-all', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform })
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform, reason })
   });
   crawlStartPolling();
   await crawlPollStatus();

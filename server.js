@@ -45,6 +45,8 @@ function createCookieSyncResolver(platform) {
 
 const mediaCrawler = new MediaCrawlerAdapter({ dataDir: shared.DOWNLOADS_DIR });
 const projectYtDlp = new ProjectYtDlpAdapter({ dataDir: shared.DOWNLOADS_DIR });
+const { SupplementalCrawler } = require('./lib/supplemental-crawler');
+const supplementalCrawler = new SupplementalCrawler(mediaCrawler);
 const piperRuntimeManager = new PiperRuntimeManager();
 const ocrGpuManager = new OcrGpuManager({
   runtimeReady: () => crawlerRuntimeManager.ready('ocr'),
@@ -58,9 +60,9 @@ const whisperGpuManager = new WhisperGpuManager({
 });
 
 function createMediaCrawlerPreviewResolver(platform) {
-  return async ({ input, count, mode, onLog, onItem }) => {
+  return async ({ input, count, mode, sort, timeDays, onLog, onItem }) => {
     if (!mediaCrawler.status().available) return createBrowserPreviewResolver(platform)({ input, count, mode, onLog });
-    return mediaCrawler.preview({ platform, input, count, mode, onLog, onItem });
+    return mediaCrawler.preview({ platform, input, count, mode, sort, timeDays, onLog, onItem });
   };
 }
 
@@ -93,6 +95,11 @@ async function previewDouyinDetail({ input, onLog }) {
 const downloadCrawlManager = new DownloadCrawlManager({
   shared,
   previewResolvers: {
+    'honggo:detail': (config) => supplementalCrawler.honggo(config, { onLog: config.onLog }, true),
+    'honggo:chase': (config) => supplementalCrawler.honggo(config, { onLog: config.onLog }, true),
+    'kuaishou:search': createMediaCrawlerPreviewResolver('kuaishou'),
+    'kuaishou:creator': createMediaCrawlerPreviewResolver('kuaishou'),
+    'kuaishou:detail': createMediaCrawlerPreviewResolver('kuaishou'),
     'youtube:search': createProjectYtDlpPreviewResolver('youtube'),
     'youtube:creator': createProjectYtDlpPreviewResolver('youtube'),
     'tiktok:search': createProjectYtDlpPreviewResolver('tiktok'),
@@ -134,6 +141,8 @@ const downloadCrawlManager = new DownloadCrawlManager({
     weibo: createCookieSyncResolver('weibo')
   },
   crawlResolvers: {
+    honggo: (config, hooks) => supplementalCrawler.honggo(config, hooks),
+    kuaishou: (config, hooks) => mediaCrawler.crawl(config, hooks),
     ...(mediaCrawler.status().available
       ? Object.fromEntries(['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo']
         .map((platform) => [platform, (config, hooks) => mediaCrawler.crawl(config, hooks)]))
@@ -144,6 +153,7 @@ const downloadCrawlManager = new DownloadCrawlManager({
       : {})
   },
   loginChecker: async (platform, mode) => {
+    if (platform === 'honggo') return 'na';
     if (mediaCrawler.supports(platform) && mediaCrawler.status().available) return mediaCrawler.checkLogin(platform);
     if (projectYtDlp.status().available) {
       if (platform === 'tiktok' && mode === 'search') return projectYtDlp.checkLogin(platform);
@@ -558,6 +568,18 @@ app.post('/api/download-crawl/enqueue-job', (req, res) => {
   }
 });
 app.get('/api/source-channels', (req, res) => res.json({ channels: sourceChannelManager.list() }));
+app.post('/api/source-channels/discover', async (req, res) => {
+  try { res.json(await supplementalCrawler.discover(req.body || {})); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.patch('/api/source-channels/:id', (req, res) => {
+  try { res.json({ channel: sourceChannelManager.update(req.params.id, req.body || {}) }); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.post('/api/source-channels/:id/selected', (req, res) => {
+  try { res.json(sourceChannelManager.runSelected(req.params.id, req.body?.ids)); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
 app.post('/api/source-channels', (req, res) => {
   try { res.json({ success: true, channel: sourceChannelManager.add(req.body || {}) }); }
   catch (error) { res.status(400).json({ error: error.message }); }
@@ -583,6 +605,16 @@ app.get('/api/download-crawl/status', (req, res) => {
 app.get('/api/download-crawl/stats', (req, res) => {
   res.json(downloadCrawlManager.stats(req.query?.date || ''));
 });
+app.get('/api/download-crawl/thumbnail', async (req, res) => {
+  try {
+    const { crawlThumbnail } = require('./lib/crawl-thumbnail');
+    const image = await crawlThumbnail(shared.DOWNLOADS_DIR, req.query.path, shared.FFMPEG_PATH);
+    res.sendFile(image);
+  } catch (_) {
+    res.status(404).end();
+  }
+});
+
 app.get('/api/download-crawl/history', (req, res) => {
   const items = readCrawlerHistory(shared.DOWNLOADS_DIR, {
     platform: req.query?.platform,
@@ -607,28 +639,28 @@ app.post('/api/download-crawl/history/delete', (req, res) => {
 });
 app.get('/api/download-crawl/login-status', async (req, res) => {
   const cookies = shared.getCookieStatus();
-  const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'];
+  const browserPlatforms = ['douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo', 'kuaishou'];
   const browserStates = mediaCrawler.status().available
     ? await mediaCrawler.checkLogins(browserPlatforms)
     : Object.fromEntries(await Promise.all(browserPlatforms.map(async (platform) => [platform, await platformBrowserExtractor.loginStatus(platform)])));
   const projectStates = projectYtDlp.status().available
     ? await projectYtDlp.checkLogins(['youtube', 'tiktok', 'facebook', 'instagram', 'twitter'])
     : {};
-  const loginState = (platform, hasCookie = false) => browserStates[platform] === 'in'
-    ? 'in'
-    : (browserStates[platform] === 'unknown' && hasCookie ? 'in' : 'out');
+  const loginState = (platform) => ['in', 'out'].includes(browserStates[platform]) ? browserStates[platform] : 'unknown';
   res.json({
     platforms: {
+      kuaishou: loginState('kuaishou'),
+      honggo: 'na',
       douyin: loginState('douyin', cookies.douyin),
       bilibili: loginState('bilibili', cookies.bilibili),
       xiaohongshu: loginState('xiaohongshu', cookies.xiaohongshu),
       rednote: loginState('rednote', cookies.rednote),
       weibo: loginState('weibo', cookies.weibo),
-      youtube: projectStates.youtube === 'in' ? 'in' : 'out',
+      youtube: projectStates.youtube || 'unknown',
       tiktok: projectStates.tiktok || 'out',
       facebook: projectStates.facebook === 'in' ? 'in' : 'na',
-      instagram: projectStates.instagram === 'in' ? 'in' : 'out',
-      twitter: projectStates.twitter === 'in' ? 'in' : 'out',
+      instagram: projectStates.instagram || 'unknown',
+      twitter: projectStates.twitter || 'unknown',
       reddit: 'na'
     }
   });
@@ -636,11 +668,11 @@ app.get('/api/download-crawl/login-status', async (req, res) => {
 app.post('/api/download-crawl/login', async (req, res) => {
   try {
     const platform = String(req.body?.platform || '');
-    const result = mediaCrawler.supports(platform) && mediaCrawler.status().available
+    const result = await (mediaCrawler.supports(platform) && mediaCrawler.status().available
       ? mediaCrawler.openLogin(platform)
       : projectYtDlp.supportsLogin(platform) && projectYtDlp.status().available
         ? projectYtDlp.openLogin(platform)
-      : await platformBrowserExtractor.openLogin(platform);
+      : platformBrowserExtractor.openLogin(platform));
     res.json({ success: true, engine: result?.engine || 'browser', message: `Đã mở cửa sổ đăng nhập ${platform}. Đăng nhập xong có thể đóng cửa sổ.` });
   } catch (error) {
     res.status(503).json({ error: error.message || 'Không mở được cửa sổ đăng nhập.' });
@@ -690,7 +722,7 @@ app.post('/api/download-crawl/retry', (req, res) => {
   res.json({ success: downloadCrawlManager.retry(String(req.body?.taskId || '')) });
 });
 app.post('/api/download-crawl/retry-all', (req, res) => {
-  res.json({ success: true, count: downloadCrawlManager.retryAll(String(req.body?.platform || '')) });
+  res.json({ success: true, count: downloadCrawlManager.retryAll(String(req.body?.platform || ''), String(req.body?.reason || '')) });
 });
 app.post('/api/download-crawl/clear-logs', (req, res) => {
   downloadCrawlManager.clearLogs();
@@ -748,6 +780,9 @@ app.get('/api/render-progress', studioController.getRenderProgress);
 app.get('/api/render-queue-status', studioController.getQueueStatus);
 app.post('/api/render-use-whisper', studioController.useWhisperForRenderTask);
 app.post('/api/render-resume', studioController.resumeRenderTask);
+app.get('/api/render-tasks/:taskId/source-subtitle', studioController.downloadSourceSubtitle);
+app.post('/api/render-tasks/:taskId/source-subtitle/approve',
+  studioUpload.single('subtitle'), studioController.approveSourceSubtitle);
 app.get('/api/render-tasks/:taskId/segments', segmentController.getSegments);
 app.put('/api/render-tasks/:taskId/segments', segmentController.updateSegments);
 app.post('/api/render-tasks/:taskId/segments/replace', segmentController.replaceText);
@@ -865,7 +900,7 @@ app.get('/api/open-file-folder', systemController.openFileFolder);
 app.get('/api/download-crawl/open-file-folder', systemController.openDownloadedFileFolder);
 app.get('/api/serve-file', systemController.serveFile);
 // Facebook Page Manager: kho token mã hóa, hàng đợi bền vững, Post/Reel/Story,
-// hẹn giờ, retry, OAuth và API quản lý tương tác.
+// hẹn giờ, retry và API quản lý tương tác bằng token do người dùng cung cấp.
 facebookController.registerFacebookRoutes(app);
 // Giữ tương thích giao diện/bản dự án cũ; hai route này nay cũng đi qua queue mới.
 app.post('/api/publish-facebook', facebookController.legacyPublish);

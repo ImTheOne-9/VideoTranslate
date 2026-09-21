@@ -18,7 +18,6 @@ import random
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 import zlib
@@ -46,6 +45,26 @@ LANGUAGES = {
     "fr": "fr-FR", "de": "de-DE", "ru": "ru-RU", "id": "id-ID",
     "pt": "pt-BR", "it": "it-IT",
 }
+
+# ViralCrawl measured these values against CapCut's real segmentation. The
+# service treats words_per_line as characters, so 15 works for Chinese but
+# fragments Vietnamese/Latin speech into unnaturally short cues.
+LINE_LAYOUTS = {
+    "zh-": (15, 1),
+    "yue": (15, 1),
+    "ja-": (30, 2),
+    "ko-": (45, 2),
+}
+DEFAULT_LINE_LAYOUT = (60, 2)
+
+# Only explicit successful empty states belong here. Unknown values remain API
+# errors so a changed protocol cannot silently discard speech.
+EMPTY_NO_SPEECH_REASONS = frozenset((
+    "no_required_caption_type",
+    "no_speech_and_singing",
+))
+
+_NETWORK_CACHE = [0.0, None]
 
 
 class CapCutError(RuntimeError):
@@ -83,9 +102,20 @@ def language_code(value: str | None) -> str:
     return LANGUAGES.get(key[:2], "")
 
 
-def device_file() -> Path:
-    root = Path(os.environ.get("VIDEO_STUDIO_CRAWLER_HOME") or tempfile.gettempdir())
-    return root / "capcut-asr-device.json"
+def line_parameters(capcut_language: str | None) -> tuple[int, int]:
+    try:
+        forced_words = int(os.environ.get("CAPCUT_WPL", "") or 0)
+    except ValueError:
+        forced_words = 0
+    try:
+        forced_lines = int(os.environ.get("CAPCUT_MAX_LINES", "") or 0)
+    except ValueError:
+        forced_lines = 0
+    language = (capcut_language or "").strip().lower()
+    for prefix, (words, lines) in LINE_LAYOUTS.items():
+        if language.startswith(prefix):
+            return forced_words or words, forced_lines or lines
+    return forced_words or DEFAULT_LINE_LAYOUT[0], forced_lines or DEFAULT_LINE_LAYOUT[1]
 
 
 def new_device() -> dict:
@@ -103,32 +133,6 @@ def new_device() -> dict:
         "iid": did, "tdid": did, "region": "VN", "loc": "VN",
         "lan": "vi-VN", "pf": "3",
     }
-
-
-def persist_device(target: Path, value: dict) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, target)
-
-
-def get_device(force_new: bool = False) -> dict:
-    target = device_file()
-    if not force_new:
-        try:
-            value = json.loads(target.read_text(encoding="utf-8"))
-            if isinstance(value, dict) and value.get("device_id"):
-                value["appvr"] = value["version_name"] = value["version_code"] = APP_VERSION
-                return value
-        except Exception:
-            pass
-    value = new_device()
-    try:
-        persist_device(target, value)
-    except OSError:
-        pass
-    return value
-
 
 def query(device: dict, feature=None, region=True) -> dict:
     keys = ("app_name", "device_type", "os_version", "channel", "version_name",
@@ -286,13 +290,15 @@ def upload(data: bytes, device: dict) -> tuple[str, str]:
 
 
 def submit(vid: str, md5: str, duration_ms: int, language: str, device: dict) -> tuple[str, str]:
+    words_per_line, max_lines = line_parameters(language)
     cap = {
         "adjust_endtime": 200, "audio": vid, "audio_type": "vid", "caption_type": 0,
         "client_request_id": str(uuid.uuid4()), "duration": duration_ms,
         "enable_cache": False, "enter_from": "asr", "language": language,
-        "max_lines": 1, "md5": md5, "pack_options": {"need_attribute": True},
+        "max_lines": max_lines, "md5": md5, "pack_options": {"need_attribute": True},
         "songs_info": [{"end_time": float(duration_ms), "id": "", "start_time": 0}],
-        "translation_language": "vi-VN", "use_translation": False, "words_per_line": 15,
+        "translation_language": "vi-VN", "use_translation": False,
+        "words_per_line": words_per_line,
     }
     request_key = "cc_audio_subtitle_asr"
     task = {"context": str(uuid.uuid4()), "payload": compact({"cap_json": cap}),
@@ -324,6 +330,59 @@ def poll(task_id: str, token: str, device: dict, timeout_seconds=120) -> dict:
     raise CapCutApiError("CapCut ASR quá hạn")
 
 
+def adaptive_poll_timeout(duration_ms: int | float | None) -> int:
+    """ViralCrawl-compatible ASR timeout: 2x measured work + 25s, 40..600s."""
+    try:
+        minutes = max(0.0, float(duration_ms or 0) / 60000.0)
+    except (TypeError, ValueError):
+        minutes = 10.0
+    return int(round(max(40.0, min(600.0, 2.0 * (6.0 + 0.8 * minutes) + 25.0))))
+
+
+def network_ok(timeout=4) -> bool:
+    """Probe all resolved addresses under one deadline and cache both outcomes."""
+    try:
+        ttl = float(os.environ.get(
+            "CAPCUT_MANG_TTL",
+            os.environ.get("CAPCUT_NETWORK_TTL", "120")
+        ) or 120)
+    except ValueError:
+        ttl = 120.0
+    now = time.monotonic()
+    if ttl > 0 and _NETWORK_CACHE[1] is not None and now - _NETWORK_CACHE[0] < ttl:
+        return bool(_NETWORK_CACHE[1])
+    deadline = now + max(0.1, float(timeout or 4))
+    result = False
+    try:
+        addresses = socket.getaddrinfo(HOST, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        addresses = []
+    per_address = max(0.5, max(0.1, float(timeout or 4)) / max(1, len(addresses)))
+    seen = set()
+    for family, socktype, proto, _canonname, sockaddr in addresses:
+        key = (family, sockaddr)
+        if key in seen:
+            continue
+        seen.add(key)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        connection = None
+        try:
+            connection = socket.socket(family, socktype, proto)
+            connection.settimeout(min(per_address, remaining))
+            connection.connect(sockaddr)
+            result = True
+            break
+        except OSError:
+            continue
+        finally:
+            if connection is not None:
+                connection.close()
+    _NETWORK_CACHE[0], _NETWORK_CACHE[1] = time.monotonic(), result
+    return result
+
+
 def extract_audio(video: str, output: str, ffmpeg: str) -> None:
     result = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", video, "-vn", "-ac", "1",
                              "-ar", "16000", "-b:a", "64k", output], capture_output=True, timeout=180)
@@ -331,41 +390,63 @@ def extract_audio(video: str, output: str, ffmpeg: str) -> None:
         raise CapCutError("Không trích được audio cho CapCut ASR")
 
 
-def run(args) -> int:
+def probe_duration_ms(audio: str, ffprobe: str | None) -> int:
+    if not ffprobe:
+        return 0
     try:
-        socket.create_connection((HOST, 443), timeout=4).close()
-    except OSError as error:
-        raise CapCutNetworkError(f"Không kết nối được CapCut: {str(error)[:120]}") from error
+        result = subprocess.run([
+            ffprobe, "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=nk=1:nw=1", audio,
+        ], capture_output=True, text=True, errors="replace", timeout=30)
+        return max(0, int(float((result.stdout or "").strip()) * 1000))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+def run(args) -> int:
+    if not network_ok(timeout=4):
+        raise CapCutNetworkError("Không kết nối được CapCut trong thời hạn kiểm tra mạng")
     audio = str(Path(args.output).with_suffix(".capcut-asr.mp3"))
     try:
         emit("extracting_audio")
         extract_audio(os.path.abspath(args.video), audio, os.path.abspath(args.ffmpeg))
         data = Path(audio).read_bytes()
         measured_duration_ms = int(float(args.duration or 0) * 1000)
+        if measured_duration_ms <= 0:
+            measured_duration_ms = probe_duration_ms(audio, args.ffprobe)
         duration_ms = measured_duration_ms if measured_duration_ms > 0 else 600000
         payload = None
         last_error = None
-        for attempt in range(1, max(1, args.attempts) + 1):
-            device = get_device(force_new=attempt > 1)
+        max_attempts = max(1, args.attempts)
+        try:
+            retry_delay = max(0.0, float(os.environ.get("CAPCUT_ASR_NGHI", "2") or 2))
+        except ValueError:
+            retry_delay = 2.0
+        for attempt in range(1, max_attempts + 1):
+            # ViralCrawl creates a fresh anonymous ASR identity per attempt.
+            # It avoids carrying an API/device rejection into the retry.
+            device = new_device()
             try:
-                emit("uploading", attempt=attempt, attempts=max(1, args.attempts))
+                emit("uploading", attempt=attempt, attempts=max_attempts)
                 vid, md5 = upload(data, device)
                 emit("submitting", attempt=attempt)
                 task_id, token = submit(vid, md5, duration_ms, language_code(args.language), device)
                 emit("polling", attempt=attempt, taskId=task_id)
-                payload = poll(task_id, token, device, args.timeout)
+                poll_timeout = args.timeout if args.timeout > 0 else adaptive_poll_timeout(duration_ms)
+                payload = poll(task_id, token, device, poll_timeout)
                 break
             except CapCutNoSpeech:
                 raise
             except (CapCutNetworkError, CapCutApiError) as error:
                 last_error = error
-                if attempt >= max(1, args.attempts):
+                if attempt >= max_attempts:
                     raise
                 emit(
                     "retrying", attempt=attempt + 1, reason=str(error)[:240],
                     refreshedDevice=True, category=("network" if isinstance(error, CapCutNetworkError) else "api"),
                 )
-                time.sleep(min(3.0, 0.75 * attempt))
+                if retry_delay > 0:
+                    time.sleep(retry_delay)
         if payload is None:
             raise last_error or CapCutApiError("CapCut ASR không trả payload")
         cues = []
@@ -376,8 +457,8 @@ def run(args) -> int:
                 cues.append({"text": text, "startMs": start_ms, "endMs": end_ms})
         if not cues:
             reason = (((payload.get("attribute") or {}).get("extra") or {}).get("empty_reason")) or ""
-            if reason == "no_required_caption_type":
-                raise CapCutNoSpeech("CapCut xác nhận audio không có lời thoại")
+            if reason in EMPTY_NO_SPEECH_REASONS:
+                raise CapCutNoSpeech(f"CapCut xác nhận audio không có lời thoại ({reason})")
             raise CapCutApiError("CapCut ASR trả 0 cue")
         result = {"version": 1, "engineId": "capcut-asr", "language": args.language,
                   "languageConfidence": None, "cues": cues, "attempts": attempt,
@@ -401,9 +482,11 @@ def main() -> int:
     parser.add_argument("--video", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--ffmpeg", required=True)
+    parser.add_argument("--ffprobe", default="")
     parser.add_argument("--duration", type=float, default=0)
     parser.add_argument("--language", default="auto")
-    parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--timeout", type=int, default=0,
+                        help="0 = tự tính theo thời lượng video (40-600 giây)")
     parser.add_argument("--attempts", type=int, default=2)
     args = parser.parse_args()
     try:

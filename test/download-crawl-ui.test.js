@@ -135,6 +135,8 @@ test('crawl-now hides Weibo, X and Reddit while retaining supported visible plat
   assert.match(app, /!hiddenCrawlPlatforms\.has\(String\(item\.platform/);
   assert.match(app, /MediaCrawler \+ Video Studio yt-dlp sẵn sàng/);
   assert.match(app, /jobCrawlerPlatforms = \['youtube', 'tiktok', 'facebook', 'instagram', 'twitter', 'reddit', 'douyin', 'bilibili', 'xiaohongshu', 'rednote', 'weibo'\]/);
+  assert.match(historyPlatformFilter, /<option value="honggo">Honggo<\/option>/);
+  assert.match(app, /honggo: 'Honggo'/);
 });
 
 test('crawl-now client wires preview, queue controls, progress and duplicate history', () => {

@@ -199,6 +199,47 @@ def chuan_hoa_kenh_youtube(s):
     return base_url + "/videos"
 
 
+def _tiktok_media_dung_bai(documents, video_id):
+    """Accept media addresses only from metadata belonging to the requested item."""
+    urls = set()
+
+    def addresses(value):
+        if isinstance(value, str):
+            if value.startswith("https://"):
+                urls.add(value)
+        elif isinstance(value, list):
+            for entry in value:
+                addresses(entry)
+        elif isinstance(value, dict):
+            for key in ("UrlList", "urlList", "url_list", "src", "url"):
+                addresses(value.get(key))
+
+    def walk(value):
+        if isinstance(value, dict):
+            if str(value.get("id") or value.get("aweme_id") or "") == str(video_id):
+                video = value.get("video") or {}
+                if isinstance(video, dict):
+                    addresses(video.get("playAddr"))
+                    addresses(video.get("downloadAddr"))
+                    addresses(video.get("play_addr"))
+                    addresses(video.get("download_addr"))
+                    for variant in video.get("bitrateInfo") or []:
+                        if isinstance(variant, dict):
+                            addresses(variant.get("PlayAddr"))
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    for document in documents:
+        try:
+            walk(json.loads(document))
+        except (ValueError, TypeError):
+            continue
+    return urls
+
+
 def _tai_tiktok_browser(nhiem_vu, log_fn=None):
     """FALLBACK khi yt-dlp KHÔNG lấy được VIDEO (chỉ ra audio-only / 'Requested format not available').
     LÝ DO (đo thật): TikTok trả cho yt-dlp một play_addr BỊ SUY GIẢM chỉ còn audio (host tiktokcdn.com),
@@ -249,20 +290,8 @@ def _tai_tiktok_browser(nhiem_vu, log_fn=None):
                     try:
                         pg.goto(url_bai, wait_until="load", timeout=45000)
                         got = False
-                        # BUG khách (đo THẬT — verify bằng script cô lập, gọi thẳng trang TikTok thật, KHÔNG
-                        # đoán): cdn[] thường bắt được NHIỀU URL /video/tos/ cho CÙNG 1 bài (đã quan sát 7 URL
-                        # cho 1 video, gồm 2 file-hash khác nhau = các BITRATE/watermark-variant khác nhau của
-                        # cùng nội dung, do TikTok trả sẵn qua nhiều CDN edge/độ phân giải). Code CŨ tải "URL
-                        # ĐẦU TIÊN đạt >100KB" — nếu URL đầu là bản THẤP/preview nhỏ mà >100KB (đủ ngưỡng nhưng
-                        # không phải bản đầy đủ), hoặc hiếm khi thật sự lẫn nội dung do carousel bên cạnh, sẽ
-                        # LƯU NHẦM bản không mong muốn dưới tên file đúng ID ("3/11 video tải về sai với link
-                        # nhập" — khách báo). Đã thử hướng currentSrc (đọc URL <video> đang phát) NHƯNG verify
-                        # thật: TikTok headless video không tự play (paused/NaN suốt), currentSrc trả về
-                        # endpoint proxy 'aweme/v1/play/...' KHÔNG khớp bất kỳ URL /video/tos/ nào → không dùng
-                        # được. FIX THỰC DỤNG: tải TOÀN BỘ URL trong cdn[] mỗi vòng, giữ bản DUNG LƯỢNG LỚN
-                        # NHẤT (>100KB) — bản lớn nhất gần như luôn là bản chất lượng cao nhất/đầy đủ nhất của
-                        # ĐÚNG bài đang mở (không có cơ chế nào của TikTok trả video KHÁC nặng hơn bản đang xem
-                        # trên cùng 1 trang); giảm rủi ro dính bản preview/thumbnail nhỏ so với "URL đầu tiên".
+                        # Network traffic includes recommended videos. Size cannot prove identity.
+                        # Only addresses explicitly attached to this item's ID may be downloaded.
                         best_body, best_size = None, 0
                         for _ in range(6):
                             pg.wait_for_timeout(2000)
@@ -271,7 +300,12 @@ def _tai_tiktok_browser(nhiem_vu, log_fn=None):
                                             "if(v){v.muted=true;v.play().catch(()=>{});}}")
                             except Exception:
                                 pass
-                            for u in list(dict.fromkeys(cdn)):
+                            try:
+                                documents = pg.eval_on_selector_all("script[type='application/json']", "nodes => nodes.map(node => node.textContent)")
+                                verified_urls = _tiktok_media_dung_bai(documents, vid)
+                            except Exception:
+                                verified_urls = set()
+                            for u in verified_urls:
                                 try:
                                     resp = ctx.request.get(u, headers={"referer": "https://www.tiktok.com/"}, timeout=60000)
                                     if resp.ok:
@@ -289,7 +323,7 @@ def _tai_tiktok_browser(nhiem_vu, log_fn=None):
                             with open(out_path, "wb") as f:
                                 f.write(best_body)
                             with _lock:
-                                _log(f"✔ Tải qua trình duyệt (yt-dlp không lấy được video): {vid} ({best_size//1024}KB, bản lớn nhất/{len(set(cdn))} URL)")
+                                _log(f"✔ Tải qua trình duyệt (yt-dlp không lấy được video): {vid} ({best_size//1024}KB, đúng ID/{len(verified_urls)} URL)")
                                 ok_ids.append(vid)
                             got = True
                         if not got:
@@ -324,6 +358,105 @@ def _tai_tiktok_browser(nhiem_vu, log_fn=None):
     except Exception as e:
         _log(f"⚠ Lỗi trình duyệt khi tải TikTok: {str(e)[:100]}")
     return ok_ids
+
+
+# TikWM is only used after both local download paths fail. Never send cookies.
+_TT_API_LAST = 0.0
+
+
+def _tai_tiktok_qua_api(url, out_path, log_fn=None):
+    import time
+    report = log_fn or log
+    if os.environ.get("TT_API_NGOAI", "1") == "0":
+        return False
+    parsed = urllib.parse.urlsplit(url)
+    match = re.search(r"/video/(\d+)", parsed.path)
+    if not match or (parsed.hostname or "").lower() not in ("tiktok.com", "www.tiktok.com"):
+        return False
+    vid = match.group(1)
+    # Send only the public article URL, without tracking parameters or tokens.
+    public_url = "https://www.tiktok.com" + parsed.path
+    temporary = None
+    global _TT_API_LAST
+    try:
+        time.sleep(max(0, 1.2 - (time.monotonic() - _TT_API_LAST)))
+        _TT_API_LAST = time.monotonic()
+        req = urllib.request.Request(
+            "https://www.tikwm.com/api/?url=" + urllib.parse.quote(public_url, safe=""),
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            payload = json.load(response)
+        data = payload.get("data") or {}
+        if payload.get("code") != 0 or str(data.get("id")) != vid:
+            report(f"  · {vid}: TikWM không trả đúng ID bài — bỏ kết quả.")
+            return False
+        if float(data.get("duration") or 0) <= 0:
+            return False
+        media_url = data.get("play") or data.get("wmplay") or ""
+        if media_url.startswith("/"):
+            media_url = "https://www.tikwm.com" + media_url
+        media_parts = urllib.parse.urlsplit(media_url)
+        if media_parts.scheme != "https" or not media_parts.hostname or media_parts.username or not _url_an_toan(media_url):
+            return False
+        probe = shutil.which("ffprobe")
+        if not probe:
+            try:
+                import xu_ly_video
+                candidate = xu_ly_video.tim_exe("ffprobe")
+                probe = candidate if os.path.isfile(candidate) else None
+            except Exception:
+                pass
+        if not probe:
+            ffmpeg = shutil.which("ffmpeg")
+            candidate = os.path.join(os.path.dirname(ffmpeg), "ffprobe.exe" if os.name == "nt" else "ffprobe") if ffmpeg else ""
+            probe = candidate if os.path.isfile(candidate) else None
+        if not probe:
+            report(f"  · {vid}: thiếu ffprobe để xác nhận tệp TikWM có hình.")
+            return False
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix="tikwm_", suffix=".part", dir=os.path.dirname(os.path.abspath(out_path)))
+        req = urllib.request.Request(media_url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.tikwm.com/"})
+        with os.fdopen(fd, "wb") as output, urllib.request.urlopen(req, timeout=240) as response:
+            shutil.copyfileobj(response, output)
+        if os.path.getsize(temporary) <= 100000:
+            return False
+        result = subprocess.run([probe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "json", temporary],
+                                capture_output=True, text=True, timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        streams = json.loads(result.stdout or "{}").get("streams") or []
+        if result.returncode or not any(stream.get("codec_type") == "video" for stream in streams):
+            report(f"  · {vid}: tệp TikWM không có luồng hình — bỏ kết quả.")
+            return False
+        raw_title = data.get("title")
+        title = re.sub(r"#\S+", "", raw_title).strip() if isinstance(raw_title, str) else ""
+        if title:
+            safe_title = an_toan(title)
+            if safe_title and safe_title != "khac":
+                out_path = os.path.join(os.path.dirname(out_path), f"{safe_title} [{vid}].mp4")
+        os.replace(temporary, out_path)
+        temporary = None
+        report(f"✔ Tải qua TikWM (yt-dlp và trình duyệt thất bại): {vid} — {os.path.basename(out_path)}")
+        return True
+    except Exception:
+        report(f"  · {vid}: TikWM không tải được video; chưa ghi nhận thành công.")
+        return False
+    finally:
+        if temporary:
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+
+
+def _tai_tiktok_du_phong(tasks, log_fn=None):
+    successful = set(_tai_tiktok_browser(tasks, log_fn=log_fn))
+    if os.environ.get("TT_API_NGOAI", "1") != "0":
+        for url, destination in tasks:
+            match = re.search(r"/video/(\d+)", url)
+            if match and match.group(1) not in successful:
+                if _tai_tiktok_qua_api(url, destination, log_fn=log_fn):
+                    successful.add(match.group(1))
+    return successful
 
 
 def chuan_hoa_kenh_tiktok(s):
@@ -701,19 +834,63 @@ def _fb_bo_sung_metadata(items, log=print):
         _don_cookie_temp()
 
 
+def _ig_owner(documents, shortcode):
+    """Read an owner only from the metadata object matching this exact post."""
+    def walk(value):
+        if isinstance(value, dict):
+            if str(value.get("shortcode") or value.get("code") or "") == shortcode:
+                owner = value.get("owner") or value.get("user") or {}
+                if isinstance(owner, dict) and owner.get("username"):
+                    return str(owner["username"]).lower()
+            for child in value.values():
+                found = walk(child)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                found = walk(child)
+                if found:
+                    return found
+        return ""
+    for document in documents:
+        try:
+            found = walk(json.loads(document))
+            if found:
+                return found
+        except (ValueError, TypeError):
+            pass
+    return ""
+
+
+def _ig_trang_bi_chan(page):
+    try:
+        if "/accounts/login" in page.url:
+            return "Instagram yêu cầu đăng nhập — hãy đăng nhập trong ứng dụng rồi thử lại."
+        body = page.inner_text("body").lower()
+        if any(word in body for word in ("this account is private", "tài khoản này ở chế độ riêng tư", "this profile is private")):
+            return "Instagram báo tài khoản riêng tư — cần tài khoản có quyền xem."
+        if any(word in body for word in ("log in to instagram", "đăng nhập vào instagram")):
+            return "Instagram hiện tường đăng nhập — hãy đăng nhập rồi thử lại."
+    except Exception:
+        pass
+    return ""
+
+
 def _ig_mo_context(pw):
-    """Mở Instagram bằng profile riêng nếu có; profile lỗi/đang bận thì dùng phiên ẩn danh."""
+    """Mở Instagram bằng profile riêng nếu có; chạy nền mặc định, IG_KENH_HEADFUL=1 để hiện cửa sổ."""
+    headful = (os.environ.get("IG_KENH_HEADFUL", "") or "").strip().lower() in ("1", "true", "yes")
+    headless = not headful
     udd = os.path.join(BROWSER_DATA_DIR, "ig_user_data_dir")
     ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
     if os.path.isdir(udd):
         try:
             return pw.chromium.launch_persistent_context(
-                udd, headless=True, user_agent=ua,
+                udd, headless=headless, user_agent=ua,
                 args=["--disable-blink-features=AutomationControlled"]), None
         except Exception as e:
             log("⚠ Instagram: không mở được profile đăng nhập, thử phiên công khai: %s" % str(e)[:100])
-    browser = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+    browser = pw.chromium.launch(headless=headless, args=["--disable-blink-features=AutomationControlled"])
     return browser.new_context(user_agent=ua), browser
 
 
@@ -722,15 +899,24 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
     base = chuan_hoa_user("ig", profile_input)
     if not base or not re.match(r"https?://(?:www\.)?instagram\.com/[^/]+/?$", base, re.I):
         return []
+    handle = base.rstrip("/").rsplit("/", 1)[-1].lower()
     items, seen = [], set()
+    rejected, unknown = 0, 0
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             ctx, browser = _ig_mo_context(pw)
             try:
-                pg = ctx.new_page()
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                for stale in list(ctx.pages)[1:]:
+                    stale.close()
+                detail = None
                 pg.goto(base, wait_until="domcontentloaded", timeout=40000)
                 pg.wait_for_timeout(3500)
+                reason = _ig_trang_bi_chan(pg)
+                if reason:
+                    log("⚠ " + reason)
+                    return []
                 khong_moi = 0
                 while len(items) < count and khong_moi < 5:
                     rows = pg.eval_on_selector_all("a", """els => els.map(a => {
@@ -747,11 +933,34 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                     moi = 0
                     for row in rows:
                         href = (row.get("href") or "").split("?")[0]
-                        match = re.search(r"instagram\.com/(?:reel|p)/([^/?#]+)", href, re.I)
+                        match = re.search(r"instagram\.com/(?:[^/?#]+/)?(?:reel|p)/([^/?#]+)", href, re.I)
                         vid = match.group(1) if match else ""
                         if not vid or vid in seen:
                             continue
                         seen.add(vid); moi += 1
+                        owner = ""
+                        named = re.search(r"instagram\.com/([^/?#]+)/(?:reel|p)/", href, re.I)
+                        if named:
+                            owner = named.group(1).lower()
+                        else:
+                            documents = pg.eval_on_selector_all("script[type='application/json']", "nodes => nodes.map(n => n.textContent)")
+                            owner = _ig_owner(documents, vid)
+                            if not owner:
+                                if detail is None:
+                                    detail = ctx.new_page()
+                                try:
+                                    detail.goto(href, wait_until="domcontentloaded", timeout=40000)
+                                    detail.wait_for_timeout(1500)
+                                    documents = detail.eval_on_selector_all("script[type='application/json']", "nodes => nodes.map(n => n.textContent)")
+                                    owner = _ig_owner(documents, vid)
+                                except Exception:
+                                    pass
+                        if owner != handle:
+                            if owner:
+                                rejected += 1
+                            else:
+                                unknown += 1
+                            continue
                         items.append({"id": vid, "title": (row.get("title") or "").strip()[:160],
                                       "thumb": row.get("thumb") or "", "url": href,
                                       "like": "", "nick": base.rstrip("/").rsplit("/", 1)[-1],
@@ -768,7 +977,11 @@ def _ig_liet_ke_kenh(profile_input, count, log=print):
                 if browser:
                     browser.close()
     except Exception as e:
-        log("⚠ Instagram: fallback trình duyệt không lấy được danh sách: %s" % str(e)[:140])
+        log("⚠ Instagram: lỗi kỹ thuật mở/đọc trang (%s); kiểm tra mạng hoặc đóng cửa sổ đăng nhập đang dùng profile rồi thử lại." % type(e).__name__)
+    if rejected or unknown:
+        log("ℹ Instagram: bỏ %d bài của kênh khác, %d bài chưa xác minh được tác giả." % (rejected, unknown))
+    if not items:
+        log("⚠ Instagram: không lấy được bài đã xác minh đúng kênh; chưa thể kết luận kênh trống hoặc riêng tư.")
     return items[:count]
 
 
@@ -782,7 +995,9 @@ def _ig_bo_sung_metadata(items, log=print):
         with sync_playwright() as pw:
             ctx, browser = _ig_mo_context(pw)
             try:
-                pg = ctx.new_page()
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                for stale in list(ctx.pages)[1:]:
+                    stale.close()
                 for item in missing:
                     try:
                         pg.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
@@ -790,10 +1005,10 @@ def _ig_bo_sung_metadata(items, log=print):
                         meta = pg.evaluate("""async () => {
                           const v = document.querySelector('video');
                           const get = p => document.querySelector(`meta[property="${p}"]`)?.content || '';
+                          const src = get('og:video') || get('og:video:url') || get('og:video:secure_url');
                           const result = {duration: v && Number.isFinite(v.duration) ? v.duration : 0,
                                           title:get('og:title'), description:get('og:description'),
-                                          thumb:get('og:image')};
-                          const src = get('og:video') || get('og:video:url') || get('og:video:secure_url');
+                                          thumb:get('og:image'), hasVideo:Boolean(v || src)};
                           if (!result.duration && src) {
                             result.duration = await new Promise(resolve => {
                               const probe = document.createElement('video');
@@ -807,6 +1022,10 @@ def _ig_bo_sung_metadata(items, log=print):
                           }
                           return result;
                         }""") or {}
+                        # Fallback kênh thu cả /reel/ lẫn /p/. /p/ có thể là ảnh/carousel thuần;
+                        # chỉ loại khi đã mở trang thành công và xác nhận không có <video>/og:video.
+                        # Nếu việc đọc trang lỗi, không gắn cờ để tránh bỏ oan video thật.
+                        item["_ig_video_confirmed"] = bool(meta.get("hasVideo"))
                         if meta.get("duration"):
                             item["duration"] = float(meta["duration"])
                         if not item.get("title"):
@@ -821,7 +1040,13 @@ def _ig_bo_sung_metadata(items, log=print):
                     browser.close()
     except Exception as e:
         log("⚠ Instagram: không mở được trình duyệt bổ sung metadata: %s" % str(e)[:120])
-    return items
+    removed = sum(1 for item in items if item.get("_ig_video_confirmed") is False)
+    if removed:
+        log("ℹ Instagram: bỏ %d bài ảnh/carousel không có video khỏi danh sách xem trước." % removed)
+    kept = [item for item in items if item.get("_ig_video_confirmed") is not False]
+    for item in kept:
+        item.pop("_ig_video_confirmed", None)
+    return kept
 
 
 def _tiktok_liet_ke_kenh_browser(profile_url, count, log=print):
@@ -1095,6 +1320,8 @@ def _item_yt(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": e.get("url") or ("https://www.youtube.com/watch?v=%s" % vid if vid else ""),
         "like": str(e.get("view_count") or ""),
+        "view_count": e.get("view_count"), "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("channel") or e.get("uploader") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1103,6 +1330,15 @@ def _item_yt(e):
 
 def _item_tt(e):
     vid = str(e.get("id") or "")
+    article_url = ""
+    for candidate in (e.get("webpage_url"), e.get("original_url"), e.get("url")):
+        parsed = urllib.parse.urlsplit(str(candidate or ""))
+        if (parsed.hostname or "").lower() in ("tiktok.com", "www.tiktok.com") and re.search(r"/video/\d+", parsed.path):
+            article_url = "https://www.tiktok.com" + parsed.path
+            break
+    if not article_url and vid.isdigit():
+        handle = str(e.get("uploader_id") or "_").lstrip("@")
+        article_url = "https://www.tiktok.com/@%s/video/%s" % (handle, vid)
     thumbs = e.get("thumbnails") or []
     thumb = e.get("thumbnail") or (thumbs[-1].get("url") if thumbs else "")
     return {
@@ -1110,8 +1346,11 @@ def _item_tt(e):
         "title": (e.get("title") or e.get("description") or "").strip()[:160],
         "thumb": thumb,
         "loai": "video", "video": True, "so_anh": 0,
-        "url": e.get("url") or "",
+        "url": article_url,
         "like": str(e.get("view_count") or e.get("like_count") or ""),
+        "view_count": e.get("view_count"),
+        "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("uploader") or e.get("channel") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1132,6 +1371,8 @@ def _item_ig(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": url,
         "like": str(e.get("view_count") or e.get("like_count") or ""),
+        "view_count": e.get("view_count"), "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("uploader") or e.get("channel") or e.get("creator") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1149,6 +1390,8 @@ def _item_video_generic(e):
         "loai": "video", "video": True, "so_anh": 0,
         "url": e.get("webpage_url") or e.get("original_url") or e.get("url") or "",
         "like": str(e.get("view_count") or e.get("like_count") or ""),
+        "view_count": e.get("view_count"), "like_count": e.get("like_count"),
+        "time": e.get("timestamp") or e.get("release_timestamp"),
         "nick": e.get("uploader") or e.get("channel") or "",
         "duration": e.get("duration") or 0,
         "creator_url": e.get("channel_url") or e.get("uploader_url") or "",
@@ -1220,6 +1463,11 @@ def liet_ke(a, count):
         if not urls:
             print(json.dumps({"ok": False, "msg": "Chưa nhập từ khóa."})); return
 
+    if plat == "yt":
+        saved = (os.environ.get("MC_YT_COOKIE_FILE") or "").strip()
+        if saved and os.path.isfile(saved):
+            cookiefile = os.path.join(_ck_temp_dir(), "yt_preview.txt")
+            shutil.copy2(saved, cookiefile)
     opts = {"extract_flat": False if a.type == "detail" else "in_playlist",
             "skip_download": True, "playlistend": count,
             "quiet": True, "no_warnings": True, "ignoreerrors": True, "nocheckcertificate": True}
@@ -1288,7 +1536,9 @@ def liet_ke(a, count):
     if plat == "ig" and a.type == "creator" and not items:
         log("ℹ Instagram extractor không liệt kê được kênh — thử qua trình duyệt.")
         for source in tach_dong(a.input):
-            for it in _ig_liet_ke_kenh(source, count - len(items), log=log):
+            # Đọc dư bài vì profile có thể xen ảnh/carousel; sau bước xác minh sẽ cắt đúng count video.
+            _ig_can = max(count - len(items), (count - len(items)) * 3)
+            for it in _ig_liet_ke_kenh(source, _ig_can, log=log):
                 if it["id"] and it["id"] not in seen:
                     seen.add(it["id"]); items.append(it)
                 if len(items) >= count:
@@ -1315,7 +1565,7 @@ def liet_ke(a, count):
             if len(items) >= count:
                 break
     if plat == "ig" and items:
-        items = _ig_bo_sung_metadata(items, log=log)
+        items = _ig_bo_sung_metadata(items, log=log)[:count]
     _don_cookie_temp()   # dọn cookie phiên tạm (các đường return sớm vẫn được atexit dọn)
     # nick/avatar item (nếu parser có) làm dự phòng khi thiếu metadata kênh cấp playlist
     if not kenh_nick:
@@ -1353,6 +1603,7 @@ def main():
     ap.add_argument("--type", required=True, choices=["search", "creator", "detail", "bo"])
     ap.add_argument("--input", required=True)
     ap.add_argument("--count", default="10")
+    ap.add_argument("--quality", choices=['best', '2160', '1080', '720', '480', '360'], default='best')
     ap.add_argument("--source-type", dest="source_type", choices=["search", "creator", "detail", "bo"], default="")
     ap.add_argument("--source-input", dest="source_input", default="")
     ap.add_argument("--source-name", dest="source_name", default="")
@@ -1419,13 +1670,27 @@ def main():
             log(f"🔑 Dùng cookie phiên đăng nhập {a.platform.upper()}.")
     if a.platform in NEN_CAN_COOKIE and not _co_cookie():
         log(f"⚠ {a.platform.upper()} cần đăng nhập — chưa có phiên. Bấm 'Đăng nhập {a.platform.upper()}' trước khi cào.")
-    # YouTube cho phép ẩn danh, nhưng nếu người dùng đã mở phiên đăng nhập thì xuất cookie qua Playwright
-    # sang file tạm riêng. Cách này không giao trực tiếp Cookie DB đang bị Chromium khóa cho yt-dlp.
+    # Ưu tiên cookie người dùng đã xuất; luôn dùng bản sao tạm cho yt-dlp.
     if a.platform == "yt" and not _co_cookie():
-        cf = xuat_cookie_tu_phien("yt")
-        if cf:
-            cookies_file = cf
-            log("🔑 Dùng cookie YouTube tùy chọn từ bản sao tạm an toàn.")
+        saved = (os.environ.get("MC_YT_COOKIE_FILE") or "").strip()
+        if saved and os.path.isfile(saved):
+            cookies_file = os.path.join(_ck_temp_dir(), "yt_saved.txt")
+            shutil.copy2(saved, cookies_file)
+            log("🔑 Dùng cookie YouTube đã xuất.")
+        else:
+            try:
+                from youtube_session import export_cookies
+                cf = os.path.join(_ck_temp_dir(), "yt_chrome.txt")
+                export_cookies(cf)
+                cookies_file = cf
+                log("🔑 Dùng cookie YouTube lấy qua Chrome.")
+            except Exception:
+                cf = xuat_cookie_tu_phien("yt")
+                if cf:
+                    cookies_file = cf
+                    log("🔑 Dùng cookie phiên YouTube từ Playwright.")
+                else:
+                    log("ℹ Chưa lấy được cookie YouTube — thử tải công khai.")
     # TikTok: KHÔNG tự nhét cookie login vào yt-dlp download/liệt-kê. yt-dlp 2026.06+ tự GIẢI JS challenge
     # của TikTok để né anti-bot — nhưng khi CÓ cookie login thì TikTok trả HTTP 403 Forbidden ngay bước
     # "Downloading webpage" (cookie phiên xung đột với cookie-challenge yt-dlp tự sinh). Tái hiện THẬT: cùng 1
@@ -1473,6 +1738,7 @@ def main():
                         ts = 0
             rec = {"video_id": vid, "id": vid, "title": info.get("title") or "",
                    "nickname": info.get("uploader") or info.get("channel") or "",
+                   "thumbnail": info.get("thumbnail") or "",
                    "video_url": url, "url": url, "create_time": ts, "last_modify_ts": ts,
                    "source_keyword": (storage_input if storage_type == "search" else "")}
             os.makedirs(_ls_dir, exist_ok=True)
@@ -1633,6 +1899,9 @@ def main():
             "enable_file_urls": False,   # H11: tường minh KHÔNG cho yt-dlp đọc file:// (chống SSRF/đọc file cục bộ)
             "logger": _YDLLogger(),      # bắt error/warning yt-dlp (quiet nuốt) -> hiển thị cho user
         }
+        if a.quality != 'best':
+            limit = '[height<=%s]' % a.quality
+            o['format'] = ("bv*%s[vcodec~='^(avc1|h264)']+ba[ext=m4a]/b%s[vcodec~='^(avc1|h264)']/bv*%s+ba/b%s[vcodec!=none]" % (limit, limit, limit, limit))
         # download_archive: CHỈ dùng cho creator/search ("cào không trùng" khi kéo cả kênh/từ khóa nhiều trang).
         # KHÔNG dùng cho "Theo link" (detail): user CHỦ ĐỘNG chọn link → phải tải nếu file đã mất; archive ghi
         # id sau khi tải xong 1 lần → lần sau file bị xóa vẫn bị SKIP ÂM THẦM (quiet nuốt) → "0 video" khó hiểu
@@ -1726,6 +1995,13 @@ def main():
             })
         except Exception:
             pass
+        if a.platform == "yt":
+            try:
+                from youtube_session import register_title_translation
+                key = register_title_translation()
+                o.setdefault("postprocessors", []).append({"key": key, "when": "pre_process"})
+            except Exception:
+                pass
         return o
 
     # ---- Dựng danh sách (URL, outtmpl) theo chế độ ----
@@ -1852,7 +2128,7 @@ def main():
                     except Exception as e:
                         log(f"⚠ Liệt kê kênh TikTok lỗi: {str(e)[:100]}"); continue
                     for _e in ((_info or {}).get("entries") or []):
-                        _vu = (_e or {}).get("url") or (_e or {}).get("webpage_url")
+                        _vu = _item_tt(_e or {}).get("url")
                         if _vu:
                             urls.append(_vu)
                         if len(urls) >= count:
@@ -1881,6 +2157,11 @@ def main():
                         break
             if not urls:
                 log("⚠ TikTok: cả yt-dlp và trình duyệt đều không liệt kê được video (kênh trống, riêng tư hoặc bị chặn).")
+                from tiktok_series import run_series
+                for cu in chan_urls:
+                    result = run_series(cu, count, os.environ.get('MC_DATA_DIR') or os.path.join(THU_MUC_CRAWLER, 'data'), creator=True, log=log)
+                    if result.get('ok'):
+                        log('Phim ngắn: %s tập, %s lỗi' % (result['total'], result['failed']))
                 print("YTDLP_DONE 0", flush=True)
                 return
             thu_muc = os.path.join(base, "kenh", "%(channel,uploader,uploader_id)s")
@@ -1951,7 +2232,7 @@ def main():
                     (re.search(r"/video/(\d+)", _url).group(1) if re.search(r"/video/(\d+)", _url) else ""): _url
                     for _url, _out in _tt_browser_bosot
                 }
-                for _vid in _tai_tiktok_browser(_tt_browser_bosot, log_fn=log):
+                for _vid in _tai_tiktok_du_phong(_tt_browser_bosot, log_fn=log):
                     if _vid:
                         da_xong.add(_vid)
                         _ghi_lich_su({"id": _vid, "title": f"TikTok {_vid}",
@@ -2012,7 +2293,7 @@ def main():
                         (re.search(r"/video/(\d+)", _url).group(1) if re.search(r"/video/(\d+)", _url) else ""): _url
                         for _url, _out in _bo_sot
                     }
-                    for _vid in _tai_tiktok_browser(_bo_sot, log_fn=log):
+                    for _vid in _tai_tiktok_du_phong(_bo_sot, log_fn=log):
                         if _vid and _vid not in da_xong:
                             da_xong.add(_vid)
                             _ghi_lich_su({"id": _vid, "title": f"TikTok {_vid}",
@@ -2030,14 +2311,22 @@ def main():
             _xoa_archive_id(_vid)
             log(f"⚠ Không ghi nhận {_vid}: file media cuối không hợp lệ hoặc chưa được tạo xong.")
 
+    # Với danh sách link đã chọn, biết chính xác tổng đầu vào nên báo được số thất bại thật. Các mode kênh/
+    # tìm kiếm có thể trả ít hơn --count một cách bình thường, vì vậy không suy diễn phần thiếu là lỗi.
+    _that_bai = 0
+    if a.type == "detail":
+        _link_da_chon = list(dict.fromkeys(tach_dong(a.input)))
+        _that_bai = max(0, len(_link_da_chon) - len(da_xong) - len(da_bo_qua))
+
     # Báo TRUNG THỰC: nếu 0 video tải MỚI nhưng có video bị bỏ qua vì đã tải trước đó -> nói rõ (KHÔNG để
-    # web_app tưởng nhầm anti-bot). YTDLP_DONE nhận thêm tham số thứ 2 = số video bỏ-qua (web_app cũ đọc [1] vẫn OK).
+    # web_app tưởng nhầm anti-bot). YTDLP_DONE: tải mới, bỏ qua do trùng, tải lỗi.
     if len(da_xong) == 0 and len(da_bo_qua) > 0:
         log(f"↩ Các video này ĐÃ TẢI TRƯỚC ĐÓ rồi ({len(da_bo_qua)} video) — không tải lại. "
             f"Muốn tải lại: xóa file cũ trong 'File đã tải' rồi cào lại.")
     else:
-        log(f"✔ Hoàn tất. Tải được {len(da_xong)} video.")
-    print(f"YTDLP_DONE {len(da_xong)} {len(da_bo_qua)}", flush=True)
+        _duoi = f", lỗi {_that_bai} video" if _that_bai else ""
+        log(f"✔ Hoàn tất. Tải được {len(da_xong)} video{_duoi}.")
+    print(f"YTDLP_DONE {len(da_xong)} {len(da_bo_qua)} {_that_bai}", flush=True)
 
 
 if __name__ == "__main__":

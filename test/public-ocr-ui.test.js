@@ -205,6 +205,7 @@ test('studio markup exposes language, advanced region, and first-use download co
     'rapidocr-gpu-install-btn',
     'whisper-hybrid-fill',
     'capcut-asr-enabled',
+    'source-subtitle-review-enabled',
     'ocr-component-modal',
     'ocr-download-btn',
     'ocr-download-cancel-btn'

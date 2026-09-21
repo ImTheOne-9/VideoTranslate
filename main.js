@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 app.commandLine.appendSwitch('disable-http2');
 const path = require('path');
 const fs = require('fs');
@@ -54,6 +54,53 @@ console.log(`Log File: ${logFile}`);
 console.log(`Thư mục userData: ${logDir}`);
 console.log('====================================================');
 
+// Giữ thêm một bản thư viện Hongguo trong app.asar.unpacked. Một số lần nâng cấp
+// NSIS có thể để thiếu file extraResources dù payload installer vẫn chứa file.
+// Khôi phục trước khi Express/MediaCrawler được nạp để Hongguo luôn dùng được.
+function ensureHonggoNativeRuntime() {
+  if (!app.isPackaged) return;
+
+  const relativeFiles = [
+    'libmetasec_ml.so',
+    'libc++_shared.so'
+  ];
+  const relativeDirectory = path.join(
+    'tools', 'crawler', 'app', 'honggo_engine', 'app', 'capture', 'fq_oversea'
+  );
+  const bundledDirectory = path.join(__dirname, relativeDirectory);
+  const payloadDirectory = path.join(process.resourcesPath, 'honggo-native');
+  const runtimeDirectory = path.join(process.resourcesPath, relativeDirectory);
+
+  for (const fileName of relativeFiles) {
+    const payloadSource = path.join(payloadDirectory, `${fileName}.bin`);
+    const bundledSource = path.join(bundledDirectory, fileName);
+    const source = fs.existsSync(payloadSource) ? payloadSource : bundledSource;
+    const destination = path.join(runtimeDirectory, fileName);
+    try {
+      if (!fs.existsSync(source) || fs.statSync(source).size <= 0) {
+        throw new Error('không tìm thấy payload dự phòng Hongguo');
+      }
+      const sourceSize = fs.statSync(source).size;
+      const destinationIsValid = fs.existsSync(destination)
+        && fs.statSync(destination).size === sourceSize;
+      if (destinationIsValid) continue;
+
+      fs.mkdirSync(runtimeDirectory, { recursive: true });
+      const temporary = `${destination}.tmp-${process.pid}`;
+      fs.copyFileSync(source, temporary);
+      if (fs.statSync(temporary).size !== sourceSize) {
+        throw new Error(`bản sao ${fileName} không đủ dung lượng`);
+      }
+      if (fs.existsSync(destination)) fs.unlinkSync(destination);
+      fs.renameSync(temporary, destination);
+      console.log(`[Init] Đã tự khôi phục thư viện Hongguo: ${fileName}`);
+    } catch (error) {
+      console.error(`[Init] Không thể khôi phục thư viện Hongguo ${fileName}: ${error.message}`);
+    }
+  }
+}
+
+ensureHonggoNativeRuntime();
 // Single Instance Lock: Ngăn mở nhiều cửa sổ phần mềm cùng lúc
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -169,6 +216,39 @@ function createWindow(port, isLicenseValid = true, licenseError = '') {
 
   console.log(`Đang tải trang giao diện: ${url}`);
   mainWindow.loadURL(url);
+
+  // Mọi window.open/target=_blank HTTPS từ giao diện phải mở bằng trình duyệt mặc định.
+  // Không tạo BrowserWindow phụ và không cho scheme lạ chạy qua shell.
+  mainWindow.webContents.setWindowOpenHandler(({ url: externalUrl }) => {
+    try {
+      const target = new URL(externalUrl);
+      if (target.protocol === 'https:' && !target.username && !target.password) {
+        shell.openExternal(target.href).catch((error) => {
+          console.error('Không mở được liên kết ngoài:', error.message);
+        });
+      }
+    } catch (error) {
+      console.error('Từ chối liên kết ngoài không hợp lệ:', error.message);
+    }
+    return { action: 'deny' };
+  });
+
+  // Chặn liên kết ngoài thay thế trang ứng dụng khi một thẻ không có target=_blank.
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const destination = new URL(navigationUrl);
+      const application = new URL(url);
+      if (destination.origin === application.origin) return;
+      event.preventDefault();
+      if (destination.protocol === 'https:' && !destination.username && !destination.password) {
+        shell.openExternal(destination.href).catch((error) => {
+          console.error('Không mở được liên kết ngoài:', error.message);
+        });
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
 
   // Ghi log console từ render process vào file log chung
   mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
@@ -426,3 +506,6 @@ app.on('activate', async () => {
     }
   }
 });
+
+
+

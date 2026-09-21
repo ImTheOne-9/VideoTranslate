@@ -45,4 +45,4 @@ node --test test/facebook-native-scheduling.test.js test/facebook-schedule-ui.te
 
 Kiểm thử dùng phản hồi Graph giả và kho tác vụ tạm: upload trước, đúng tham số từng endpoint, đọc lại lịch, chờ không hết lượt, khôi phục, không bình luận sớm, mất phản hồi finish, từ chối lịch, thiếu/sai giờ, upload quá lâu và lịch cục bộ cũ.
 
-Chưa tạo lịch thật trên Page trong lượt triển khai code này. Khi thử thực tế, chọn một video và giờ đủ xa, chờ **Facebook đã nhận lịch**, rồi kiểm tra lịch tương ứng trong Business Suite. Nếu API không cho đọc trường cần xác minh, phần mềm báo lỗi thay vì khẳng định lịch đã sẵn sàng. Không cần deploy lại OAuth backend trên Render cho thay đổi này; bản phần mềm chạy phải có các file mới.
+Chưa tạo lịch thật trên Page trong lượt triển khai code này. Khi thử thực tế, chọn một video và giờ đủ xa, chờ **Facebook đã nhận lịch**, rồi kiểm tra lịch tương ứng trong Business Suite. Nếu API không cho đọc trường cần xác minh, phần mềm báo lỗi thay vì khẳng định lịch đã sẵn sàng. Không cần backend Facebook; bản phần mềm chạy phải có các file mới.

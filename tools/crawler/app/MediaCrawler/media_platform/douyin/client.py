@@ -20,6 +20,7 @@
 import asyncio
 import copy
 import json
+import os
 import urllib.parse
 from typing import TYPE_CHECKING, Any, Callable, Dict, Union, Optional
 
@@ -29,8 +30,8 @@ from playwright.async_api import BrowserContext
 from base.base_crawler import AbstractApiClient
 from proxy.proxy_mixin import ProxyRefreshMixin
 from tools import utils
-from tools.tien_do_tai import TienDo as _TienDo
 from tools.httpx_util import make_async_client
+from tools.tien_do_tai import TienDo as _TienDo   # tiến độ tải video (19/08/2026) — xem file đó
 from var import request_keyword_var
 
 if TYPE_CHECKING:
@@ -124,6 +125,30 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
             "webid": get_web_id(),
             "msToken": ms_token,
         }
+        # 🔴 uifid (03/09/2026) — ArgusSecurityPlugin của Douyin NAY ĐÒI giá trị này. Thiếu thì API trả
+        #   `Blocked by ArgusSecurityPlugin Uifid Not Found` (log khách 02/09: cào creator lấy được
+        #   trang 1 = 18 video rồi chết; KHÔNG phải hết phiên đăng nhập — app đã tự xác minh dy vẫn "in").
+        #   ĐO THẬT (bắt request của chính trình duyệt trên douyin.com, không suy đoán):
+        #     · Douyin gửi ở CẢ HAI chỗ: request header `uifid` VÀ query param `uifid`, giá trị y hệt.
+        #     · KHÔNG nằm trong Cookie header (đã kiểm: cookie header không chứa UIFID).
+        #     · Giá trị = cookie `UIFID` (phiên đã đăng nhập) hoặc `UIFID_TEMP` (ẩn danh) — 160 ký tự,
+        #       so trong CÙNG một phiên thì khớp NGUYÊN VĂN ⇒ đọc thẳng từ cookie được, KHÔNG phải JS tính.
+        #   ⚠ PHẢI chèn vào `params` TRƯỚC khi dựng `query_string`: `a_bogus` ký lên chính chuỗi đó —
+        #     thêm sau chữ ký thì chữ ký sai, hỏng theo kiểu khác còn khó lần hơn.
+        #   ⚠ Không có cookie thì BỎ QUA, đừng gửi `uifid=` rỗng: thà để Douyin báo thiếu (thông điệp rõ)
+        #     còn hơn gửi giá trị rỗng rồi bị chặn với lý do khác.
+        _uifid = (self.cookie_dict.get("UIFID") or self.cookie_dict.get("UIFID_TEMP") or "").strip()
+        if _uifid:
+            common_params["uifid"] = _uifid
+            headers["uifid"] = _uifid
+            self.headers["uifid"] = _uifid
+        # verifyFp / fp — CÙNG một giá trị, và ĐO ĐƯỢC là bằng ĐÚNG cookie `s_v_web_id` (52 ký tự, khớp
+        # nguyên văn trong cùng một phiên). Fork trước nay KHÔNG gửi cả hai (grep = 0). Douyin dùng chúng
+        # làm dấu vân tay phiên; thiếu thì Argus xếp vào nhóm request không ký.
+        _vfp = (self.cookie_dict.get("s_v_web_id") or "").strip()
+        if _vfp:
+            common_params["verifyFp"] = _vfp
+            common_params["fp"] = _vfp
         params.update(common_params)
         query_string = urllib.parse.urlencode(params)
 
@@ -157,6 +182,18 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
                 raise Exception("account blocked")
             return response.json()
         except Exception as e:
+            # 🔴 10/09/2026 — GHI NHẬN Argus. `request()` gói MỌI lỗi thành DataFetchError nên tầng
+            #   trên không phân biệt nổi "mạng lỗi" với "Douyin đòi chữ ký mới". Cắm cờ ở đây để
+            #   `core.start()` biết mà LEO sang trình duyệt thay vì thử lại 4 lần rồi bỏ cuộc.
+            #   🔴 10/09/2026 (lượt 3) — ĐỪNG NEO VÀO CHUỖI CHỮ CỦA ĐỐI PHƯƠNG. Bản vá sáng nay
+            #   chỉ cắm cờ khi thân chứa "ArgusSecurityPlugin"; chiều Douyin đổi sang trả
+            #   HTTP 200 · content-length: 0 · thân RỖNG TUYỆT ĐỐI (đo trên máy dev, 2/2 id,
+            #   server Tengine, 0 set-cookie) ⇒ cờ không bật ⇒ không leo sang trình duyệt ⇒ 0
+            #   video, ĐÚNG LẠI triệu chứng cũ. Cùng MỘT bệnh, chỉ khác lời nhắn.
+            #   LUẬT ĐÚNG: tới đây là ĐÃ CÓ phản hồi HTTP mà DÙNG KHÔNG ĐƯỢC (rỗng / "blocked" /
+            #   không phải JSON) ⇒ đường httpx thuần bó tay, phải để TRANG đi lấy. Lỗi MẠNG không
+            #   rơi vào đây (khối trên đã ném DataFetchError "loi mang/ky:") nên không leo oan.
+            self.argus_chan = True
             raise DataFetchError(f"{e}, {response.text}")
 
     async def get(self, uri: str, params: Optional[Dict] = None, headers: Optional[Dict] = None):
@@ -246,8 +283,210 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
         params = {"aweme_id": aweme_id}
         headers = copy.copy(self.headers)
         del headers["Origin"]
-        res = await self.get("/aweme/v1/web/aweme/detail/", params, headers)
+        try:
+            res = await self.get("/aweme/v1/web/aweme/detail/", params, headers)
+        except Exception as e:
+            # 🔴 10/09/2026 — Douyin MỞ RỘNG Argus sang `/aweme/detail/` (trước chỉ `/aweme/post/`).
+            #   Ca thật khách pvluo: 4/4 lần `Blocked by ArgusSecurityPlugin Signature Not Found`,
+            #   0 video, TRONG KHI cookie đủ (4472 ký tự, có sessionid) và a_bogus + msToken đều CÓ.
+            #   Dùng LẠI đúng lời giải đã có cho `/aweme/post/` (khối "THU HOẠCH BẰNG TRANG" bên dưới):
+            #   để CHÍNH TRANG phát request rồi hứng phản hồi. 4 đường vòng khác đã ĐO và CHẾT —
+            #   đừng thử lại (phát lại URL / fetch / XHR / phát lại nguyên văn trong page).
+            #   Chỉ lùi khi ĐÚNG Argus và CÓ trang; lỗi mạng vẫn ném như cũ, kẻo che mất sự cố thật.
+            # ⚠ 10/09 lượt 3: cổng này TỪNG neo `"ArgusSecurityPlugin" in str(e)` — Douyin đổi
+            #   sang trả thân RỖNG là câm ngay. Nay dùng CHUNG cờ với `request()` (xem chú thích
+            #   ở đó): cứ "có phản hồi mà dùng không được" + CÓ trang thì lấy qua trang.
+            if getattr(self, "argus_chan", False) and self.playwright_page is not None:
+                utils.logger.warning(
+                    "[DouYinClient.get_video_by_id] Douyin chặn HTTP (Argus / trả RỖNG) → LẤY CHI TIẾT "
+                    "QUA TRANG. Chậm hơn nhưng không mất video.")
+                res = await self._thd_lay(aweme_id)
+            else:
+                raise
         return res.get("aweme_detail", {})
+
+    # ── HỨNG CHI TIẾT BẰNG TRANG (10/09/2026) — song sinh với `_th_trang` của /aweme/post/ ──────
+    _thd_hang = None       # asyncio.Queue chứa phản hồi detail hứng được
+    _thd_gan = False       # đã gắn bộ hứng chưa (gắn 2 lần ⇒ mỗi phản hồi vào hàng nhiều lần)
+    _trang_khoa = None     # asyncio.Lock: CHỈ MỘT thao tác trang tại một thời điểm (xem `_thd_lay`)
+
+    async def _thd_lay(self, aweme_id: str) -> Dict:
+        """Mở trang video rồi hứng phản hồi `/aweme/detail/` do CHÍNH TRANG phát ra.
+
+        🔴 15/09/2026 — PHẢI KHOÁ. `get_specified_awemes` chạy các link SONG SONG
+        (`asyncio.gather` + `Semaphore(MAX_CONCURRENCY_NUM=2)`), mà cả lượt chỉ có MỘT
+        `playwright_page`. Hai `pg.goto` chồng nhau ⇒ cú sau HUỶ cú trước ⇒
+        `Page.goto: net::ERR_ABORTED` ⇒ `gather` không bắt ⇒ **chết cả lượt, mất sạch link**.
+        ĐO THẬT (khách dán 8 link `/user/...?modal_id=`, và tôi tái hiện với 2 link):
+        1 link chạy ngon, 2 link là nổ — vì 1 link thì không có cú goto thứ hai.
+        Khoá là CÙNG MỘT cái với `_thmix_lay`: chúng dùng CHUNG một trang, không phải hai."""
+        if self._trang_khoa is None:
+            self._trang_khoa = asyncio.Lock()
+        async with self._trang_khoa:
+            return await self._thd_lay_trong(aweme_id)
+
+    async def _thd_lay_trong(self, aweme_id: str) -> Dict:
+        """Thân thật của `_thd_lay` — LUÔN gọi khi đang giữ `_trang_khoa`."""
+        pg = self.playwright_page
+        if self._thd_hang is None:
+            self._thd_hang = asyncio.Queue()
+        if not self._thd_gan:
+            async def _hung(resp):
+                if "/aweme/v1/web/aweme/detail/" not in resp.url:
+                    return
+                try:
+                    d = await resp.json()
+                except Exception:
+                    return          # 403/HTML/thân đã mất — bỏ qua, vòng chờ sẽ thử tiếp
+                if isinstance(d, dict) and d.get("aweme_detail"):
+                    self._thd_hang.put_nowait(d)
+
+            pg.on("response", _hung)
+            self._thd_gan = True
+        while not self._thd_hang.empty():      # dọn phản hồi của video TRƯỚC
+            self._thd_hang.get_nowait()
+        await pg.goto("https://www.douyin.com/video/" + aweme_id,
+                      wait_until="domcontentloaded", timeout=60000)
+        # 20 vòng × 1,2s = 24s: trang phải tải xong JS mới phát request chi tiết. Hết vòng thì trả
+        # {} chứ KHÔNG ném — `get_aweme_detail` còn vòng retry riêng, ném ở đây là cắt mất nó.
+        for _ in range(20):
+            if not self._thd_hang.empty():
+                return self._thd_hang.get_nowait()
+            await asyncio.sleep(1.2)
+        # Thất bại CÂM là thứ làm cả buổi 10/09 đi sai hướng — nên nói RÕ trang cuối cùng là gì.
+        # Douyin đá `/video/<id>` sang `/jingxuan` (trang feed) khi nó nghi trình duyệt tự động:
+        # URL cuối mất `aweme_id` chính là dấu hiệu đó, và cách chữa đã đo được là đổi kiểu cửa sổ.
+        _u = ""
+        try:
+            _u = pg.url or ""
+        except Exception:
+            pass
+        if aweme_id not in _u:
+            utils.logger.warning(
+                "[DouYinClient._thd_lay] Douyin ĐÁ trang video sang %s (không phải trang video) nên "
+                "không có dữ liệu để hứng. Cách chữa: đặt biến môi trường VC_DY_CUA_SO=1 rồi chạy "
+                "lại — nó mở cửa sổ Chrome thật (đẩy ra ngoài màn hình) thay cho headless." % _u[:60])
+        else:
+            utils.logger.warning("[DouYinClient._thd_lay] mở trang video %s mà không hứng được phản hồi "
+                                 "chi tiết sau 24s (trang mở đúng nhưng không phát API)" % aweme_id)
+        return {}
+
+    async def get_mix_aweme_list(self, mix_id: str, cursor: int = 0, count: int = 20, seed_aweme_id: str = "") -> Dict:
+        """🔴 (24/08) 合集 (hợp tuyển/mix) CHÍNH THỨC — lấy danh sách video trong 1 BỘ theo mix_id (phân trang
+        `cursor`). Tin cậy hơn ĐOÁN tiêu đề (giống Bilibili ugc_season / TikTok collection). Endpoint web
+        Douyin. Response: {aweme_list:[...], cursor, has_more}. `self.get` tự ký a_bogus như các API khác."""
+        uri = "/aweme/v1/web/mix/aweme/"
+        params = {"mix_id": mix_id, "cursor": cursor, "count": count}
+        try:
+            return await self.get(uri, params)
+        except Exception:
+            # 🔴 14/09/2026 — Douyin chặn HTTP /mix/aweme/ bằng Argus ("Signature Not Found"): detail/post
+            #   đã có đường 'lấy QUA TRANG', mix thì chưa ⇒ "cào theo bộ" ra 0 video (đo trên 安安小丧尸).
+            #   Probe: mở /video/<seed> thì TRANG tự phát /mix/aweme/ trả đủ cả bộ. Dùng lại pattern _thd_lay.
+            #   Chỉ lùi khi ĐÚNG Argus + có trang + có seed; lỗi mạng vẫn ném như cũ.
+            if getattr(self, "argus_chan", False) and self.playwright_page is not None and seed_aweme_id:
+                utils.logger.warning(
+                    "[DouYinClient.get_mix_aweme_list] Douyin chặn HTTP mix (Argus) → LẤY 合集 QUA TRANG.")
+                return await self._thmix_lay(str(seed_aweme_id))
+            raise
+
+    async def get_series_aweme_list(self, series_id: str, cursor: int = 0, count: int = 12,
+                                    seed_aweme_id: str = "") -> Dict:
+        """🔴 15/09/2026 — 短剧 (PHIM NGẮN) ĐI CỬA KHÁC 合集. Đừng gộp hai thứ này làm một.
+
+        ĐO THẬT trên bộ `我穿成了校花的恶毒老爹` (seed 7684577127580060943), mở /video/<id> bằng đúng
+        trình duyệt của app rồi ghi lại mọi API trang tự phát:
+          · `/aweme/v1/web/mix/aweme/`    — **0 lần**  ← chính là cửa `get_mix_aweme_list` đang gõ
+          · `/aweme/v1/web/series/aweme/` — có, `aweme_list=6`, `has_more=1`
+        Tham số đo được: `series_id` (TRÙNG ĐÚNG `mix_info.mix_id`, nên không phải đi tìm id khác) ·
+        `pull_type=2` · `cursor=2` · `count=6` · `source=playlet_homepage_hot`.
+        Phản hồi có `max_cursor`/`min_cursor` — **KHÔNG có khoá `cursor`** như mix, nên bên gọi phải tự
+        cộng `len(aweme_list)` chứ đừng đọc `res["cursor"]` (đọc sẽ ra None ⇒ đứng yên ⇒ lặp vô hạn).
+        `cursor` là CHỈ SỐ TẬP (0-based): đo được request `cursor=2` trong khi `statis.current_episode=3`
+        và phần tử đầu đúng là video seed ⇒ muốn từ tập 1 thì bắt đầu `cursor=0`.
+        `count=12` ở đây là xin thêm cho đỡ số lượt gọi; trang thật xin 6 — server trả bao nhiêu cũng an
+        toàn vì vòng lặp tiến theo `len(aweme_list)`.
+        """
+        uri = "/aweme/v1/web/series/aweme/"
+        params = {"series_id": series_id, "pull_type": 2, "cursor": cursor, "count": count,
+                  "source": "playlet_homepage_hot"}
+        try:
+            return await self.get(uri, params)
+        except Exception:
+            # Cùng luật với mix: chỉ lùi khi ĐÚNG Argus + có trang + có seed; lỗi mạng vẫn ném như cũ.
+            # `_thmix_lay` nay hứng cả `/series/aweme/` nên dùng chung được, không cần hàm song sinh.
+            if getattr(self, "argus_chan", False) and self.playwright_page is not None and seed_aweme_id:
+                utils.logger.warning(
+                    "[DouYinClient.get_series_aweme_list] Douyin chặn HTTP series (Argus) → LẤY 短剧 QUA TRANG.")
+                return await self._thmix_lay(str(seed_aweme_id))
+            raise
+
+    # ── HỨNG 合集 BẰNG TRANG (14/09/2026) — song sinh với `_thd_lay` của /aweme/detail/ ──────────
+    _thmix_hang = None
+    _thmix_gan = False
+
+    async def _thmix_lay(self, seed_aweme_id: str) -> Dict:
+        """Lấy danh sách bộ qua TRANG — khoá chung với `_thd_lay` (xem lý do ERR_ABORTED ở đó)."""
+        if self._trang_khoa is None:
+            self._trang_khoa = asyncio.Lock()
+        async with self._trang_khoa:
+            return await self._thmix_lay_trong(seed_aweme_id)
+
+    async def _thmix_lay_trong(self, seed_aweme_id: str) -> Dict:
+        """Mở /video/<seed> rồi HỨNG mọi phản hồi /mix/aweme/ + /series/aweme/ do CHÍNH TRANG phát.
+
+        KHÔNG cuộn (video Douyin cuộn = nhảy video kế). Trả has_more=False: không phân trang qua trang
+        được, nên bộ cực lớn có thể chỉ lấy được trang đầu — log rõ để không âm thầm thiếu."""
+        pg = self.playwright_page
+        if self._thmix_hang is None:
+            self._thmix_hang = asyncio.Queue()
+        if not self._thmix_gan:
+            async def _hung(resp):
+                # 🔴 15/09/2026 — HỨNG CẢ HAI CỬA. 合集 đi `/mix/aweme/`, còn 短剧 (phim ngắn) đi
+                #   `/series/aweme/`. ĐO trên bộ `我穿成了校花的恶毒老爹`: mở /video/<id> thì trang phát
+                #   25 API mà KHÔNG có `/mix/aweme/` lần nào ⇒ bản cũ chờ đủ 24s rồi trả rỗng. Một trang
+                #   chỉ phát MỘT trong hai, nên nhận cả hai là đủ cho cả hai loại bộ — khỏi viết hàm thứ hai.
+                if not any(_f in resp.url for _f in ("/aweme/v1/web/mix/aweme/",
+                                                     "/aweme/v1/web/series/aweme/")):
+                    return
+                try:
+                    d = await resp.json()
+                except Exception:
+                    return
+                if isinstance(d, dict) and d.get("aweme_list") is not None:
+                    self._thmix_hang.put_nowait(d)
+
+            pg.on("response", _hung)
+            self._thmix_gan = True
+        while not self._thmix_hang.empty():
+            self._thmix_hang.get_nowait()
+        await pg.goto("https://www.douyin.com/video/" + str(seed_aweme_id),
+                      wait_until="domcontentloaded", timeout=60000)
+        gop = {}
+        _last = None
+        for _ in range(20):     # 20 x 1,2s = 24s cho trang phat request
+            while not self._thmix_hang.empty():
+                d = self._thmix_hang.get_nowait()
+                for _aw in (d.get("aweme_list") or []):
+                    _aid = str((_aw or {}).get("aweme_id") or "")
+                    if _aid and _aid not in gop:
+                        gop[_aid] = _aw
+                _last = d
+            if gop and _last is not None and not _last.get("has_more"):
+                break
+            await asyncio.sleep(1.2)
+        if not gop:
+            _u = ""
+            try:
+                _u = pg.url or ""
+            except Exception:
+                pass
+            utils.logger.warning("[DouYinClient._thmix_lay] mở /video/%s KHÔNG hứng được 合集 sau 24s "
+                                 "(URL cuối %s)" % (seed_aweme_id, _u[:60]))
+        elif _last is not None and _last.get("has_more"):
+            utils.logger.warning("[DouYinClient._thmix_lay] 合集 còn has_more nhưng đường-qua-trang chỉ lấy "
+                                 "được trang đầu (%d video) — bộ rất lớn có thể thiếu tập cuối." % len(gop))
+        return {"aweme_list": list(gop.values()), "cursor": (_last or {}).get("cursor", 0), "has_more": False}
 
     async def get_aweme_comments(self, aweme_id: str, cursor: int = 0):
         """get note comments
@@ -347,6 +586,137 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
         }
         return await self.get(uri, params)
 
+    # ── THU HOẠCH BẰNG TRANG (03/09/2026) ────────────────────────────────────────────────────────
+    # Vì sao phải có đường này: Douyin bật ArgusSecurityPlugin cho `/aweme/v1/web/aweme/post/`.
+    # ĐÃ ĐO (bắt request thật của trình duyệt trên chính kênh khách báo lỗi, 03/09/2026):
+    #   · thiếu `uifid`                  → "Uifid Not Found"        (đã vá: đọc từ cookie, xem trên)
+    #   · thiếu `x-secsdk-web-signature` → "Signature Not Found"    ← ĐÚNG lỗi khách gặp
+    #     (đo bằng cách bỏ ĐÚNG MỘT tham số khỏi URL thật rồi phát lại — không suy đoán)
+    #   · `x-secsdk-web-signature` 32 ký tự, KHÔNG nằm trong cookie nào ⇒ JS tính từng request.
+    # Và 4 đường vòng đều ĐÃ THỬ, ĐỀU CHẾT — đừng thử lại:
+    #   1. phát lại NGUYÊN VĂN URL thật từ Python/httpx (đủ cookie + header)  → "Sign Invalid"
+    #   2. `fetch()` trong page, bỏ chữ ký để secsdk tự ký                    → "Sign Invalid"
+    #   3. `XMLHttpRequest` trong page (secsdk CÓ chèn a_bogus vào URL đi ra) → "Sign Invalid"
+    #   4. phát lại NGUYÊN VĂN trong page (giữ y nguyên chuỗi thô, không qua  → 200 nhưng trả
+    #      parse_qsl/urlencode kẻo đổi thứ tự & cách mã hoá mà a_bogus ký lên)   HTML, không phải JSON
+    #   Trong khi ĐÚNG request do CHÍNH TRANG tự phát ra → 200 + JSON thật (đo: 26 thẻ video,
+    #   `status_code:0`) và KHÔNG CẦN ĐĂNG NHẬP. ⇒ Chữ ký gắn chặt vào request gốc; cách duy nhất
+    #   còn lại là để trang tự gọi rồi HỨNG phản hồi.
+    # Thiết kế: chỉ THAY NGUỒN của `get_user_aweme_posts`, trả về đúng hình dạng cũ
+    # (`aweme_list`/`has_more`/`max_cursor` — đều là giá trị THẬT của Douyin, vì ta hứng nguyên
+    # phản hồi API). Nhờ vậy `_collect_user_posts` (CHASE/DEEP/vượt trang rỗng) KHÔNG phải đụng.
+    # Hứng theo kiểu LƯỜI: mỗi lần xin một trang mới thì mới cuộn thêm — không nạp sạch kênh 500
+    # video trong khi người dùng chỉ xin 20.
+    _th_bat = False        # đã chuyển hẳn sang đường trang (khỏi thử lại HTTP mỗi trang → chậm + dễ bị chặn thêm)
+    _th_uid = ""           # kênh trang đang mở
+    _th_hang = None        # asyncio.Queue chứa các phản hồi đã hứng
+    _th_thay = None        # (HTTP, số byte) của phản hồi `/aweme/post/` GẦN NHẤT mà CHÍNH TRANG tự gọi
+
+    async def _th_mo(self, sec_user_id: str) -> None:
+        """Mở trang kênh và gắn bộ HỨNG. Bộ hứng gắn MỘT LẦN cho cả vòng đời client
+        (gắn lại mỗi lần đổi kênh sẽ chồng handler → mỗi phản hồi vào hàng nhiều lần)."""
+        pg = self.playwright_page
+        if self._th_hang is None:
+            self._th_hang = asyncio.Queue()
+
+            async def _hung(resp):
+                if "/aweme/v1/web/aweme/post/" not in resp.url:
+                    return
+                # 🔴 10/09/2026 (lượt 3) — GHI LẠI để lúc THẤT BẠI còn nói được VÌ SAO. Hai bệnh
+                #   khác hẳn nhau vẫn đang rơi vào cùng một câu log "cuộn hết 24 vòng":
+                #     (a) trang bị ĐÁ đi nơi khác ⇒ KHÔNG hề gọi `/aweme/post/`  → chữa được bằng
+                #         đổi kiểu cửa sổ (VC_DY_CUA_SO=1);
+                #     (b) trang gọi ĐÚNG mà Douyin trả HTTP 200 THÂN RỖNG cho CHÍNH trình duyệt
+                #         thật (đo 10/09 trên máy dev: 0 byte) ⇒ KHÔNG chỗ nào hứng được, đừng đi
+                #         tìm endpoint khác nữa — đó là chặn ở mức tài khoản/IP.
+                #   Thất bại CÂM chính là thứ làm cả ngày 10/09 đi sai hướng.
+                try:
+                    _t = await resp.text()
+                except Exception:
+                    self._th_thay = (resp.status, -1)
+                    return
+                self._th_thay = (resp.status, len(_t or ""))
+                try:
+                    d = json.loads(_t)
+                except Exception:
+                    return          # 403/HTML/thân rỗng — bỏ qua, vòng cuộn sẽ thử tiếp
+                if isinstance(d, dict) and d.get("aweme_list") is not None:
+                    self._th_hang.put_nowait(d)
+
+            pg.on("response", _hung)
+        while not self._th_hang.empty():      # dọn hàng của kênh trước
+            self._th_hang.get_nowait()
+        self._th_thay = None                  # quên phản hồi của kênh trước, kẻo chẩn nhầm
+        await pg.goto("https://www.douyin.com/user/" + sec_user_id,
+                      wait_until="domcontentloaded", timeout=60000)
+        self._th_uid = sec_user_id
+
+    async def _th_trang(self, sec_user_id: str) -> Dict:
+        """Trả MỘT trang phản hồi do chính trang phát ra; cuộn tới khi có trang mới."""
+        pg = self.playwright_page
+        if self._th_uid != sec_user_id or self._th_hang is None:
+            await self._th_mo(sec_user_id)
+        # 24 vòng × 1,2s ≈ 29s: đủ cho lượt đầu (trang phải tải xong mới phát request) và cho
+        # những lần cuộn mà Douyin trả chậm. Hết vòng mà không có gì → coi như hết video
+        # (has_more=0) chứ KHÔNG ném lỗi: ném ở đây thì mất luôn số video đã lấy được.
+        # 🔴 15/09/2026 — PHẢI ĐƯA CHUỘT VÀO GIỮA LƯỚI RỒI MỚI LĂN. Sự kiện `wheel` của Playwright bắn
+        #   vào phần tử đang nằm DƯỚI con trỏ; mặc định con trỏ ở (0,0) = góc trái trên = ngoài vùng
+        #   danh sách ⇒ trang Douyin KHÔNG lazy-load thêm.
+        #   ĐO THẬT trên kênh khách (cùng trang, cùng phiên, 5 cách cuộn):
+        #     · `mouse.wheel` trần (cách cũ)            → **3 lô = 57 video** rồi TẮT HẲN (cuộn 60 vòng vẫn im)
+        #     · `window.scrollTo` / `scrollTop` / `End` → +0 lô
+        #     · **`mouse.move(giữa lưới)` + `wheel`**   → **+5 lô = 132 video** (TRỌN kênh)
+        #   Các lô ra `[21,18,18,17,18,17,17,6]` khớp TỪNG LÔ với đường HTTP ⇒ đúng là cùng dữ liệu.
+        #   Đây chính là ca khách báo "cào kênh cứ 57 là dừng": HTTP bị Argus chặn ⇒ rơi xuống đường
+        #   này ⇒ 3 lô rồi thôi, mà lô cuối Douyin còn ghi `has_more=1` (tức CÒN video).
+        try:
+            _vp = pg.viewport_size or {}
+            _mx, _my = int(_vp.get("width", 1920) * 0.5), int(_vp.get("height", 1080) * 0.55)
+        except Exception:
+            _mx, _my = 960, 600
+        _con = None                                  # has_more của lô THẬT gần nhất (để khỏi nói dối "hết video")
+        for _ in range(24):
+            if not self._th_hang.empty():
+                _d = self._th_hang.get_nowait()
+                self._th_con = _d.get("has_more")
+                return _d
+            try:
+                await pg.mouse.move(_mx, _my)        # BẮT BUỘC: không có dòng này là chết ở lô thứ 3
+                await pg.mouse.wheel(0, 2500)
+            except Exception:
+                pass
+            await asyncio.sleep(1.2)
+        # Nói RÕ dừng vì đâu — xem chú thích trong `_hung` (hai bệnh, hai cách chữa khác hẳn).
+        _u = ""
+        try:
+            _u = pg.url or ""
+        except Exception:
+            pass
+        if self._th_thay is None:
+            utils.logger.warning(
+                "[DouYinClient._th_trang] cuộn hết 24 vòng mà TRANG KHÔNG HỀ GỌI /aweme/post/ — "
+                "URL cuối: %s. Dấu hiệu trang bị đá / chưa render. Thử đặt biến môi trường "
+                "VC_DY_CUA_SO=1 rồi chạy lại (mở cửa sổ Chrome thật, đẩy ra ngoài màn hình)." % _u[:70])
+        elif self._th_thay[1] <= 0:
+            utils.logger.warning(
+                "[DouYinClient._th_trang] Trang GỌI ĐÚNG /aweme/post/ nhưng Douyin trả HTTP %s "
+                "THÂN RỖNG (%s byte) cho CHÍNH trình duyệt thật ⇒ KHÔNG có chỗ nào hứng được. "
+                "Đây là chặn ở mức TÀI KHOẢN/IP cho endpoint danh sách kênh — KHÔNG phải lỗi tool, "
+                "KHÔNG chữa được bằng đổi cách mở trình duyệt. Cách thử: đăng nhập lại Douyin, đợi "
+                "15-30 phút, hoặc dùng 'Theo link' cho từng video."
+                % (self._th_thay[0], self._th_thay[1]))
+        elif getattr(self, "_th_con", 0) == 1:
+            # Lô THẬT gần nhất báo `has_more=1` mà cuộn mãi không ra lô mới ⇒ KHÔNG phải hết video,
+            # mà là trang ngừng tải thêm. Trả has_more=0 để vòng ngoài dừng gọn, nhưng PHẢI NÓI RA —
+            # im lặng ở đây chính là thứ làm khách tưởng "tool có trần 57 video".
+            utils.logger.warning("[DouYinClient._th_trang] trang NGỪNG tải thêm dù Douyin báo has_more=1 "
+                                 "— danh sách bị CẮT NGẮN, không phải hết video.")
+            print("LOG:⚠ Trang kênh ngừng tải thêm — nền tảng báo VẪN CÒN video. Danh sách lấy được bị "
+                  "cắt ngắn. Đợi vài phút rồi cào lại (video đã tải sẽ tự bỏ qua).", flush=True)
+        else:
+            utils.logger.info("[DouYinClient._th_trang] cuộn hết 24 vòng không thấy trang mới → coi như hết video")
+        return {"aweme_list": [], "has_more": 0, "max_cursor": ""}
+
     async def get_user_aweme_posts(self, sec_user_id: str, max_cursor: str = "") -> Dict:
         uri = "/aweme/v1/web/aweme/post/"
         params = {
@@ -356,7 +726,25 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
             "locate_query": "false",
             "publish_video_strategy_type": 2,
         }
-        return await self.get(uri, params)
+        # DY_EP_TRANG=1: ÉP đi đường trang ngay từ đầu (không đợi Argus chặn). Dùng để KIỂM THỬ đường
+        # này — nó chỉ chạy khi nền tảng chặn HTTP nên bình thường không tài nào chạm tới mà đo.
+        if self._th_bat or (os.environ.get("DY_EP_TRANG") == "1" and self.playwright_page is not None):
+            return await self._th_trang(sec_user_id)
+        try:
+            return await self.get(uri, params)
+        except Exception as e:
+            # Chỉ lùi sang đường trang khi ĐÚNG là Argus chặn. Lỗi mạng/timeout vẫn ném như cũ —
+            # nuốt hết mọi lỗi vào đây là che mất sự cố thật.
+            # ⚠ 10/09 lượt 3: cổng này TỪNG neo `"ArgusSecurityPlugin" in str(e)` — Douyin đổi
+            #   sang trả thân RỖNG là câm ngay. Nay dùng CHUNG cờ với `request()` (xem chú thích
+            #   ở đó): cứ "có phản hồi mà dùng không được" + CÓ trang thì lấy qua trang.
+            if getattr(self, "argus_chan", False) and self.playwright_page is not None:
+                utils.logger.warning(
+                    "[DouYinClient.get_user_aweme_posts] Douyin chặn đường HTTP (%s) → chuyển sang "
+                    "LẤY DANH SÁCH QUA TRANG. Chậm hơn nhưng không mất video." % str(e)[:90])
+                self._th_bat = True
+                return await self._th_trang(sec_user_id)
+            raise
 
     async def get_all_user_aweme_posts(self, sec_user_id: str, callback: Optional[Callable] = None):
         posts_has_more = 1
@@ -444,7 +832,11 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
                             utils.logger.warning(f"[DouYinClient.get_aweme_media] 206 start {start} > buf {len(buf)} (lỗ hổng) — bỏ khối")
                             return exp
                         skip = len(buf) - start   # server trả sớm hơn chỗ đang có → cắt phần chồng lấn đầu
-                        progress = _TienDo(url[-24:], doan="dy", tong=(exp or 0))
+                        # 19/08/2026 — TIẾN ĐỘ TẢI (xem tools/tien_do_tai.py). Trước đây suốt lúc tải một
+                        # video 300-600MB không in dòng nào ⇒ khách tưởng treo. Báo theo GIÁ TRỊ TUYỆT ĐỐI
+                        # `len(buf)` chứ không cộng dồn từng chunk: nhánh resume ở trên có `buf.clear()`
+                        # (server bỏ qua Range, trả lại từ đầu) — cộng dồn ở đó sẽ đếm TRÙNG, in ra 180%.
+                        _td = _TienDo(url[-24:], doan="dy", tong=(exp or 0))
                         try:
                             async for chunk in resp.aiter_bytes():
                                 if skip > 0:
@@ -452,11 +844,11 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
                                         skip -= len(chunk); continue
                                     chunk = chunk[skip:]; skip = 0
                                 buf.extend(chunk)
-                                progress.dat_da(len(buf))
+                                _td.dat_da(len(buf))
                         except Exception as exc:   # đứt GIỮA CHỪNG (httpx.HTTPError / OSError / SSL...) → giữ phần đã nhận
                             utils.logger.warning(f"[DouYinClient.get_aweme_media] {exc.__class__.__name__} khi stream @{len(buf)} bytes")
                         finally:
-                            progress.dong()
+                            _td.dong()   # PHẢI gỡ khỏi sổ dù đứt giữa chừng, kẻo dòng tổng đếm mãi video đã chết
             except Exception as exc:   # lỗi TRƯỚC khi có body (connect/status) → không có gì để giữ
                 utils.logger.error(f"[DouYinClient.get_aweme_media] {exc.__class__.__name__} for {url} - {exc}")
             return exp

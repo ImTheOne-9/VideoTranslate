@@ -48,11 +48,11 @@ XHS_INTL = os.environ.get("MC_XHS_INTL", "0") == "1"
 
 # XHS tách 2 nền tảng RIÊNG (domain CỐ ĐỊNH theo platform, KHÔNG còn theo toggle MC_XHS_INTL — vì 1 lần
 # check nhiều nền không thể vừa nội-địa vừa quốc-tế): xhs = xiaohongshu.com · rednote = rednote.com.
-HOST = {"dy": "douyin.com", "bili": "bilibili.com",
+HOST = {"ks": "kuaishou.com", "dy": "douyin.com", "bili": "bilibili.com",
         "xhs": "xiaohongshu.com", "rednote": "rednote.com", "wb": "weibo.com",
         "tw": "x.com", "ig": "instagram.com", "tt": "tiktok.com", "fb": "facebook.com",
         "yt": "youtube.com"}
-URL = {"dy": "https://www.douyin.com", "bili": "https://www.bilibili.com",
+URL = {"ks": "https://www.kuaishou.com", "dy": "https://www.douyin.com", "bili": "https://www.bilibili.com",
        # XHS check login goto rednote.com (IP quốc tế xiaohongshu.com vô dụng → loggedIn=false = 'out' oan
        # dù login RedNote đủ). Login qua RedNote thấy đúng ở rednote.com. Nội địa thật: env MC_XHS_NOIDIA=1.
        "xhs": ("https://www.xiaohongshu.com" if os.environ.get("MC_XHS_NOIDIA") == "1"
@@ -63,6 +63,7 @@ URL = {"dy": "https://www.douyin.com", "bili": "https://www.bilibili.com",
        "yt": "https://www.youtube.com"}
 # Cookie CHỈ có khi đã đăng nhập (không tính cookie khách)
 AUTH = {
+    "ks": ["passToken"],
     "dy": ["sessionid", "sessionid_ss", "sid_tt"],
     "bili": ["SESSDATA", "DedeUserID"],
     # XHS web login: cookie phiên THẬT là `web_session` (xiaohongshu.com & rednote.com) + `id_token`
