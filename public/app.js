@@ -7710,6 +7710,13 @@ async function crawlEnqueue(items) {
     if (jobCrawlerPlatforms.includes(crawlNowState.platform)) {
       const urls = selectedItems.map((item) => item.sourceUrl || item.url).filter(Boolean);
       const sourceRequest = crawlCurrentRequest();
+      const selectedEpisodes = crawlNowState.platform === 'honggo'
+        ? selectedItems.map((item) => ({
+          url: item.sourceUrl || item.url || '',
+          seriesId: item.seriesId || String(item.id || '').split('/')[0],
+          episodeNumber: Number(item.episodeNumber || item.episode) || 0
+        })).filter((item) => item.url && item.seriesId && item.episodeNumber > 0)
+        : [];
       const sourceName = sourceRequest.mode === 'creator'
         ? String(selectedItems.find((item) => item.uploader)?.uploader || '')
         : '';
@@ -7717,6 +7724,7 @@ async function crawlEnqueue(items) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...sourceRequest, mode: 'detail', input: urls.join('\n'), count: urls.length,
+          selectedEpisodes,
           sourceMode: sourceRequest.mode, sourceInput: sourceRequest.input, sourceName,
           label: `${crawlNowState.platform} · ${urls.length} video đã chọn`
         })

@@ -46,6 +46,8 @@ const requiredFiles = [
   'tools/crawler/app/tai_honggo_api.py',
   'tools/crawler/app/tai_honggo_api.pyc',
   'tools/crawler/app/honggo_engine/app/hongguo.pyc',
+  'tools/crawler/app/honggo_engine/app/capture/fq_oversea/libmetasec_ml.so',
+  'tools/crawler/app/honggo_engine/app/capture/fq_oversea/libc++_shared.so',
   'tools/crawler/app/honggo_engine/app/sign/unidbg-sign.jar',
   'tools/crawler/app/honggo_engine/jre/bin/java.exe',
   'tools/crawler/app/yt_goi_y.py',
@@ -88,6 +90,7 @@ const crawlerResource = (packageJson.build?.extraResources || [])
   .find((entry) => entry.from === 'tools/crawler/');
 check(Boolean(crawlerResource), 'Thiếu extraResources cho tools/crawler/.');
 const crawlerFilters = crawlerResource?.filter || [];
+check(packageJson.build?.afterPack === 'scripts/after-pack.js', 'Thiếu hook afterPack để bảo đảm chép thư viện native Honggo.');
 for (const filename of ['requirements-crawler.txt', 'requirements-asr.txt', 'requirements-ocr.txt', 'install-ocr-gpu.py', 'install-whisper-gpu.py', 'setup-runtime.ps1', 'setup-omnivoice-runtime.ps1', 'setup-piper-runtime.ps1']) {
   check(crawlerFilters.includes(filename), `extraResources chưa chứa tools/crawler/${filename}`);
 }

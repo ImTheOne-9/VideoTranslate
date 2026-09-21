@@ -297,3 +297,62 @@ test('selected UI download uses visible filtered items even if hidden items rema
   vm.createContext(context); vm.runInContext(source.slice(start, end), context);
   await context.crawlEnqueue(); assert.equal(body.input, 'https://example.com/b'); assert.equal(body.count, 1);
 });
+
+test('Honggo preview preserves series and episode identity', () => {
+  const item = mapPreviewItem({
+    id: '7685717973641727038/7685762918863866942',
+    url: 'https://hongguoduanju.com/player/7685717973641727038/7685762918863866942',
+    episode: 2,
+    episode_count: 192,
+    series_title: 'Demo'
+  }, 'honggo');
+  assert.equal(item.seriesId, '7685717973641727038');
+  assert.equal(item.episodeNumber, 2);
+  assert.equal(item.episodeCount, 192);
+  assert.equal(item.seriesTitle, 'Demo');
+});
+
+test('Honggo selected preview episodes are downloaded as their exact range', async (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, 'honggo_engine'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'tai_honggo_api.py'), 'loader');
+  fs.writeFileSync(path.join(root, 'tai_honggo.py'), 'web');
+  const calls = [];
+  const runner = { appRoot: root, dataDir: root, _run: async (script, args) => {
+    calls.push({ script: path.basename(script), args });
+    return { stdout: 'JSON: {"ok":true,"tai":10,"bo_qua":0,"tong":10}' };
+  }};
+  const crawler = new SupplementalCrawler(runner);
+  const seriesId = '7685717973641727038';
+  const selectedEpisodes = Array.from({ length: 10 }, (_, index) => ({
+    url: `https://hongguoduanju.com/player/${seriesId}/video-${index + 1}`,
+    seriesId,
+    episodeNumber: index + 1
+  }));
+  await crawler.honggo({
+    mode: 'detail',
+    input: selectedEpisodes.map((item) => item.url).join('\n'),
+    outputDir: root,
+    count: 10,
+    selectedEpisodes
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].script, 'tai_honggo_api.py');
+  assert.equal(calls[0].args[calls[0].args.indexOf('--input') + 1], `https://hongguoduanju.com/player/${seriesId}`);
+  assert.equal(calls[0].args[calls[0].args.indexOf('--tap') + 1], '1-10');
+  assert.ok(!calls[0].args.includes('--mot-tap'));
+});
+
+test('Honggo crawl job retains sanitized selected episode metadata', (t) => {
+  const crawl = manager(t);
+  const selectedEpisodes = [{
+    url: 'https://hongguoduanju.com/player/7685717973641727038/7685762918863866942',
+    seriesId: '7685717973641727038',
+    episodeNumber: 2
+  }];
+  const { taskId } = crawl.enqueueJob({
+    platform: 'honggo', mode: 'detail', input: selectedEpisodes[0].url, count: 1, selectedEpisodes
+  });
+  const task = crawl.tasks.find((item) => item.id === taskId);
+  assert.deepEqual(task.config.selectedEpisodes, selectedEpisodes);
+});

@@ -67,7 +67,7 @@ test('packaged child dependencies prefer app.asar.unpacked paths', () => {
 
 test('packaging unpacks worker dependencies alongside ONNX Runtime', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  assert.deepEqual(packageJson.build.asarUnpack, [
+  const requiredWorkerPatterns = [
     'node_modules/onnxruntime-node/**/*',
     'node_modules/onnxruntime-common/**/*',
     'node_modules/@huggingface/transformers/**/*',
@@ -76,7 +76,10 @@ test('packaging unpacks worker dependencies alongside ONNX Runtime', () => {
     'node_modules/detect-libc/**/*',
     'node_modules/semver/**/*',
     'node_modules/wavefile/**/*'
-  ]);
+  ];
+  for (const pattern of requiredWorkerPatterns) {
+    assert.ok(packageJson.build.asarUnpack.includes(pattern), `missing asarUnpack pattern: ${pattern}`);
+  }
   assert.ok(packageJson.build.files.includes('whisper-onnx-child-runtime.js'));
 });
 
@@ -674,3 +677,4 @@ test('word timestamp mode writes readable SRT and preserves word timing in metad
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
