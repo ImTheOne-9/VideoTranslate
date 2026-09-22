@@ -203,7 +203,7 @@ function openAuthModal(mode = 'login', redirectAction = null) {
 
   if (mode === 'register') {
     title.innerText = 'Đăng ký tài khoản mới';
-    sub.innerText = 'Nhận ngay License Key dùng thử 7 ngày miễn phí';
+    sub.innerText = 'Nhận ngay License Key dùng thử 3 ngày miễn phí';
     icon.setAttribute('data-lucide', 'user-plus');
     
     nameGroup.classList.remove('hidden');

@@ -248,7 +248,7 @@ export default function Guide() {
                     <h4 className="text-sm font-bold text-white mb-2 font-display">Đăng ký gói dịch vụ</h4>
                     <ul className="list-disc pl-4 text-xs text-zinc-300 space-y-1.5 leading-relaxed">
                       <li>Đăng nhập và truy cập trang <strong>Bảng giá</strong>.</li>
-                      <li><strong>Gói Dùng Thử</strong>: Miễn phí 7 ngày.</li>
+                      <li><strong>Gói Dùng Thử</strong>: Miễn phí 3 ngày.</li>
                       <li><strong>Gói Pro (Tháng/Năm)</strong>: Bản quyền Pro lâu dài, không giới hạn tính năng.</li>
                     </ul>
                   </div>

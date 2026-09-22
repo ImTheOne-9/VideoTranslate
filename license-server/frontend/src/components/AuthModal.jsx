@@ -253,7 +253,7 @@ export default function AuthModal({ isOpen, mode, onClose, onSwitchMode, onAuthS
   };
 
   const getModalSub = () => {
-    if (mode === 'register') return 'Nhận ngay License Key dùng thử 7 ngày miễn phí';
+    if (mode === 'register') return 'Nhận ngay License Key dùng thử 3 ngày miễn phí';
     if (mode === 'forgot') return 'Nhập email của bạn để nhận liên kết khôi phục';
     return 'Nhập email và mật khẩu của bạn';
   };

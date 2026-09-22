@@ -28,8 +28,8 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
       a: "Mỗi License Key được gắn cố định với 01 mã phần cứng (HWID) máy tính để đảm bảo hiệu suất tốt nhất. Nếu bạn nâng cấp hoặc thay đổi máy tính, đội ngũ hỗ trợ kỹ thuật sẽ hỗ trợ chuyển đổi Key sang máy mới."
     },
     {
-      q: "Hết 7 ngày dùng thử thì phần mềm xử lý thế nào?",
-      a: "Sau 7 ngày dùng thử miễn phí, phần mềm sẽ thông báo hết hạn dùng thử. Bạn có thể chọn đăng ký Gói Tháng (299.000đ) hoặc Gói Năm (1.499.000đ) để tiếp tục sử dụng mà không bị mất bất kỳ dữ liệu hay dự án nào."
+      q: "Hết 3 ngày dùng thử thì phần mềm xử lý thế nào?",
+      a: "Sau 3 ngày dùng thử miễn phí, phần mềm sẽ thông báo hết hạn dùng thử. Bạn có thể chọn đăng ký Gói Tháng (299.000đ) hoặc Gói Năm (1.499.000đ) để tiếp tục sử dụng mà không bị mất bất kỳ dữ liệu hay dự án nào."
     },
     {
       q: "Cấu hình máy tính tối thiểu để chạy mượt là gì?",
@@ -886,7 +886,7 @@ export default function Home({ currentUser, isDevMode, onOpenAuth, onSubscribePl
               <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <div>
                 <p className="text-xs font-bold text-white">Editnhanh v{appVersion || '1.0.6'} - Tự động hóa sản xuất Video AI</p>
-                <p className="text-[11px] text-zinc-400">Dùng thử 7 ngày miễn phí 100% tính năng • Cấp key tự động 30s</p>
+                <p className="text-[11px] text-zinc-400">Dùng thử 3 ngày miễn phí 100% tính năng • Cấp key tự động 30s</p>
               </div>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
