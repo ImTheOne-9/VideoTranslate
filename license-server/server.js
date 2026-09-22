@@ -1424,7 +1424,7 @@ async function seedDefaultPlans() {
           id: 'trial',
           name: 'Gói Dùng Thử',
           price: 0,
-          durationDays: 7,
+          durationDays: 3,
           description: 'Trải nghiệm đầy đủ tính năng công cụ',
           features: ['Đầy đủ tính năng 100%', 'Sử dụng trên 1 máy tính', 'Hỗ trợ kỹ thuật ưu tiên'],
           isPopular: false,
@@ -1856,7 +1856,7 @@ ${bodyContent.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<
 async function sendLicenseEmail({ toEmail, fullName, key, planType, expiresAt, status, price }) {
   const escapedName = escapeHtml(fullName);
   const escapedKey = escapeHtml(key);
-  const escapedPlan = planType === 'trial' ? 'Dùng thử (7 ngày)' : (planType === 'monthly' ? 'Gói Tháng (30 ngày)' : 'Gói Năm (365 ngày)');
+  const escapedPlan = planType === 'trial' ? 'Dùng thử (3 ngày)' : (planType === 'monthly' ? 'Gói Tháng (30 ngày)' : 'Gói Năm (365 ngày)');
   const formattedExpires = new Date(expiresAt).toLocaleDateString('vi-VN', {
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
   });
